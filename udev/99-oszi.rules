@@ -1,0 +1,21 @@
+# Beispiel-udev-Regel für ein USB-Oszilloskop.
+#
+# 1. Gerät anschließen, dann Vendor/Product-ID ermitteln:
+#      lsusb
+#    Ausgabe z.B.: Bus 001 Device 005: ID 0699:0403 Tektronix ...
+#                                       ^^^^ ^^^^
+#                                       idVendor idProduct
+#
+# 2. Werte unten eintragen, Datei nach /etc/udev/rules.d/ kopieren:
+#      sudo cp 99-oszi.rules /etc/udev/rules.d/
+#      sudo udevadm control --reload-rules
+#      sudo udevadm trigger
+#
+# 3. Prüfen:
+#      ls -l /dev/oszi0
+
+SUBSYSTEM=="usb", ATTR{idVendor}=="XXXX", ATTR{idProduct}=="YYYY", \
+    SYMLINK+="oszi0", MODE="0660", GROUP="dialout", TAG+="uaccess"
+
+# Falls mehrere Oszis/Geräte-Typen im Einsatz sind, weitere Zeilen mit
+# eigenem SYMLINK (oszi1, oszi2, ...) ergänzen.

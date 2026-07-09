@@ -1,0 +1,45 @@
+{
+  "name": "opencode-sandbox",
+  "build": {
+    "dockerfile": "../Dockerfile",
+    "context": ".."
+  },
+  "remoteUser": "dev",
+
+  "workspaceMount": "source=${localWorkspaceFolder}/project,target=/home/dev/project,type=bind,consistency=cached",
+  "workspaceFolder": "/home/dev/project",
+
+  "runArgs": [
+    "--cap-drop=ALL",
+    "--security-opt", "no-new-privileges",
+    "--userns=keep-id"
+  ],
+
+  "containerEnv": {
+    "HTTPS_PROXY": "http://host.containers.internal:3128",
+    "HTTP_PROXY": "http://host.containers.internal:3128",
+    "NO_PROXY": "localhost,127.0.0.1",
+    "XDG_CONFIG_HOME": "/home/dev/.config",
+    "XDG_DATA_HOME": "/home/dev/.local/share",
+    "GIT_CONFIG_GLOBAL": "/home/dev/.git_local/gitconfig",
+    "PLAYWRIGHT_BROWSERS_PATH": "/usr/local/share/playwright-browsers"
+  },
+
+  "mounts": [
+    "source=${localWorkspaceFolder}/.opencode_config,target=/home/dev/.config/opencode,type=bind",
+    "source=${localWorkspaceFolder}/.opencode_data,target=/home/dev/.local/share/opencode,type=bind",
+    "source=${localWorkspaceFolder}/.ssh_local,target=/home/dev/.ssh,type=bind",
+    "source=${localWorkspaceFolder}/.git_local,target=/home/dev/.git_local,type=bind"
+  ],
+
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "golang.go",
+        "ms-python.python",
+        "dbaeumer.vscode-eslint",
+        "ms-vscode.cpptools"
+      ]
+    }
+  }
+}

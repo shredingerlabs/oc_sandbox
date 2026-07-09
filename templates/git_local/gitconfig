@@ -1,0 +1,36 @@
+# Projekt-lokale Git-Config für .git_local/gitconfig
+#
+# Wird per GIT_CONFIG_GLOBAL komplett anstelle der Standard-~/.gitconfig
+# geladen - also bewusst vollständig halten (inkl. safe.directory), nicht
+# nur als Ergänzung gedacht.
+#
+# Passt user.name/user.email pro Projekt/Kunde an.
+
+[user]
+    name = Dein Name
+    email = dein.name@example.com
+
+[safe]
+    # "*" statt eines festen Pfads, da .git_local sowohl in Zone 1
+    # (/home/dev/project) als auch Zone 2 (/home/hil/project) genutzt werden
+    # kann - der Container-Pfad unterscheidet sich je nach Zone. Da ohnehin
+    # nur genau ein, bewusst gewähltes Projekt gemountet wird, ist das
+    # Risiko hier vertretbar. Wer es strikter mag, kann stattdessen den
+    # konkreten Pfad eintragen, z.B.:
+    #   directory = /home/dev/project
+    directory = *
+
+[init]
+    defaultBranch = main
+
+# --- Optional: HTTPS + Personal Access Token statt/zusätzlich zu SSH -------
+# Falls ihr für GitHub/GitLab lieber HTTPS mit Token statt Deploy-Key nutzt,
+# folgende Zeilen einkommentieren. Das Token selbst gehört NICHT hier rein,
+# sondern in die separate Datei .git_local/credentials (siehe
+# templates/git_local/credentials), die restriktiver behandelt wird.
+#
+# [credential]
+#     helper = store --file=/home/dev/.git_local/credentials
+
+[core]
+    editor = vi
