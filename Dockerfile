@@ -32,12 +32,9 @@ RUN curl -fsSL https://labs.picotech.com/debian/dists/picoscope/Release.gpg.key 
 # postinst von libps2000a versucht udevadm control --reload, was im Container
 # fehlschlägt. Die shared libraries (.so) sind trotzdem korrekt installiert.
 
-# --- Arduino CLI + AVR + ESP32 ------------------------------------------------
+# --- Arduino CLI binary (extract as root, install cores as dev) ---------------
 RUN curl -fsSL https://downloads.arduino.cc/arduino-cli/arduino-cli_latest_Linux_64bit.tar.gz \
-        | tar xz -C /usr/local/bin arduino-cli \
-    && arduino-cli core update-index \
-    && arduino-cli core install arduino:avr \
-    && arduino-cli core install arduino:esp32
+        | tar xz -C /usr/local/bin arduino-cli
 
 # --- OpenCode ------------------------------------------------------------------
 RUN curl -fsSL https://github.com/anomalyco/opencode/releases/latest/download/opencode-linux-x64.tar.gz \
@@ -69,5 +66,10 @@ USER dev
 WORKDIR /home/dev/project
 
 RUN git config --global --add safe.directory /home/dev/project
+
+# Run core install as dev so data lands in /home/dev/.arduino15/
+RUN arduino-cli core update-index \
+    && arduino-cli core install arduino:avr \
+    && arduino-cli core install arduino:esp32
 
 ENTRYPOINT ["/bin/bash", "-l"]
