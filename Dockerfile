@@ -19,8 +19,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # --- GitLab CLI (glab) ---------------------------------------------------------
-RUN curl -fsSL https://gitlab.com/gitlab-org/cli/-/releases/permalink/latest/downloads/glab_linux_amd64.tar.gz \
-        | tar xz -C /usr/local/bin glab
+RUN GLAB_VER=$(curl -s https://gitlab.com/api/v4/projects/gitlab-org%2Fcli/releases?per_page=1 \
+        | python3 -c "import json,sys; print(json.load(sys.stdin)[0]['tag_name'][1:])") \
+    && curl -fsSL "https://gitlab.com/gitlab-org/cli/-/releases/v${GLAB_VER}/downloads/glab_${GLAB_VER}_linux_amd64.tar.gz" \
+        | tar xz --strip-components=1 -C /usr/local/bin bin/glab
 
 # --- PicoTech vendor SDK for Picoscope 2204A (PS2000A API) ---------------------
 RUN curl -fsSL https://labs.picotech.com/debian/dists/picoscope/Release.gpg.key \
