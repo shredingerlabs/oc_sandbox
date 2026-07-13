@@ -56,7 +56,8 @@ RUN pip3 install --break-system-packages --no-cache-dir \
         pytest pytest-cov
 
 # --- Node / TypeScript / Jest / Playwright -------------------------------------
-ENV PLAYWRIGHT_BROWSERS_PATH=/usr/local/share/playwright-browsers
+ENV GLAB_CONFIG_DIR=/home/dev/.git_local/glab-cli \
+    PLAYWRIGHT_BROWSERS_PATH=/usr/local/share/playwright-browsers
 RUN npm install -g typescript jest playwright \
     && npx playwright install chromium firefox \
     && npx playwright install-deps
@@ -65,7 +66,7 @@ RUN npm install -g typescript jest playwright \
 RUN userdel -r ubuntu \
     && useradd -m -s /bin/bash -u 1000 dev \
     && usermod -aG dialout dev \
-    && mkdir -p /home/dev/.ssh /home/dev/project \
+    && mkdir -p /home/dev/.ssh /home/dev/project /home/dev/.git_local/glab-cli \
              /home/dev/.config/opencode /home/dev/.local/share/opencode \
     && chown -R dev:dev /home/dev
 

@@ -22,6 +22,7 @@
     "XDG_CONFIG_HOME": "/home/dev/.config",
     "XDG_DATA_HOME": "/home/dev/.local/share",
     "GIT_CONFIG_GLOBAL": "/home/dev/.git_local/gitconfig",
+    "GLAB_CONFIG_DIR": "/home/dev/.git_local/glab-cli",
     "PLAYWRIGHT_BROWSERS_PATH": "/usr/local/share/playwright-browsers"
   },
 

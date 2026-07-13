@@ -86,6 +86,12 @@ if [[ ! -f "${GIT_DIR}/gitconfig" ]]; then
   echo "  user.email im Container." >&2
 fi
 
+if [[ ! -f "${GIT_DIR}/glab-cli/config.yml" ]]; then
+  echo "Warnung: ${GIT_DIR}/glab-cli/config.yml fehlt - lege eine an (z.B. aus" >&2
+  echo "  templates/git_local/glab-cli/config.yml kopieren), sonst fehlt die" >&2
+  echo "  glab-Konfiguration im Container." >&2
+fi
+
 while IFS= read -r -d '' key; do
   perms="$(stat -c '%a' "$key")"
   if [[ "$perms" != "600" && "$perms" != "400" ]]; then

@@ -1,0 +1,15 @@
+# Projekt-lokale glab-Konfiguration (.git_local/glab-cli/config.yml)
+#
+# Wird per GLAB_CONFIG_DIR als vollständiger Ersatz für die Standard-
+# ~/.config/glab-cli/config.yml geladen.
+#
+# Host, Token und Editor pro Projekt/Kunde anpassen.
+
+# Protokoll (https/https) + Hostname eurer GitLab-Instanz
+# host: gitlab.example.com
+# api_protocol: https
+
+# Persönlicher GitLab Access Token (glpat-...)
+# token: glpat-xxxxxxxxxxxxxxxxxxxx
+
+editor: vi

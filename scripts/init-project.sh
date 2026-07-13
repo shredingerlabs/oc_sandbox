@@ -29,6 +29,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TEMPLATE_SSH_CONFIG="${SCRIPT_DIR}/../templates/ssh_local/config"
 TEMPLATE_GIT_CONFIG="${SCRIPT_DIR}/../templates/git_local/gitconfig"
 TEMPLATE_GIT_CREDENTIALS="${SCRIPT_DIR}/../templates/git_local/credentials"
+TEMPLATE_GLAB_CONFIG="${SCRIPT_DIR}/../templates/git_local/glab-cli/config.yml"
 TEMPLATE_OPENCODE_CONFIG="${SCRIPT_DIR}/../templates/opencode/opencode.json"
 TEMPLATE_OPENCODE_AGENTS="${SCRIPT_DIR}/../templates/opencode/AGENTS.md"
 TEMPLATE_OPENCODE_SKILLS="${SCRIPT_DIR}/../templates/opencode/skills"
@@ -56,6 +57,12 @@ fi
 if [[ -f "$TEMPLATE_GIT_CREDENTIALS" ]]; then
   cp "$TEMPLATE_GIT_CREDENTIALS" "${PROJECT_ROOT}/.git_local/credentials"
   chmod 600 "${PROJECT_ROOT}/.git_local/credentials"
+fi
+
+if [[ -f "$TEMPLATE_GLAB_CONFIG" ]]; then
+  mkdir -p "${PROJECT_ROOT}/.git_local/glab-cli"
+  cp "$TEMPLATE_GLAB_CONFIG" "${PROJECT_ROOT}/.git_local/glab-cli/config.yml"
+  chmod 600 "${PROJECT_ROOT}/.git_local/glab-cli/config.yml"
 fi
 
 if [[ -f "$TEMPLATE_OPENCODE_CONFIG" ]]; then
