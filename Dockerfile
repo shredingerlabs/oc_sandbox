@@ -14,7 +14,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         cmake ninja-build \
         jq unzip openssh-client usbutils \
         libusb-1.0-0 \
+        simavr \
         gh \
+    && rm -rf /var/lib/apt/lists/*
+
+# --- GitLab CLI (glab) ---------------------------------------------------------
+RUN curl -fsSL https://packages.gitlab.com/gpg.key \
+        | gpg --dearmor -o /usr/share/keyrings/gitlab.gpg \
+    && echo "deb [signed-by=/usr/share/keyrings/gitlab.gpg] https://packages.gitlab.com/gitlab/gitlab-cli/ubuntu/ noble main" \
+        > /etc/apt/sources.list.d/gitlab_cli.list \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends glab \
     && rm -rf /var/lib/apt/lists/*
 
 # --- PicoTech vendor SDK for Picoscope 2204A (PS2000A API) ---------------------
