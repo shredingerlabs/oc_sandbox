@@ -19,13 +19,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # --- GitLab CLI (glab) ---------------------------------------------------------
-RUN curl -fsSL https://packages.gitlab.com/gpg.key \
-        | gpg --dearmor -o /usr/share/keyrings/gitlab.gpg \
-    && echo "deb [signed-by=/usr/share/keyrings/gitlab.gpg] https://packages.gitlab.com/gitlab/gitlab-cli/ubuntu/ noble main" \
-        > /etc/apt/sources.list.d/gitlab_cli.list \
-    && apt-get update \
-    && apt-get install -y --no-install-recommends glab \
-    && rm -rf /var/lib/apt/lists/*
+RUN curl -fsSL https://gitlab.com/gitlab-org/cli/-/releases/permalink/latest/downloads/glab_linux_amd64.tar.gz \
+        | tar xz -C /usr/local/bin glab
 
 # --- PicoTech vendor SDK for Picoscope 2204A (PS2000A API) ---------------------
 RUN curl -fsSL https://labs.picotech.com/debian/dists/picoscope/Release.gpg.key \
