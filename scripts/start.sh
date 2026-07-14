@@ -149,6 +149,7 @@ DEVICE_ARGS=()
 if $HIL_MODE; then
   if [[ -e /dev/oszi0 ]]; then
     OSZI_REAL=$(readlink -f /dev/oszi0)
+    DEVICE_ARGS+=(--mount type=bind,source="$OSZI_REAL",target="$OSZI_REAL")
     DEVICE_ARGS+=(--mount type=bind,source="$OSZI_REAL",target=/dev/oszi0)
   else
     echo "Warnung: /dev/oszi0 nicht gefunden. Ist das Oszi angeschlossen und die" >&2
