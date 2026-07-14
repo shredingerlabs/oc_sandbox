@@ -201,3 +201,39 @@ rm -rf ~/projects/kunde-x/.opencode_config/* ~/projects/kunde-x/.opencode_data/*
 - `--offline` für Läufe ohne Netzwerkbedarf
 - Container-Name pro Projekt-Root, damit mehrere Sandboxes parallel laufen können
 - Nur die fünf definierten Projekt-Root-Unterordner werden gemountet – nicht `$HOME`
+
+## Troubleshooting
+
+### HIL: USB-Gerät hat keine Rechte im Container (nobody:nogroup)
+
+**Symptom**: Im Container erscheint das Oszi unter `/dev/bus/usb/XXX/YYY` als
+`nobody:nogroup` (UID/GID 65534). `picoscope`, `pyusb` o.ä. scheitern mit
+`PermissionError` oder `LIBUSB_ERROR_ACCESS`.
+
+**Ursache**: Rootless-Podman verwendet User-Namespaces. Mit `--userns=keep-id`
+wird nur der eigene UID/GID-Bereich aus `/etc/subuid` und `/etc/subgid`
+gemappt. System-GIDs wie `dialout` (GID 20) sind im Default-Subgid-Bereich
+(100000+) nicht enthalten. Das Gerät hat auf dem Host die Gruppe `dialout`
+und ist im Container-Userns nicht gemappt → erscheint als `nobody`.
+
+**Fix-Optionen** (eine davon ausführen):
+
+**a) chmod – eine Session** (wird beim nächsten Anstecken des Geräts zurückgesetzt):
+```bash
+sudo chmod a+rw /dev/bus/usb/XXX/YYY
+```
+
+**b) chown – eine Session** (wird beim nächsten Anstecken des Geräts zurückgesetzt):
+```bash
+sudo chown $(id -un):$(id -gn) /dev/bus/usb/XXX/YYY
+```
+
+**c) Dauerhaft – dialout-GID in /etc/subgid aufnehmen** (einmalig, überlebt Reboots):
+```bash
+echo "$(id -un):20:1" | sudo tee -a /etc/subgid
+# Danach ab- und wieder anmelden, Podman-Userns wird neu initialisiert.
+```
+
+`scripts/start.sh --hil_mode` versucht automatisch Option (a) bzw. (b), wenn
+`sudo` mit `NOPASSWD` konfiguriert ist. Schlägt der Auto-Fix fehl, erscheint
+eine Meldung mit den manuellen Schritten.

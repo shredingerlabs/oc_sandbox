@@ -144,13 +144,51 @@ if $OFFLINE; then
   PROXY_ENV=()
 fi
 
+# --- HIL helper: ensure a device node is readable/writable ---------------------
+_hil_ensure_accessible() {
+  local dev_path="$1" dev_name="$2"
+  local real
+  real=$(readlink -f "$dev_path")
+  if [[ -r "$real" && -w "$real" ]]; then
+    return 0
+  fi
+  local user
+  user=$(id -un)
+  echo "==> $dev_name -> $real nicht les/schreibbar für $user." >&2
+  echo "    Ursache: rootless-Podman-userns mapped System-GID nicht." >&2
+  if chmod a+rw "$real" 2>/dev/null; then
+    echo "    -> per chmod a+rw behoben (bis zum nächsten Anstecken)." >&2
+    return 0
+  elif command -v sudo &>/dev/null && sudo -n chmod a+rw "$real" 2>/dev/null; then
+    echo "    -> per sudo chmod a+rw behoben." >&2
+    return 0
+  elif command -v sudo &>/dev/null && sudo -n chown "$(id -u):$(id -g)" "$real" 2>/dev/null; then
+    echo "    -> per sudo chown $(id -un):$(id -gn) behoben." >&2
+    return 0
+  fi
+  local dialout_gid
+  dialout_gid=$(getent group dialout 2>/dev/null | cut -d: -f3)
+  dialout_gid=${dialout_gid:-20}
+  echo "    Auto-Fix fehlgeschlagen. Manuelle Optionen:" >&2
+  echo "      a) sudo chmod a+rw $real" >&2
+  echo "      b) sudo chown $(id -un):$(id -gn) $real" >&2
+  echo "      c) Dauerhaft: dialout-GID ($dialout_gid) in /etc/subgid aufnehmen:" >&2
+  echo "           echo \"\$(id -un):$dialout_gid:1\" | sudo tee -a /etc/subgid" >&2
+  echo "           (Danach neu anmelden – Podman-Userns wird neu initialisiert.)" >&2
+  return 1
+}
+
 # --- HIL-Geräte ----------------------------------------------------------------
 DEVICE_ARGS=()
 if $HIL_MODE; then
   if [[ -e /dev/oszi0 ]]; then
     OSZI_REAL=$(readlink -f /dev/oszi0)
-    DEVICE_ARGS+=(--mount type=bind,source="$OSZI_REAL",target="$OSZI_REAL")
-    DEVICE_ARGS+=(--mount type=bind,source="$OSZI_REAL",target=/dev/oszi0)
+    if _hil_ensure_accessible /dev/oszi0 "oszi0"; then
+      DEVICE_ARGS+=(--mount type=bind,source="$OSZI_REAL",target="$OSZI_REAL")
+      DEVICE_ARGS+=(--mount type=bind,source="$OSZI_REAL",target=/dev/oszi0)
+    else
+      exit 1
+    fi
   else
     echo "Warnung: /dev/oszi0 nicht gefunden. Ist das Oszi angeschlossen und die" >&2
     echo "         udev-Regel (udev/99-oszi.rules) installiert?" >&2
