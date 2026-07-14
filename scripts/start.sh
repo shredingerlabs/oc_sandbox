@@ -144,18 +144,69 @@ if $OFFLINE; then
   PROXY_ENV=()
 fi
 
-# --- HIL helper: ensure a device node is readable/writable ---------------------
+# --- HIL helpers: check + fix USB device permissions for userns -----------------
+
+# Returns 0 if the container's user namespace will be able to access the device.
+# Key knowledge: rootless Podman with --userns=keep-id only maps GIDs that are in
+# the current user's /etc/subgid ranges.  System groups (e.g. dialout=20) are
+# typically NOT in those ranges → the device appears as nobody:nogroup inside the
+# container even though the host user can access it via group membership.
+_hil_gid_accessible_in_container() {
+  local real="$1"
+  local my_uid dev_uid dev_gid mode other
+  my_uid=$(id -u)
+  dev_uid=$(stat -c %u "$real")
+  dev_gid=$(stat -c %g "$real")
+  mode=$(stat -c %a "$real")
+  other=$((mode % 10))
+
+  # Other-bits (world) — no userns dependency
+  if (( other == 6 || other == 7 )); then
+    return 0
+  fi
+  # User is the owner — UID is always mapped by keep-id
+  if [[ "$dev_uid" == "$my_uid" ]]; then
+    return 0
+  fi
+  # Group access: dev_gid must be in the user's subgid range AND user is in that group
+  local user_name gid_name
+  user_name=$(id -un)
+  while IFS=: read -r sg_user sg_start sg_count; do
+    [[ "$sg_user" == "$user_name" ]] || continue
+    [[ -n "$sg_start" && -n "$sg_count" ]] || continue
+    if (( dev_gid >= sg_start && dev_gid < sg_start + sg_count )); then
+      gid_name=$(getent group "$dev_gid" | cut -d: -f1)
+      if [[ -n "$gid_name" ]] && id -Gn | tr ' ' '\n' | grep -qx "$gid_name"; then
+        return 0
+      fi
+    fi
+  done </etc/subgid
+  return 1
+}
+
 _hil_ensure_accessible() {
   local dev_path="$1" dev_name="$2"
   local real
   real=$(readlink -f "$dev_path")
-  if [[ -r "$real" && -w "$real" ]]; then
-    return 0
+  if [[ ! -e "$real" ]]; then
+    return 0  # device absent — caller handles the warning
   fi
-  local user
-  user=$(id -un)
-  echo "==> $dev_name -> $real nicht les/schreibbar für $user." >&2
-  echo "    Ursache: rootless-Podman-userns mapped System-GID nicht." >&2
+
+  local host_ok=false
+  [[ -r "$real" && -w "$real" ]] && host_ok=true
+
+  if $host_ok; then
+    if _hil_gid_accessible_in_container "$real"; then
+      return 0  # both host AND container can access — nothing to do
+    fi
+    echo "==> $dev_name -> $real: Host-User hat Zugriff, Container-User nicht." >&2
+    echo "    (Geräte-GID ist im Container-userns nicht gemappt — typisch für System-Gruppen)" >&2
+  else
+    local user
+    user=$(id -un)
+    echo "==> $dev_name -> $real nicht les/schreibbar für $user." >&2
+  fi
+
   if chmod a+rw "$real" 2>/dev/null; then
     echo "    -> per chmod a+rw behoben (bis zum nächsten Anstecken)." >&2
     return 0
