@@ -12,7 +12,8 @@
   "runArgs": [
     "--cap-drop=ALL",
     "--security-opt", "no-new-privileges",
-    "--userns=keep-id"
+    "--userns=keep-id",
+    "--group-add", "keep-groups"
   ],
 
   "containerEnv": {
@@ -30,7 +31,8 @@
     "source=${localWorkspaceFolder}/.opencode_config,target=/home/dev/.config/opencode,type=bind",
     "source=${localWorkspaceFolder}/.opencode_data,target=/home/dev/.local/share/opencode,type=bind",
     "source=${localWorkspaceFolder}/.ssh_local,target=/home/dev/.ssh,type=bind",
-    "source=${localWorkspaceFolder}/.git_local,target=/home/dev/.git_local,type=bind"
+    "source=${localWorkspaceFolder}/.git_local,target=/home/dev/.git_local,type=bind",
+    "source=/dev/oszi0,target=/dev/oszi0,type=bind"
   ],
 
   "customizations": {

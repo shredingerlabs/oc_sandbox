@@ -106,6 +106,14 @@ if [[ -f "${GIT_DIR}/credentials" ]]; then
   fi
 fi
 
+if [[ -f "${GIT_DIR}/glab-cli/config.yml" ]]; then
+  perms="$(stat -c '%a' "${GIT_DIR}/glab-cli/config.yml")"
+  if [[ "$perms" != "600" ]]; then
+    echo "Warnung: ${GIT_DIR}/glab-cli/config.yml hat Rechte ${perms}, setze auf 600." >&2
+    chmod 600 "${GIT_DIR}/glab-cli/config.yml"
+  fi
+fi
+
 # --- Proxy ----------------------------------------------------------------------
 if $USE_PROXY; then
   if ! podman image exists oc-proxy 2>/dev/null; then
@@ -140,12 +148,13 @@ fi
 DEVICE_ARGS=()
 if $HIL_MODE; then
   if [[ -e /dev/oszi0 ]]; then
-    DEVICE_ARGS+=(--device=/dev/oszi0)
+    OSZI_REAL=$(readlink -f /dev/oszi0)
+    DEVICE_ARGS+=(--mount type=bind,source="$OSZI_REAL",target=/dev/oszi0)
   else
     echo "Warnung: /dev/oszi0 nicht gefunden. Ist das Oszi angeschlossen und die" >&2
     echo "         udev-Regel (udev/99-oszi.rules) installiert?" >&2
   fi
-  for dev in /dev/ttyUSB* /dev/ttyAMA* /dev/ttyAMC*; do
+  for dev in /dev/ttyUSB* /dev/ttyAMA* /dev/ttyACM*; do
     [[ -e "$dev" ]] && DEVICE_ARGS+=(--device="$dev")
   done
   DEVICE_ARGS+=(--group-add keep-groups)
