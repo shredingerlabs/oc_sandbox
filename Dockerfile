@@ -24,19 +24,19 @@ RUN GLAB_VER=$(curl -s https://gitlab.com/api/v4/projects/gitlab-org%2Fcli/relea
     && curl -fsSL "https://gitlab.com/gitlab-org/cli/-/releases/v${GLAB_VER}/downloads/glab_${GLAB_VER}_linux_amd64.tar.gz" \
         | tar xz --strip-components=1 -C /usr/local/bin bin/glab
 
-# --- PicoTech vendor SDK for Picoscope 2204A (PS2000A API) ---------------------
+# --- PicoTech vendor SDK for Picoscope (PS2000 + PS2000A APIs) ----------------
 RUN curl -fsSL https://labs.picotech.com/debian/dists/picoscope/Release.gpg.key \
         | gpg --dearmor -o /usr/share/keyrings/picotech.gpg \
     && echo "deb [signed-by=/usr/share/keyrings/picotech.gpg] https://labs.picotech.com/debian/ picoscope main" \
         > /etc/apt/sources.list.d/picoscope.list \
     && apt-get update \
-    && apt-get download libps2000a libpicoipp \
+    && apt-get download libps2000 libps2000a libpicoipp \
     && mkdir -p /etc/udev/rules.d \
     && ln -sf /bin/true /usr/local/bin/udevadm \
-    && dpkg -i --force-depends libps2000a*.deb libpicoipp*.deb \
+    && dpkg -i --force-depends libps2000*.deb libps2000a*.deb libpicoipp*.deb \
     && rm -f /usr/local/bin/udevadm \
-    && rm -rf /var/lib/apt/lists/* libps2000a*.deb libpicoipp*.deb
-# postinst von libps2000a versucht udevadm control --reload, was im Container
+    && rm -rf /var/lib/apt/lists/* libps2000*.deb libps2000a*.deb libpicoipp*.deb
+# postinst von libps2000 / libps2000a versucht udevadm control --reload, was im Container
 # fehlschlägt. Die shared libraries (.so) sind trotzdem korrekt installiert.
 
 # --- Arduino CLI binary (extract as root, install cores as dev) ---------------
@@ -52,7 +52,7 @@ RUN curl -fsSL https://github.com/anomalyco/opencode/releases/latest/download/op
 RUN pip3 install --break-system-packages --no-cache-dir \
         mpremote esptool platformio \
         pyvisa pyvisa-py pyusb \
-        picoscope \
+        picoscope picosdk \
         pytest pytest-cov
 
 # --- Node / TypeScript / Jest / Playwright -------------------------------------
@@ -65,13 +65,13 @@ RUN npm install -g typescript jest playwright \
 # --- Non-root user -------------------------------------------------------------
 RUN userdel -r ubuntu \
     && useradd -m -s /bin/bash -u 1000 dev \
-    && usermod -aG dialout dev \
     && mkdir -p /home/dev/.ssh /home/dev/project /home/dev/.git_local/glab-cli \
              /home/dev/.config/opencode /home/dev/.local/share/opencode \
     && chown -R dev:dev /home/dev
 
 USER dev
 WORKDIR /home/dev/project
+
 
 RUN git config --global --add safe.directory /home/dev/project
 

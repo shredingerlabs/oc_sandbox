@@ -10,6 +10,8 @@ api.github.com
 
 # --- Eigener GitLab-Server: ---
 gitlab.reutlingen-university.de
+.reutlingen-university.de
+reutlingen-university.de
 
 # Node/npm
 registry.npmjs.org

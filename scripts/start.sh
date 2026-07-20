@@ -185,6 +185,10 @@ _hil_gid_accessible_in_container() {
 }
 
 _hil_ensure_accessible() {
+
+    # remove after test of crun
+  return 0
+  
   local dev_path="$1" dev_name="$2"
   local real
   real=$(readlink -f "$dev_path")
@@ -241,8 +245,12 @@ if $HIL_MODE; then
       exit 1
     fi
   else
-    echo "Warnung: /dev/oszi0 nicht gefunden. Ist das Oszi angeschlossen und die" >&2
-    echo "         udev-Regel (udev/99-oszi.rules) installiert?" >&2
+    echo "Hinweis: /dev/oszi0 fehlt. Das ist eine Folgeerscheinung, kein Blocker:" >&2
+    echo "         - udev-Regel (udev/99-oszi.rules) ist auf dem Host nicht installiert, ODER" >&2
+    echo "         - Oszi ist nicht angeschlossen." >&2
+    echo "         HIL-Tests funktionieren trotzdem, wenn der Geräte-GID (dialout=20)" >&2
+    echo "         in /etc/subgid gemappt ist. Einmalig auf dem Host:" >&2
+    echo "           echo \"\$(id -un):20:1\" | sudo tee -a /etc/subgid   # + neu anmelden" >&2
   fi
   for dev in /dev/ttyUSB* /dev/ttyAMA* /dev/ttyACM*; do
     [[ -e "$dev" ]] && DEVICE_ARGS+=(--device="$dev")
@@ -255,6 +263,7 @@ CONTAINER_NAME="opencode-sandbox-$(basename "$PROJECT_ROOT")"
 
 exec podman run --rm -it \
   --name "$CONTAINER_NAME" \
+  --runtime crun \
   --userns=keep-id \
   --cap-drop=ALL \
   --security-opt no-new-privileges \

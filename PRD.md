@@ -20,7 +20,7 @@ Consolidate into a single Docker image (`opencode-sandbox`) and a single start s
 8. As a developer, I want TypeScript and Jest installed, so that I can run TS/JS unit tests.
 9. As a developer, I want Go tooling and `go test` available, so that I can run Go tests.
 10. As a developer, I want Playwright + browsers installed, so that I can run browser-based integration tests.
-11. As an HIL engineer, I want `pip install picoscope` and the PicoTech vendor SDK (`libps2000a`) pre-installed, so that I can control a Picoscope 2204A from Python.
+11. As an HIL engineer, I want `pip install picoscope` + `picosdk` and the PicoTech vendor shared libraries (`libps2000` + `libps2000a`) pre-installed, so that I can control both PS2000-series and PS2000A-series Picoscopes from Python.
 12. As an HIL engineer, I want `pyvisa`/`pyvisa-py`/`pyusb` pre-installed, so that I can communicate with USB test equipment.
 13. As an operator, I want `scripts/start.sh <project-root>` to start a sandbox with full internet access and no proxy, so that the simple case stays simple.
 14. As an operator, I want `scripts/start.sh <project-root> --use_proxy` to start the proxy container and route traffic through the egress allowlist, so that I can enforce restricted network access.
@@ -37,7 +37,7 @@ Consolidate into a single Docker image (`opencode-sandbox`) and a single start s
 - **Browser sandbox**: Disabled via `--no-sandbox` flag — the container itself is the security boundary (`--cap-drop=ALL`, `--no-new-privileges`).
 - **Browser installation**: Installed via Playwright's browser download command (`playwright install chromium firefox`), not distro packages — guarantees correct versions.
 - **Arduino CLI**: Installed via official install script (`curl -fsSL https://raw.githubusercontent.com/arduino/arduino-cli/master/install.sh`), then `arduino-cli core update-index` and `arduino-cli core install arduino:avr arduino:esp32`.
-- **Picoscope SDK**: PicoTech vendor shared library `libps2000a` installed from `https://labs.picotech.com/debian/` apt repo. `pip install picoscope` installs the Python wrapper. USB access via `dialout` group + `--group-add keep-groups` + `--device` passthrough in `--hil_mode`.
+- **Picoscope SDK**: PicoTech vendor shared libraries `libps2000` + `libps2000a` (+ `libpicoipp`) installed from `https://labs.picotech.com/debian/` apt repo. `pip install picoscope picosdk` installs the official and community Python wrappers. USB access via `dialout` group + `--group-add keep-groups` + `--device` passthrough in `--hil_mode`.
 - **Start script** (`scripts/start.sh`): Single entry point replacing both zone scripts. Accepts same project-root structure (`project/`, `.opencode_config/`, `.opencode_data/`, `.ssh_local/`, `.git_local/`).
 - **Flag design**: Flags are positional after project-root. `--use_proxy`, `--offline`, `--hil_mode` are independent and combinable. `--use_proxy` auto-builds and starts `oc-proxy` container if not already running.
 - **Old files deleted**: `zone1-coding/Dockerfile`, `zone2-hil/Dockerfile`, `zone1-coding/.devcontainer/devcontainer.json`, `scripts/start-zone1.sh`, `scripts/start-zone2-hil.sh`.
