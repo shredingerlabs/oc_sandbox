@@ -29,7 +29,9 @@ Entwicklungssandbox** – ein Container für alle Use Cases:
 │   ├── ssh_local/config
 │   └── git_local/
 │       ├── gitconfig
-│       └── credentials
+│       ├── credentials
+│       ├── gh-cli/config.yml
+│       └── glab-cli/config.yml
 ├── .devcontainer/
 │   └── devcontainer.json         <- VS Code Devcontainer-Konfiguration
 └── README.md
@@ -47,6 +49,10 @@ folgenden Unterordnern.
   .opencode_data/        <- OpenCode-Daten inkl. Sessions & Auth/Credentials
   .ssh_local/            <- SSH-Keys + eigene ssh-Config für dieses Projekt
   .git_local/            <- Git-Identität/-Settings + optionale HTTPS-Credentials
+    gitconfig             <- user.name/user.email, safe.directory
+    credentials           <- git credential-store (optional)
+    gh-cli/config.yml     <- GitHub CLI Token (Alternative zu SSH Deploy Keys)
+    glab-cli/config.yml   <- GitLab CLI Token
 ```
 
 Damit könnt ihr für jedes Projekt/jeden Kunden einen eigenen Projekt-Root anlegen,
@@ -127,6 +133,46 @@ chmod 600 ~/projects/kunde-x/.ssh_local/id_ed25519_*
 
 Öffentliche Schlüssel als **Deploy Key** hinterlegen (GitHub: Repo → Settings →
 Deploy keys; eigenes GitLab: Projekt → Deploy Keys). `.ssh_local/config` anpassen.
+
+### Alternativen zu SSH: HTTPS + Token (gh / glab)
+
+Statt SSH Deploy Keys könnt ihr auch **HTTPS mit Personal Access Token** nutzen.
+Das Token wird einmalig hinterlegt und übernimmt Git-Authentifizierung +
+CLI-Tools (Issues, PRs etc.):
+
+**GitHub (`gh`):**
+
+```bash
+cp templates/git_local/gh-cli/config.yml ~/projects/kunde-x/.git_local/gh-cli/config.yml
+$EDITOR ~/projects/kunde-x/.git_local/gh-cli/config.yml   # token eintragen
+chmod 600 ~/projects/kunde-x/.git_local/gh-cli/config.yml
+```
+
+Token erzeugen: GitHub → Settings → Developer settings → Personal access tokens
+→ Tokens (classic). Benötigte Scopes: `repo`, `read:org`, `workflow`.
+
+**GitLab (`glab`):**
+
+```bash
+cp templates/git_local/glab-cli/config.yml ~/projects/kunde-x/.git_local/glab-cli/config.yml
+$EDITOR ~/projects/kunde-x/.git_local/glab-cli/config.yml   # token eintragen
+chmod 600 ~/projects/kunde-x/.git_local/glab-cli/config.yml
+```
+
+Token erzeugen: GitLab → Preferences → Access Tokens. Benötigte Scopes: `api`, `read_repository`, `write_repository`.
+
+Für **git push/pull via HTTPS** zusätzlich den Credential-Helper aktivieren:
+
+```bash
+# In .git_local/gitconfig einkommentieren:
+[credential]
+    helper = store --file=/home/dev/.git_local/credentials
+```
+
+Dann das Token in `.git_local/credentials` ablegen:
+```
+https://dein-token:ghp_xxxxx@github.com
+```
 
 ## 4. Sandbox starten
 

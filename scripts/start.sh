@@ -92,6 +92,12 @@ if [[ ! -f "${GIT_DIR}/glab-cli/config.yml" ]]; then
   echo "  glab-Konfiguration im Container." >&2
 fi
 
+if [[ ! -f "${GIT_DIR}/gh-cli/config.yml" ]]; then
+  echo "Warnung: ${GIT_DIR}/gh-cli/config.yml fehlt - lege eine an (z.B. aus" >&2
+  echo "  templates/git_local/gh-cli/config.yml kopieren), sonst fehlt die" >&2
+  echo "  gh (GitHub CLI)-Konfiguration im Container." >&2
+fi
+
 while IFS= read -r -d '' key; do
   perms="$(stat -c '%a' "$key")"
   if [[ "$perms" != "600" && "$perms" != "400" ]]; then
@@ -111,6 +117,14 @@ if [[ -f "${GIT_DIR}/glab-cli/config.yml" ]]; then
   if [[ "$perms" != "600" ]]; then
     echo "Warnung: ${GIT_DIR}/glab-cli/config.yml hat Rechte ${perms}, setze auf 600." >&2
     chmod 600 "${GIT_DIR}/glab-cli/config.yml"
+  fi
+fi
+
+if [[ -f "${GIT_DIR}/gh-cli/config.yml" ]]; then
+  perms="$(stat -c '%a' "${GIT_DIR}/gh-cli/config.yml")"
+  if [[ "$perms" != "600" ]]; then
+    echo "Warnung: ${GIT_DIR}/gh-cli/config.yml hat Rechte ${perms}, setze auf 600." >&2
+    chmod 600 "${GIT_DIR}/gh-cli/config.yml"
   fi
 fi
 

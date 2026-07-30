@@ -56,6 +56,7 @@ RUN pip3 install --break-system-packages --no-cache-dir \
 
 # --- Node / TypeScript / Jest / Playwright -------------------------------------
 ENV GLAB_CONFIG_DIR=/home/dev/.git_local/glab-cli \
+    GH_CONFIG_DIR=/home/dev/.git_local/gh-cli \
     PLAYWRIGHT_BROWSERS_PATH=/usr/local/share/playwright-browsers
 RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
     && apt-get install -y --no-install-recommends nodejs \
