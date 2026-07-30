@@ -15,23 +15,35 @@ Entwicklungssandbox** – ein Container für alle Use Cases:
 ```
 .
 ├── Dockerfile                    <- Einheitliches Image (alle Use Cases)
+├── AGENTS.md                     <- Agent-spezifische Anweisungen
+├── picoscope.md                  <- PicoScope 2204A Referenz (Library, ctypes, Pitfalls)
 ├── proxy/
 │   ├── Dockerfile                <- Separates Squid-Proxy-Image
 │   ├── squid.conf
 │   └── allowlist.txt
 ├── udev/
-│   └── 99-oszi.rules             <- udev-Regel für Oszi-Gerät
+│   └── 99-hil.rules              <- udev-Regeln für HIL-Geräte (Oszi + MCU)
 ├── scripts/
 │   ├── start.sh                  <- Einheitliches Start-Skript
 │   ├── build-all.sh              <- Baut Sandbox + Proxy
 │   └── init-project.sh           <- Legt Projekt-Root-Struktur an
 ├── templates/
 │   ├── ssh_local/config
-│   └── git_local/
-│       ├── gitconfig
-│       ├── credentials
-│       ├── gh-cli/config.yml
-│       └── glab-cli/config.yml
+│   ├── git_local/
+│   │   ├── gitconfig
+│   │   ├── credentials
+│   │   ├── gh-cli/config.yml
+│   │   └── glab-cli/config.yml
+│   ├── opencode/
+│   │   ├── opencode.json         <- OpenCode-Basisconfig (wird kopiert)
+│   │   ├── AGENTS.md             <- Agent-Config (wird kopiert)
+│   │   ├── AGENTS_LongVersion.md
+│   │   ├── README_MDL.md
+│   │   └── skills/               <- Skill-Vorlagen
+│   └── scripts/
+│       ├── afkLoop.sh            <- Agent-Loop-Skript (Ticket-Queue)
+│       ├── LoopPrompt.md         <- Prompt-Vorlage für afkLoop
+│       └── README.md
 ├── .devcontainer/
 │   └── devcontainer.json         <- VS Code Devcontainer-Konfiguration
 └── README.md
@@ -94,21 +106,30 @@ Das baut:
 - `opencode-sandbox` – das Haupt-Image mit allen Toolchains, Runtimes und Bibliotheken
 - `oc-proxy` – optionaler Squid-Egress-Proxy (wird nur bei `--use_proxy` benötigt)
 
-## 2. Einmalig: udev-Regel fürs Oszi installieren (nur für HIL)
+## 2. Einmalig: udev-Regeln für HIL-Geräte installieren
+
+`udev/99-hil.rules` enthält Regeln für:
+- **PicoScope 2000**: Symlink `/dev/scope0` (USB-Bus-Verzeichnis wird in `start.sh` live ermittelt)
+- **Serielle MCU-Geräte** (ttyUSB\*, ttyACM\*): Echte Geräteknoten + stabile Vendor/Produkt-Symlinks in `/dev/hil/`
 
 Vendor/Product-ID eures Geräts ermitteln:
 ```bash
 lsusb
 ```
 
-`udev/99-oszi.rules` mit den korrekten IDs anpassen, dann:
+`udev/99-hil.rules` mit den korrekten IDs anpassen (bei mehreren Oszis/Geräten weitere Zeilen ergänzen), dann:
 ```bash
-sudo cp udev/99-oszi.rules /etc/udev/rules.d/
+sudo cp udev/99-hil.rules /etc/udev/rules.d/
 sudo udevadm control --reload-rules
 sudo udevadm trigger
 ```
 
-Danach sollte `/dev/oszi0` erscheinen, sobald das Gerät angeschlossen ist.
+Prüfen:
+```bash
+ls -l /dev/scope0 /dev/hil/
+```
+
+`/dev/scope0` sollte erscheinen, sobald der PicoScope angeschlossen ist. Serielle Geräte erscheinen als `/dev/hil/ttyACM0` etc. – `start.sh --hil_mode` mountet `/dev/hil` live in den Container.
 
 ## 3. Projekt-Root einrichten
 
@@ -232,6 +253,14 @@ rm -rf ~/projects/kunde-x/.opencode_config/* ~/projects/kunde-x/.opencode_data/*
 `.devcontainer/devcontainer.json` erwartet, dass ihr in VS Code den **Projekt-Root**
 öffnet (den Ordner mit `project/`, `.opencode_config/`, `.opencode_data/`,
 `.ssh_local/`, `.git_local/` als Unterordnern) – nicht `project/` selbst.
+
+Hinweise:
+- **Proxy-Env-Vars** sind vor-konfiguriert (`HTTP_PROXY`, `HTTPS_PROXY`,
+  `NO_PROXY`). Der Proxy muss nicht zwingend laufen – Devcontainer ohne
+  `--use_proxy` ignorieren die Variablen.
+- **USB-Geräte (HIL)** funktionieren nicht über den Devcontainer (kein
+  dynamisches udev-Mounting). Für HIL-Tests `scripts/start.sh --hil_mode`
+  verwenden.
 
 ## Sicherheitsprinzipien
 

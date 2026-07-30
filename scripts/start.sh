@@ -17,7 +17,7 @@
 # Flags:
 #   --use_proxy   Startet Squid-Egress-Allowlist-Proxy und nutzt ihn
 #   --offline     Kein Netzwerk (nur lokale Modelle)
-#   --hil_mode    USB-Passthrough für Oszi (scope0) und MCU (ttyUSB*, ttyAMA*, ttyAMC*)
+#   --hil_mode    USB-Passthrough für Oszi (scope0) und MCU (ttyUSB*, ttyACM*, ttyAMA*)
 #
 # Beispiele:
 #   scripts/start.sh ~/projects/kunde-x                        # Default (volle Netzanbindung)
