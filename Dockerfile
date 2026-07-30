@@ -9,7 +9,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates curl wget git build-essential pkg-config gnupg \
         python3 python3-pip python3-venv python3-dev \
         golang-go \
-        nodejs npm \
         gcc-arm-none-eabi gdb-multiarch \
         cmake ninja-build \
         jq unzip openssh-client usbutils \
@@ -58,7 +57,10 @@ RUN pip3 install --break-system-packages --no-cache-dir \
 # --- Node / TypeScript / Jest / Playwright -------------------------------------
 ENV GLAB_CONFIG_DIR=/home/dev/.git_local/glab-cli \
     PLAYWRIGHT_BROWSERS_PATH=/usr/local/share/playwright-browsers
-RUN npm install -g typescript jest playwright \
+RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
+    && apt-get install -y --no-install-recommends nodejs \
+    && rm -rf /var/lib/apt/lists/*
+RUN npm install -g typescript jest playwright pnpm corepack\
     && npx playwright install chromium firefox \
     && npx playwright install-deps
 
