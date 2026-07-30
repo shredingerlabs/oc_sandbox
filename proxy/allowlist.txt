@@ -34,7 +34,6 @@ security.ubuntu.com
 
 # OpenCode API
 opencode.ai
-.opencode.ai
 *.opencode.ai
 api.opencode.ai
 
