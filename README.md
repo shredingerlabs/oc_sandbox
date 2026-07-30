@@ -204,6 +204,37 @@ rm -rf ~/projects/kunde-x/.opencode_config/* ~/projects/kunde-x/.opencode_data/*
 
 ## Troubleshooting
 
+### Container startet gar nicht erst (`crun`/`runc` schreibt gid_map nicht)
+
+**Symptom**:
+```
+Error: crun: writing file `/proc/<pid>/gid_map`: Operation not permitted: OCI permission denied
+```
+oder mit `runc`:
+```
+Error: OCI runtime error: runc: runc create failed: unable to start container process: can't get final child's PID from pipe: EOF
+```
+
+**Ursache**: `--userns=keep-id` braucht `newuidmap`/`newgidmap`, um die
+Self-Mapping des eigenen UID/GID in den Container-Userns zu schreiben. Die
+beiden Setuid-Helfer verweigern das mit
+`uid range [0-1) -> [<uid>-<uid+1>) not allowed`, wenn `/etc/subuid` (und
+analog `/etc/subgid`) keinen Eintrag enthält, der die eigene UID/GID
+abdeckt. Ubuntu 24.04 mit `podman 4.9.3+ds1` legt nur den 100000+ Bereich
+an; den Self-Eintrag muss man von Hand ergänzen. Ohne ihn versuchen
+`runc` und `crun` die `gid_map` selbst zu schreiben, scheitern aber ohne
+`CAP_SETGID` und brechen ab.
+
+**Fix** (einmalig, danach neu einloggen damit Podman die Dateien neu liest):
+```bash
+echo "$(id -un):$(id -u):1" | sudo tee -a /etc/subuid
+echo "$(id -un):$(id -g):1" | sudo tee -a /etc/subgid
+```
+Danach `scripts/start.sh` nochmal starten — `start.sh` selbst prüft den
+Self-Eintrag per `getsubids` und bricht vorher mit der genauen Anweisung
+ab, falls er fehlt. Dasselbe gilt für `devcontainer.json`-Workflows
+(`.devcontainer/devcontainer.json` → `devcontainer up`).
+
 ### HIL: USB-Gerät hat keine Rechte im Container (nobody:nogroup)
 
 **Symptom**: Im Container erscheint das Oszi unter `/dev/bus/usb/XXX/YYY` als
@@ -215,6 +246,9 @@ wird nur der eigene UID/GID-Bereich aus `/etc/subuid` und `/etc/subgid`
 gemappt. System-GIDs wie `dialout` (GID 20) sind im Default-Subgid-Bereich
 (100000+) nicht enthalten. Das Gerät hat auf dem Host die Gruppe `dialout`
 und ist im Container-Userns nicht gemappt → erscheint als `nobody`.
+
+**Voraussetzung**: Ohne den oben beschriebenen Self-Eintrag startet der
+Container gar nicht. Die folgenden Optionen setzen ihn voraus.
 
 **Fix-Optionen** (eine davon ausführen):
 
@@ -228,12 +262,13 @@ sudo chmod a+rw /dev/bus/usb/XXX/YYY
 sudo chown $(id -un):$(id -gn) /dev/bus/usb/XXX/YYY
 ```
 
-**c) Dauerhaft – dialout-GID in /etc/subgid aufnehmen** (einmalig, überlebt Reboots):
+**c) Dauerhaft – dialout-GID in /etc/subgid aufnehmen** (zusätzlich zum
+Self-Eintrag aus dem vorigen Abschnitt, einmalig, überlebt Reboots):
 ```bash
 echo "$(id -un):20:1" | sudo tee -a /etc/subgid
 # Danach ab- und wieder anmelden, Podman-Userns wird neu initialisiert.
 ```
 
 `scripts/start.sh --hil_mode` versucht automatisch Option (a) bzw. (b), wenn
-`sudo` mit `NOPASSWD` konfiguriert ist. Schlägt der Auto-Fix fehl, erscheint
+`sudo` mit `NOPASSWD` konfiguriert ist. Schlägt der Auto-Fix fehlt, erscheint
 eine Meldung mit den manuellen Schritten.
