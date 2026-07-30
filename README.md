@@ -227,6 +227,16 @@ scripts/start.sh ~/projects/hil-tests --hil_mode
 scripts/start.sh ~/projects/hil-tests --use_proxy --hil_mode
 ```
 
+> **Hinweis zu `--hil_mode` und USB-Sicherheit:**
+> Das Skript ermittelt zur Laufzeit den realen Pfad von `/dev/scope0`
+> (z.B. `/dev/bus/usb/007/055`) und mountet das übergeordnete
+> Bus-Verzeichnis (`/dev/bus/usb/007/`) in den Container. Das bedeutet:
+> **Alle USB-Geräte auf derselben physischen USB-Bus-Nummer** sind im
+> Container sichtbar – nicht nur der Oszi. Ein feinerer Scope (einzelnes
+> Gerät) ist mit libusb nicht möglich, da `libps2000` selbst
+> `/dev/bus/usb/*` per `readdir` durchsucht. Das Risiko bleibt begrenzt,
+> da nur der eine Bus gemountet wird, nicht `/dev/bus/usb` im Ganzen.
+
 Der Container startet eine interaktive Shell. OpenCode starten mit:
 ```bash
 opencode
@@ -272,7 +282,7 @@ Hinweise:
   OpenCode-Login möglich, ohne Skript-Änderung
 - SSH-Key- und Git-Credentials-Rechte werden beim Start geprüft
 - Netzwerk-Egress optional per Proxy-Allowlist statt freiem Internet
-- HIL-Mode mit gezieltem Device-Passthrough statt vollem `/dev/bus/usb`
+- HIL-Mode mit Bus-Level-Passthrough (nur der USB-Bus des Oszi, nicht `/dev/bus/usb` komplett)
 - `--offline` für Läufe ohne Netzwerkbedarf
 - Container-Name pro Projekt-Root, damit mehrere Sandboxes parallel laufen können
 - Nur die fünf definierten Projekt-Root-Unterordner werden gemountet – nicht `$HOME`
