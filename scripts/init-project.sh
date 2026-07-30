@@ -33,6 +33,7 @@ TEMPLATE_GLAB_CONFIG="${SCRIPT_DIR}/../templates/git_local/glab-cli/config.yml"
 TEMPLATE_OPENCODE_CONFIG="${SCRIPT_DIR}/../templates/opencode/opencode.json"
 TEMPLATE_OPENCODE_AGENTS="${SCRIPT_DIR}/../templates/opencode/AGENTS.md"
 TEMPLATE_OPENCODE_SKILLS="${SCRIPT_DIR}/../templates/opencode/skills"
+TEMPLATE_SCRIPTS="${SCRIPT_DIR}/../templates/scripts"
 
 mkdir -p \
   "${PROJECT_ROOT}/project" \
@@ -75,6 +76,10 @@ fi
 
 if [[ -d "$TEMPLATE_OPENCODE_SKILLS" ]]; then
   cp -r "$TEMPLATE_OPENCODE_SKILLS" "${PROJECT_ROOT}/.opencode_config/skills"
+fi
+
+if [[ -d "$TEMPLATE_SCRIPTS" ]]; then
+  cp -r "$TEMPLATE_SCRIPTS" "${PROJECT_ROOT}/project/scripts"
 fi
 
 SKILLS_TARGET="${PROJECT_ROOT}/.opencode_config/skills"
