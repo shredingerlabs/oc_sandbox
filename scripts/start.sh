@@ -17,7 +17,7 @@
 # Flags:
 #   --use_proxy   Startet Squid-Egress-Allowlist-Proxy und nutzt ihn
 #   --offline     Kein Netzwerk (nur lokale Modelle)
-#   --hil_mode    USB-Passthrough für Oszi (oszi0) und MCU (ttyUSB*, ttyAMA*, ttyAMC*)
+#   --hil_mode    USB-Passthrough für Oszi (scope0) und MCU (ttyUSB*, ttyAMA*, ttyAMC*)
 #
 # Beispiele:
 #   scripts/start.sh ~/projects/kunde-x                        # Default (volle Netzanbindung)
@@ -144,127 +144,81 @@ if $OFFLINE; then
   PROXY_ENV=()
 fi
 
-# --- HIL helpers: check + fix USB device permissions for userns -----------------
-
-# Returns 0 if the container's user namespace will be able to access the device.
-# Key knowledge: rootless Podman with --userns=keep-id only maps GIDs that are in
-# the current user's /etc/subgid ranges.  System groups (e.g. dialout=20) are
-# typically NOT in those ranges → the device appears as nobody:nogroup inside the
-# container even though the host user can access it via group membership.
-_hil_gid_accessible_in_container() {
-  local real="$1"
-  local my_uid dev_uid dev_gid mode other
-  my_uid=$(id -u)
-  dev_uid=$(stat -c %u "$real")
-  dev_gid=$(stat -c %g "$real")
-  mode=$(stat -c %a "$real")
-  other=$((mode % 10))
-
-  # Other-bits (world) — no userns dependency
-  if (( other == 6 || other == 7 )); then
-    return 0
-  fi
-  # User is the owner — UID is always mapped by keep-id
-  if [[ "$dev_uid" == "$my_uid" ]]; then
-    return 0
-  fi
-  # Group access: dev_gid must be in the user's subgid range AND user is in that group
-  local user_name gid_name
-  user_name=$(id -un)
-  while IFS=: read -r sg_user sg_start sg_count; do
-    [[ "$sg_user" == "$user_name" ]] || continue
-    [[ -n "$sg_start" && -n "$sg_count" ]] || continue
-    if (( dev_gid >= sg_start && dev_gid < sg_start + sg_count )); then
-      gid_name=$(getent group "$dev_gid" | cut -d: -f1)
-      if [[ -n "$gid_name" ]] && id -Gn | tr ' ' '\n' | grep -qx "$gid_name"; then
-        return 0
-      fi
-    fi
-  done </etc/subgid
-  return 1
-}
-
-_hil_ensure_accessible() {
-
-    # remove after test of crun
-  return 0
-  
-  local dev_path="$1" dev_name="$2"
-  local real
-  real=$(readlink -f "$dev_path")
-  if [[ ! -e "$real" ]]; then
-    return 0  # device absent — caller handles the warning
-  fi
-
-  local host_ok=false
-  [[ -r "$real" && -w "$real" ]] && host_ok=true
-
-  if $host_ok; then
-    if _hil_gid_accessible_in_container "$real"; then
-      return 0  # both host AND container can access — nothing to do
-    fi
-    echo "==> $dev_name -> $real: Host-User hat Zugriff, Container-User nicht." >&2
-    echo "    (Geräte-GID ist im Container-userns nicht gemappt — typisch für System-Gruppen)" >&2
-  else
-    local user
-    user=$(id -un)
-    echo "==> $dev_name -> $real nicht les/schreibbar für $user." >&2
-  fi
-
-  if chmod a+rw "$real" 2>/dev/null; then
-    echo "    -> per chmod a+rw behoben (bis zum nächsten Anstecken)." >&2
-    return 0
-  elif command -v sudo &>/dev/null && sudo -n chmod a+rw "$real" 2>/dev/null; then
-    echo "    -> per sudo chmod a+rw behoben." >&2
-    return 0
-  elif command -v sudo &>/dev/null && sudo -n chown "$(id -u):$(id -g)" "$real" 2>/dev/null; then
-    echo "    -> per sudo chown $(id -un):$(id -gn) behoben." >&2
-    return 0
-  fi
-  local dialout_gid
-  dialout_gid=$(getent group dialout 2>/dev/null | cut -d: -f3)
-  dialout_gid=${dialout_gid:-20}
-  echo "    Auto-Fix fehlgeschlagen. Manuelle Optionen:" >&2
-  echo "      a) sudo chmod a+rw $real" >&2
-  echo "      b) sudo chown $(id -un):$(id -gn) $real" >&2
-  echo "      c) Dauerhaft: dialout-GID ($dialout_gid) in /etc/subgid aufnehmen:" >&2
-  echo "           echo \"\$(id -un):$dialout_gid:1\" | sudo tee -a /etc/subgid" >&2
-  echo "           (Danach neu anmelden – Podman-Userns wird neu initialisiert.)" >&2
-  return 1
-}
 
 # --- HIL-Geräte ----------------------------------------------------------------
+#
+# Wichtig: Geräte werden NICHT mehr als einzelne --device-Snapshots gebunden.
+# Grund: --device bindet beim Container-Start eine feste major:minor-
+# Kombination. Enumeriert das USB-Gerät später neu (neue Bus/Device-Nummer,
+# z.B. weil das PicoScope beim (Wieder-)Verbinden Firmware nachlädt, wegen
+# USB-Autosuspend, oder weil ein MCU-Board resettet wird), zeigt der
+# Snapshot im Container ins Leere (Rechte erscheinen als "c---------"),
+# obwohl das Gerät auf dem Host unter neuem Pfad weiterhin funktioniert.
 DEVICE_ARGS=()
 if $HIL_MODE; then
-  if [[ -e /dev/oszi0 ]]; then
-    OSZI_REAL=$(readlink -f /dev/oszi0)
-    if _hil_ensure_accessible /dev/oszi0 "oszi0"; then
-      DEVICE_ARGS+=(--mount type=bind,source="$OSZI_REAL",target="$OSZI_REAL")
-      DEVICE_ARGS+=(--mount type=bind,source="$OSZI_REAL",target=/dev/oszi0)
-    else
-      exit 1
+
+  # --- PicoScope (libusb-basiert: libps2000/libps2000a lesen selbst das
+  #     Verzeichnis /dev/bus/usb/<Bus>/ per readdir und öffnen dort den
+  #     aktuell passenden Geräteknoten. Ein Symlink an anderer Stelle
+  #     (z.B. /dev/hil/scope0) hilft dem NICHT - libusb kennt nur den
+  #     Standardpfad /dev/bus/usb/*.
+  #     Wir ermitteln daher zur Laufzeit die Bus-Nummer (stabil, solange
+  #     das Gerät am selben physischen Port hängt - siehe udev/99-hil.rules
+  #     für den Autosuspend-Fix gegen sporadisches Re-Enumerieren) und
+  #     mounten NUR dieses eine Bus-Verzeichnis live, nicht ganz
+  #     /dev/bus/usb. Das gibt Zugriff auf alles, was aktuell an diesem
+  #     Bus/Hub hängt (mehr geht mit libusb nicht granularer), aber nicht
+  #     auf andere USB-Busse des Hosts.
+  if [[ -e /dev/scope0 ]]; then
+    SCOPE_REAL=$(readlink -f /dev/scope0)          # z.B. /dev/bus/usb/007/055
+    SCOPE_BUS_DIR="$(dirname "$SCOPE_REAL")"        # z.B. /dev/bus/usb/007
+    if [[ -d "$SCOPE_BUS_DIR" ]]; then
+      DEVICE_ARGS+=(-v "${SCOPE_BUS_DIR}:${SCOPE_BUS_DIR}")
+      # Kein --device-cgroup-rule: im rootless-Modus (User-Namespace) gibt
+      # es keinen nutzbaren devices-Cgroup-Controller, Podman lehnt das
+      # Flag dort ab ("not supported in rootless mode"). Das ist unkritisch,
+      # weil rootless-Container ohnehin nur über normale Unix-Rechte (DAC)
+      # auf Devices zugreifen - die Cgroup-Ebene entfällt komplett. Die
+      # Freigabe hier passiert allein durch den Bind-Mount + die per
+      # --userns=keep-id/--group-add keep-groups übernommene
+      # Gruppenmitgliedschaft (dialout, siehe udev/99-hil.rules).
     fi
   else
-    echo "Hinweis: /dev/oszi0 fehlt. Das ist eine Folgeerscheinung, kein Blocker:" >&2
-    echo "         - udev-Regel (udev/99-oszi.rules) ist auf dem Host nicht installiert, ODER" >&2
-    echo "         - Oszi ist nicht angeschlossen." >&2
-    echo "         HIL-Tests funktionieren trotzdem, wenn der Geräte-GID (dialout=20)" >&2
-    echo "         in /etc/subgid gemappt ist. Einmalig auf dem Host:" >&2
-    echo "           echo \"\$(id -un):20:1\" | sudo tee -a /etc/subgid   # + neu anmelden" >&2
+    echo "Hinweis: /dev/scope0 fehlt. Das ist eine Folgeerscheinung, kein Blocker:" >&2
+    echo "         - udev-Regel (udev/99-hil.rules) ist auf dem Host nicht installiert, ODER" >&2
+    echo "         - Oszi ist nicht angeschlossen (Bus-Nummer kann erst danach ermittelt" >&2
+    echo "           werden - Container ggf. neu starten, sobald das Gerät steckt)." >&2
   fi
-  for dev in /dev/ttyUSB* /dev/ttyAMA* /dev/ttyACM*; do
+
+  # --- Serielle HIL-Geräte (ttyUSB/ttyACM): udev legt bei jedem ADD-Event
+  #     (auch nach Reset/Replug) einen echten Geräteknoten unter aktuellem
+  #     Kernel-Namen sowie einen stabilen Vendor/Produkt/Serial-Symlink in
+  #     /dev/hil/ an (siehe udev/99-hil.rules). Das Verzeichnis wird live
+  #     gemountet, sodass jede Änderung sofort im Container sichtbar ist -
+  #     kein Container-Neustart nach einem Reset nötig.
+  if [[ -d /dev/hil ]]; then
+    DEVICE_ARGS+=(-v /dev/hil:/dev/hil)
+  else
+    echo "Hinweis: /dev/hil fehlt. Das ist eine Folgeerscheinung, kein Blocker:" >&2
+    echo "         - udev-Regel (udev/99-hil.rules) ist auf dem Host nicht installiert, ODER" >&2
+    echo "         - noch kein passendes Gerät wurde je erkannt (Verzeichnis wird von udev" >&2
+    echo "           erst beim ersten ADD-Event automatisch angelegt)." >&2
+  fi
+
+  # onboard UART (kein USB, re-enumeriert nicht) weiterhin klassisch durchreichen
+  for dev in /dev/ttyAMA*; do
     [[ -e "$dev" ]] && DEVICE_ARGS+=(--device="$dev")
   done
-  DEVICE_ARGS+=(--group-add keep-groups)
 fi
 
 # --- Container starten ---------------------------------------------------------
 CONTAINER_NAME="opencode-sandbox-$(basename "$PROJECT_ROOT")"
 
 exec podman run --rm -it \
+  --replace \
   --name "$CONTAINER_NAME" \
-  --runtime crun \
   --userns=keep-id \
+  --group-add keep-groups \
   --cap-drop=ALL \
   --security-opt no-new-privileges \
   "${NETWORK_ARGS[@]}" \
@@ -277,6 +231,6 @@ exec podman run --rm -it \
   -v "${PROJECT_DIR}:/home/dev/project:Z" \
   -v "${CONFIG_DIR}:/home/dev/.config/opencode:Z" \
   -v "${DATA_DIR}:/home/dev/.local/share/opencode:Z" \
-  -v "${SSH_DIR}:/home/dev/.ssh:Z" \
-  -v "${GIT_DIR}:/home/dev/.git_local:Z" \
+  -v "${SSH_DIR}:/home/dev/.ssh:Z,ro" \
+  -v "${GIT_DIR}:/home/dev/.git_local:Z,ro" \
   opencode-sandbox

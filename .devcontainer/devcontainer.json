@@ -30,8 +30,8 @@
   "mounts": [
     "source=${localWorkspaceFolder}/.opencode_config,target=/home/dev/.config/opencode,type=bind",
     "source=${localWorkspaceFolder}/.opencode_data,target=/home/dev/.local/share/opencode,type=bind",
-    "source=${localWorkspaceFolder}/.ssh_local,target=/home/dev/.ssh,type=bind",
-    "source=${localWorkspaceFolder}/.git_local,target=/home/dev/.git_local,type=bind"
+    "source=${localWorkspaceFolder}/.ssh_local,target=/home/dev/.ssh,type=bind,readonly=true",
+    "source=${localWorkspaceFolder}/.git_local,target=/home/dev/.git_local,type=bind,readonly=true"
   ],
   "//": "USB device passthrough (e.g. Picoscope) requires start.sh --hil_mode. The devcontainer JSON format cannot resolve udev symlinks dynamically, so use start.sh for HIL mode.",
 
