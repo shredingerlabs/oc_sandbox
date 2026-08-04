@@ -109,5 +109,11 @@
       "/usr/local/lib/python3.12/dist-packages/picosdk/**": "allow"
     }
   },
-  "model": "gwdg-saia/qwen3.5-122b-a10b"
+  "model": "gwdg-saia/qwen3.5-122b-a10b",
+  "mcpServers": {
+    "codebase-memory-mcp": {
+      "command": "/usr/local/bin/codebase-memory-mcp",
+      "args": []
+    }
+  }
 }

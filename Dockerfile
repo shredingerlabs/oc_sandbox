@@ -47,6 +47,11 @@ RUN curl -fsSL https://github.com/anomalyco/opencode/releases/latest/download/op
         | tar xz -C /usr/local/bin opencode \
     && chmod +x /usr/local/bin/opencode
 
+# --- codebase-memory-mcp -------------------------------------------------------
+RUN curl -fsSL https://github.com/DeusData/codebase-memory-mcp/releases/latest/download/codebase-memory-mcp-linux-amd64.tar.gz \
+        | tar xz -C /usr/local/bin codebase-memory-mcp \
+    && chmod +x /usr/local/bin/codebase-memory-mcp
+
 # --- Python packages -----------------------------------------------------------
 RUN pip3 install --break-system-packages --no-cache-dir \
         mpremote esptool platformio \
