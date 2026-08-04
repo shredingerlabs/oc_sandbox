@@ -8,6 +8,7 @@ Entwicklungssandbox** – ein Container für alle Use Cases:
 - **MicroPython**: mpremote, esptool für ESP32-Firmware-Entwicklung
 - **HIL-Tests**: USB-Oszilloskop (Picoscope 2204A) + Mikrocontroller-Geräte-Passthrough
 - **Browser-Automatisierung**: Chromium + Firefox via Playwright (für OpenCode-Browser-Tooling)
+- **Code-Intelligence**: codebase-memory-mcp (Knowledge-Graph-Indexing, auto-konfiguriert für OpenCode)
 - **Proxy**: Squid-Egress-Allowlist (optional, per `--use_proxy`)
 
 ## Repository-Struktur
