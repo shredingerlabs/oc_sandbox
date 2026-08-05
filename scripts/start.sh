@@ -13,11 +13,13 @@
 #     .opencode_data/       <- OpenCode-Daten inkl. Auth/Credentials
 #     .ssh_local/           <- SSH-Keys + Config für dieses Projekt
 #     .git_local/           <- Git-Identität/-Settings + optionale Credentials
+#     .cbm_cache/           <- CBM-Graph-Datenbank (persistent)
 #
 # Flags:
 #   --use_proxy   Startet Squid-Egress-Allowlist-Proxy und nutzt ihn
 #   --offline     Kein Netzwerk (nur lokale Modelle)
 #   --hil_mode    USB-Passthrough für Oszi (scope0) und MCU (ttyUSB*, ttyACM*, ttyAMA*)
+#   --cbm_ui      Aktiviert CBM Graph-UI auf Port 9749
 #
 # Beispiele:
 #   scripts/start.sh ~/projects/kunde-x                        # Default (volle Netzanbindung)
@@ -25,6 +27,7 @@
 #   scripts/start.sh ~/projects/kunde-x --offline               # Ohne Netzwerk
 #   scripts/start.sh ~/projects/kunde-x --hil_mode              # HIL-Tests
 #   scripts/start.sh ~/projects/kunde-x --use_proxy --hil_mode  # Kombiniert
+#   scripts/start.sh ~/projects/kunde-x --cbm_ui                # Mit CBM Graph-UI
 #
 set -euo pipefail
 
@@ -34,12 +37,13 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 # --- Flags parsen -------------------------------------------------------------
 PROJECT_ROOT="${1:-}"
 if [[ -z "$PROJECT_ROOT" ]]; then
-  echo "Nutzung: $0 <projekt-root> [--use_proxy] [--offline] [--hil_mode]" >&2
+  echo "Nutzung: $0 <projekt-root> [--use_proxy] [--offline] [--hil_mode] [--cbm_ui]" >&2
   echo "" >&2
   echo "  <projekt-root>  Pfad zum Projekt-Root (siehe init-project.sh)" >&2
   echo "  --use_proxy     Squid-Egress-Allowlist-Proxy starten und nutzen" >&2
   echo "  --offline       Kein Netzwerk (--network=none)" >&2
   echo "  --hil_mode      USB-Passthrough für Oszi + MCU-Geräte" >&2
+  echo "  --cbm_ui        CBM Graph-UI auf Port 9749 aktivieren" >&2
   exit 1
 fi
 shift
@@ -47,15 +51,17 @@ shift
 USE_PROXY=false
 OFFLINE=false
 HIL_MODE=false
+CBM_UI=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --use_proxy) USE_PROXY=true; shift ;;
     --offline)   OFFLINE=true;   shift ;;
     --hil_mode)  HIL_MODE=true;  shift ;;
+    --cbm_ui)    CBM_UI=true;    shift ;;
     *)
       echo "Unbekanntes Flag: $1" >&2
-      echo "Nutzung: $0 <projekt-root> [--use_proxy] [--offline] [--hil_mode]" >&2
+      echo "Nutzung: $0 <projekt-root> [--use_proxy] [--offline] [--hil_mode] [--cbm_ui]" >&2
       exit 1
       ;;
   esac
@@ -69,8 +75,9 @@ CONFIG_DIR="${PROJECT_ROOT}/.opencode_config"
 DATA_DIR="${PROJECT_ROOT}/.opencode_data"
 SSH_DIR="${PROJECT_ROOT}/.ssh_local"
 GIT_DIR="${PROJECT_ROOT}/.git_local"
+CBM_DIR="${PROJECT_ROOT}/.cbm_cache"
 
-mkdir -p "$PROJECT_DIR" "$CONFIG_DIR" "$DATA_DIR" "$SSH_DIR" "$GIT_DIR"
+mkdir -p "$PROJECT_DIR" "$CONFIG_DIR" "$DATA_DIR" "$SSH_DIR" "$GIT_DIR" "$CBM_DIR"
 chmod 700 "$SSH_DIR" "$GIT_DIR"
 
 if [[ -z "$(find "$SSH_DIR" -maxdepth 1 -type f 2>/dev/null)" ]]; then
@@ -158,6 +165,19 @@ if $OFFLINE; then
   PROXY_ENV=()
 fi
 
+# --- Flag-Validierung ----------------------------------------------------------
+if $OFFLINE && $CBM_UI; then
+  echo "Fehler: --cbm_ui erfordert Netzwerk (--offline inkompatibel)" >&2
+  exit 1
+fi
+
+# --- CBM-UI-Optionen -----------------------------------------------------------
+CBM_PORT_ARGS=()
+CBM_ENV_UI=()
+if $CBM_UI; then
+  CBM_PORT_ARGS=(-p 127.0.0.1:9749:9749)
+  CBM_ENV_UI=(-e CBM_UI=true)
+fi
 
 # --- HIL-Geräte ----------------------------------------------------------------
 #
@@ -237,6 +257,8 @@ exec podman run --rm -it \
   --security-opt no-new-privileges \
   "${NETWORK_ARGS[@]}" \
   "${PROXY_ENV[@]}" \
+  "${CBM_PORT_ARGS[@]}" \
+  "${CBM_ENV_UI[@]}" \
   "${DEVICE_ARGS[@]}" \
   -e TERM="${TERM:-xterm-256color}" \
   -e XDG_CONFIG_HOME="/home/dev/.config" \
@@ -247,4 +269,5 @@ exec podman run --rm -it \
   -v "${DATA_DIR}:/home/dev/.local/share/opencode:Z" \
   -v "${SSH_DIR}:/home/dev/.ssh:Z,ro" \
   -v "${GIT_DIR}:/home/dev/.git_local:Z,ro" \
+  -v "${CBM_DIR}:/home/dev/.cache/codebase-memory-mcp:Z" \
   opencode-sandbox

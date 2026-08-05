@@ -47,8 +47,8 @@ RUN curl -fsSL https://github.com/anomalyco/opencode/releases/latest/download/op
         | tar xz -C /usr/local/bin opencode \
     && chmod +x /usr/local/bin/opencode
 
-# --- codebase-memory-mcp -------------------------------------------------------
-RUN curl -fsSL https://github.com/DeusData/codebase-memory-mcp/releases/latest/download/codebase-memory-mcp-linux-amd64.tar.gz \
+# --- codebase-memory-mcp (UI variant) ------------------------------------------
+RUN curl -fsSL https://github.com/DeusData/codebase-memory-mcp/releases/latest/download/codebase-memory-mcp-ui-linux-amd64.tar.gz \
         | tar xz -C /usr/local/bin codebase-memory-mcp \
     && chmod +x /usr/local/bin/codebase-memory-mcp
 
@@ -66,7 +66,10 @@ ENV GLAB_CONFIG_DIR=/home/dev/.git_local/glab-cli \
 RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
     && apt-get install -y --no-install-recommends nodejs \
     && rm -rf /var/lib/apt/lists/*
-RUN npm install -g typescript jest playwright pnpm corepack\
+RUN npm install -g npm@12.0.2 \
+    && npm config set allow-scripts=unrs-resolver --location=user \
+    && npm install -g typescript jest playwright pnpm corepack \
+    && npm update -g \
     && npx playwright install-deps \
     && npx playwright install chromium firefox
 

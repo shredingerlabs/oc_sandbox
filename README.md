@@ -66,12 +66,13 @@ folgenden Unterordnern.
     credentials           <- git credential-store (optional)
     gh-cli/config.yml     <- GitHub CLI Token (Alternative zu SSH Deploy Keys)
     glab-cli/config.yml   <- GitLab CLI Token
+  .cbm_cache/            <- CBM Knowledge-Graph-Datenbank (persistent)
 ```
 
 Damit könnt ihr für jedes Projekt/jeden Kunden einen eigenen Projekt-Root anlegen,
 mit eigenen Git-Credentials und eigenem OpenCode-Login – ohne die Skripte
-anzufassen. Da `.opencode_config/`, `.opencode_data/`, `.ssh_local/` und
-`.git_local/` **Geschwister** von `project/` sind, sieht das Git-Repo in
+anzufassen. Da `.opencode_config/`, `.opencode_data/`, `.ssh_local/`, `.git_local/`
+und `.cbm_cache/` **Geschwister** von `project/` sind, sieht das Git-Repo in
 `project/` diese sensiblen Daten nie, auch nicht versehentlich per `git add .`.
 
 Neuen Projekt-Root mit korrekter Struktur/Rechten anlegen:
@@ -209,6 +210,8 @@ scripts/start.sh ~/projects/kunde-x            # Default: volles Netz
 | `--offline` | none | nein | – | Air-Gapped, nur lokale Modelle |
 | `--hil_mode` | slirp4netns | nein | Oszi + MCU (ttyUSB* etc.) | HIL-Tests |
 | `--use_proxy --hil_mode` | slirp4netns | Squid-Allowlist | Oszi + MCU | HIL mit Restricted-Net |
+| `--cbm_ui` | slirp4netns | nein | – | CBM Knowledge-Graph-UI (Port 9749) |
+| `--use_proxy --cbm_ui` | slirp4netns | Squid-Allowlist | – | Proxy + Graph-UI |
 
 Beispiele:
 ```bash
@@ -226,7 +229,13 @@ scripts/start.sh ~/projects/hil-tests --hil_mode
 
 # HIL-Tests mit Proxy
 scripts/start.sh ~/projects/hil-tests --use_proxy --hil_mode
+
+# Mit CBM Knowledge-Graph-UI (http://localhost:9749)
+scripts/start.sh ~/projects/kunde-x --cbm_ui
 ```
+
+> **Hinweis zu `--cbm_ui`:** Die Graph-UI benötigt Netzwerkzugriff und funktioniert
+> daher nicht mit `--offline` (network=none). In allen anderen Modi kombinierbar.
 
 > **Hinweis zu `--hil_mode` und USB-Sicherheit:**
 > Das Skript ermittelt zur Laufzeit den realen Pfad von `/dev/scope0`
@@ -286,7 +295,7 @@ Hinweise:
 - HIL-Mode mit Bus-Level-Passthrough (nur der USB-Bus des Oszi, nicht `/dev/bus/usb` komplett)
 - `--offline` für Läufe ohne Netzwerkbedarf
 - Container-Name pro Projekt-Root, damit mehrere Sandboxes parallel laufen können
-- Nur die fünf definierten Projekt-Root-Unterordner werden gemountet – nicht `$HOME`
+- Nur die sechs definierten Projekt-Root-Unterordner werden gemountet – nicht `$HOME`
 
 ## Troubleshooting
 

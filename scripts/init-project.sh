@@ -8,6 +8,7 @@
 #     .opencode_data/       <- OpenCode-Daten inkl. Auth/Credentials
 #     .ssh_local/           <- SSH-Keys + Config für dieses Projekt
 #     .git_local/           <- Git-Identität/-Settings + optionale Credentials
+#     .cbm_cache/           <- CBM-Graph-Datenbank (persistent)
 #
 # Nutzung:
 #   scripts/init-project.sh ~/projects/kunde-x
@@ -40,7 +41,8 @@ mkdir -p \
   "${PROJECT_ROOT}/.opencode_config" \
   "${PROJECT_ROOT}/.opencode_data" \
   "${PROJECT_ROOT}/.ssh_local" \
-  "${PROJECT_ROOT}/.git_local"
+  "${PROJECT_ROOT}/.git_local" \
+  "${PROJECT_ROOT}/.cbm_cache"
 
 chmod 700 "${PROJECT_ROOT}/.ssh_local"
 chmod 700 "${PROJECT_ROOT}/.git_local"
@@ -123,6 +125,7 @@ cat > "${PROJECT_ROOT}/.gitignore" <<'EOF'
 .opencode_data/
 .ssh_local/
 .git_local/
+.cbm_cache/
 EOF
 
 echo "Projekt-Root angelegt: ${PROJECT_ROOT}"
