@@ -77,7 +77,7 @@ RUN npm install -g npm@12.0.2 \
 RUN userdel -r ubuntu \
     && useradd -m -s /bin/bash -u 1000 dev \
     && mkdir -p /home/dev/.ssh /home/dev/project /home/dev/.git_local/glab-cli \
-             /home/dev/.config/opencode /home/dev/.local/share/opencode \
+              /home/dev/.config/opencode /home/dev/.local/share/opencode /home/dev/.cache/opencode \
     && chown -R dev:dev /home/dev
 
 USER dev
