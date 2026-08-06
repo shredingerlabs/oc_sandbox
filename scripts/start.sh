@@ -77,7 +77,7 @@ SSH_DIR="${PROJECT_ROOT}/.ssh_local"
 GIT_DIR="${PROJECT_ROOT}/.git_local"
 CBM_DIR="${PROJECT_ROOT}/.cbm_cache"
 
-mkdir -p "$PROJECT_DIR" "$CONFIG_DIR" "$DATA_DIR" "$SSH_DIR" "$GIT_DIR" "$CBM_DIR"
+mkdir -p "$PROJECT_DIR" "$CONFIG_DIR" "$DATA_DIR" "$SSH_DIR" "$GIT_DIR" "$GIT_DIR/gh-cli" "$GIT_DIR/glab-cli" "$CBM_DIR"
 chmod 700 "$SSH_DIR" "$GIT_DIR"
 
 if [[ -z "$(find "$SSH_DIR" -maxdepth 1 -type f 2>/dev/null)" ]]; then
@@ -93,16 +93,16 @@ if [[ ! -f "${GIT_DIR}/gitconfig" ]]; then
   echo "  user.email im Container." >&2
 fi
 
-if [[ ! -f "${GIT_DIR}/glab-cli/config.yml" ]]; then
-  echo "Warnung: ${GIT_DIR}/glab-cli/config.yml fehlt - lege eine an (z.B. aus" >&2
-  echo "  templates/git_local/glab-cli/config.yml kopieren), sonst fehlt die" >&2
-  echo "  glab-Konfiguration im Container." >&2
+if [[ ! -f "${GIT_DIR}/glab-cli/hosts.yml" ]]; then
+  echo "Warnung: ${GIT_DIR}/glab-cli/hosts.yml fehlt - lege eine an (z.B. aus" >&2
+  echo "  templates/git_local/glab-cli/hosts.yml kopieren), sonst fehlt die" >&2
+  echo "  glab-Authentifizierung im Container." >&2
 fi
 
-if [[ ! -f "${GIT_DIR}/gh-cli/config.yml" ]]; then
-  echo "Warnung: ${GIT_DIR}/gh-cli/config.yml fehlt - lege eine an (z.B. aus" >&2
-  echo "  templates/git_local/gh-cli/config.yml kopieren), sonst fehlt die" >&2
-  echo "  gh (GitHub CLI)-Konfiguration im Container." >&2
+if [[ ! -f "${GIT_DIR}/gh-cli/hosts.yml" ]]; then
+  echo "Warnung: ${GIT_DIR}/gh-cli/hosts.yml fehlt - lege eine an (z.B. aus" >&2
+  echo "  templates/git_local/gh-cli/hosts.yml kopieren), sonst fehlt die" >&2
+  echo "  gh (GitHub CLI)-Authentifizierung im Container." >&2
 fi
 
 while IFS= read -r -d '' key; do
@@ -119,19 +119,19 @@ if [[ -f "${GIT_DIR}/credentials" ]]; then
   fi
 fi
 
-if [[ -f "${GIT_DIR}/glab-cli/config.yml" ]]; then
-  perms="$(stat -c '%a' "${GIT_DIR}/glab-cli/config.yml")"
+if [[ -f "${GIT_DIR}/glab-cli/hosts.yml" ]]; then
+  perms="$(stat -c '%a' "${GIT_DIR}/glab-cli/hosts.yml")"
   if [[ "$perms" != "600" ]]; then
-    echo "Warnung: ${GIT_DIR}/glab-cli/config.yml hat Rechte ${perms}, setze auf 600." >&2
-    chmod 600 "${GIT_DIR}/glab-cli/config.yml"
+    echo "Warnung: ${GIT_DIR}/glab-cli/hosts.yml hat Rechte ${perms}, setze auf 600." >&2
+    chmod 600 "${GIT_DIR}/glab-cli/hosts.yml"
   fi
 fi
 
-if [[ -f "${GIT_DIR}/gh-cli/config.yml" ]]; then
-  perms="$(stat -c '%a' "${GIT_DIR}/gh-cli/config.yml")"
+if [[ -f "${GIT_DIR}/gh-cli/hosts.yml" ]]; then
+  perms="$(stat -c '%a' "${GIT_DIR}/gh-cli/hosts.yml")"
   if [[ "$perms" != "600" ]]; then
-    echo "Warnung: ${GIT_DIR}/gh-cli/config.yml hat Rechte ${perms}, setze auf 600." >&2
-    chmod 600 "${GIT_DIR}/gh-cli/config.yml"
+    echo "Warnung: ${GIT_DIR}/gh-cli/hosts.yml hat Rechte ${perms}, setze auf 600." >&2
+    chmod 600 "${GIT_DIR}/gh-cli/hosts.yml"
   fi
 fi
 
@@ -269,5 +269,7 @@ exec podman run --rm -it \
   -v "${DATA_DIR}:/home/dev/.local/share/opencode:Z" \
   -v "${SSH_DIR}:/home/dev/.ssh:Z,ro" \
   -v "${GIT_DIR}:/home/dev/.git_local:Z,ro" \
+  -v "${GIT_DIR}/gh-cli:/home/dev/.git_local/gh-cli:Z" \
+  -v "${GIT_DIR}/glab-cli:/home/dev/.git_local/glab-cli:Z" \
   -v "${CBM_DIR}:/home/dev/.cache/codebase-memory-mcp:Z" \
   opencode-sandbox

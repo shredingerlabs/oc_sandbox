@@ -1,19 +1,6 @@
 # Projekt-lokale GitHub CLI-Konfiguration (.git_local/gh-cli/config.yml)
 #
-# Wird per GH_CONFIG_DIR als vollständiger Ersatz für die Standard-
-# ~/.config/gh/hosts.yml geladen.
-#
-# Host, Token und Editor pro Projekt/Kunde anpassen.
-
-# GitHub.com oder eure GitHub Enterprise hostname
-# github.com
-
-# Persönlicher GitHub Access Token (ghp_... oder github_pat_...)
-# Erzeugen: GitHub → Settings → Developer settings → Personal access tokens
-# Benötigte Scopes: repo, read:org, workflow
-# token: ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+# GH_CONFIG_DIR zeigt auf dieses Verzeichnis.
+# Allgemeine Einstellungen (nicht host-spezifisch).
 
 editor: vi
-
-# Protokoll (https) – meistens korrekt als Default
-# api_protocol: https
