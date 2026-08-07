@@ -2,6 +2,12 @@
 #
 # Startet die OpenCode-Sandbox (Podman rootless, gehärtet).
 #
+# Editionen:
+#   base     — Python + core system packages
+#   web      — base + Node/TypeScript/Playwright
+#   embedded — base + ARM toolchains/Arduino/MicroPython
+#   full     — web + embedded (default)
+#
 # Ein Container für alle Use Cases: Coding, HIL-Tests, Offline, Proxy.
 # Modi werden per Flags gewählt, nicht per separatem Image.
 #
@@ -16,13 +22,16 @@
 #     .cbm_cache/           <- CBM-Graph-Datenbank (persistent)
 #
 # Flags:
+#   --edition <base|web|embedded|full>  Sandbox-Edition wählen (default: full)
 #   --use_proxy   Startet Squid-Egress-Allowlist-Proxy und nutzt ihn
 #   --offline     Kein Netzwerk (nur lokale Modelle)
 #   --hil_mode    USB-Passthrough für Oszi (scope0) und MCU (ttyUSB*, ttyACM*, ttyAMA*)
 #   --cbm_ui      Aktiviert CBM Graph-UI auf Port 9749
 #
 # Beispiele:
-#   scripts/start.sh ~/projects/kunde-x                        # Default (volle Netzanbindung)
+#   scripts/start.sh ~/projects/kunde-x                        # Default (full edition)
+#   scripts/start.sh ~/projects/kunde-x --edition web           # Web-only
+#   scripts/start.sh ~/projects/kunde-x --edition embedded      # Embedded-only
 #   scripts/start.sh ~/projects/kunde-x --use_proxy             # Mit Egress-Allowlist
 #   scripts/start.sh ~/projects/kunde-x --offline               # Ohne Netzwerk
 #   scripts/start.sh ~/projects/kunde-x --hil_mode              # HIL-Tests
@@ -37,9 +46,10 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 # --- Flags parsen -------------------------------------------------------------
 PROJECT_ROOT="${1:-}"
 if [[ -z "$PROJECT_ROOT" ]]; then
-  echo "Nutzung: $0 <projekt-root> [--use_proxy] [--offline] [--hil_mode] [--cbm_ui]" >&2
+  echo "Nutzung: $0 <projekt-root> [--edition <base|web|embedded|full>] [--use_proxy] [--offline] [--hil_mode] [--cbm_ui]" >&2
   echo "" >&2
   echo "  <projekt-root>  Pfad zum Projekt-Root (siehe init-project.sh)" >&2
+  echo "  --edition       Sandbox-Edition wählen (default: full)" >&2
   echo "  --use_proxy     Squid-Egress-Allowlist-Proxy starten und nutzen" >&2
   echo "  --offline       Kein Netzwerk (--network=none)" >&2
   echo "  --hil_mode      USB-Passthrough für Oszi + MCU-Geräte" >&2
@@ -48,6 +58,7 @@ if [[ -z "$PROJECT_ROOT" ]]; then
 fi
 shift
 
+EDITION="full"
 USE_PROXY=false
 OFFLINE=false
 HIL_MODE=false
@@ -55,13 +66,22 @@ CBM_UI=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --edition)
+      EDITION="${2:-}"
+      if [[ ! "$EDITION" =~ ^(base|web|embedded|full)$ ]]; then
+        echo "Fehler: Ungültige Edition: $EDITION" >&2
+        echo "  Erlaubt: base, web, embedded, full" >&2
+        exit 1
+      fi
+      shift 2
+      ;;
     --use_proxy) USE_PROXY=true; shift ;;
     --offline)   OFFLINE=true;   shift ;;
     --hil_mode)  HIL_MODE=true;  shift ;;
     --cbm_ui)    CBM_UI=true;    shift ;;
     *)
       echo "Unbekanntes Flag: $1" >&2
-      echo "Nutzung: $0 <projekt-root> [--use_proxy] [--offline] [--hil_mode] [--cbm_ui]" >&2
+      echo "Nutzung: $0 <projekt-root> [--edition <base|web|embedded|full>] [--use_proxy] [--offline] [--hil_mode] [--cbm_ui]" >&2
       exit 1
       ;;
   esac
@@ -248,6 +268,19 @@ fi
 # --- Container starten ---------------------------------------------------------
 CONTAINER_NAME="opencode-sandbox-$(basename "$PROJECT_ROOT")"
 
+SANDBOX_IMAGE="opencode-sandbox-${EDITION}"
+
+if ! podman image exists "${SANDBOX_IMAGE}" 2>/dev/null; then
+  echo "Fehler: Image '${SANDBOX_IMAGE}' nicht gefunden." >&2
+  echo "" >&2
+  echo "  Erst bauen mit:" >&2
+  echo "    ./scripts/build-all.sh ${EDITION}" >&2
+  echo "" >&2
+  echo "  Oder alle Editionen bauen mit:" >&2
+  echo "    ./scripts/build-all.sh all" >&2
+  exit 1
+fi
+
 exec podman run --rm -it \
   --replace \
   --name "$CONTAINER_NAME" \
@@ -264,10 +297,11 @@ exec podman run --rm -it \
   -e XDG_CONFIG_HOME="/home/dev/.config" \
   -e XDG_DATA_HOME="/home/dev/.local/share" \
   -e GIT_CONFIG_GLOBAL="/home/dev/.git_local/gitconfig" \
+  -e SANDBOX_EDITION="${EDITION}" \
   -v "${PROJECT_DIR}:/home/dev/project:Z" \
   -v "${CONFIG_DIR}:/home/dev/.config/opencode:Z" \
   -v "${DATA_DIR}:/home/dev/.local/share/opencode:Z" \
   -v "${SSH_DIR}:/home/dev/.ssh:Z,ro" \
   -v "${GIT_DIR}:/home/dev/.git_local:Z" \
   -v "${CBM_DIR}:/home/dev/.cache/codebase-memory-mcp:Z" \
-  opencode-sandbox
+  "${SANDBOX_IMAGE}"

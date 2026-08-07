@@ -1,8 +1,15 @@
-# OpenCode Sandbox – Single Container Setup (Ubuntu 24.04 / Podman rootless)
+# OpenCode Sandbox – Multi-Edition Container Setup (Ubuntu 24.04 / Podman rootless)
 
 Dieses Repo enthält ein direkt lauffähiges Grundgerüst für eine **einheitliche
-Entwicklungssandbox** – ein Container für alle Use Cases:
+Entwicklungssandbox** – mehrere Editionen für unterschiedliche Use Cases:
 
+**Editionen:**
+- **base**: Python + core system packages
+- **web**: base + Node/TypeScript/Playwright
+- **embedded**: base + ARM toolchains/Arduino/MicroPython
+- **full**: web + embedded (default)
+
+**Use Cases:**
 - **Coding**: TS/JS/HTML, Go, Python, C++, inkl. Cross-Compile für Embedded
 - **Arduino / ESP32**: Arduino CLI + AVR/ESP32-Toolchains (Arduino Framework)
 - **MicroPython**: mpremote, esptool für ESP32-Firmware-Entwicklung
@@ -15,7 +22,7 @@ Entwicklungssandbox** – ein Container für alle Use Cases:
 
 ```
 .
-├── Dockerfile                    <- Einheitliches Image (alle Use Cases)
+├── Dockerfile                    <- Multi-Stage: base, web, embedded, full
 ├── AGENTS.md                     <- Agent-spezifische Anweisungen
 ├── picoscope.md                  <- PicoScope 2204A Referenz (Library, ctypes, Pitfalls)
 ├── proxy/
@@ -25,8 +32,8 @@ Entwicklungssandbox** – ein Container für alle Use Cases:
 ├── udev/
 │   └── 99-hil.rules              <- udev-Regeln für HIL-Geräte (Oszi + MCU)
 ├── scripts/
-│   ├── start.sh                  <- Einheitliches Start-Skript
-│   ├── build-all.sh              <- Baut Sandbox + Proxy
+│   ├── start.sh                  <- Einheitliches Start-Skript (--edition flag)
+│   ├── build-all.sh              <- Baut Sandbox-Editionen + Proxy
 │   └── init-project.sh           <- Legt Projekt-Root-Struktur an
 ├── templates/
 │   ├── ssh_local/config
@@ -97,16 +104,19 @@ podman info --format '{{.Host.Security.Rootless}}'   # sollte "true" liefern
 
 ## 1. Image bauen
 
-Einmalig das einheitliche Sandbox-Image bauen:
+Einmalig die gewünschte Sandbox-Edition bauen:
 
 ```bash
 cd opencode-sandbox
-./scripts/build-all.sh
+./scripts/build-all.sh full     # oder: base, web, embedded, all
 ```
 
 Das baut:
-- `opencode-sandbox` – das Haupt-Image mit allen Toolchains, Runtimes und Bibliotheken
-- `oc-proxy` – optionaler Squid-Egress-Proxy (wird nur bei `--use_proxy` benötigt)
+- `opencode-sandbox-base` — Python + core system packages
+- `opencode-sandbox-web` — base + Node/TypeScript/Playwright
+- `opencode-sandbox-embedded` — base + ARM toolchains/Arduino/MicroPython
+- `opencode-sandbox-full` — web + embedded (default)
+- `oc-proxy` — optionaler Squid-Egress-Proxy (wird nur bei `--use_proxy` benötigt)
 
 ## 2. Einmalig: udev-Regeln für HIL-Geräte installieren
 
@@ -200,7 +210,16 @@ https://dein-token:ghp_xxxxx@github.com
 ## 4. Sandbox starten
 
 ```bash
-scripts/start.sh ~/projects/kunde-x            # Default: volles Netz
+scripts/start.sh ~/projects/kunde-x            # Default: full edition, volles Netz
+```
+
+**Edition wählen:**
+
+```bash
+scripts/start.sh ~/projects/kunde-x --edition web       # Web-only
+scripts/start.sh ~/projects/kunde-x --edition embedded  # Embedded-only
+scripts/start.sh ~/projects/kunde-x --edition base      # Minimal Python
+scripts/start.sh ~/projects/kunde-x --edition full      # Web + Embedded (default)
 ```
 
 | Flag-Kombination | Netzwerk | Proxy | Geräte | Anwendung |
@@ -215,8 +234,14 @@ scripts/start.sh ~/projects/kunde-x            # Default: volles Netz
 
 Beispiele:
 ```bash
-# Coding ohne Einschränkungen
+# Coding ohne Einschränkungen (full edition)
 scripts/start.sh ~/projects/kunde-x
+
+# Web-only edition
+scripts/start.sh ~/projects/kunde-x --edition web
+
+# Embedded-only edition mit HIL
+scripts/start.sh ~/projects/hil-tests --edition embedded --hil_mode
 
 # Mit Egress-Proxy (Allowlist)
 scripts/start.sh ~/projects/kunde-x --use_proxy
