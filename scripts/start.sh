@@ -143,13 +143,13 @@ if $USE_PROXY; then
   fi
   if ! podman container exists oc-proxy 2>/dev/null || ! podman inspect -f '{{.State.Running}}' oc-proxy 2>/dev/null | grep -q true; then
     echo "==> Starte oc-proxy Container ..."
-    podman run -d --replace --name oc-proxy --network=podman \
+    podman run -d --replace --name oc-proxy --network=pasta \
       -p 127.0.0.1:3128:3128 oc-proxy
   fi
 fi
 
 # --- Netzwerk-Optionen ---------------------------------------------------------
-NETWORK_ARGS=(--network=slirp4netns)
+NETWORK_ARGS=(--network=pasta)
 PROXY_ENV=()
 if $USE_PROXY; then
   PROXY_ENV=(
@@ -268,8 +268,6 @@ exec podman run --rm -it \
   -v "${CONFIG_DIR}:/home/dev/.config/opencode:Z" \
   -v "${DATA_DIR}:/home/dev/.local/share/opencode:Z" \
   -v "${SSH_DIR}:/home/dev/.ssh:Z,ro" \
-  -v "${GIT_DIR}:/home/dev/.git_local:Z,ro" \
-  -v "${GIT_DIR}/gh-cli:/home/dev/.git_local/gh-cli:Z" \
-  -v "${GIT_DIR}/glab-cli:/home/dev/.git_local/glab-cli:Z" \
+  -v "${GIT_DIR}:/home/dev/.git_local:Z" \
   -v "${CBM_DIR}:/home/dev/.cache/codebase-memory-mcp:Z" \
   opencode-sandbox
