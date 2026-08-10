@@ -582,7 +582,7 @@ main() {
   echo ""
   echo "Nächste Schritte:"
   echo "  1. Podman installieren (falls nicht vorhanden):"
-  echo "     sudo apt-get install -y podman slirp4netns fuse-overlayfs"
+  echo "     sudo apt-get install -y podman pasta fuse-overlayfs"
   echo ""
   echo "  2. Images bauen:"
   echo "     ${INSTALL_PATH}/scripts/build-all.sh full"
