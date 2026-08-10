@@ -54,7 +54,7 @@ dist/
 
 ```bash
 sudo apt-get update
-sudo apt-get install -y podman paste fuse-overlayfs
+sudo apt-get install -y podman pasta fuse-overlayfs
 
 # Podman rootless prüfen
 podman info --format '{{.Host.Security.Rootless}}'   # sollte "true" liefern
@@ -109,4 +109,4 @@ opencode
 
 ## Lizenz & Herkunft
 
-Teil von [opencode-sandbox](https://github.com/DeusData/opencode-sandbox).
+Teil von [opencode-sandbox](https://github.com/shredingerlabs/oc_sandbox).
