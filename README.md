@@ -17,6 +17,7 @@ Entwicklungssandbox** – mehrere Editionen für unterschiedliche Use Cases:
 - **Browser-Automatisierung**: Chromium + Firefox via Playwright (für OpenCode-Browser-Tooling)
 - **Code-Intelligence**: codebase-memory-mcp (Knowledge-Graph-Indexing, auto-konfiguriert für OpenCode, UI auf Port 9749 mit `--cbm_ui` — [Referenz](https://github.com/DeusData/codebase-memory-mcp))
 - **Proxy**: Squid-Egress-Allowlist (optional, per `--use_proxy`)
+- **TUI**: Terminal-UI für interaktive Sandbox-Steuerung (`start-tui.sh`)
 
 ## Repository-Struktur
 
@@ -24,7 +25,19 @@ Entwicklungssandbox** – mehrere Editionen für unterschiedliche Use Cases:
 .
 ├── Dockerfile                    <- Multi-Stage: base, web, embedded, full
 ├── AGENTS.md                     <- Agent-spezifische Anweisungen
+├── CONTEXT.md                    <- Domain-Vokabular & Kontext
 ├── picoscope.md                  <- PicoScope 2204A Referenz (Library, ctypes, Pitfalls)
+├── dist/                         <- Produktions-Release (wenn gebaut)
+│   ├── Dockerfile
+│   ├── scripts/
+│   ├── proxy/
+│   ├── udev/
+│   ├── templates/
+│   └── README.md                 <- Kurzanleitung für Produktion
+├── docs/
+│   ├── adr/                      <- Architecture Decision Records
+│   ├── agents/                   <- Agent-Dokumentation
+│   └── research/                 <- Research-Notizen
 ├── proxy/
 │   ├── Dockerfile                <- Separates Squid-Proxy-Image
 │   ├── squid.conf
@@ -33,9 +46,13 @@ Entwicklungssandbox** – mehrere Editionen für unterschiedliche Use Cases:
 │   └── 99-hil.rules              <- udev-Regeln für HIL-Geräte (Oszi + MCU)
 ├── scripts/
 │   ├── start.sh                  <- Einheitliches Start-Skript (--edition flag)
+│   ├── start-tui.sh              <- TUI-Variante des Start-Skripts
 │   ├── build-all.sh              <- Baut Sandbox-Editionen + Proxy
 │   ├── init-project.sh           <- Legt Projekt-Root-Struktur an
-│   └── create-release.sh         <- Erstellt GitHub Releases aus dist/ Ordner
+│   ├── create-release.sh         <- Erstellt GitHub Releases aus dist/ Ordner
+│   ├── install.sh                <- Installationsskript
+│   ├── RELEASE_README.md         <- Release-Prozess-Dokumentation
+│   └── USAGE_EXAMPLES.md         <- Verwendungsbeispiele
 ├── templates/
 │   ├── ssh_local/config
 │   ├── git_local/
@@ -44,19 +61,27 @@ Entwicklungssandbox** – mehrere Editionen für unterschiedliche Use Cases:
 │   │   ├── gh-cli/config.yml
 │   │   └── glab-cli/config.yml
 │   ├── opencode/
-│   │   ├── opencode.json         <- OpenCode-Basisconfig (wird kopiert)
+│   │   ├── opencode-gwdg.json    <- GWDG-spezifische Config
+│   │   ├── opencode-basic.json   <- Minimale Config
 │   │   ├── AGENTS.md             <- Agent-Config (wird kopiert)
-│   │   ├── AGENTS_LongVersion.md
-│   │   ├── README_MDL.md
 │   │   └── skills/               <- Skill-Vorlagen
-│   └── scripts/
-│       ├── afkLoop.sh            <- Agent-Loop-Skript (Ticket-Queue)
-│       ├── LoopPrompt.md         <- Prompt-Vorlage für afkLoop
-│       └── README.md
+│   ├── scripts/
+│   │   ├── afkLoop.sh            <- Agent-Loop-Skript (Ticket-Queue)
+│   │   ├── LoopPrompt.md         <- Prompt-Vorlage für afkLoop
+│   │   └── README.md
+│   └── docs/humans/
+│       ├── GWDG_MODEL_GUIDE.md
+│       └── HOWTO_WAYFINDER_SKILL.md
+├── tests/                        <- Test-Suite
+├── specs/                        <- Spezifikationen
 ├── .devcontainer/
 │   └── devcontainer.json         <- VS Code Devcontainer-Konfiguration
 └── README.md
 ```
+
+**Hinweis:** Der `dist/` Ordner enthält die produktionsreifen Dateien für Releases.
+Alle anderen Ordner (`docs/`, `tests/`, `specs/`, `scripts/install.sh`, etc.) sind
+nur für die Entwicklung und werden nicht in Releases veröffentlicht.
 
 ## Projekt-Root-Struktur
 
@@ -118,6 +143,10 @@ Das baut:
 - `opencode-sandbox-embedded` — base + ARM toolchains/Arduino/MicroPython
 - `opencode-sandbox-full` — web + embedded (default)
 - `oc-proxy` — optionaler Squid-Egress-Proxy (wird nur bei `--use_proxy` benötigt)
+
+**Hinweis:** Nach dem Build werden die Produktionsdateien in den `dist/` Ordner kopiert.
+Dieser enthält nur die für den Betrieb notwendigen Dateien – ohne Entwicklungs-Artefakte
+wie Tests, Spezifikationen oder Installations-Skripte.
 
 ## 2. Einmalig: udev-Regeln für HIL-Geräte installieren
 
@@ -420,5 +449,8 @@ Das Skript:
 - Erstellt Draft-Release auf GitHub
 - Bereinigt alte Release-Branches automatisch
 - Führt dich durch den Veröffentlichungsprozess
+
+**Dist-Ordner:** Der `dist/` Ordner enthält die produktionsreifen Dateien mit eigener
+`README.md` für Endanwender. Bei einem Release wird nur dieser Ordner veröffentlicht.
 
 Siehe `scripts/RELEASE_README.md` für detaillierte Dokumentation und `scripts/USAGE_EXAMPLES.md` für Beispiele.
