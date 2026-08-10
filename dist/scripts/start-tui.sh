@@ -226,18 +226,48 @@ detect_project_name() {
     basename "$project_path"
 }
 
+parse_start_capabilities() {
+    local start_script="${1:-${REPO_ROOT}/scripts/start.sh}"
+
+    if [[ ! -f "$start_script" ]]; then
+        echo '{"editions":["full"],"flags":{"use_proxy":"--use_proxy","offline":"--offline","hil_mode":"--hil_mode","cbm_ui":"--cbm_ui"}}'
+        return 1
+    fi
+
+    local editions_json
+    editions_json=$(grep -oP '\^\([a-z|]+\)\$' "$start_script" 2>/dev/null | head -1 | sed 's/\^(//;s/)\$//' | tr '|' '\n' | jq -Rn '[inputs | select(length > 0)]' 2>/dev/null)
+    if [[ -z "$editions_json" || "$editions_json" == "[]" ]]; then
+        editions_json='["full"]'
+    fi
+
+    local flags_json
+    flags_json=$(grep -oP -- '--\w+\)\s+\w+=true' "$start_script" 2>/dev/null | sed 's/).*true.*//' | sed 's/^--//' | while IFS= read -r name; do
+        printf '%s\t--%s\n' "$name" "$name"
+    done | jq -Rn '[inputs | select(length > 0) | split("\t") | {(.[0]): .[1]}] | add' 2>/dev/null)
+    if [[ -z "$flags_json" || "$flags_json" == "null" ]]; then
+        flags_json='{"use_proxy":"--use_proxy","offline":"--offline","hil_mode":"--hil_mode","cbm_ui":"--cbm_ui"}'
+    fi
+
+    jq -n --argjson editions "$editions_json" --argjson flags "$flags_json" \
+        '{editions: $editions, flags: $flags}'
+}
+
 detect_project_config() {
     local project_path="$1"
     local start_script="${project_path}/.opencode_sandbox/scripts/start.sh"
 
     if [[ -f "$start_script" ]]; then
-        local edition mode
+        local capabilities
+        capabilities=$(parse_start_capabilities "$start_script" 2>/dev/null || echo '{"editions":["full"],"flags":{}}')
+
+        local edition
         edition=$(grep -oP '(?<=--edition )\w+' "$start_script" 2>/dev/null | tail -1 || echo "full")
+
+        local mode="standard"
         if grep -q "\-\-hil_mode" "$start_script" 2>/dev/null; then
             mode="hil_mode"
-        else
-            mode="standard"
         fi
+
         echo "${mode}/${edition}"
     else
         echo "unknown"
