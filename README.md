@@ -34,7 +34,8 @@ Entwicklungssandbox** – mehrere Editionen für unterschiedliche Use Cases:
 ├── scripts/
 │   ├── start.sh                  <- Einheitliches Start-Skript (--edition flag)
 │   ├── build-all.sh              <- Baut Sandbox-Editionen + Proxy
-│   └── init-project.sh           <- Legt Projekt-Root-Struktur an
+│   ├── init-project.sh           <- Legt Projekt-Root-Struktur an
+│   └── create-release.sh         <- Erstellt GitHub Releases aus dist/ Ordner
 ├── templates/
 │   ├── ssh_local/config
 │   ├── git_local/
@@ -391,3 +392,33 @@ echo "$(id -un):20:1" | sudo tee -a /etc/subgid
 `scripts/start.sh --hil_mode` versucht automatisch Option (a) bzw. (b), wenn
 `sudo` mit `NOPASSWD` konfiguriert ist. Schlägt der Auto-Fix fehlt, erscheint
 eine Meldung mit den manuellen Schritten.
+
+## Releases
+
+Erstelle GitHub Releases automatisch aus dem `dist/` Ordner mit `create-release.sh`:
+
+```bash
+# Interaktiver Modus
+./scripts/create-release.sh
+
+# Direkter Modus
+./scripts/create-release.sh v1.0.0 "Erste Version" "Initiale stabile Version" false
+
+# Pre-Release
+./scripts/create-release.sh v2.0.0-beta "Beta Release" "Testversion für Feedback" true
+```
+
+**Parameter:**
+- `$1` - Version (Format: `v1.2.3`)
+- `$2` - Titel (optional)
+- `$3` - Release-Notes (optional, mehrzeilig)
+- `$4` - Pre-Release (true/false)
+
+Das Skript:
+- Validiert Semantic Versioning
+- Erstellt cleanen Orphan-Branch (nur dist/ Inhalte)
+- Erstellt Draft-Release auf GitHub
+- Bereinigt alte Release-Branches automatisch
+- Führt dich durch den Veröffentlichungsprozess
+
+Siehe `scripts/RELEASE_README.md` für detaillierte Dokumentation und `scripts/USAGE_EXAMPLES.md` für Beispiele.
