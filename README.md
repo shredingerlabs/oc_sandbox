@@ -15,7 +15,7 @@ Entwicklungssandbox** – mehrere Editionen für unterschiedliche Use Cases:
 - **MicroPython**: mpremote, esptool für ESP32-Firmware-Entwicklung
 - **HIL-Tests**: USB-Oszilloskop (Picoscope 2204A) + Mikrocontroller-Geräte-Passthrough
 - **Browser-Automatisierung**: Chromium + Firefox via Playwright (für OpenCode-Browser-Tooling)
-- **Code-Intelligence**: codebase-memory-mcp (Knowledge-Graph-Indexing, auto-konfiguriert für OpenCode)
+- **Code-Intelligence**: codebase-memory-mcp (Knowledge-Graph-Indexing, auto-konfiguriert für OpenCode, UI auf Port 9749 mit `--cbm_ui` — [Referenz](https://github.com/DeusData/codebase-memory-mcp))
 - **Proxy**: Squid-Egress-Allowlist (optional, per `--use_proxy`)
 
 ## Repository-Struktur
@@ -94,7 +94,7 @@ Siehe [Voraussetzungen](#voraussetzungen) und [Projekt-Root einrichten](#3-proje
 
 ```bash
 sudo apt-get update
-sudo apt-get install -y podman slirp4netns fuse-overlayfs
+sudo apt-get install -y podman paste fuse-overlayfs
 ```
 
 Podman rootless prüfen:
@@ -224,13 +224,13 @@ scripts/start.sh ~/projects/kunde-x --edition full      # Web + Embedded (defaul
 
 | Flag-Kombination | Netzwerk | Proxy | Geräte | Anwendung |
 |---|---|---|---|---|
-| *(keine)* | slirp4netns | nein | – | Coding, volle Netzanbindung |
-| `--use_proxy` | slirp4netns | Squid-Allowlist | – | Restriktiver Netz-Zugriff |
+| *(keine)* | pasta | nein | – | Coding, volle Netzanbindung |
+| `--use_proxy` | pasta | Squid-Allowlist | – | Restriktiver Netz-Zugriff |
 | `--offline` | none | nein | – | Air-Gapped, nur lokale Modelle |
-| `--hil_mode` | slirp4netns | nein | Oszi + MCU (ttyUSB* etc.) | HIL-Tests |
-| `--use_proxy --hil_mode` | slirp4netns | Squid-Allowlist | Oszi + MCU | HIL mit Restricted-Net |
-| `--cbm_ui` | slirp4netns | nein | – | CBM Knowledge-Graph-UI (Port 9749) |
-| `--use_proxy --cbm_ui` | slirp4netns | Squid-Allowlist | – | Proxy + Graph-UI |
+| `--hil_mode` | pasta | nein | Oszi + MCU (ttyUSB* etc.) | HIL-Tests |
+| `--use_proxy --hil_mode` | pasta | Squid-Allowlist | Oszi + MCU | HIL mit Restricted-Net |
+| `--cbm_ui` | pasta | nein | – | CBM Knowledge-Graph-UI (Port 9749) |
+| `--use_proxy --cbm_ui` | pasta | Squid-Allowlist | – | Proxy + Graph-UI |
 
 Beispiele:
 ```bash
@@ -259,8 +259,7 @@ scripts/start.sh ~/projects/hil-tests --use_proxy --hil_mode
 scripts/start.sh ~/projects/kunde-x --cbm_ui
 ```
 
-> **Hinweis zu `--cbm_ui`:** Die Graph-UI benötigt Netzwerkzugriff und funktioniert
-> daher nicht mit `--offline` (network=none). In allen anderen Modi kombinierbar.
+> **Hinweis zu `--cbm_ui`:** Der `codebase-memory-mcp` Dienst startet im Hintergrund mit `autoindex: true` und bietet eine Web-UI auf Port 9749. Die Graph-UI benötigt Netzwerkzugriff und funktioniert daher nicht mit `--offline` (network=none). In allen anderen Modi kombinierbar. Siehe [codebase-memory-mcp](https://github.com/DeusData/codebase-memory-mcp).
 
 > **Hinweis zu `--hil_mode` und USB-Sicherheit:**
 > Das Skript ermittelt zur Laufzeit den realen Pfad von `/dev/scope0`
