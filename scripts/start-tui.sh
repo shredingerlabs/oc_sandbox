@@ -3,7 +3,7 @@
 # start-tui.sh — Interactive TUI for opencode-sandbox project management
 #
 # Merges tui_demo.sh portable TUI framework with project menu logic.
-# Auto-installs gum (with checksum verification), falls back to fzf/whiptail/dialog/plain.
+# Uses gum if available (installed by install.sh), falls back to fzf/whiptail/dialog/plain.
 #
 # Features:
 #   - Display existing projects (name, mode/edition, last_used, running status)
@@ -22,8 +22,7 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 # --- Configuration -------------------------------------------------------------
 
-GUM_VERSION="${GUM_VERSION:-0.17.0}"
-DEFAULT_INSTALL_PATH=$HOME/.opencode_sandbox""
+DEFAULT_INSTALL_PATH=$HOME/.opencode_sandbox
 GUM_BIN="${DEFAULT_INSTALL_PATH}/gum"
 
 PROJECT_REGISTRY_DIR="${HOME}/.config/opencode-sandbox"
@@ -38,38 +37,7 @@ log_info()  { printf '\033[1;34m[info]\033[0m %s\n'  "$*" >&2; }
 log_warn()  { printf '\033[1;33m[warn]\033[0m %s\n'  "$*" >&2; }
 log_error() { printf '\033[1;31m[error]\033[0m %s\n' "$*" >&2; }
 
-# --- Platform Detection --------------------------------------------------------
-
-detect_platform() {
-    local kernel arch
-
-    kernel=$(uname -s)
-    arch=$(uname -m)
-
-    case "$kernel" in
-        Linux*)  PLATFORM_OS="Linux" ;;
-        Darwin*) PLATFORM_OS="Darwin" ;;
-        MINGW*|MSYS*|CYGWIN*)
-            log_error "Natives Windows ohne WSL wird nicht unterstützt."
-            return 1
-            ;;
-        *)
-            log_error "Nicht unterstütztes Betriebssystem: $kernel"
-            return 1
-            ;;
-    esac
-
-    case "$arch" in
-        x86_64|amd64)   PLATFORM_ARCH="x86_64" ;;
-        arm64|aarch64)  PLATFORM_ARCH="arm64" ;;
-        *)
-            log_error "Nicht unterstützte Architektur: $arch"
-            return 1
-            ;;
-    esac
-}
-
-# --- gum Installation ----------------------------------------------------------
+# --- TUI Backend Detection -----------------------------------------------------
 
 gum_available() {
     if command -v gum &>/dev/null; then
@@ -82,95 +50,14 @@ gum_available() {
     return 1
 }
 
-install_gum() {
-    local tmpdir tarball_name url checksums_url sha_cmd expected actual
-
-    detect_platform || return 1
-
-    tarball_name="gum_${GUM_VERSION}_${PLATFORM_OS}_${PLATFORM_ARCH}.tar.gz"
-    url="https://github.com/charmbracelet/gum/releases/download/v${GUM_VERSION}/${tarball_name}"
-    checksums_url="https://github.com/charmbracelet/gum/releases/download/v${GUM_VERSION}/checksums.txt"
-
-    if ! command -v curl &>/dev/null; then
-        log_error "curl wird für die Installation benötigt, ist aber nicht vorhanden."
-        return 1
-    fi
-
-    if command -v sha256sum &>/dev/null; then
-        sha_cmd="sha256sum"
-    elif command -v shasum &>/dev/null; then
-        sha_cmd="shasum -a 256"
-    else
-        log_warn "Kein sha256sum/shasum gefunden – Checksum-Prüfung wird übersprungen."
-        sha_cmd=""
-    fi
-
-    tmpdir=$(mktemp -d)
-
-    cleanup() {
-        rm -rf "$tmpdir"
-    }
-    trap cleanup EXIT
-
-    log_info "Lade gum v${GUM_VERSION} für ${PLATFORM_OS}/${PLATFORM_ARCH} herunter ..."
-    if ! curl -fsSL "$url" -o "$tmpdir/$tarball_name"; then
-        log_error "Download fehlgeschlagen: $url"
-        return 1
-    fi
-
-    if [[ -n "$sha_cmd" ]]; then
-        log_info "Verifiziere Checksum ..."
-        if ! curl -fsSL "$checksums_url" -o "$tmpdir/checksums.txt"; then
-            log_warn "checksums.txt konnte nicht geladen werden – Prüfung wird übersprungen."
-        else
-            expected=$(grep " ${tarball_name}\$" "$tmpdir/checksums.txt" | awk '{print $1}')
-            if [[ -z "$expected" ]]; then
-                log_warn "Kein Checksum-Eintrag für ${tarball_name} gefunden – Prüfung wird übersprungen."
-            else
-                actual=$($sha_cmd "$tmpdir/$tarball_name" | awk '{print $1}')
-                if [[ "$expected" != "$actual" ]]; then
-                    log_error "Checksum-Mismatch! Erwartet: $expected, erhalten: $actual"
-                    return 1
-                fi
-                log_info "Checksum OK."
-            fi
-        fi
-    fi
-
-    log_info "Entpacke und installiere nach ${DEFAULT_INSTALL_PATH} ..."
-    tar -xzf "$tmpdir/$tarball_name" -C "$tmpdir"
-
-    local extracted_bin
-    extracted_bin=$(find "$tmpdir" -type f -name gum | head -n1)
-    if [[ -z "$extracted_bin" ]]; then
-        log_error "Binary 'gum' im Archiv nicht gefunden."
-        return 1
-    fi
-
-    mkdir -p "$DEFAULT_INSTALL_PATH"
-    cp "$extracted_bin" "$GUM_BIN"
-    chmod +x "$GUM_BIN"
-
-    log_info "gum erfolgreich installiert: $GUM_BIN"
-    trap - EXIT
-}
-
-# --- TUI Backend Detection -----------------------------------------------------
-
 ensure_tui() {
-    if [[ "${NO_NETWORK:-0}" != "1" ]]; then
-        if gum_available; then
-            TUI_BACKEND="gum"
-            return 0
-        fi
-
-        log_info "gum nicht gefunden – versuche Installation ..."
-        if install_gum && gum_available; then
-            TUI_BACKEND="gum"
-            return 0
-        fi
-        log_warn "gum-Installation fehlgeschlagen, weiche auf Fallback aus."
+    if gum_available; then
+        TUI_BACKEND="gum"
+        log_info "Verwende TUI-Backend: gum"
+        return 0
     fi
+
+    log_info "gum nicht gefunden – verwende Fallback-Backend."
 
     if command -v fzf &>/dev/null; then
         TUI_BACKEND="fzf"
