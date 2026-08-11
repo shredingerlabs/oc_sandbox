@@ -1,0 +1,6 @@
+# Projekt-lokale glab-Konfiguration (.git_local/glab-cli/config.yml)
+#
+# GLAB_CONFIG_DIR zeigt auf dieses Verzeichnis.
+# Allgemeine Einstellungen (nicht host-spezifisch).
+
+editor: vi
