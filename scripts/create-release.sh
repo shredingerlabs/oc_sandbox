@@ -86,24 +86,50 @@ check_existing_tags() {
 cleanup_old_branches() {
     local current_branch=$(git branch --show-current)
     
-    # Get all release-dist branches, excluding current one
+    # Get all local release-dist branches, excluding current one
     local branches=$(git branch --list 'release-dist-*' 2>/dev/null | grep -v "$current_branch" || true)
     
     if [ -n "$branches" ]; then
         local branch_count=$(echo "$branches" | wc -l)
-        warn "Found $branch_count old release branch(es):"
+        warn "Found $branch_count old local release branch(es):"
         echo "$branches"
         echo ""
         
-        read -p "Clean up old release branches? (y/N): " cleanup
+        read -p "Clean up local old release branches? (y/N): " cleanup
         if [[ "$cleanup" =~ ^[Yy]$ ]]; then
             while IFS= read -r branch; do
                 if [ -n "$branch" ]; then
-                    echo "Deleting branch: $branch"
+                    echo "Deleting local branch: $branch"
                     git branch -D "$branch" 2>/dev/null || warn "Failed to delete $branch"
                 fi
             done <<< "$branches"
-            success "Cleaned up old branches"
+            success "Cleaned up old local branches"
+        fi
+    fi
+    
+    # Show existing remote temp branches (manual cleanup required)
+    local remote_branches=$(git branch -r 2>/dev/null | grep 'release-dist-' || true)
+    if [ -n "$remote_branches" ]; then
+        echo ""
+        warn "The following remote release branches exist (manual cleanup required):"
+        echo "$remote_branches"
+        echo ""
+        echo "To remove them manually:"
+        echo "  git push origin --delete <branch-name>"
+    fi
+}
+
+# Cleanup on exit
+cleanup_on_exit() {
+    local exit_code=$?
+    if [ $exit_code -ne 0 ]; then
+        warn "Script exited with error code: $exit_code"
+        local current_branch=$(git branch --show-current 2>/dev/null || echo "")
+        if [ -n "${temp_branch:-}" ] && [ "$current_branch" = "$temp_branch" ]; then
+            echo ""
+            warn "You're currently on temporary branch '$temp_branch'"
+            echo "To return to '${original_branch:-main}': git checkout ${original_branch:-main}"
+            echo "To delete this branch: git branch -D $temp_branch"
         fi
     fi
 }
@@ -111,6 +137,10 @@ cleanup_old_branches() {
 # Main execution
 main() {
     cd "$PROJECT_ROOT"
+    
+    # Store original branch before any git operations
+    local original_branch
+    original_branch=$(git branch --show-current)
     
     # Pre-flight checks
     check_gh_auth
@@ -173,6 +203,9 @@ main() {
         fi
     fi
     
+    # Setup cleanup trap
+    trap cleanup_on_exit EXIT
+    
     # Clean up old branches first
     cleanup_old_branches
     
@@ -195,12 +228,23 @@ main() {
     success "Creating temporary orphan branch: $temp_branch"
     
     git checkout --orphan "$temp_branch"
-    git rm -rf . 2>/dev/null || true
+    git rm -rf .
     
-    # Copy dist contents from project root
-    cp -r "${PROJECT_ROOT}/dist/"* . 2>/dev/null || true
-    cp -r "${PROJECT_ROOT}/dist/".* . 2>/dev/null || true
-    rm -rf dist 2>/dev/null || true
+    # Copy dist contents with proper error handling - FAIL LOUDLY
+    success "Copying dist/ contents to release branch"
+    if ! cp -r dist/* .; then
+        error "Failed to copy dist/ contents"
+    fi
+    
+    # Handle hidden files in dist (excluding . and ..)
+    if [ -d dist ] && [ "$(ls -A dist)" ]; then
+        find dist -maxdepth 1 -name '.*' -not -name '.' -not -name '..' -exec cp -r {} . \;
+    fi
+    
+    # Verify we have content before proceeding
+    if [ -z "$(ls -A)" ]; then
+        error "No files were copied from dist/ folder. Release branch is empty."
+    fi
     
     git add .
     
@@ -232,13 +276,19 @@ Release generated from dist/ contents."
     success "Creating GitHub release..."
     local release_url=$(gh release create "$version" "${release_flags[@]}")
     
-    # Return to original branch
-    local original_branch=$(git rev-parse --abbrev-ref HEAD@{1} 2>/dev/null || echo "main")
-    git checkout "$original_branch"
+    # Return to original branch with better error handling
+    success "Returning to original branch: $original_branch"
+    if ! git checkout "$original_branch"; then
+        error "Failed to return to original branch '$original_branch'. You're currently on branch '$temp_branch'"
+    fi
     
     # Clean up temporary branch locally
-    git branch -D "$temp_branch" 2>/dev/null || true
-    success "Cleaned up temporary branch"
+    success "Cleaning up temporary branch: $temp_branch"
+    if ! git branch -D "$temp_branch" 2>/dev/null; then
+        warn "Failed to delete local temporary branch '$temp_branch'. Manual cleanup may be needed."
+    else
+        success "Cleaned up temporary branch"
+    fi
     
     # Final summary
     echo ""
