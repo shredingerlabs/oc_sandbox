@@ -12,7 +12,7 @@ dist/
 ├── scripts/
 │   ├── start.sh                  <- Einheitliches Start-Skript (--edition flag)
 │   ├── start-tui.sh              <- TUI-Variante des Start-Skripts
-│   ├── build-all.sh              <- Baut Sandbox-Editionen + Proxy
+│   ├── build-container.sh        <- Baut Sandbox-Editionen + Proxy
 │   └── init-project.sh           <- Legt Projekt-Root-Struktur an
 ├── proxy/
 │   ├── Dockerfile                <- Separates Squid-Proxy-Image
@@ -71,7 +71,7 @@ sudo udevadm trigger
 ### 3. Images bauen
 
 ```bash
-./scripts/build-all.sh full
+./scripts/build-container.sh full
 ```
 
 ### 4. Projekt-Root einrichten

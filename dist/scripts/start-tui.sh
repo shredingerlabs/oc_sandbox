@@ -894,9 +894,35 @@ show_whiptail_menu() {
 
 handle_build_container() {
     clear
-    ui_message "🔨 Re-/Build Container" "This feature is not yet implemented."
+    ui_message "🔨 Re-/Build Container" ""
     echo ""
-    echo "In the final version, this will navigate to the build menu."
+    echo "This will execute the container build script."
+    echo ""
+    
+    local build_script="${SCRIPT_DIR}/build-container.sh"
+    
+    if [[ ! -x "$build_script" ]]; then
+        ui_message "Error" "build-container.sh not found or not executable at: $build_script"
+        echo ""
+        read -p "Press Enter to continue..."
+        return 1
+    fi
+    
+    echo "Executing: $build_script"
+    echo ""
+    
+    if [[ -n "${OPENCODE_DRY_RUN:-}" ]]; then
+        echo "[DRY RUN] Would execute: $build_script"
+        ui_message "Dry Run Complete" "In production mode, this would build the containers"
+    else
+        if "$build_script"; then
+            ui_message "Success" "Container build completed successfully"
+        else
+            ui_message "Error" "Container build failed"
+            return 1
+        fi
+    fi
+    
     echo ""
     read -p "Press Enter to continue..."
 }

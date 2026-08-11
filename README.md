@@ -47,7 +47,7 @@ Entwicklungssandbox** – mehrere Editionen für unterschiedliche Use Cases:
 ├── scripts/
 │   ├── start.sh                  <- Einheitliches Start-Skript (--edition flag)
 │   ├── start-tui.sh              <- TUI-Variante des Start-Skripts
-│   ├── build-all.sh              <- Baut Sandbox-Editionen + Proxy
+│   ├── build-container.sh        <- Baut Sandbox-Editionen + Proxy
 │   ├── init-project.sh           <- Legt Projekt-Root-Struktur an
 │   ├── create-release.sh         <- Erstellt GitHub Releases aus dist/ Ordner
 │   ├── install.sh                <- Installationsskript
@@ -134,7 +134,7 @@ Einmalig die gewünschte Sandbox-Edition bauen:
 
 ```bash
 cd opencode-sandbox
-./scripts/build-all.sh full     # oder: base, web, embedded, all
+./scripts/build-container.sh full     # oder: base, web, embedded, all
 ```
 
 Das baut:

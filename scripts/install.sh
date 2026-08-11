@@ -511,7 +511,7 @@ validate_installation() {
   # Prüfe wichtige Dateien
   local required_files=(
     "scripts/start.sh"
-    "scripts/build-all.sh"
+    "scripts/build-container.sh"
     "scripts/init-project.sh"
     "Dockerfile"
   )
@@ -729,7 +729,7 @@ main() {
   echo "     sudo apt-get install -y podman pasta fuse-overlayfs"
   echo ""
   echo "  2. Images bauen:"
-  echo "     ${INSTALL_PATH}/scripts/build-all.sh full"
+  echo "     ${INSTALL_PATH}/scripts/build-container.sh full"
   echo ""
   echo "  3. Projekt initialisieren:"
   echo "     ${INSTALL_PATH}/scripts/init-project.sh ~/projects/dein-projekt"
@@ -744,7 +744,7 @@ main() {
     echo ""
     echo "Symlinks erstellt in \$HOME/.local/bin/."
     echo "Sie können die Skripte jetzt von überall aufrufen:"
-    echo "  build-all.sh"
+    echo "  build-container.sh"
     echo "  init-project.sh"
     echo "  start.sh"
   fi
