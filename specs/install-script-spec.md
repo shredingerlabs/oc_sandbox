@@ -154,7 +154,7 @@ Create a downloadable install script and bash one-liner that automates the entir
 - Edge case testing (missing tools, network failures, permission issues)
 
 **Prior Art**
-- Follow existing shell script patterns in codebase (start.sh, init-project.sh, build-all.sh)
+- Follow existing shell script patterns in codebase (start.sh, init-project.sh, build-container.sh)
 - Mirror error handling and validation approaches from current scripts
 - Use consistent exit codes and messaging style
 

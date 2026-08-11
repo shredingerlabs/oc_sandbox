@@ -71,7 +71,7 @@ RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
 
 RUN npm install -g npm@12.0.2 \
     && npm config set allow-scripts=unrs-resolver --location=user \
-    && npm install -g typescript jest playwright pnpm corepack \
+    && npm install -g typescript jest playwright pnpm corepack better-sqlite3 \
     && npm update -g \
     && npx playwright install-deps \
     && npx playwright install chromium firefox
