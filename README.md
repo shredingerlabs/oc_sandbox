@@ -426,27 +426,41 @@ eine Meldung mit den manuellen Schritten.
 
 Erstelle GitHub Releases automatisch aus dem `dist/` Ordner mit `create-release.sh`:
 
+**Flag-basierter Modus:**
 ```bash
-# Interaktiver Modus
-./scripts/create-release.sh
+# Veröffentlichtes Release
+./scripts/create-release.sh --version v1.0.0
 
-# Direkter Modus
-./scripts/create-release.sh v1.0.0 "Erste Version" "Initiale stabile Version" false
+# Veröffentlichtes Release mit benutzerdefiniertem Titel
+./scripts/create-release.sh --version v1.0.0 --title "Erste Version"
 
 # Pre-Release
-./scripts/create-release.sh v2.0.0-beta "Beta Release" "Testversion für Feedback" true
+./scripts/create-release.sh --version v2.0.0-beta --pre-release
+
+# Draft für Überprüfung
+./scripts/create-release.sh --version v1.0.0 --draft
+
+# Pre-Release als Draft
+./scripts/create-release.sh --version v2.0.0-beta --pre-release --draft
 ```
 
-**Parameter:**
-- `$1` - Version (Format: `v1.2.3`)
-- `$2` - Titel (optional)
-- `$3` - Release-Notes (optional, mehrzeilig)
-- `$4` - Pre-Release (true/false)
+**Interaktiver Modus:**
+```bash
+./scripts/create-release.sh
+# Folge den Prompts für Version, Titel, Release Notes, Pre-Release und Draft
+```
+
+**Flags:**
+- `--version VERSION` - Version-Tag (erforderlich, Format: v1.2.3)
+- `--title TITLE` - Releasetitel (optional, Standard: "Release v1.0.0")
+- `--pre-release` - Als Pre-Release markieren (Presence=true)
+- `--draft` - Als Draft erstellen (Presence=true)
+- `--help, -h` - Nutzungsinformationen anzeigen
 
 Das Skript:
 - Validiert Semantic Versioning
 - Erstellt cleanen Orphan-Branch (nur dist/ Inhalte)
-- Erstellt Draft-Release auf GitHub
+- Erstellt Releases auf GitHub (Standard: veröffentlicht, optional: Draft)
 - Bereinigt alte Release-Branches automatisch
 - Führt dich durch den Veröffentlichungsprozess
 

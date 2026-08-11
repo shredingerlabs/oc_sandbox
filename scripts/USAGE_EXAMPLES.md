@@ -6,63 +6,124 @@
 # Navigate to project root
 cd /path/to/project
 
-# Run the script
-./scripts/create-release.sh v1.0.0 "First Release" "Initial stable release" false
+# Interactive mode (with release notes)
+./scripts/create-release.sh
 ```
 
 ## Common Scenarios
 
-### 1. Production Release
+### 1. Production Release (Published)
 ```bash
-./scripts/create-release.sh v1.2.3 "Version 1.2.3" "Production release with bug fixes and improvements" false
+./scripts/create-release.sh --version v1.2.3
 ```
 
-### 2. Alpha/Beta Release
+### 2. Production Release with Custom Title
 ```bash
-./scripts/create-release.sh v2.0.0-alpha "Alpha Release" "Early access version for testing" true
+./scripts/create-release.sh --version v1.2.3 --title "Version 1.2.3"
 ```
 
-### 3. Release Candidate
+### 3. Alpha/Beta Pre-release (Published)
 ```bash
-./scripts/create-release.sh v1.5.0-rc2 "Release Candidate 2" "Second candidate for v1.5.0 production" true
+./scripts/create-release.sh --version v2.0.0-alpha --pre-release
 ```
 
-### 4. Interactive Mode (no parameters)
+### 4. Release Candidate as Draft
+```bash
+./scripts/create-release.sh --version v1.5.0-rc2 --pre-release --draft
+```
+
+### 5. Draft Release for Review
+```bash
+./scripts/create-release.sh --version v1.0.0 --draft
+```
+
+### 6. Interactive Mode (no flags)
 ```bash
 ./scripts/create-release.sh
-# Follow the prompts for version, title, notes, etc.
+# Follow the prompts for version, title, notes, pre-release, draft
 ```
 
-## Release Notes Examples
+## Flag Combinations
 
-### Simple
+### Basic Published Releases
 ```bash
-./scripts/create-release.sh v1.0.1 "Bug Fix Release" "Fixed critical authentication bug" false
+# Simple version
+./scripts/create-release.sh --version v1.0.0
+
+# With custom title
+./scripts/create-release.sh --version v1.0.0 --title "First Release"
+
+# Multiple flags
+./scripts/create-release.sh --version v1.0.0 --title "Major Update"
 ```
 
-### Detailed
+### Pre-releases
 ```bash
-./scripts/create-release.sh v2.0.0 "Major Update" "
-Features:
-- Complete UI redesign
-- Performance improvements
-- New API endpoints
-- Enhanced security
+# Published pre-release
+./scripts/create-release.sh --version v2.0.0-beta --pre-release
 
-Changes:
-- Database migration required
-- Configuration file format changed
+# Draft pre-release
+./scripts/create-release.sh --version v2.0.0-beta --pre-release --draft
 
-Breaking Changes:
-- Removed deprecated API v1
-- Updated minimum requirements
+# Alpha version with title
+./scripts/create-release.sh --version v3.0.0-alpha --title "Alpha Test Version" --pre-release
+```
 
-Upgrade Guide:
-1. Backup your data
-2. Run migration script
-3. Update configuration
-4. Restart services
-" false
+### Draft Releases
+```bash
+# Draft for review
+./scripts/create-release.sh --version v1.2.3 --draft
+
+# Draft with custom title
+./scripts/create-release.sh --version v1.2.3 --title "Bug Fix Release" --draft
+```
+
+## Version Format Examples
+
+```bash
+# Standard semantic versioning
+v1.0.0
+v1.2.3
+v2.0.0
+
+# Pre-release versions
+v1.0.0-alpha
+v1.0.0-beta
+v1.0.0-rc1
+v2.0.0-beta.1
+v1.2.3-alpha
+
+# Build metadata
+v1.0.0+build123
+v1.2.3+20240811
+
+# Custom suffixes
+v1.2.3-rc1
+v2.0.0-alpha
+v1.0.0-beta2
+```
+
+## Error Handling Examples
+
+### Invalid Version Format
+```bash
+./scripts/create-release.sh --version 1.0.0
+# Error: Invalid version format. Expected format: v1.2.3
+
+./scripts/create-release.sh --version v1.0
+# Error: Invalid version format. Expected format: v1.2.3
+```
+
+### Missing Required Flags
+```bash
+./scripts/create-release.sh --title "Release Title"
+# Error: --version flag is required. Use --help for usage information.
+```
+
+### Unknown Flags
+```bash
+./scripts/create-release.sh --version v1.0.0 --unknown-flag
+# Error: Unknown option: --unknown-flag. Use --help for available options.
 ```
 
 ## Automation Examples
@@ -72,16 +133,48 @@ Upgrade Guide:
 #!/bin/bash
 VERSION="1.2.3"
 TITLE="Release $VERSION"
-NOTES="Automated release from build pipeline"
 
-./scripts/create-release.sh "$VERSION" "$TITLE" "$NOTES" false
+./scripts/create-release.sh --version "$VERSION" --title "$TITLE"
 ```
 
 ### CI/CD Pipeline
 ```bash
 # GitHub Actions example
 VERSION="${GITHUB_REF#refs/tags/}"
-./scripts/create-release.sh "$VERSION" "Release $VERSION" "Auto-released by CI/CD" false
+./scripts/create-release.sh --version "$VERSION" --title "Release $VERSION"
+```
+
+### Release Script with Custom Logic
+```bash
+#!/bin/bash
+# Auto-determine version from git tag
+VERSION=$(git describe --tags --abbrev=0)
+
+# Determine if pre-release based on version string
+if [[ "$VERSION" =~ -(alpha|beta|rc) ]]; then
+    ./scripts/create-release.sh --version "$VERSION" --pre-release --draft
+else
+    ./scripts/create-release.sh --version "$VERSION"
+fi
+```
+
+## Interactive Mode Benefits
+
+The interactive mode (`./scripts/create-release.sh` with no flags) provides:
+
+- **Multi-line release notes** - Enter detailed release notes interactively
+- **Guided workflow** - Step-by-step prompts
+- **Confirmation** - Review before proceeding
+- **Default behaviors** - Sensible defaults for optional fields
+
+```bash
+./scripts/create-release.sh
+# You'll be prompted for:
+# 1. Version tag (e.g., v1.0.0)
+# 2. Release title (optional)
+# 3. Release notes (Ctrl+D when done)
+# 4. Pre-release confirmation (y/N)
+# 5. Draft confirmation (y/N)
 ```
 
 ## Troubleshooting Commands
@@ -101,24 +194,132 @@ git push origin :refs/tags/v1.0.0
 git branch -D release-dist-v1.0.0
 ```
 
-### Test without GitHub push
+### Check existing tags
 ```bash
-# Run script to dry run
-./scripts/create-release.sh v1.0.0-test "Test" "Test release" false <<EOF
-y    # Continue even with uncommitted changes
-n    # Don't cleanup old branches
-n    # Cancel before GitHub push
-EOF
+git tag --list
+gh release list
+```
+
+### View dist folder contents
+```bash
+ls -la dist/
+find dist -type f | wc -l
+```
+
+## Release Examples by Use Case
+
+### Bug Fix Release
+```bash
+./scripts/create-release.sh \
+  --version v1.2.1 \
+  --title "Bug Fix Release"
+```
+
+### Feature Release
+```bash
+./scripts/create-release.sh \
+  --version v2.0.0 \
+  --title "Major Feature Release"
+```
+
+### Security Release
+```bash
+./scripts/create-release.sh \
+  --version v1.2.3 \
+  --title "Security Patch"
+```
+
+### Beta Testing Release
+```bash
+./scripts/create-release.sh \
+  --version v2.0.0-beta \
+  --title "Beta Testing" \
+  --pre-release \
+  --draft
+```
+
+### First Public Release
+```bash
+./scripts/create-release.sh \
+  --version v1.0.0 \
+  --title "Initial Public Release"
+```
+
+## Regional/Team Release Examples
+
+### German Team
+```bash
+./scripts/create-release.sh \
+  --version v1.0.0 \
+  --title "Erste Version"
+```
+
+### Documentation Release
+```bash
+./scripts/create-release.sh \
+  --version v1.2.3-doc \
+  --title "Documentation Update"
+```
+
+### Internal Alpha Release
+```bash
+./scripts/create-release.sh \
+  --version v2.0.0-internal-alpha \
+  --title "Internal Alpha Test" \
+  --pre-release
+```
+
+## Progressive Release Strategy
+
+### 1. Alpha Release (Draft)
+```bash
+./scripts/create-release.sh --version v2.0.0-alpha --pre-release --draft
+```
+
+### 2. Beta Release (Published for testing)
+```bash
+./scripts/create-release.sh --version v2.0.0-beta --pre-release
+```
+
+### 3. Release Candidate (Published for final testing)
+```bash
+./scripts/create-release.sh --version v2.0.0-rc1 --pre-release
+```
+
+### 4. Final Release (Published)
+```bash
+./scripts/create-release.sh --version v2.0.0
 ```
 
 ## Version Number Patterns
 
+The script follows Semantic Versioning (SemVer):
+
 ```bash
-v1.0.0        # Production
-v1.0.0-alpha  # Alpha version
-v1.0.0-beta   # Beta version  
-v1.0.0-rc1    # Release candidate
-v2.0.0        # Major version
-v1.2.3+build  # With build metadata
-v1.2.3-typescript-2024-08-10  # Custom suffix
+vMAJOR.MINOR.PATCH
+
+# Examples:
+v1.0.0    # Initial release
+v1.2.3    # Standard release
+v2.0.0    # Major version change
+v1.5.2    # Patch release
+
+# Pre-release components:
+v1.0.0-alpha
+v1.0.0-alpha.1
+v1.0.0-beta
+v1.0.0-beta.2
+v1.0.0-rc.1
+v1.0.0-rc2
 ```
+
+## Quick Reference
+
+| Scenario | Command |
+|----------|---------|
+| Simple release | `./scripts/create-release.sh --version v1.0.0` |
+| Custom title | `./scripts/create-release.sh --version v1.0.0 --title "My Release"` |
+| Pre-release | `./scripts/create-release.sh --version v1.0.0-beta --pre-release` |
+| Draft for review | `./scripts/create-release.sh --version v1.0.0 --draft` |
+| Interactive | `./scripts/create-release.sh` |
+| Help | `./scripts/create-release.sh --help` |

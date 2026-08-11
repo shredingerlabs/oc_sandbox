@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 
-set -euo pipefail
+# Note: Using set -e for exit on error, but avoiding set -u due to bash environment issues
+set -eo pipefail
 
 # Color output
 RED='\033[0;31m'
@@ -19,6 +20,46 @@ success() {
 
 warn() {
     echo -e "${YELLOW}Warning:${NC} $1"
+}
+
+# Show help information
+show_help() {
+    cat << EOF
+Usage: ./scripts/create-release.sh [FLAGS]
+
+Create GitHub releases from dist/ folder contents.
+
+Interactive Mode (no flags):
+  ./scripts/create-release.sh
+
+Flag-based Mode:
+  --version VERSION        Version tag (e.g., v1.0.0) [REQUIRED]
+  --title TITLE           Release title (default: "Release VERSION")
+  --pre-release           Mark as pre-release instead of regular
+  --draft                 Create as draft instead of published
+  --help, -h              Show this help message
+
+Examples:
+  # Interactive mode
+  ./scripts/create-release.sh
+
+  # Published release with explicit version
+  ./scripts/create-release.sh --version v1.2.3
+
+  # Published release with custom title
+  ./scripts/create-release.sh --version v1.2.3 --title "Major Release"
+
+  # Pre-release as draft
+  ./scripts/create-release.sh --version v2.0.0-beta --pre-release --draft
+
+  # Regular published release
+  ./scripts/create-release.sh --version v1.0.0
+
+Notes:
+- Releases are published by default (not drafts)
+- Use --draft for review before publishing
+- Release notes are only collected in interactive mode
+EOF
 }
 
 # Check gh CLI authentication
@@ -119,39 +160,56 @@ cleanup_old_branches() {
     fi
 }
 
-# Cleanup on exit
-cleanup_on_exit() {
-    local exit_code=$?
-    if [ $exit_code -ne 0 ]; then
-        warn "Script exited with error code: $exit_code"
-        local current_branch=$(git branch --show-current 2>/dev/null || echo "")
-        if [ -n "${temp_branch:-}" ] && [ "$current_branch" = "$temp_branch" ]; then
-            echo ""
-            warn "You're currently on temporary branch '$temp_branch'"
-            echo "To return to '${original_branch:-main}': git checkout ${original_branch:-main}"
-            echo "To delete this branch: git branch -D $temp_branch"
-        fi
+# Interactive mode
+interactive_mode() {
+    # Get version tag with validation
+    read -p "Enter version tag (e.g., v1.0.0): " version
+    if [[ ! "$version" =~ ^v[0-9]+\.[0-9]+\.[0-9]+.*$ ]]; then
+        error "Invalid version format. Expected format: v1.2.3"
+    fi
+    
+    # Get release title
+    read -p "Enter release title (optional, press Enter to use version): " title
+    if [ -z "$title" ]; then
+        title="Release $version"
+    fi
+    
+    # Get release notes (interactive multi-line input)
+    echo "Enter release notes (Ctrl+D when done):"
+    release_notes=""
+    while IFS= read -r line; do
+        release_notes+="$line"$'\n'
+    done
+    
+    if [ -z "$release_notes" ]; then
+        warn "No release notes provided"
+        release_notes="Release $version from dist/ folder"
+    fi
+    
+    # Get pre-release preference
+    read -p "Mark as pre-release? (y/N): " pre_release
+    if [[ "$pre_release" =~ ^[Yy]$ ]]; then
+        is_pre_release=true
+        warn "This will be marked as a pre-release"
+    else
+        is_pre_release=false
+    fi
+    
+    # Get draft preference
+    read -p "Create as draft? (y/N): " draft
+    if [[ "$draft" =~ ^[Yy]$ ]]; then
+        is_draft=true
+        warn "This will be created as a draft release"
+    else
+        is_draft=false
     fi
 }
 
-# Main execution
-main() {
-    cd "$PROJECT_ROOT"
-    
-    # Store original branch before any git operations
-    local original_branch
-    original_branch=$(git branch --show-current)
-    
-    # Pre-flight checks
-    check_gh_auth
-    check_dist_folder
-    check_git_status
-    
-    # Get version tag
-    if [ -n "${1:-}" ]; then
-        version="$1"
-    else
-        read -p "Enter version tag (e.g., v1.0.0): " version
+# Flag-based mode
+flag_based_mode() {
+    # Validate required flags
+    if [ -z "${version:-}" ]; then
+        error "--version flag is required. Use --help for usage information."
     fi
     
     # Validate version format
@@ -159,49 +217,39 @@ main() {
         error "Invalid version format. Expected format: v1.2.3"
     fi
     
-    check_existing_tags
-    success "Version tag: $version"
-    
-    # Get release title
-    if [ -n "${2:-}" ]; then
-        title="$2"
-    else
-        read -p "Enter release title (optional, press Enter to use version): " title
-    fi
-    if [ -z "$title" ]; then
+    # Set defaults for optional parameters
+    if [ -z "${title:-}" ]; then
         title="Release $version"
     fi
     
-    # Get release notes
-    if [ -n "${3:-}" ]; then
-        release_notes="$3"
-    else
-        echo "Enter release notes (Ctrl+D when done):"
-        release_notes=""
-        while IFS= read -r line; do
-            release_notes+="$line"$'\n'
-        done
+    # Set defaults for boolean flags
+    if [ -z "${is_pre_release:-}" ]; then
+        is_pre_release=false
     fi
     
-    if [ -z "$release_notes" ]; then
-        warn "No release notes provided"
+    if [ -z "${is_draft:-}" ]; then
+        is_draft=false
+    fi
+    
+    # Set default release notes for flag mode
+    if [ -z "${release_notes:-}" ]; then
         release_notes="Release $version from dist/ folder"
     fi
+}
+
+# Common release creation logic
+create_release() {
+    # Pre-flight checks
+    check_gh_auth
+    check_dist_folder
+    check_git_status
     
-    # Pre-release check
-    local is_pre_release=false
-    local pre_release=""
-    
-    if [ -n "${4:-}" ]; then
-        is_pre_release="$4"
-    else
-        read -p "Mark as pre-release? (y/N): " pre_release
-        
-        if [[ "$pre_release" =~ ^[Yy]$ ]]; then
-            is_pre_release=true
-            warn "This will be marked as a pre-release"
-        fi
+    # Check for existing tags
+    local existing_tags=$(git tag --list | grep "^$version$" || true)
+    if [ -n "$existing_tags" ]; then
+        error "Tag $version already exists. Use a different version."
     fi
+    success "Version tag: $version"
     
     # Setup cleanup trap
     trap cleanup_on_exit EXIT
@@ -215,6 +263,7 @@ main() {
     echo "Version: $version"
     echo "Title: $title"
     echo "Pre-release: $is_pre_release"
+    echo "Draft: $is_draft"
     echo "Source: dist/ folder"
     echo ""
     
@@ -272,9 +321,15 @@ Release generated from dist/ contents."
     git push origin "$version"
     success "Pushed branch and tag"
     
-    # Create GitHub release
-    local release_flags=("--draft" "--title" "$title" "--notes" "$release_notes")
+    # Build release flags based on user choices
+    local release_flags=("--title" "$title" "--notes" "$release_notes")
     
+    # Only add draft flag if explicitly requested
+    if [ "$is_draft" = true ]; then
+        release_flags+=("--draft")
+    fi
+    
+    # Add pre-release flag if requested
     if [ "$is_pre_release" = true ]; then
         release_flags+=("--prerelease")
     fi
@@ -301,12 +356,98 @@ Release generated from dist/ contents."
     echo "=== Release Created Successfully ==="
     echo "Version: $version"
     echo "Release URL: $release_url"
-    echo "Status: Draft (needs manual publishing)"
+    if [ "$is_draft" = true ]; then
+        echo "Status: Draft (needs manual publishing)"
+    else
+        echo "Status: Published"
+    fi
     echo ""
     echo "Next steps:"
-    echo "1. Review the release at: $release_url"
-    echo "2. Click 'Publish release' when ready"
-    echo "3. The release will contain only files from the dist/ folder"
+    if [ "$is_draft" = true ]; then
+        echo "1. Review the release at: $release_url"
+        echo "2. Click 'Publish release' when ready"
+    else
+        echo "1. The release is now live at: $release_url"
+    fi
+    echo "2. The release contains only files from the dist/ folder"
+}
+
+# Parse command-line flags
+parse_flags() {
+    local flag_count=0
+    
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --version)
+                version="$2"
+                shift 2
+                ((flag_count+=1))
+                ;;
+            --title)
+                title="$2"
+                shift 2
+                ((flag_count+=1))
+                ;;
+            --pre-release)
+                is_pre_release=true
+                shift
+                ((flag_count+=1))
+                ;;
+            --draft)
+                is_draft=true
+                shift
+                ((flag_count+=1))
+                ;;
+            --help|-h)
+                show_help
+                exit 0
+                ;;
+            *)
+                error "Unknown option: $1. Use --help for available options."
+                ;;
+        esac
+    done
+    
+    # Return flag_count via global variable for reliability
+    FLAG_COUNT=$flag_count
+    return 0
+}
+
+# Cleanup on exit
+cleanup_on_exit() {
+    local exit_code=$?
+    if [ $exit_code -ne 0 ]; then
+        warn "Script exited with error code: $exit_code"
+        local current_branch=$(git branch --show-current 2>/dev/null || echo "")
+        if [ -n "${temp_branch:-}" ] && [ "$current_branch" = "$temp_branch" ]; then
+            echo ""
+            warn "You're currently on temporary branch '$temp_branch'"
+            echo "To return to '${original_branch:-main}': git checkout ${original_branch:-main}"
+            echo "To delete this branch: git branch -D $temp_branch"
+        fi
+    fi
+}
+
+# Main execution
+main() {
+    cd "$PROJECT_ROOT"
+    
+    # Store original branch before any git operations
+    local original_branch
+    original_branch=$(git branch --show-current)
+    
+    # Parse command-line flags
+    parse_flags "$@"
+    
+    # Check if we should use interactive mode or flag-based mode
+    if [ "${FLAG_COUNT:-0}" -eq 0 ]; then
+        interactive_mode
+    else
+        flag_based_mode
+    fi
+    
+    # Common release creation
+    create_release
 }
 
 # Run main function with arguments
