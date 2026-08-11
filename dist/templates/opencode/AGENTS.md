@@ -1,6 +1,7 @@
 When reporting information to me, be extremely concise and sacrifice grammar for the sake of concision. 
 When changing public-facing behavior, check README.md to see if the documentation needs updating.
 Check ./CONTEXT.md for terminology questions.
+When searching the codebase, use codebase-memory-mcp.
 
 ## Think Before Coding
 - State assumptions first.

@@ -1,23 +1,43 @@
-# OpenCode Sandbox – Single Container Setup (Ubuntu 24.04 / Podman rootless)
+# OpenCode Sandbox – Multi-Edition Container Setup (Ubuntu 24.04 / Podman rootless)
 
 Dieses Repo enthält ein direkt lauffähiges Grundgerüst für eine **einheitliche
-Entwicklungssandbox** – ein Container für alle Use Cases:
+Entwicklungssandbox** – mehrere Editionen für unterschiedliche Use Cases:
 
+**Editionen:**
+- **base**: Python + core system packages
+- **web**: base + Node/TypeScript/Playwright
+- **embedded**: base + ARM toolchains/Arduino/MicroPython
+- **full**: web + embedded (default)
+
+**Use Cases:**
 - **Coding**: TS/JS/HTML, Go, Python, C++, inkl. Cross-Compile für Embedded
 - **Arduino / ESP32**: Arduino CLI + AVR/ESP32-Toolchains (Arduino Framework)
 - **MicroPython**: mpremote, esptool für ESP32-Firmware-Entwicklung
 - **HIL-Tests**: USB-Oszilloskop (Picoscope 2204A) + Mikrocontroller-Geräte-Passthrough
 - **Browser-Automatisierung**: Chromium + Firefox via Playwright (für OpenCode-Browser-Tooling)
-- **Code-Intelligence**: codebase-memory-mcp (Knowledge-Graph-Indexing, auto-konfiguriert für OpenCode)
+- **Code-Intelligence**: codebase-memory-mcp (Knowledge-Graph-Indexing, auto-konfiguriert für OpenCode, UI auf Port 9749 mit `--cbm_ui` — [Referenz](https://github.com/DeusData/codebase-memory-mcp))
 - **Proxy**: Squid-Egress-Allowlist (optional, per `--use_proxy`)
+- **TUI**: Terminal-UI für interaktive Sandbox-Steuerung (`start-tui.sh`)
 
 ## Repository-Struktur
 
 ```
 .
-├── Dockerfile                    <- Einheitliches Image (alle Use Cases)
+├── Dockerfile                    <- Multi-Stage: base, web, embedded, full
 ├── AGENTS.md                     <- Agent-spezifische Anweisungen
+├── CONTEXT.md                    <- Domain-Vokabular & Kontext
 ├── picoscope.md                  <- PicoScope 2204A Referenz (Library, ctypes, Pitfalls)
+├── dist/                         <- Produktions-Release (wenn gebaut)
+│   ├── Dockerfile
+│   ├── scripts/
+│   ├── proxy/
+│   ├── udev/
+│   ├── templates/
+│   └── README.md                 <- Kurzanleitung für Produktion
+├── docs/
+│   ├── adr/                      <- Architecture Decision Records
+│   ├── agents/                   <- Agent-Dokumentation
+│   └── research/                 <- Research-Notizen
 ├── proxy/
 │   ├── Dockerfile                <- Separates Squid-Proxy-Image
 │   ├── squid.conf
@@ -25,9 +45,14 @@ Entwicklungssandbox** – ein Container für alle Use Cases:
 ├── udev/
 │   └── 99-hil.rules              <- udev-Regeln für HIL-Geräte (Oszi + MCU)
 ├── scripts/
-│   ├── start.sh                  <- Einheitliches Start-Skript
-│   ├── build-all.sh              <- Baut Sandbox + Proxy
-│   └── init-project.sh           <- Legt Projekt-Root-Struktur an
+│   ├── start.sh                  <- Einheitliches Start-Skript (--edition flag)
+│   ├── start-tui.sh              <- TUI-Variante des Start-Skripts
+│   ├── build-container.sh        <- Baut Sandbox-Editionen + Proxy
+│   ├── init-project.sh           <- Legt Projekt-Root-Struktur an
+│   ├── create-release.sh         <- Erstellt GitHub Releases aus dist/ Ordner
+│   ├── install.sh                <- Installationsskript
+│   ├── RELEASE_README.md         <- Release-Prozess-Dokumentation
+│   └── USAGE_EXAMPLES.md         <- Verwendungsbeispiele
 ├── templates/
 │   ├── ssh_local/config
 │   ├── git_local/
@@ -36,19 +61,27 @@ Entwicklungssandbox** – ein Container für alle Use Cases:
 │   │   ├── gh-cli/config.yml
 │   │   └── glab-cli/config.yml
 │   ├── opencode/
-│   │   ├── opencode.json         <- OpenCode-Basisconfig (wird kopiert)
+│   │   ├── opencode-gwdg.json    <- GWDG-spezifische Config
+│   │   ├── opencode-basic.json   <- Minimale Config
 │   │   ├── AGENTS.md             <- Agent-Config (wird kopiert)
-│   │   ├── AGENTS_LongVersion.md
-│   │   ├── README_MDL.md
 │   │   └── skills/               <- Skill-Vorlagen
-│   └── scripts/
-│       ├── afkLoop.sh            <- Agent-Loop-Skript (Ticket-Queue)
-│       ├── LoopPrompt.md         <- Prompt-Vorlage für afkLoop
-│       └── README.md
+│   ├── scripts/
+│   │   ├── afkLoop.sh            <- Agent-Loop-Skript (Ticket-Queue)
+│   │   ├── LoopPrompt.md         <- Prompt-Vorlage für afkLoop
+│   │   └── README.md
+│   └── docs/humans/
+│       ├── GWDG_MODEL_GUIDE.md
+│       └── HOWTO_WAYFINDER_SKILL.md
+├── tests/                        <- Test-Suite
+├── specs/                        <- Spezifikationen
 ├── .devcontainer/
 │   └── devcontainer.json         <- VS Code Devcontainer-Konfiguration
 └── README.md
 ```
+
+**Hinweis:** Der `dist/` Ordner enthält die produktionsreifen Dateien für Releases.
+Alle anderen Ordner (`docs/`, `tests/`, `specs/`, `scripts/install.sh`, etc.) sind
+nur für die Entwicklung und werden nicht in Releases veröffentlicht.
 
 ## Projekt-Root-Struktur
 
@@ -87,7 +120,7 @@ Siehe [Voraussetzungen](#voraussetzungen) und [Projekt-Root einrichten](#3-proje
 
 ```bash
 sudo apt-get update
-sudo apt-get install -y podman slirp4netns fuse-overlayfs
+sudo apt-get install -y podman paste fuse-overlayfs
 ```
 
 Podman rootless prüfen:
@@ -97,16 +130,23 @@ podman info --format '{{.Host.Security.Rootless}}'   # sollte "true" liefern
 
 ## 1. Image bauen
 
-Einmalig das einheitliche Sandbox-Image bauen:
+Einmalig die gewünschte Sandbox-Edition bauen:
 
 ```bash
 cd opencode-sandbox
-./scripts/build-all.sh
+./scripts/build-container.sh full     # oder: base, web, embedded, all
 ```
 
 Das baut:
-- `opencode-sandbox` – das Haupt-Image mit allen Toolchains, Runtimes und Bibliotheken
-- `oc-proxy` – optionaler Squid-Egress-Proxy (wird nur bei `--use_proxy` benötigt)
+- `opencode-sandbox-base` — Python + core system packages
+- `opencode-sandbox-web` — base + Node/TypeScript/Playwright
+- `opencode-sandbox-embedded` — base + ARM toolchains/Arduino/MicroPython
+- `opencode-sandbox-full` — web + embedded (default)
+- `oc-proxy` — optionaler Squid-Egress-Proxy (wird nur bei `--use_proxy` benötigt)
+
+**Hinweis:** Nach dem Build werden die Produktionsdateien in den `dist/` Ordner kopiert.
+Dieser enthält nur die für den Betrieb notwendigen Dateien – ohne Entwicklungs-Artefakte
+wie Tests, Spezifikationen oder Installations-Skripte.
 
 ## 2. Einmalig: udev-Regeln für HIL-Geräte installieren
 
@@ -200,23 +240,38 @@ https://dein-token:ghp_xxxxx@github.com
 ## 4. Sandbox starten
 
 ```bash
-scripts/start.sh ~/projects/kunde-x            # Default: volles Netz
+scripts/start.sh ~/projects/kunde-x            # Default: full edition, volles Netz
+```
+
+**Edition wählen:**
+
+```bash
+scripts/start.sh ~/projects/kunde-x --edition web       # Web-only
+scripts/start.sh ~/projects/kunde-x --edition embedded  # Embedded-only
+scripts/start.sh ~/projects/kunde-x --edition base      # Minimal Python
+scripts/start.sh ~/projects/kunde-x --edition full      # Web + Embedded (default)
 ```
 
 | Flag-Kombination | Netzwerk | Proxy | Geräte | Anwendung |
 |---|---|---|---|---|
-| *(keine)* | slirp4netns | nein | – | Coding, volle Netzanbindung |
-| `--use_proxy` | slirp4netns | Squid-Allowlist | – | Restriktiver Netz-Zugriff |
+| *(keine)* | pasta | nein | – | Coding, volle Netzanbindung |
+| `--use_proxy` | pasta | Squid-Allowlist | – | Restriktiver Netz-Zugriff |
 | `--offline` | none | nein | – | Air-Gapped, nur lokale Modelle |
-| `--hil_mode` | slirp4netns | nein | Oszi + MCU (ttyUSB* etc.) | HIL-Tests |
-| `--use_proxy --hil_mode` | slirp4netns | Squid-Allowlist | Oszi + MCU | HIL mit Restricted-Net |
-| `--cbm_ui` | slirp4netns | nein | – | CBM Knowledge-Graph-UI (Port 9749) |
-| `--use_proxy --cbm_ui` | slirp4netns | Squid-Allowlist | – | Proxy + Graph-UI |
+| `--hil_mode` | pasta | nein | Oszi + MCU (ttyUSB* etc.) | HIL-Tests |
+| `--use_proxy --hil_mode` | pasta | Squid-Allowlist | Oszi + MCU | HIL mit Restricted-Net |
+| `--cbm_ui` | pasta | nein | – | CBM Knowledge-Graph-UI (Port 9749) |
+| `--use_proxy --cbm_ui` | pasta | Squid-Allowlist | – | Proxy + Graph-UI |
 
 Beispiele:
 ```bash
-# Coding ohne Einschränkungen
+# Coding ohne Einschränkungen (full edition)
 scripts/start.sh ~/projects/kunde-x
+
+# Web-only edition
+scripts/start.sh ~/projects/kunde-x --edition web
+
+# Embedded-only edition mit HIL
+scripts/start.sh ~/projects/hil-tests --edition embedded --hil_mode
 
 # Mit Egress-Proxy (Allowlist)
 scripts/start.sh ~/projects/kunde-x --use_proxy
@@ -234,8 +289,7 @@ scripts/start.sh ~/projects/hil-tests --use_proxy --hil_mode
 scripts/start.sh ~/projects/kunde-x --cbm_ui
 ```
 
-> **Hinweis zu `--cbm_ui`:** Die Graph-UI benötigt Netzwerkzugriff und funktioniert
-> daher nicht mit `--offline` (network=none). In allen anderen Modi kombinierbar.
+> **Hinweis zu `--cbm_ui`:** Der `codebase-memory-mcp` Dienst startet im Hintergrund mit `autoindex: true` und bietet eine Web-UI auf Port 9749. Die Graph-UI benötigt Netzwerkzugriff und funktioniert daher nicht mit `--offline` (network=none). In allen anderen Modi kombinierbar. Siehe [codebase-memory-mcp](https://github.com/DeusData/codebase-memory-mcp).
 
 > **Hinweis zu `--hil_mode` und USB-Sicherheit:**
 > Das Skript ermittelt zur Laufzeit den realen Pfad von `/dev/scope0`
@@ -367,3 +421,36 @@ echo "$(id -un):20:1" | sudo tee -a /etc/subgid
 `scripts/start.sh --hil_mode` versucht automatisch Option (a) bzw. (b), wenn
 `sudo` mit `NOPASSWD` konfiguriert ist. Schlägt der Auto-Fix fehlt, erscheint
 eine Meldung mit den manuellen Schritten.
+
+## Releases
+
+Erstelle GitHub Releases automatisch aus dem `dist/` Ordner mit `create-release.sh`:
+
+```bash
+# Interaktiver Modus
+./scripts/create-release.sh
+
+# Direkter Modus
+./scripts/create-release.sh v1.0.0 "Erste Version" "Initiale stabile Version" false
+
+# Pre-Release
+./scripts/create-release.sh v2.0.0-beta "Beta Release" "Testversion für Feedback" true
+```
+
+**Parameter:**
+- `$1` - Version (Format: `v1.2.3`)
+- `$2` - Titel (optional)
+- `$3` - Release-Notes (optional, mehrzeilig)
+- `$4` - Pre-Release (true/false)
+
+Das Skript:
+- Validiert Semantic Versioning
+- Erstellt cleanen Orphan-Branch (nur dist/ Inhalte)
+- Erstellt Draft-Release auf GitHub
+- Bereinigt alte Release-Branches automatisch
+- Führt dich durch den Veröffentlichungsprozess
+
+**Dist-Ordner:** Der `dist/` Ordner enthält die produktionsreifen Dateien mit eigener
+`README.md` für Endanwender. Bei einem Release wird nur dieser Ordner veröffentlicht.
+
+Siehe `scripts/RELEASE_README.md` für detaillierte Dokumentation und `scripts/USAGE_EXAMPLES.md` für Beispiele.
