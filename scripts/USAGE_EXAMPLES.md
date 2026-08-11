@@ -7,29 +7,29 @@
 cd /path/to/project
 
 # Run the script
-./dist/scripts/create-release.sh v1.0.0 "First Release" "Initial stable release" false
+./scripts/create-release.sh v1.0.0 "First Release" "Initial stable release" false
 ```
 
 ## Common Scenarios
 
 ### 1. Production Release
 ```bash
-./dist/scripts/create-release.sh v1.2.3 "Version 1.2.3" "Production release with bug fixes and improvements" false
+./scripts/create-release.sh v1.2.3 "Version 1.2.3" "Production release with bug fixes and improvements" false
 ```
 
 ### 2. Alpha/Beta Release
 ```bash
-./dist/scripts/create-release.sh v2.0.0-alpha "Alpha Release" "Early access version for testing" true
+./scripts/create-release.sh v2.0.0-alpha "Alpha Release" "Early access version for testing" true
 ```
 
 ### 3. Release Candidate
 ```bash
-./dist/scripts/create-release.sh v1.5.0-rc2 "Release Candidate 2" "Second candidate for v1.5.0 production" true
+./scripts/create-release.sh v1.5.0-rc2 "Release Candidate 2" "Second candidate for v1.5.0 production" true
 ```
 
 ### 4. Interactive Mode (no parameters)
 ```bash
-./dist/scripts/create-release.sh
+./scripts/create-release.sh
 # Follow the prompts for version, title, notes, etc.
 ```
 
@@ -37,12 +37,12 @@ cd /path/to/project
 
 ### Simple
 ```bash
-./dist/scripts/create-release.sh v1.0.1 "Bug Fix Release" "Fixed critical authentication bug" false
+./scripts/create-release.sh v1.0.1 "Bug Fix Release" "Fixed critical authentication bug" false
 ```
 
 ### Detailed
 ```bash
-./dist/scripts/create-release.sh v2.0.0 "Major Update" "
+./scripts/create-release.sh v2.0.0 "Major Update" "
 Features:
 - Complete UI redesign
 - Performance improvements
@@ -74,14 +74,14 @@ VERSION="1.2.3"
 TITLE="Release $VERSION"
 NOTES="Automated release from build pipeline"
 
-./dist/scripts/create-release.sh "$VERSION" "$TITLE" "$NOTES" false
+./scripts/create-release.sh "$VERSION" "$TITLE" "$NOTES" false
 ```
 
 ### CI/CD Pipeline
 ```bash
 # GitHub Actions example
 VERSION="${GITHUB_REF#refs/tags/}"
-./dist/scripts/create-release.sh "$VERSION" "Release $VERSION" "Auto-released by CI/CD" false
+./scripts/create-release.sh "$VERSION" "Release $VERSION" "Auto-released by CI/CD" false
 ```
 
 ## Troubleshooting Commands
@@ -104,7 +104,7 @@ git branch -D release-dist-v1.0.0
 ### Test without GitHub push
 ```bash
 # Run script to dry run
-./dist/scripts/create-release.sh v1.0.0-test "Test" "Test release" false <<EOF
+./scripts/create-release.sh v1.0.0-test "Test" "Test release" false <<EOF
 y    # Continue even with uncommitted changes
 n    # Don't cleanup old branches
 n    # Cancel before GitHub push

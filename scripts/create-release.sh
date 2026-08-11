@@ -70,12 +70,8 @@ check_git_status() {
 # Get current directory for cleanup
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# Find project root (look for .git directory or go up until we find dist/scripts)
-if [[ "$SCRIPT_DIR" == *"dist/scripts"* ]]; then
-    PROJECT_ROOT="$(cd "$SCRIPT_DIR/../../" && pwd)"
-else
-    PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-fi
+# Find project root (script is in scripts/, so go up one level)
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 # Check for existing tags
 check_existing_tags() {

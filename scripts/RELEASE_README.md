@@ -18,7 +18,7 @@ Automated script to create GitHub releases from the `dist/` folder contents only
 ### Interactive Mode
 
 ```bash
-./dist/scripts/create-release.sh
+./scripts/create-release.sh
 ```
 
 Prompts for:
@@ -31,7 +31,7 @@ Prompts for:
 ### Command-Line Mode
 
 ```bash
-./dist/scripts/create-release.sh v1.0.0 "Release Title" "Release notes" false
+./scripts/create-release.sh v1.0.0 "Release Title" "Release notes" false
 ```
 
 #### Parameters
@@ -46,19 +46,19 @@ Prompts for:
 ### Basic Release
 
 ```bash
-./dist/scripts/create-release.sh v1.0.0 "First Release" "Initial stable release of our project" false
+./scripts/create-release.sh v1.0.0 "First Release" "Initial stable release of our project" false
 ```
 
 ### Pre-release
 
 ```bash
-./dist/scripts/create-release.sh v1.0.0-rc1 "Release Candidate 1" "Testing release candidate 1" true
+./scripts/create-release.sh v1.0.0-rc1 "Release Candidate 1" "Testing release candidate 1" true
 ```
 
 ### Beta Release with detailed notes
 
 ```bash
-./dist/scripts/create-release.sh v1.0.0-beta "Beta Release" "Features:
+./scripts/create-release.sh v1.0.0-beta "Beta Release" "Features:
 - User authentication
 - Dashboard improvements
 - Bug fixes
@@ -108,9 +108,9 @@ Known issues:
 ## Release Process
 
 1. **Create Draft Release**
-   ```bash
-   ./dist/scripts/create-release.sh v1.0.0 "Release Title" "Release notes" false
-   ```
+    ```bash
+    ./scripts/create-release.sh v1.0.0 "Release Title" "Release notes" false
+    ```
 
 2. **Review Release**
    - Visit the provided GitHub URL
@@ -179,9 +179,9 @@ Can be integrated with CI/CD pipelines for automated releases:
 
 ```yaml
 # Example GitHub Actions workflow
-- name: Create Release
+  - name: Create Release
   run: |
-    ./dist/scripts/create-release.sh v${{ github.ref_name }} "Release ${{ github.ref_name }}" "Auto-release from CI/CD" false
+    ./scripts/create-release.sh v${{ github.ref_name }} "Release ${{ github.ref_name }}" "Auto-release from CI/CD" false
   env:
     GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 ```
