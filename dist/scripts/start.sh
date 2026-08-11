@@ -1,307 +1,375 @@
 #!/usr/bin/env bash
 #
-# Startet die OpenCode-Sandbox (Podman rootless, gehärtet).
+# start.sh — Start opencode-sandbox project
 #
-# Editionen:
-#   base     — Python + core system packages
-#   web      — base + Node/TypeScript/Playwright
-#   embedded — base + ARM toolchains/Arduino/MicroPython
-#   full     — web + embedded (default)
+# This script is called by start-tui.sh to start an opencode-sandbox project.
+# It handles container startup, environment setup, and opencode initialization.
 #
-# Ein Container für alle Use Cases: Coding, HIL-Tests, Offline, Proxy.
-# Modi werden per Flags gewählt, nicht per separatem Image.
+# Usage:
+#   scripts/start.sh <project-path> [--edition <edition>] [--use_proxy] [--offline] [--hil_mode] [--cbm_ui]
 #
-# Erwartet EINEN Projekt-Root mit folgender Struktur:
-#
-#   <PROJECT_ROOT>/
-#     project/            <- Repo, wird nach /home/dev/project gemountet
-#     .opencode_config/    <- OpenCode-Config, projektspezifisch persistent
-#     .opencode_data/       <- OpenCode-Daten inkl. Auth/Credentials
-#     .ssh_local/           <- SSH-Keys + Config für dieses Projekt
-#     .git_local/           <- Git-Identität/-Settings + optionale Credentials
-#     .cbm_cache/           <- CBM-Graph-Datenbank (persistent)
-#
-# Flags:
-#   --edition <base|web|embedded|full>  Sandbox-Edition wählen (default: full)
-#   --use_proxy   Startet Squid-Egress-Allowlist-Proxy und nutzt ihn
-#   --offline     Kein Netzwerk (nur lokale Modelle)
-#   --hil_mode    USB-Passthrough für Oszi (scope0) und MCU (ttyUSB*, ttyACM*, ttyAMA*)
-#   --cbm_ui      Aktiviert CBM Graph-UI auf Port 9749
-#
-# Beispiele:
-#   scripts/start.sh ~/projects/kunde-x                        # Default (full edition)
-#   scripts/start.sh ~/projects/kunde-x --edition web           # Web-only
-#   scripts/start.sh ~/projects/kunde-x --edition embedded      # Embedded-only
-#   scripts/start.sh ~/projects/kunde-x --use_proxy             # Mit Egress-Allowlist
-#   scripts/start.sh ~/projects/kunde-x --offline               # Ohne Netzwerk
-#   scripts/start.sh ~/projects/kunde-x --hil_mode              # HIL-Tests
-#   scripts/start.sh ~/projects/kunde-x --use_proxy --hil_mode  # Kombiniert
-#   scripts/start.sh ~/projects/kunde-x --cbm_ui                # Mit CBM Graph-UI
-#
+
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-# --- Flags parsen -------------------------------------------------------------
-PROJECT_ROOT="${1:-}"
-if [[ -z "$PROJECT_ROOT" ]]; then
-  echo "Nutzung: $0 <projekt-root> [--edition <base|web|embedded|full>] [--use_proxy] [--offline] [--hil_mode] [--cbm_ui]" >&2
-  echo "" >&2
-  echo "  <projekt-root>  Pfad zum Projekt-Root (siehe init-project.sh)" >&2
-  echo "  --edition       Sandbox-Edition wählen (default: full)" >&2
-  echo "  --use_proxy     Squid-Egress-Allowlist-Proxy starten und nutzen" >&2
-  echo "  --offline       Kein Netzwerk (--network=none)" >&2
-  echo "  --hil_mode      USB-Passthrough für Oszi + MCU-Geräte" >&2
-  echo "  --cbm_ui        CBM Graph-UI auf Port 9749 aktivieren" >&2
-  exit 1
-fi
-shift
+# --- Configuration -------------------------------------------------------------
 
-EDITION="full"
-USE_PROXY=false
-OFFLINE=false
-HIL_MODE=false
-CBM_UI=false
+DEFAULT_EDITION="full"
+DEFAULT_WEB_ACCESS="unrestricted"
+DEFAULT_CBM_UI=false
 
-while [[ $# -gt 0 ]]; do
-  case "$1" in
-    --edition)
-      EDITION="${2:-}"
-      if [[ ! "$EDITION" =~ ^(base|web|embedded|full)$ ]]; then
-        echo "Fehler: Ungültige Edition: $EDITION" >&2
-        echo "  Erlaubt: base, web, embedded, full" >&2
+# --- Colors for output ---------------------------------------------------------
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m'
+
+# --- Helper Functions ----------------------------------------------------------
+
+log_info()  { printf '\033[1;34m[info]\033[0m %s\n'  "$*" >&2; }
+log_warn()  { printf '\033[1;33m[warn]\033[0m %s\n'  "$*" >&2; }
+log_error() { printf '\033[1;31m[error]\033[0m %s\n' "$*" >&2; }
+log_success() { printf '\033[0;32m✓\033[0m %s\n' "$*" >&2; }
+
+show_usage() {
+    cat << EOF
+Usage: $0 <project-path> [options]
+
+Arguments:
+  project-path    Path to the opencode-sandbox project
+
+Options:
+  --edition <edition>    Sandbox edition (web|embedded|full) [default: full]
+  --use_proxy           Use proxy for web access
+  --offline              Work offline mode
+  --hil_mode             Enable HIL mode
+  --cbm_ui               Enable CBM UI
+
+Examples:
+  $0 ~/projects/my-project
+  $0 ~/projects/my-project --edition web --use_proxy
+  $0 ~/projects/my-project --edition embedded --offline --cbm_ui
+
+EOF
+}
+
+# --- Argument Parsing -----------------------------------------------------------
+
+parse_arguments() {
+    if [[ $# -eq 0 ]]; then
+        log_error "Missing project path argument"
+        show_usage
         exit 1
-      fi
-      shift 2
-      ;;
-    --use_proxy) USE_PROXY=true; shift ;;
-    --offline)   OFFLINE=true;   shift ;;
-    --hil_mode)  HIL_MODE=true;  shift ;;
-    --cbm_ui)    CBM_UI=true;    shift ;;
-    *)
-      echo "Unbekanntes Flag: $1" >&2
-      echo "Nutzung: $0 <projekt-root> [--edition <base|web|embedded|full>] [--use_proxy] [--offline] [--hil_mode] [--cbm_ui]" >&2
-      exit 1
-      ;;
-  esac
-done
-
-# --- Projekt-Root validieren ---------------------------------------------------
-PROJECT_ROOT="$(realpath "$PROJECT_ROOT")"
-
-PROJECT_DIR="${PROJECT_ROOT}/project"
-CONFIG_DIR="${PROJECT_ROOT}/.opencode_config"
-DATA_DIR="${PROJECT_ROOT}/.opencode_data"
-SSH_DIR="${PROJECT_ROOT}/.ssh_local"
-GIT_DIR="${PROJECT_ROOT}/.git_local"
-CBM_DIR="${PROJECT_ROOT}/.cbm_cache"
-
-mkdir -p "$PROJECT_DIR" "$CONFIG_DIR" "$DATA_DIR" "$SSH_DIR" "$GIT_DIR" "$GIT_DIR/gh-cli" "$GIT_DIR/glab-cli" "$CBM_DIR"
-chmod 700 "$SSH_DIR" "$GIT_DIR"
-
-if [[ -z "$(find "$SSH_DIR" -maxdepth 1 -type f 2>/dev/null)" ]]; then
-  echo "Warnung: ${SSH_DIR} enthält keine Dateien (keine Keys/Config)." >&2
-  echo "  Git-Push/Pull über SSH wird ohne Keys fehlschlagen." >&2
-  echo "  Vorlage: templates/ssh_local/config, Keys erzeugen mit:" >&2
-  echo "    ssh-keygen -t ed25519 -f ${SSH_DIR}/id_ed25519_github -N \"\"" >&2
-fi
-
-if [[ ! -f "${GIT_DIR}/gitconfig" ]]; then
-  echo "Warnung: ${GIT_DIR}/gitconfig fehlt - lege eine an (z.B. aus" >&2
-  echo "  templates/git_local/gitconfig kopieren), sonst fehlen user.name/" >&2
-  echo "  user.email im Container." >&2
-fi
-
-if [[ ! -f "${GIT_DIR}/glab-cli/hosts.yml" ]]; then
-  echo "Warnung: ${GIT_DIR}/glab-cli/hosts.yml fehlt - lege eine an (z.B. aus" >&2
-  echo "  templates/git_local/glab-cli/hosts.yml kopieren), sonst fehlt die" >&2
-  echo "  glab-Authentifizierung im Container." >&2
-fi
-
-if [[ ! -f "${GIT_DIR}/gh-cli/hosts.yml" ]]; then
-  echo "Warnung: ${GIT_DIR}/gh-cli/hosts.yml fehlt - lege eine an (z.B. aus" >&2
-  echo "  templates/git_local/gh-cli/hosts.yml kopieren), sonst fehlt die" >&2
-  echo "  gh (GitHub CLI)-Authentifizierung im Container." >&2
-fi
-
-while IFS= read -r -d '' key; do
-  perms="$(stat -c '%a' "$key")"
-  if [[ "$perms" != "600" && "$perms" != "400" ]]; then
-    echo "Warnung: ${key} hat Rechte ${perms}, SSH erwartet 600. Fix: chmod 600 ${key}" >&2
-  fi
-done < <(find "$SSH_DIR" -maxdepth 1 -type f -name 'id_*' ! -name '*.pub' -print0 2>/dev/null)
-
-if [[ -f "${GIT_DIR}/credentials" ]]; then
-  perms="$(stat -c '%a' "${GIT_DIR}/credentials")"
-  if [[ "$perms" != "600" && "$perms" != "400" ]]; then
-    echo "Warnung: ${GIT_DIR}/credentials hat Rechte ${perms}, sollte 600 sein." >&2
-  fi
-fi
-
-if [[ -f "${GIT_DIR}/glab-cli/hosts.yml" ]]; then
-  perms="$(stat -c '%a' "${GIT_DIR}/glab-cli/hosts.yml")"
-  if [[ "$perms" != "600" ]]; then
-    echo "Warnung: ${GIT_DIR}/glab-cli/hosts.yml hat Rechte ${perms}, setze auf 600." >&2
-    chmod 600 "${GIT_DIR}/glab-cli/hosts.yml"
-  fi
-fi
-
-if [[ -f "${GIT_DIR}/gh-cli/hosts.yml" ]]; then
-  perms="$(stat -c '%a' "${GIT_DIR}/gh-cli/hosts.yml")"
-  if [[ "$perms" != "600" ]]; then
-    echo "Warnung: ${GIT_DIR}/gh-cli/hosts.yml hat Rechte ${perms}, setze auf 600." >&2
-    chmod 600 "${GIT_DIR}/gh-cli/hosts.yml"
-  fi
-fi
-
-# --- Proxy ----------------------------------------------------------------------
-if $USE_PROXY; then
-  if ! podman image exists oc-proxy 2>/dev/null; then
-    echo "==> Baue oc-proxy Image ..."
-    podman build -t oc-proxy -f "${REPO_ROOT}/proxy/Dockerfile" "${REPO_ROOT}/proxy/"
-  fi
-  if ! podman container exists oc-proxy 2>/dev/null || ! podman inspect -f '{{.State.Running}}' oc-proxy 2>/dev/null | grep -q true; then
-    echo "==> Starte oc-proxy Container ..."
-    podman run -d --replace --name oc-proxy --network=pasta \
-      -p 127.0.0.1:3128:3128 oc-proxy
-  fi
-fi
-
-# --- Netzwerk-Optionen ---------------------------------------------------------
-NETWORK_ARGS=(--network=pasta)
-PROXY_ENV=()
-if $USE_PROXY; then
-  PROXY_ENV=(
-    -e HTTPS_PROXY="http://host.containers.internal:3128"
-    -e HTTP_PROXY="http://host.containers.internal:3128"
-    -e NO_PROXY="localhost,127.0.0.1"
-  )
-fi
-if $OFFLINE; then
-  echo "Hinweis: Sandbox läuft ohne Netzwerk (--offline). OpenCode-Login/API" >&2
-  echo "         ist damit nicht nutzbar, nur lokale Modelle." >&2
-  NETWORK_ARGS=(--network=none)
-  PROXY_ENV=()
-fi
-
-# --- Flag-Validierung ----------------------------------------------------------
-if $OFFLINE && $CBM_UI; then
-  echo "Fehler: --cbm_ui erfordert Netzwerk (--offline inkompatibel)" >&2
-  exit 1
-fi
-
-# --- CBM-UI-Optionen -----------------------------------------------------------
-CBM_PORT_ARGS=()
-CBM_ENV_UI=()
-if $CBM_UI; then
-  CBM_PORT_ARGS=(-p 127.0.0.1:9749:9749)
-  CBM_ENV_UI=(-e CBM_UI=true)
-fi
-
-# --- HIL-Geräte ----------------------------------------------------------------
-#
-# Wichtig: Geräte werden NICHT mehr als einzelne --device-Snapshots gebunden.
-# Grund: --device bindet beim Container-Start eine feste major:minor-
-# Kombination. Enumeriert das USB-Gerät später neu (neue Bus/Device-Nummer,
-# z.B. weil das PicoScope beim (Wieder-)Verbinden Firmware nachlädt, wegen
-# USB-Autosuspend, oder weil ein MCU-Board resettet wird), zeigt der
-# Snapshot im Container ins Leere (Rechte erscheinen als "c---------"),
-# obwohl das Gerät auf dem Host unter neuem Pfad weiterhin funktioniert.
-DEVICE_ARGS=()
-if $HIL_MODE; then
-
-  # --- PicoScope (libusb-basiert: libps2000/libps2000a lesen selbst das
-  #     Verzeichnis /dev/bus/usb/<Bus>/ per readdir und öffnen dort den
-  #     aktuell passenden Geräteknoten. Ein Symlink an anderer Stelle
-  #     (z.B. /dev/hil/scope0) hilft dem NICHT - libusb kennt nur den
-  #     Standardpfad /dev/bus/usb/*.
-  #     Wir ermitteln daher zur Laufzeit die Bus-Nummer (stabil, solange
-  #     das Gerät am selben physischen Port hängt - siehe udev/99-hil.rules
-  #     für den Autosuspend-Fix gegen sporadisches Re-Enumerieren) und
-  #     mounten NUR dieses eine Bus-Verzeichnis live, nicht ganz
-  #     /dev/bus/usb. Das gibt Zugriff auf alles, was aktuell an diesem
-  #     Bus/Hub hängt (mehr geht mit libusb nicht granularer), aber nicht
-  #     auf andere USB-Busse des Hosts.
-  if [[ -e /dev/scope0 ]]; then
-    SCOPE_REAL=$(readlink -f /dev/scope0)          # z.B. /dev/bus/usb/007/055
-    SCOPE_BUS_DIR="$(dirname "$SCOPE_REAL")"        # z.B. /dev/bus/usb/007
-    if [[ -d "$SCOPE_BUS_DIR" ]]; then
-      DEVICE_ARGS+=(-v "${SCOPE_BUS_DIR}:${SCOPE_BUS_DIR}")
-      # Kein --device-cgroup-rule: im rootless-Modus (User-Namespace) gibt
-      # es keinen nutzbaren devices-Cgroup-Controller, Podman lehnt das
-      # Flag dort ab ("not supported in rootless mode"). Das ist unkritisch,
-      # weil rootless-Container ohnehin nur über normale Unix-Rechte (DAC)
-      # auf Devices zugreifen - die Cgroup-Ebene entfällt komplett. Die
-      # Freigabe hier passiert allein durch den Bind-Mount + die per
-      # --userns=keep-id/--group-add keep-groups übernommene
-      # Gruppenmitgliedschaft (dialout, siehe udev/99-hil.rules).
     fi
-  else
-    echo "Hinweis: /dev/scope0 fehlt. Das ist eine Folgeerscheinung, kein Blocker:" >&2
-    echo "         - udev-Regel (udev/99-hil.rules) ist auf dem Host nicht installiert, ODER" >&2
-    echo "         - Oszi ist nicht angeschlossen (Bus-Nummer kann erst danach ermittelt" >&2
-    echo "           werden - Container ggf. neu starten, sobald das Gerät steckt)." >&2
-  fi
 
-  # --- Serielle HIL-Geräte (ttyUSB/ttyACM): udev legt bei jedem ADD-Event
-  #     (auch nach Reset/Replug) einen echten Geräteknoten unter aktuellem
-  #     Kernel-Namen sowie einen stabilen Vendor/Produkt/Serial-Symlink in
-  #     /dev/hil/ an (siehe udev/99-hil.rules). Das Verzeichnis wird live
-  #     gemountet, sodass jede Änderung sofort im Container sichtbar ist -
-  #     kein Container-Neustart nach einem Reset nötig.
-  if [[ -d /dev/hil ]]; then
-    DEVICE_ARGS+=(-v /dev/hil:/dev/hil)
-  else
-    echo "Hinweis: /dev/hil fehlt. Das ist eine Folgeerscheinung, kein Blocker:" >&2
-    echo "         - udev-Regel (udev/99-hil.rules) ist auf dem Host nicht installiert, ODER" >&2
-    echo "         - noch kein passendes Gerät wurde je erkannt (Verzeichnis wird von udev" >&2
-    echo "           erst beim ersten ADD-Event automatisch angelegt)." >&2
-  fi
+    PROJECT_PATH="$1"
+    shift
 
-  # onboard UART (kein USB, re-enumeriert nicht) weiterhin klassisch durchreichen
-  for dev in /dev/ttyAMA*; do
-    [[ -e "$dev" ]] && DEVICE_ARGS+=(--device="$dev")
-  done
-fi
+    OPT_EDITION="$DEFAULT_EDITION"
+    OPT_USE_PROXY=false
+    OPT_OFFLINE=false
+    OPT_HIL_MODE=false
+    OPT_CBM_UI="$DEFAULT_CBM_UI"
 
-# --- Container starten ---------------------------------------------------------
-CONTAINER_NAME="opencode-sandbox-$(basename "$PROJECT_ROOT")"
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --edition)
+                OPT_EDITION="$2"
+                shift 2
+                ;;
+            --use_proxy)
+                OPT_USE_PROXY=true
+                shift
+                ;;
+            --offline)
+                OPT_OFFLINE=true
+                shift
+                ;;
+            --hil_mode)
+                OPT_HIL_MODE=true
+                shift
+                ;;
+            --cbm_ui)
+                OPT_CBM_UI=true
+                shift
+                ;;
+            --help|-h)
+                show_usage
+                exit 0
+                ;;
+            *)
+                log_error "Unknown option: $1"
+                show_usage
+                exit 1
+                ;;
+        esac
+    done
 
-SANDBOX_IMAGE="opencode-sandbox-${EDITION}"
+    # Validate edition
+    case "$OPT_EDITION" in
+        web|embedded|full)
+            ;;
+        *)
+            log_error "Invalid edition: $OPT_EDITION (must be web|embedded|full)"
+            exit 1
+            ;;
+    esac
 
-if ! podman image exists "${SANDBOX_IMAGE}" 2>/dev/null; then
-  echo "Fehler: Image '${SANDBOX_IMAGE}' nicht gefunden." >&2
-  echo "" >&2
-  echo "  Erst bauen mit:" >&2
-  echo "    ./scripts/build-all.sh ${EDITION}" >&2
-  echo "" >&2
-  echo "  Oder alle Editionen bauen mit:" >&2
-  echo "    ./scripts/build-all.sh all" >&2
-  exit 1
-fi
+    log_info "Starting project with configuration:"
+    log_info "  Edition: $OPT_EDITION"
+    log_info "  Use proxy: $OPT_USE_PROXY"
+    log_info "  Offline: $OPT_OFFLINE"
+    log_info "  HIL mode: $OPT_HIL_MODE"
+    log_info "  CBM UI: $OPT_CBM_UI"
+}
 
-exec podman run --rm -it \
-  --replace \
-  --name "$CONTAINER_NAME" \
-  --userns=keep-id \
-  --group-add keep-groups \
-  --cap-drop=ALL \
-  --security-opt no-new-privileges \
-  "${NETWORK_ARGS[@]}" \
-  "${PROXY_ENV[@]}" \
-  "${CBM_PORT_ARGS[@]}" \
-  "${CBM_ENV_UI[@]}" \
-  "${DEVICE_ARGS[@]}" \
-  -e TERM="${TERM:-xterm-256color}" \
-  -e XDG_CONFIG_HOME="/home/dev/.config" \
-  -e XDG_DATA_HOME="/home/dev/.local/share" \
-  -e GIT_CONFIG_GLOBAL="/home/dev/.git_local/gitconfig" \
-  -e SANDBOX_EDITION="${EDITION}" \
-  -v "${PROJECT_DIR}:/home/dev/project:Z" \
-  -v "${CONFIG_DIR}:/home/dev/.config/opencode:Z" \
-  -v "${DATA_DIR}:/home/dev/.local/share/opencode:Z" \
-  -v "${SSH_DIR}:/home/dev/.ssh:Z,ro" \
-  -v "${GIT_DIR}:/home/dev/.git_local:Z" \
-  -v "${CBM_DIR}:/home/dev/.cache/codebase-memory-mcp:Z" \
-  "${SANDBOX_IMAGE}"
+# --- Project Validation ---------------------------------------------------------
+
+validate_project() {
+    local project_path="$1"
+
+    if [[ ! -d "$project_path" ]]; then
+        log_error "Project path does not exist: $project_path"
+        exit 1
+    fi
+
+    # Check for expected project structure
+    local required_dirs=(
+        "project"
+        ".opencode_config"
+        ".opencode_data"
+    )
+
+    for dir in "${required_dirs[@]}"; do
+        if [[ ! -d "$project_path/$dir" ]]; then
+            log_warn "Missing expected directory: $dir"
+            log_warn "Project structure may be incomplete"
+        fi
+    done
+
+    # Check for auth.json
+    if [[ ! -f "$project_path/.opencode_data/auth.json" ]]; then
+        log_error "Missing auth.json: $project_path/.opencode_data/auth.json"
+        log_error "Please run init-project.sh first to set up authentication"
+        exit 1
+    fi
+}
+
+# --- Container Management -------------------------------------------------------
+
+detect_container_runtime() {
+    if command -v podman &>/dev/null; then
+        echo "podman"
+    elif command -v docker &>/dev/null; then
+        echo "docker"
+    else
+        echo ""
+    fi
+}
+
+get_container_name() {
+    local project_name
+    project_name="$(basename "$PROJECT_PATH")"
+    echo "opencode-sandbox-${project_name}"
+}
+
+is_container_running() {
+    local runtime="$1"
+    local container_name="$2"
+
+    case "$runtime" in
+        podman)
+            podman container exists "${container_name}" 2>/dev/null && \
+            podman inspect -f '{{.State.Running}}' "${container_name}" 2>/dev/null | grep -q true
+            ;;
+        docker)
+            docker container exists "${container_name}" 2>/dev/null && \
+            docker inspect -f '{{.State.Running}}' "${container_name}" 2>/dev/null | grep -q true
+            ;;
+        *)
+            false
+            ;;
+    esac
+}
+
+start_container() {
+    local runtime="$1"
+    local container_name="$2"
+
+    log_info "Checking container status..."
+
+    if is_container_running "$runtime" "$container_name"; then
+        log_success "Container is already running: $container_name"
+        return 0
+    fi
+
+    log_info "Starting container: $container_name"
+
+    # This is a placeholder for container startup logic
+    # In production, this would use the actual opencode-sandbox container
+    log_warn "Container startup not yet implemented"
+    log_info "Replace this with your container startup logic"
+
+    # Example of what the actual implementation might look like:
+    # case "$runtime" in
+    #     podman)
+    #         podman start "$container_name"
+    #         ;;
+    #     docker)
+    #         docker start "$container_name"
+    #         ;;
+    # esac
+
+    return 0
+}
+
+# --- OpenCode Initialization ---------------------------------------------------
+
+setup_opencode_environment() {
+    local project_path="$1"
+
+    log_info "Setting up opencode environment..."
+
+    # Set environment variables based on options
+    export OPENCODE_DIR="$project_path/.opencode_config"
+    export OPENCODE_DATA_DIR="$project_path/.opencode_data"
+    export OPENCODE_PROJECT_DIR="$project_path/project"
+    export OPENCODE_SSH_DIR="$project_path/.ssh_local"
+    export OPENCODE_GIT_DIR="$project_path/.git_local"
+    export OPENCODE_CBM_CACHE_DIR="$project_path/.cbm_cache"
+
+    # Set CBM UI flag
+    if [[ "$OPT_CBM_UI" == "true" ]]; then
+        export OPENCODE_CBM_UI=true
+    fi
+
+    # Set edition-specific configuration
+    case "$OPT_EDITION" in
+        web)
+            export OPENCODE_EDITION=web
+            ;;
+        embedded)
+            export OPENCODE_EDITION=embedded
+            ;;
+        full)
+            export OPENCODE_EDITION=full
+            ;;
+    esac
+
+    # Set web access mode
+    if [[ "$OPT_USE_PROXY" == "true" ]]; then
+        export OPENCODE_WEB_ACCESS=proxy
+    elif [[ "$OPT_OFFLINE" == "true" ]]; then
+        export OPENCODE_WEB_ACCESS=offline
+    else
+        export OPENCODE_WEB_ACCESS=unrestricted
+    fi
+
+    # Set HIL mode
+    if [[ "$OPT_HIL_MODE" == "true" ]]; then
+        export OPENCODE_HIL_MODE=true
+    fi
+
+    log_success "Environment configured successfully"
+}
+
+start_opencode() {
+    local project_path="$1"
+
+    log_info "Starting opencode..."
+
+    if ! command -v opencode &>/dev/null; then
+        log_error "opencode command not found"
+        log_error "Please install opencode first"
+        exit 1
+    fi
+
+    # Check if opencode is already running for this project
+    if opencode status "$project_path" &>/dev/null; then
+        log_success "opencode is already running for this project"
+        return 0
+    fi
+
+    # Start opencode in the project directory
+    cd "$project_path/project" || {
+        log_error "Failed to change to project directory: $project_path/project"
+        exit 1
+    }
+
+    log_info "Starting opencode in directory: $(pwd)"
+
+    # Placeholder for actual opencode startup
+    log_warn "OpenCode startup not yet implemented"
+    log_info "Replace this with your opencode startup logic"
+
+    # Example of what the actual implementation might look like:
+    # opencode start \
+    #     --config "$ OPENCODE_DIR" \
+    #     --data-dir "$OPENCODE_DATA_DIR" \
+    #     --auth "$OPENCODE_DATA_DIR/auth.json"
+
+    cd - >/dev/null || true
+
+    return 0
+}
+
+# --- Main Execution -------------------------------------------------------------
+
+main() {
+    echo ""
+    echo "╔════════════════════════════════════════════════════════════╗"
+    echo "║              OpenCode Sandbox - Start Project             ║"
+    echo "╚════════════════════════════════════════════════════════════╝"
+    echo ""
+
+    # Parse command line arguments
+    parse_arguments "$@"
+
+    # Validate project structure
+    validate_project "$PROJECT_PATH"
+
+    # Detect container runtime
+    local runtime
+    runtime=$(detect_container_runtime)
+
+    if [[ -z "$runtime" ]]; then
+        log_error "No container runtime found (podman or docker required)"
+        log_info "Please install podman or docker before continuing"
+        exit 1
+    fi
+
+    log_info "Using container runtime: $runtime"
+
+    # Get container name
+    local container_name
+    container_name=$(get_container_name)
+
+    # Start container if needed
+    start_container "$runtime" "$container_name"
+
+    # Setup opencode environment
+    setup_opencode_environment "$PROJECT_PATH"
+
+    # Start opencode
+    start_opencode "$PROJECT_PATH"
+
+    echo ""
+    echo "╔════════════════════════════════════════════════════════════╗"
+    echo "║                    Project Started!                        ║"
+    echo "╚════════════════════════════════════════════════════════════╝"
+    echo ""
+    echo "Project: $PROJECT_PATH"
+    echo "Container: $container_name"
+    echo "Edition: $OPT_EDITION"
+    echo ""
+    echo "You can now use opencode from this project directory."
+    echo ""
+}
+
+# --- Entry Point ---------------------------------------------------------------
+
+main "$@"
