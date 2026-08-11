@@ -228,22 +228,28 @@ main() {
     success "Creating temporary orphan branch: $temp_branch"
     
     git checkout --orphan "$temp_branch"
-    git rm -rf .
     
-    # Copy dist contents with proper error handling - FAIL LOUDLY
-    success "Copying dist/ contents to release branch"
-    if ! cp -r dist/* .; then
-        error "Failed to copy dist/ contents"
+    # Remove everything except dist folder
+    success "Removing non-dist files from orphan branch"
+    find . -maxdepth 1 -not -name '.' -not -name '..' -not -name 'dist' -not -name '.git' -exec rm -rf {} + 2>/dev/null || true
+    
+    # Move dist contents to root level
+    success "Moving dist/ contents to root level"
+    if ! mv dist/* . 2>/dev/null; then
+        error "Failed to move dist/ contents to root level"
     fi
     
     # Handle hidden files in dist (excluding . and ..)
     if [ -d dist ] && [ "$(ls -A dist)" ]; then
-        find dist -maxdepth 1 -name '.*' -not -name '.' -not -name '..' -exec cp -r {} . \;
+        find dist -maxdepth 1 -name '.*' -not -name '.' -not -name '..' -exec mv {} . \;
     fi
+    
+    # Remove the now-empty dist folder
+    rm -rf dist
     
     # Verify we have content before proceeding
     if [ -z "$(ls -A)" ]; then
-        error "No files were copied from dist/ folder. Release branch is empty."
+        error "No files were found in dist/ folder. Release branch is empty."
     fi
     
     git add .
