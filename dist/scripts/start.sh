@@ -16,18 +16,20 @@
 #     .cbm_cache/           <- CBM-Graph-Datenbank (persistent)
 #
 # Flags:
-#   --use_proxy   Startet Squid-Egress-Allowlist-Proxy und nutzt ihn
-#   --offline     Kein Netzwerk (nur lokale Modelle)
-#   --hil_mode    USB-Passthrough für Oszi (scope0) und MCU (ttyUSB*, ttyACM*, ttyAMA*)
-#   --cbm_ui      Aktiviert CBM Graph-UI auf Port 9749
+#   --use_proxy        Startet Squid-Egress-Allowlist-Proxy und nutzt ihn
+#   --offline          Kein Netzwerk (nur lokale Modelle)
+#   --hil_mode         USB-Passthrough für Oszi (scope0) und MCU (ttyUSB*, ttyACM*, ttyAMA*)
+#   --cbm_ui           Aktiviert CBM Graph-UI auf Port 9749
+#   --start_opencode   Startet OpenCode direkt nach Container-Start
 #
 # Beispiele:
-#   scripts/start.sh ~/projects/kunde-x                        # Default (volle Netzanbindung)
-#   scripts/start.sh ~/projects/kunde-x --use_proxy             # Mit Egress-Allowlist
-#   scripts/start.sh ~/projects/kunde-x --offline               # Ohne Netzwerk
-#   scripts/start.sh ~/projects/kunde-x --hil_mode              # HIL-Tests
-#   scripts/start.sh ~/projects/kunde-x --use_proxy --hil_mode  # Kombiniert
-#   scripts/start.sh ~/projects/kunde-x --cbm_ui                # Mit CBM Graph-UI
+#   scripts/start.sh ~/projects/kunde-x                            # Default (volle Netzanbindung)
+#   scripts/start.sh ~/projects/kunde-x --use_proxy                 # Mit Egress-Allowlist
+#   scripts/start.sh ~/projects/kunde-x --offline                   # Ohne Netzwerk
+#   scripts/start.sh ~/projects/kunde-x --hil_mode                  # HIL-Tests
+#   scripts/start.sh ~/projects/kunde-x --use_proxy --hil_mode      # Kombiniert
+#   scripts/start.sh ~/projects/kunde-x --cbm_ui                    # Mit CBM Graph-UI
+#   scripts/start.sh ~/projects/kunde-x --start_opencode            # Mit direktem OpenCode-Start
 #
 set -euo pipefail
 
@@ -37,13 +39,14 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 # --- Flags parsen -------------------------------------------------------------
 PROJECT_ROOT="${1:-}"
 if [[ -z "$PROJECT_ROOT" ]]; then
-  echo "Nutzung: $0 <projekt-root> [--use_proxy] [--offline] [--hil_mode] [--cbm_ui]" >&2
+  echo "Nutzung: $0 <projekt-root> [--use_proxy] [--offline] [--hil_mode] [--cbm_ui] [--start_opencode]" >&2
   echo "" >&2
-  echo "  <projekt-root>  Pfad zum Projekt-Root (siehe init-project.sh)" >&2
-  echo "  --use_proxy     Squid-Egress-Allowlist-Proxy starten und nutzen" >&2
-  echo "  --offline       Kein Netzwerk (--network=none)" >&2
-  echo "  --hil_mode      USB-Passthrough für Oszi + MCU-Geräte" >&2
-  echo "  --cbm_ui        CBM Graph-UI auf Port 9749 aktivieren" >&2
+  echo "  <projekt-root>        Pfad zum Projekt-Root (siehe init-project.sh)" >&2
+  echo "  --use_proxy           Squid-Egress-Allowlist-Proxy starten und nutzen" >&2
+  echo "  --offline             Kein Netzwerk (--network=none)" >&2
+  echo "  --hil_mode            USB-Passthrough für Oszi + MCU-Geräte" >&2
+  echo "  --cbm_ui              CBM Graph-UI auf Port 9749 aktivieren" >&2
+  echo "  --start_opencode      OpenCode direkt nach Container-Start starten" >&2
   exit 1
 fi
 shift
@@ -52,16 +55,18 @@ USE_PROXY=false
 OFFLINE=false
 HIL_MODE=false
 CBM_UI=false
+START_OPENCODE=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --use_proxy) USE_PROXY=true; shift ;;
-    --offline)   OFFLINE=true;   shift ;;
-    --hil_mode)  HIL_MODE=true;  shift ;;
-    --cbm_ui)    CBM_UI=true;    shift ;;
+    --use_proxy)        USE_PROXY=true; shift ;;
+    --offline)          OFFLINE=true;   shift ;;
+    --hil_mode)         HIL_MODE=true;  shift ;;
+    --cbm_ui)           CBM_UI=true;    shift ;;
+    --start_opencode)   START_OPENCODE=true; shift ;;
     *)
       echo "Unbekanntes Flag: $1" >&2
-      echo "Nutzung: $0 <projekt-root> [--use_proxy] [--offline] [--hil_mode] [--cbm_ui]" >&2
+      echo "Nutzung: $0 <projekt-root> [--use_proxy] [--offline] [--hil_mode] [--cbm_ui] [--start_opencode]" >&2
       exit 1
       ;;
   esac
@@ -76,6 +81,7 @@ DATA_DIR="${PROJECT_ROOT}/.opencode_data"
 SSH_DIR="${PROJECT_ROOT}/.ssh_local"
 GIT_DIR="${PROJECT_ROOT}/.git_local"
 CBM_DIR="${PROJECT_ROOT}/.cbm_cache"
+BASH_DIR="${PROJECT_ROOT}/.bash_local"
 
 mkdir -p "$PROJECT_DIR" "$CONFIG_DIR" "$DATA_DIR" "$SSH_DIR" "$GIT_DIR" "$GIT_DIR/gh-cli" "$GIT_DIR/glab-cli" "$CBM_DIR"
 chmod 700 "$SSH_DIR" "$GIT_DIR"
@@ -264,10 +270,12 @@ exec podman run --rm -it \
   -e XDG_CONFIG_HOME="/home/dev/.config" \
   -e XDG_DATA_HOME="/home/dev/.local/share" \
   -e GIT_CONFIG_GLOBAL="/home/dev/.git_local/gitconfig" \
+  -e START_OPENCODE="${START_OPENCODE}" \
   -v "${PROJECT_DIR}:/home/dev/project:Z" \
   -v "${CONFIG_DIR}:/home/dev/.config/opencode:Z" \
   -v "${DATA_DIR}:/home/dev/.local/share/opencode:Z" \
   -v "${SSH_DIR}:/home/dev/.ssh:Z,ro" \
   -v "${GIT_DIR}:/home/dev/.git_local:Z" \
   -v "${CBM_DIR}:/home/dev/.cache/codebase-memory-mcp:Z" \
+  -v "${BASH_DIR}/bash_profile:/home/dev/.bash_profile:Z" \
   opencode-sandbox

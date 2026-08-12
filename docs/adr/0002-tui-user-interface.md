@@ -1,0 +1,3 @@
+# TUI-Based User Interface
+
+Decided to implement a text-based user interface (TUI) as the primary user interaction method, using gum (https://github.com/charmbracelet/gum) with bash select as fallback. The TUI improves usability over command-line script usage by providing structured navigation, validation, and project management, while maintaining terminal-based workflow compatibility. The TUI serves as the main entry point for most operations while still allowing direct script execution for power users.

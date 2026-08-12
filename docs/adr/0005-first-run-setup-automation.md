@@ -1,0 +1,3 @@
+# First-Run Setup Automation and State Tracking
+
+Decided to automate container initial setup including CBM configuration (auto_index, auto_watch, limits) and skills setup (opencode run "setup-matt-pocock-skills"), tracking completion via setup-complete flag in sandbox_config.json. Setup runs interactively with full terminal passthrough for skill commands, offering granular recovery options for partial failures. This reduces manual configuration while ensuring consistent environment setup across projects.

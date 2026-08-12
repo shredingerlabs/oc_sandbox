@@ -1,0 +1,3 @@
+# Per-Project Configuration Storage
+
+Decided to store configuration in a three-tier hierarchy: global_config.json ($HOME/.config/oc-sandbox) for user preferences and default paths, projects.json ($HOME/.config/oc-sandbox) for project metadata and last-used ordering, and sandbox_config.json (<project_root>/.opencode_config) for project-specific settings including container edition, modes, auto-start options, and setup completion status. This separation enables centralized project management while maintaining project-specific customization and isolation.

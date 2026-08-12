@@ -35,6 +35,7 @@ TEMPLATE_OPENCODE_CONFIG="${SCRIPT_DIR}/../templates/opencode/opencode.json"
 TEMPLATE_OPENCODE_AGENTS="${SCRIPT_DIR}/../templates/opencode/AGENTS.md"
 TEMPLATE_OPENCODE_SKILLS="${SCRIPT_DIR}/../templates/opencode/skills"
 TEMPLATE_SCRIPTS="${SCRIPT_DIR}/../templates/scripts"
+TEMPLATE_BASH_PROFILE="${SCRIPT_DIR}/../templates/bash/bash_profile"
 
 mkdir -p \
   "${PROJECT_ROOT}/project" \
@@ -82,6 +83,12 @@ fi
 
 if [[ -d "$TEMPLATE_SCRIPTS" ]]; then
   cp -r "$TEMPLATE_SCRIPTS" "${PROJECT_ROOT}/project/scripts"
+fi
+
+if [[ -f "$TEMPLATE_BASH_PROFILE" ]]; then
+  mkdir -p "${PROJECT_ROOT}/.bash_local"
+  cp "$TEMPLATE_BASH_PROFILE" "${PROJECT_ROOT}/.bash_local/bash_profile"
+  chmod 644 "${PROJECT_ROOT}/.bash_local/bash_profile"
 fi
 
 SKILLS_TARGET="${PROJECT_ROOT}/.opencode_config/skills"

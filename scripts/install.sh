@@ -513,6 +513,7 @@ validate_installation() {
     "scripts/start.sh"
     "scripts/build-container.sh"
     "scripts/init-project.sh"
+    "scripts/start-tui.sh"
     "Dockerfile"
   )
   
@@ -739,7 +740,7 @@ main() {
   echo ""
   echo "  5. Interaktive TUI starten:"
   echo "     ${INSTALL_PATH}/scripts/start-tui.sh"
-  
+
   if $SYMLINKS; then
     echo ""
     echo "Symlinks erstellt in \$HOME/.local/bin/."
@@ -747,6 +748,7 @@ main() {
     echo "  build-container.sh"
     echo "  init-project.sh"
     echo "  start.sh"
+    echo "  start-tui.sh"
   fi
 }
 

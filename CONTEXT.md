@@ -6,6 +6,22 @@
 
 **CBM (codebase-memory-mcp)** — Knowledge-graph indexing tool. Uses `auto_index` and `auto_watch` config (persisted to `.cbm_cache/`) instead of manual entrypoint hooks. UI variant is always installed; `--cbm_ui` flag toggles runtime behavior only.
 
+**TUI (Text-based User Interface)** — Primary user interaction method using gum (https://github.com/charmbracelet/gum) with bash select fallback, providing structured navigation, validation, and project management while maintaining terminal compatibility.
+
+**sandbox_config.json** — Per-project configuration file stored in `<project_root>/.opencode_config/` containing container edition, modes, auto-start options, CBM settings, and setup completion status.
+
+**projects.json** — Global project registry stored in `$HOME/.config/oc-sandbox/` with project metadata including project names, paths, container states, and last-used timestamps for ordering.
+
+**global_config.json** — Global user preferences stored in `$HOME/.config/oc-sandbox/` containing default project paths and user-specific settings not tied to individual projects.
+
+**concurrent containers** — Multiple project containers can run simultaneously using project-specific naming (opencode-sandbox-PROJECTNAME), with TUI using podman exec for accessing running containers instead of starting new ones.
+
+**first-run setup** — Automated container initialization including CBM configuration and skills setup, tracked via setup-complete flag in sandbox_config.json, offering granular recovery for partial failures.
+
+**VCS integration** — Version Control System setup (GitHub/GitLab) creating credentials/hosts.yml in `.git_local/` subdirectories, separate from AI provider configuration.
+
+**AI provider** — LLM API service configuration like GWDG, stored in auth.json within `.opencode_data/` with provider sections for OpenCode integration.
+
 **install script** — Script that downloads and sets up the opencode-sandbox files to a designated installation directory.
 
 **installation folder** — Directory where opencode-sandbox files are stored, defaulting to `$HOME/.opencode_sandbox` but configurable via `--install_path`.
@@ -85,3 +101,11 @@
 **special file handling** — Only `proxy/allowlist.txt` gets special treatment during updates; all other files are overwritten.
 
 **post-installation message** — Shows brief reminder about system requirements (podman, etc.) and suggests next steps after successful installation.
+
+**setup-complete marker** — Boolean flag in sandbox_config.json tracking whether first-run setup (CBM configuration and skills setup) has been completed for a project.
+
+**atomic config write** — Configuration update method using temporary files and atomic rename operations to prevent corruption during crashes, with automatic backup creation.
+
+**runtime detection** — Dynamic parsing of script help text (build-container.sh, start.sh) to discover available container editions and modes, avoiding hardcoded lists and maintaining flexibility for future script enhancements.
+
+**native script enhancement** — Strategy of extending existing scripts (start.sh, build-container.sh, init-project.sh) with additional parameters (like --start_opencode) rather than creating parallel TUI-specific implementations, preserving backward compatibility and avoiding code duplication.

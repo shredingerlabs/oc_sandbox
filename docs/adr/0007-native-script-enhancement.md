@@ -1,0 +1,3 @@
+# Native Script Enhancement Instead of Replacement
+
+Decided to extend existing scripts (start.sh, build-container.sh, init-project.sh) rather than replacing them with TUI-specific implementations. The TUI uses these scripts as subprocesses with enhanced parameter handling (--start_opencode flag for start.sh) and wrapper functionality for common operations. This maintains backward compatibility, preserves existing script functionality for direct usage, and avoids code duplication between TUI and script interfaces.

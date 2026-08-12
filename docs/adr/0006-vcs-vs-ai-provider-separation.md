@@ -1,0 +1,3 @@
+# VCS Integration vs AI Provider Separation
+
+Decided to treat version control services (GitHub/GitLab) and AI providers (GWDG) as completely separate configuration stages. VCS integration creates credentials/hosts.yml files in .git_local/ subdirectories, while AI providers generate auth.json with provider sections in .opencode_data/. Each project supports one VCS tracking option with optional AI provider configuration, maintaining clear separation between code versioning and AI services while supporting both simultaneously.
