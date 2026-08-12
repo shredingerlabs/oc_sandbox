@@ -25,7 +25,7 @@ PRESERVE_ALLOWLIST=true
 
 # --- Gum Configuration ---------------------------------------------------------
 GUM_VERSION="${GUM_VERSION:-0.17.0}"
-GUM_BIN="${DEFAULT_INSTALL_PATH}/gum"
+GUM_BIN="${DEFAULT_INSTALL_PATH}/gum/gum"
 PLATFORM_OS=""
 PLATFORM_ARCH=""
 
