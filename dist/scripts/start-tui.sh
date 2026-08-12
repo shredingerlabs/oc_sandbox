@@ -160,10 +160,22 @@ rotate_backups() {
 }
 
 handle_first_run_setup() {
-  show_welcome_message
+  # Show welcome message without waiting
+  cat << 'EOF'
+╔══════════════════════════════════════════════════════════════╗
+║                                                              ║
+║              Welcome to OpenCode Sandbox TUI                 ║
+║                                                              ║
+║     Modern project management for containerized development  ║
+║                                                              ║
+╚══════════════════════════════════════════════════════════════╝
+
+This wizard will guide you through the initial setup.
+
+EOF
 
   local default_path="$HOME/oc-sandbox"
-  local project_path
+  local project_path=""
 
   while [[ -z "$project_path" ]]; do
     project_path=$(prompt_for_path "Enter default project path:" "$default_path")
@@ -179,6 +191,8 @@ handle_first_run_setup() {
   if [[ ! -f "$HOME/.config/oc-sandbox/projects.json" ]]; then
     create_projects_json
   fi
+
+  wait_for_enter
 }
 
 load_global_config() {

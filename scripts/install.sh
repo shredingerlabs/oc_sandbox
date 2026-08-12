@@ -201,6 +201,7 @@ install_gum() {
   fi
 
   mkdir -p "$INSTALL_PATH"
+  mkdir -p "$(dirname "$GUM_BIN")"
   cp "$extracted_bin" "$GUM_BIN"
   chmod +x "$GUM_BIN"
 
