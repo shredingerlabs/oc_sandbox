@@ -1,5 +1,4 @@
 {
-  "$schema": "https://opencode.ai/config.json",
   "provider": {
     "gwdg-saia": {
       "npm": "@ai-sdk/openai-compatible",
@@ -134,20 +133,6 @@
       "mode": "subagent",
       "description": "Frontend/Backend-Code für moderne Web Apps",
       "model": "gwdg-saia/glm-4.7"
-    }
-  },
-  "permission": {
-    "external_directory": {
-      "/tmp/**": "allow",
-      "/opt/picoscope/**": "allow",
-      "/usr/local/lib/python3.12/dist-packages/picosdk/**": "allow"
-    }
-  },
-  "mcp": {
-    "codebase-memory-mcp": {
-      "type": "local",
-      "command": ["/usr/local/bin/codebase-memory-mcp"],
-      "enabled": true
     }
   }
 }
