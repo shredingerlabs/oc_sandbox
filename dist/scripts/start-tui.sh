@@ -79,13 +79,23 @@ EOF
 prompt_for_path() {
   local prompt="$1"
   local default="$2"
+  local result=""
 
   if [[ "$TUI_MODE" == "gum" ]]; then
-    gum input --prompt="$prompt " --value="$default" --file
+    if command -v gum &>/dev/null; then
+      result=$(gum input --prompt="$prompt " --value="$default" --file)
+    else
+      read -e -p "$prompt " -i "$default" result
+    fi
   else
-    read -e -p "$prompt " -i "$default" input
-    echo "$input"
+    read -e -p "$prompt " -i "$default" result
   fi
+
+  if [[ -z "$result" ]]; then
+    result="$default"
+  fi
+
+  echo "$result"
 }
 
 create_global_config() {
@@ -152,7 +162,14 @@ handle_first_run_setup() {
   show_welcome_message
 
   local default_path="$HOME/oc-sandbox"
-  local project_path=$(prompt_for_path "Enter default project path:" "$default_path")
+  local project_path
+
+  while [[ -z "$project_path" ]]; do
+    project_path=$(prompt_for_path "Enter default project path:" "$default_path")
+    if [[ -z "$project_path" ]]; then
+      echo "Path cannot be empty"
+    fi
+  done
 
   mkdir -p "$project_path"
 
@@ -353,17 +370,31 @@ init_project_wizard() {
 
 prompt_for_name() {
   local prompt="$1"
+  local result=""
 
   if [[ "$TUI_MODE" == "gum" ]]; then
-    gum input --prompt="$prompt " --placeholder="project-name" --validation.alphanumeric
-  else
-    read -p "$prompt " input
-    if [[ "$input" =~ ^[a-zA-Z0-9_-]+$ ]]; then
-      echo "$input"
+    if command -v gum &>/dev/null; then
+      result=$(gum input --prompt="$prompt " --placeholder="project-name" --validation.alphanumeric)
     else
-      echo ""
+      while [[ -z "$result" ]]; do
+        read -p "$prompt " result
+        if [[ ! "$result" =~ ^[a-zA-Z0-9_-]+$ ]]; then
+          echo "Invalid name. Use only letters, numbers, dashes, and underscores."
+          result=""
+        fi
+      done
     fi
+  else
+    while [[ -z "$result" ]]; do
+      read -p "$prompt " result
+      if [[ ! "$result" =~ ^[a-zA-Z0-9_-]+$ ]]; then
+        echo "Invalid name. Use only letters, numbers, dashes, and underscores."
+        result=""
+      fi
+    done
   fi
+
+  echo "$result"
 }
 
 validate_project_path() {
