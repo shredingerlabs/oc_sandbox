@@ -8,7 +8,7 @@ set -euo pipefail
 # --- Konfiguration ------------------------------------------------------------
 REPO_OWNER="shredingerlabs"
 REPO_NAME="oc_sandbox"
-DEFAULT_INSTALL_PATH="$HOME/.opencode_sandbox"
+DEFAULT_INSTALL_PATH="$HOME/.oc-sandbox"
 MIN_DISK_SPACE_MB=500
 GITHUB_API_BASE="https://api.github.com"
 TEMP_DIR=""
