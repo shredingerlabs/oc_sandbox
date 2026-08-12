@@ -86,10 +86,10 @@ prompt_for_path() {
     if [[ -x "$GUM_BIN" ]]; then
       result=$("$GUM_BIN" input --prompt="$prompt " --value="$default" --file)
     else
-      read -e -p "$prompt " -i "$default" result
+      read -e -p "$prompt " -i "$default" result < /dev/tty
     fi
   else
-    read -e -p "$prompt " -i "$default" result
+    read -e -p "$prompt " -i "$default" result < /dev/tty
   fi
 
   if [[ -z "$result" ]]; then
@@ -188,7 +188,7 @@ load_global_config() {
 
 wait_for_enter() {
   echo
-  read -p "Press Enter to continue..."
+  read -p "Press Enter to continue..." < /dev/tty
 }
 
 show_menu() {
@@ -343,7 +343,7 @@ init_project_wizard() {
   local project_name=""
   while [[ -z "$project_name" ]]; do
     echo "Enter project name (alphanumeric, dashes, underscores only):"
-    read -r project_name
+    read -r project_name < /dev/tty
     if [[ ! "$project_name" =~ ^[a-zA-Z0-9_-]+$ ]]; then
       echo "Invalid project name. Please use only letters, numbers, dashes, and underscores."
       project_name=""
@@ -378,7 +378,7 @@ prompt_for_name() {
       result=$("$GUM_BIN" input --prompt="$prompt " --placeholder="project-name" --validation.alphanumeric)
     else
       while [[ -z "$result" ]]; do
-        read -p "$prompt " result
+        read -p "$prompt " result < /dev/tty
         if [[ ! "$result" =~ ^[a-zA-Z0-9_-]+$ ]]; then
           echo "Invalid name. Use only letters, numbers, dashes, and underscores."
           result=""
@@ -387,7 +387,7 @@ prompt_for_name() {
     fi
   else
     while [[ -z "$result" ]]; do
-      read -p "$prompt " result
+      read -p "$prompt " result < /dev/tty
       if [[ ! "$result" =~ ^[a-zA-Z0-9_-]+$ ]]; then
         echo "Invalid name. Use only letters, numbers, dashes, and underscores."
         result=""
