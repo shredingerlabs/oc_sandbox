@@ -382,7 +382,7 @@ echo "$(id -un):$(id -g):1" | sudo tee -a /etc/subgid
 Danach `scripts/start.sh` nochmal starten — `start.sh` selbst prüft den
 Self-Eintrag per `getsubids` und bricht vorher mit der genauen Anweisung
 ab, falls er fehlt. Dasselbe gilt für `devcontainer.json`-Workflows
-(`.devcontainer/devcontainer.json` → `devcontainer up`).
+ (`.devcontainer/devcontainer.json` → `devcontainer up`).
 
 ### HIL: USB-Gerät hat keine Rechte im Container (nobody:nogroup)
 
@@ -421,6 +421,7 @@ echo "$(id -un):20:1" | sudo tee -a /etc/subgid
 `scripts/start.sh --hil_mode` versucht automatisch Option (a) bzw. (b), wenn
 `sudo` mit `NOPASSWD` konfiguriert ist. Schlägt der Auto-Fix fehlt, erscheint
 eine Meldung mit den manuellen Schritten.
+
 
 ## Releases
 
@@ -468,3 +469,14 @@ Das Skript:
 `README.md` für Endanwender. Bei einem Release wird nur dieser Ordner veröffentlicht.
 
 Siehe `scripts/RELEASE_README.md` für detaillierte Dokumentation und `scripts/USAGE_EXAMPLES.md` für Beispiele.
+
+
+## Credits
+
+Dank an folgende Open-Source-Projekte und Tools:
+
+- **Matt Pocock: Skills For Real Engineers** (https://github.com/mattpocock/skills) — Eine Sammlung von Engineering-Skills für opencode mit bewährten Arbeitsabläufen für Code-Review, TDD, Architekturentwurf und mehr.
+
+- **codebase-memory-mcp** (https://github.com/DeusData/codebase-memory-mcp) — Knowledge-Graph-Indexing und auto-konfigurierte Code-Intelligence für opencode mit Web-UI und cross-repo-Verbindungen.
+
+- **Gum** (https://github.com/charmbracelet/gum) — Ein Tool für schöne Kommandozeilen-TUIs, verwendet für das interaktive Sandbox-Start-Skript (`start-tui.sh`).
