@@ -1,0 +1,108 @@
+# udev-Regeln für HIL-Geräte: USB-Oszilloskop (PicoScope) + serielle
+# MCU-Geräte (Arduino/ESP32 etc.).
+#
+# --- Oszilloskop (PicoScope) ----------------------------------------------
+# Bekommt einen stabilen, Vendor/Product-basierten Symlink /dev/scope0.
+# Für Container-Zugriff via libusb wird in start.sh zur Laufzeit das
+# aktuelle Bus-Verzeichnis (/dev/bus/usb/<Bus>/) anhand dieses Symlinks
+# ermittelt und live gemountet. Der Symlink selbst dient nur der
+# Bus-Ermittlung, nicht dem direkten Öffnen aus dem Container.
+#
+# --- Serielle Geräte (ttyUSB/ttyACM) --------------------------------------
+# Da diese Geräte flach direkt in /dev/ liegen (keine analoge
+# Verzeichnisstruktur wie /dev/bus/usb/<Bus>/), reicht ein einfacher
+# Symlink nicht: er würde relativ zum jeweiligen /dev aufgelöst, und der
+# Container hat sein eigenes, separates /dev - das Ziel wäre dort
+# unsichtbar.
+#
+# Stattdessen wird bei jedem ADD-Event per RUN ein ECHTER Geräteknoten
+# (kein Symlink) mit der aktuellen major:minor-Kombination in einem
+# eigenen Verzeichnis /dev/hil/ angelegt - benannt nach dem
+# Kernel-Namen (z.B. /dev/hil/ttyACM0). Zusätzlich wird dort, sofern
+# ermittelbar, ein stabiler Vendor/Produkt/Serial-basierter Symlink
+# angelegt (z.B. /dev/hil/2341_0043_95730313335351812171), der auf
+# diesen Knoten zeigt - das funktioniert, weil Ziel und Symlink im
+# selben, komplett gemounteten Verzeichnis liegen (anders als bei einem
+# Symlink nach /dev/ttyACM0 direkt).
+#
+# Nach einem Reset/Replug meldet sich das Board ggf. unter neuem
+# Kernel-Namen (z.B. ttyACM1 statt ttyACM0) - das ADD-Event legt dann
+# einen neuen Knoten + aktualisierten Symlink an, das REMOVE-Event räumt
+# den alten Knoten und verwaiste Symlinks auf.
+#
+# /dev/hil wird in start.sh live per "-v /dev/hil:/dev/hil" gemountet,
+# jede Änderung ist damit sofort im Container sichtbar, ganz ohne
+# Container-Neustart.
+#
+# Hinweis: Wenn mehrere baugleiche Boards ohne eigene Seriennummer
+# gleichzeitig angeschlossen sind, kollidiert der Vendor/Produkt-Symlink
+# (gleicher Name für beide) - dann bitte pro Board eine eigene Regel mit
+# fester Bezeichnung ergänzen (z.B. per ATTRS{devpath} oder festem
+# USB-Port).
+#
+# Installation:
+#   sudo cp 99-hil.rules /etc/udev/rules.d/
+#   sudo udevadm control --reload-rules
+#   sudo udevadm trigger
+#
+# Prüfen:
+#   ls -l /dev/scope0 /dev/hil/
+
+# --- PicoScope 2000 series ------------------------------------------------
+# Bus 007 Device 028: ID 0ce9:1007 Pico Technology PicoScope 2000 series PC Oscilloscope
+SUBSYSTEM=="usb", ATTR{idVendor}=="0ce9", ATTR{idProduct}=="1007", \
+    SYMLINK+="scope0", MODE="0660", GROUP="dialout", TAG+="uaccess"
+
+# USB-Autosuspend für das PicoScope abschalten. Autosuspend/Power-Management
+# ist eine häufige Ursache für sporadisches Disconnect/Reconnect (= neue
+# Bus/Device-Nummer), auch ohne dass das Gerät wirklich abgezogen wurde.
+SUBSYSTEM=="usb", ATTR{idVendor}=="0ce9", ATTR{idProduct}=="1007", \
+    TEST=="power/control", ATTR{power/control}="on"
+
+# Falls mehrere Oszis/Geräte-Typen im Einsatz sind, weitere Zeilen mit
+# eigenem SYMLINK (scope1, ...) ergänzen.
+
+# --- Serielle HIL-Geräte (Arduino/ESP32 etc. über USB) --------------------
+
+# ttyUSB*: echten Knoten + stabilen Vendor/Produkt/Serial-Symlink anlegen
+ACTION=="add", SUBSYSTEM=="tty", KERNEL=="ttyUSB[0-9]*", \
+    IMPORT{builtin}="usb_id", \
+    RUN+="/bin/sh -c '\
+        mkdir -p /dev/hil && \
+        rm -f /dev/hil/%k && \
+        mknod /dev/hil/%k c $env{MAJOR} $env{MINOR} && \
+        chmod 0660 /dev/hil/%k && \
+        chgrp dialout /dev/hil/%k && \
+        if [ -n \"$env{ID_VENDOR_ID}\" ] && [ -n \"$env{ID_MODEL_ID}\" ]; then \
+            ln -sfn %k /dev/hil/$env{ID_VENDOR_ID}_$env{ID_MODEL_ID}_$env{ID_SERIAL_SHORT}; \
+        fi'"
+
+ACTION=="remove", SUBSYSTEM=="tty", KERNEL=="ttyUSB[0-9]*", \
+    RUN+="/bin/sh -c 'rm -f /dev/hil/%k; find /dev/hil -maxdepth 1 -xtype l -delete 2>/dev/null'"
+
+# ttyACM*: dasselbe Schema
+ACTION=="add", SUBSYSTEM=="tty", KERNEL=="ttyACM[0-9]*", \
+    IMPORT{builtin}="usb_id", \
+    RUN+="/bin/sh -c '\
+        mkdir -p /dev/hil && \
+        rm -f /dev/hil/%k && \
+        mknod /dev/hil/%k c $env{MAJOR} $env{MINOR} && \
+        chmod 0660 /dev/hil/%k && \
+        chgrp dialout /dev/hil/%k && \
+        if [ -n \"$env{ID_VENDOR_ID}\" ] && [ -n \"$env{ID_MODEL_ID}\" ]; then \
+            ln -sfn %k /dev/hil/$env{ID_VENDOR_ID}_$env{ID_MODEL_ID}_$env{ID_SERIAL_SHORT}; \
+        fi'"
+
+ACTION=="remove", SUBSYSTEM=="tty", KERNEL=="ttyACM[0-9]*", \
+    RUN+="/bin/sh -c 'rm -f /dev/hil/%k; find /dev/hil -maxdepth 1 -xtype l -delete 2>/dev/null'"
+
+# Optional, aber empfohlen: Autosuspend für ALLE USB-Geräte global abschalten.
+# Das ist die häufigste Ursache für sporadische USB-Disconnects bei
+# Mikrocontroller-Boards während Flash/Debug-Sessions. Falls das zu breit
+# gefasst ist, die Zeile entfernen und stattdessen pro Vendor/Product wie
+# oben beim PicoScope einschränken.
+ACTION=="add", SUBSYSTEM=="usb", TEST=="power/control", ATTR{power/control}="on"
+
+# ttyAMA (onboard UART, z.B. Raspberry-Pi-GPIO-UART) ist kein USB-Gerät und
+# re-enumeriert nicht - dafür ist kein Symlink/mknod-Mechanismus nötig,
+# das Gerät wird in start.sh weiterhin direkt per --device durchgereicht.
