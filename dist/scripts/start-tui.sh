@@ -9,6 +9,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 TUI_ROOT="${TUI_ROOT:-$HOME/.oc-sandbox}"
+GUM_BIN="${TUI_ROOT}/gum/gum"
 TUI_MODE=""
 GLOBAL_CONFIG=""
 DEFAULT_PROJECT_PATH=""
@@ -46,7 +47,7 @@ initialize_tui() {
 
   mkdir -p "$HOME/.config/oc-sandbox/backups"
 
-  if command -v gum &>/dev/null || [[ -x "$INSTALL_ROOT/gum" ]]; then
+  if [[ -x "$GUM_BIN" ]] || command -v gum &>/dev/null; then
     TUI_MODE="gum"
   else
     TUI_MODE="bash"
@@ -82,8 +83,8 @@ prompt_for_path() {
   local result=""
 
   if [[ "$TUI_MODE" == "gum" ]]; then
-    if command -v gum &>/dev/null; then
-      result=$(gum input --prompt="$prompt " --value="$default" --file)
+    if [[ -x "$GUM_BIN" ]]; then
+      result=$("$GUM_BIN" input --prompt="$prompt " --value="$default" --file)
     else
       read -e -p "$prompt " -i "$default" result
     fi
@@ -196,7 +197,7 @@ show_menu() {
   local options=("$@")
 
   if [[ "$TUI_MODE" == "gum" ]]; then
-    gum choose --header="$title" "${options[@]}" --height="${#options[@]}"
+    "$GUM_BIN" choose --header="$title" "${options[@]}" --height="${#options[@]}"
   else
     bash_select "$title" "${options[@]}"
   fi
@@ -373,8 +374,8 @@ prompt_for_name() {
   local result=""
 
   if [[ "$TUI_MODE" == "gum" ]]; then
-    if command -v gum &>/dev/null; then
-      result=$(gum input --prompt="$prompt " --placeholder="project-name" --validation.alphanumeric)
+    if [[ -x "$GUM_BIN" ]]; then
+      result=$("$GUM_BIN" input --prompt="$prompt " --placeholder="project-name" --validation.alphanumeric)
     else
       while [[ -z "$result" ]]; do
         read -p "$prompt " result
