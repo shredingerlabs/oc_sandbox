@@ -41,6 +41,10 @@ dist/
         └── HOWTO_WAYFINDER_SKILL.md
 ```
 
+The TUI stores each registered project's canonical root and a short SHA-256
+container identity in `~/.config/oc-sandbox/projects.json`. This keeps project
+names unique while allowing projects with identical directory basenames.
+
 ## Editionen
 
 - **base**: Python + core system packages

@@ -111,10 +111,8 @@ normalize_project_path() {
 create_global_config() {
   local project_path="$1"
 
-  local config='{
-    "default_project_path": "'"$project_path"'",
-    "version": "1.0"
-  }'
+  local config
+  config=$(jq -n --arg path "$project_path" '{default_project_path: $path, version: "1.0"}')
 
   atomic_write "$HOME/.config/oc-sandbox/global_config.json" "$config"
 }
@@ -136,9 +134,10 @@ atomic_write() {
   else
     content=$(cat)
   fi
-  local temp_file="${filepath}.tmp.$$"
-
-  echo "$content" > "$temp_file"
+  mkdir -p "$(dirname "$filepath")"
+  local temp_file
+  temp_file=$(mktemp "${filepath}.tmp.XXXXXX")
+  printf '%s\n' "$content" > "$temp_file"
 
   if [[ -f "$filepath" ]]; then
     backup_config "$filepath"
@@ -150,12 +149,12 @@ atomic_write() {
 backup_config() {
   local filepath="$1"
   local backup_dir="$HOME/.config/oc-sandbox/backups"
-  local timestamp=$(date +%Y%m%d_%H%M%S)
-
   mkdir -p "$backup_dir"
 
   local filename=$(basename "$filepath")
-  cp "$filepath" "${backup_dir}/${filename}.${timestamp}"
+  local backup_file
+  backup_file=$(mktemp "${backup_dir}/${filename}.XXXXXX")
+  cp -- "$filepath" "$backup_file"
 
   rotate_backups "$backup_dir" "$filename"
 }
@@ -270,7 +269,38 @@ get_last_used_project() {
     return 1
   fi
 
-  jq -r '.projects | sort_by(.last_used) | reverse | .[0].path' "$projects_json"
+  jq -r '.projects | sort_by(.last_used) | reverse | .[0].container_id // empty' "$projects_json"
+}
+
+get_project_by_id() {
+  local container_id="$1"
+  local projects_json="$HOME/.config/oc-sandbox/projects.json"
+
+  jq -r --arg id "$container_id" '.projects[] | select(.container_id == $id) | @json' "$projects_json"
+}
+
+get_project_by_path() {
+  local path
+  path=$(canonicalize_project_path "$1") || return 1
+  local projects_json="$HOME/.config/oc-sandbox/projects.json"
+
+  jq -r --arg path "$path" '.projects[] | select(.path == $path) | @json' "$projects_json"
+}
+
+canonicalize_project_path() {
+  local path="$1"
+  realpath -m -- "$path"
+}
+
+project_container_identity() {
+  local path
+  path=$(canonicalize_project_path "$1") || return 1
+  printf '%s' "$path" | sha256sum | cut -c1-12
+}
+
+container_name_for_project() {
+  local project_data="$1"
+  printf 'opencode-sandbox-%s\n' "$(jq -r '.container_id' <<< "$project_data")"
 }
 
 get_project_by_name() {
@@ -288,9 +318,10 @@ main_menu() {
   while true; do
     local options=()
 
-    local last_project=$(get_last_used_project)
-    if [[ -n "$last_project" ]]; then
-      local last_project_name=$(basename "$last_project")
+    local last_project_id=$(get_last_used_project)
+    if [[ -n "$last_project_id" ]]; then
+      local last_project_data=$(get_project_by_id "$last_project_id")
+      local last_project_name=$(jq -r '.name' <<< "$last_project_data")
       options+=("Start last used project ($last_project_name)")
     fi
 
@@ -300,8 +331,7 @@ main_menu() {
 
     case "$choice" in
       "Start last used project"*)
-        local project_name=$(echo "$choice" | sed 's/Start last used project (//' | sed 's/)$//')
-        local project_data=$(get_project_by_name "$project_name")
+        local project_data=$(get_project_by_id "$last_project_id")
         handle_project_action "$project_data"
         ;;
       "Open Project")
@@ -324,7 +354,8 @@ main_menu() {
 }
 
 project_selection_wizard() {
-  local projects=($(get_all_projects_ordered))
+  local projects=()
+  mapfile -t projects < <(get_all_projects_ordered)
 
   if [[ ${#projects[@]} -eq 0 ]]; then
     show_page "No projects" "Create a new project first."
@@ -332,7 +363,8 @@ project_selection_wizard() {
     return
   fi
 
-  local running_projects=($(get_running_containers))
+  local running_projects=()
+  mapfile -t running_projects < <(get_running_containers)
 
   local menu_items=()
   for project in "${projects[@]}"; do
@@ -342,7 +374,8 @@ project_selection_wizard() {
     local status_symbol="○"
 
     for running in "${running_projects[@]}"; do
-      if [[ "$running" == "opencode-sandbox-${name}" ]]; then
+      local container_id=$(jq -r '.container_id' <<< "$project")
+      if [[ "$running" == "opencode-sandbox-${container_id}" ]]; then
         status_symbol="●"
         break
       fi
@@ -374,6 +407,13 @@ init_project_wizard() {
   local default_path="$DEFAULT_PROJECT_PATH/$project_name"
   local project_path
   project_path=$(prompt_for_path "Project path:" "$default_path") || return 0
+  project_path=$(canonicalize_project_path "$project_path") || return 0
+
+  if [[ -n "$(get_project_by_name "$project_name")" ]]; then
+    show_page "Duplicate project name" "Choose a unique display name."
+    wait_for_enter || true
+    return 0
+  fi
 
   if ! validate_project_path "$project_path"; then
     show_page "Invalid project path" "The path must be empty or not exist, with a writable parent."
@@ -388,27 +428,17 @@ prompt_for_name() {
   local prompt="$1"
   local result=""
 
-  if [[ "$TUI_MODE" == "gum" ]]; then
-    if [[ -x "$GUM_BIN" ]]; then
+  while [[ ! "$result" =~ ^[a-zA-Z0-9_-]+$ ]]; do
+    result=""
+    if [[ "$TUI_MODE" == "gum" ]] && [[ -x "$GUM_BIN" ]]; then
       result=$("$GUM_BIN" input --prompt="$prompt " --placeholder="project-name") || return 1
     else
-      while [[ -z "$result" ]]; do
-        read -p "$prompt " result < /dev/tty || return 1
-        if [[ ! "$result" =~ ^[a-zA-Z0-9_-]+$ ]]; then
-          echo "Invalid name. Use only letters, numbers, dashes, and underscores."
-          result=""
-        fi
-      done
-    fi
-  else
-    while [[ -z "$result" ]]; do
       read -p "$prompt " result < /dev/tty || return 1
-      if [[ ! "$result" =~ ^[a-zA-Z0-9_-]+$ ]]; then
-        echo "Invalid name. Use only letters, numbers, dashes, and underscores."
-        result=""
-      fi
-    done
-  fi
+    fi
+    if [[ ! "$result" =~ ^[a-zA-Z0-9_-]+$ ]]; then
+      echo "Invalid name. Use only letters, numbers, dashes, and underscores."
+    fi
+  done
 
   echo "$result"
 }
@@ -416,12 +446,14 @@ prompt_for_name() {
 validate_project_path() {
   local path="$1"
 
-  if [[ -e "$path" ]]; then
+  if [[ -e "$path" ]] && { [[ ! -d "$path" ]] || [[ -n "$(find "$path" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" ]]; }; then
     return 1
   fi
 
   local parent_dir=$(dirname "$path")
-  if [[ ! -d "$parent_dir" ]] || [[ ! -w "$parent_dir" ]]; then
+  if [[ -e "$path" ]]; then
+    [[ -w "$path" ]] || return 1
+  elif [[ ! -d "$parent_dir" ]] || [[ ! -w "$parent_dir" ]]; then
     return 1
   fi
 
@@ -636,6 +668,13 @@ add_project_to_registry() {
   local vcs_tracking="$3"
   local timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
   local projects_json="$HOME/.config/oc-sandbox/projects.json"
+  if [[ ! "$name" =~ ^[a-zA-Z0-9_-]+$ ]]; then
+    echo "Invalid project name" >&2
+    return 1
+  fi
+  path=$(canonicalize_project_path "$path") || return 1
+  local container_id
+  container_id=$(project_container_identity "$path") || return 1
 
   local existing=$(get_project_by_name "$name")
   if [[ -n "$existing" ]]; then
@@ -643,8 +682,13 @@ add_project_to_registry() {
     return 1
   fi
 
-  jq --arg name "$name" --arg path "$path" --arg timestamp "$timestamp" --arg vcs "$vcs_tracking" \
-    '.projects += [{"name": $name, "path": $path, "last_used": $timestamp, "container_status": "stopped", "git_tracking": $vcs}]' \
+  if [[ -n "$(get_project_by_id "$container_id")" ]]; then
+    echo "Project path already exists in registry"
+    return 1
+  fi
+
+  jq --arg name "$name" --arg path "$path" --arg id "$container_id" --arg timestamp "$timestamp" --arg vcs "$vcs_tracking" \
+    '.projects += [{"name": $name, "path": $path, "container_id": $id, "last_used": $timestamp, "container_status": "stopped", "git_tracking": $vcs}]' \
     "$projects_json" | atomic_write "$projects_json"
 }
 
@@ -700,10 +744,14 @@ start_container() {
   local detached="${3:-false}"
 
   local edition=$(jq -r '.container_edition' "$config_path")
-  local modes=($(jq -r '.container_modes[]' "$config_path"))
+  local modes=()
+  mapfile -t modes < <(jq -r '.container_modes[]' "$config_path")
   local start_option=$(jq -r '.start_option' "$config_path")
 
-  local start_args=("$project_path" "--edition" "$edition")
+  local project_data
+  project_data=$(get_project_by_path "$project_path")
+  local container_id=$(jq -r '.container_id' <<< "$project_data")
+  local start_args=("$project_path" "--edition" "$edition" "--container-id" "$container_id")
   for mode in "${modes[@]}"; do
     start_args+=("--${mode}")
   done
@@ -724,8 +772,8 @@ start_container() {
 
 run_first_run_setup() {
   local project_path="$1"
-  local project_name=$(basename "$project_path")
-  local container_name="opencode-sandbox-${project_name}"
+  local project_data=$(get_project_by_path "$project_path")
+  local container_name=$(container_name_for_project "$project_data")
 
   echo "Running first-run setup..."
 
@@ -770,8 +818,11 @@ update_project_status() {
   local status="$2"
   local projects_json="$HOME/.config/oc-sandbox/projects.json"
 
-  jq --arg path "$project_path" --arg status "$status" \
-    '.projects |= map(if .path == $path then .container_status = $status else . end)' \
+  local container_id
+  container_id=$(project_container_identity "$project_path")
+
+  jq --arg id "$container_id" --arg status "$status" \
+    '.projects |= map(if .container_id == $id then .container_status = $status else . end)' \
     "$projects_json" | atomic_write "$projects_json"
 }
 
@@ -780,9 +831,11 @@ update_last_used() {
   local projects_json="$HOME/.config/oc-sandbox/projects.json"
 
   local timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+  local container_id
+  container_id=$(project_container_identity "$project_path")
 
-  jq --arg path "$project_path" --arg timestamp "$timestamp" \
-    '.projects |= map(if .path == $path then .last_used = $timestamp else . end)' \
+  jq --arg id "$container_id" --arg timestamp "$timestamp" \
+    '.projects |= map(if .container_id == $id then .last_used = $timestamp else . end)' \
     "$projects_json" | atomic_write "$projects_json"
 }
 
@@ -792,11 +845,11 @@ handle_project_action() {
 
   update_last_used "$project_path"
 
-  local project_name=$(basename "$project_path")
-  local container_name="opencode-sandbox-${project_name}"
+  local container_name=$(container_name_for_project "$project_data")
 
   local is_running=false
-  local running_containers=($(get_running_containers))
+  local running_containers=()
+  mapfile -t running_containers < <(get_running_containers)
   for running in "${running_containers[@]}"; do
     if [[ "$running" == "$container_name" ]]; then
       is_running=true
@@ -815,8 +868,9 @@ handle_project_action() {
 access_running_container() {
   local project_path="$1"
   local config_path="${project_path}/.opencode_config/sandbox_config.json"
-  local project_name=$(basename "$project_path")
-  local container_name="opencode-sandbox-${project_name}"
+  local project_data
+  project_data=$(get_project_by_path "$project_path")
+  local container_name=$(container_name_for_project "$project_data")
   local start_option=$(jq -r '.start_option' "$config_path")
 
   if [[ "$start_option" == "opencode" ]]; then

@@ -23,6 +23,7 @@
 #   --start_opencode   Startet OpenCode direkt nach Container-Start
 #   --edition          Container-Edition: base, web, embedded, full
 #   --detach            Container im Hintergrund starten
+#   --container-id      Persisted project container identity
 #
 # Beispiele:
 #   scripts/start.sh ~/projects/kunde-x                            # Default (volle Netzanbindung)
@@ -49,6 +50,7 @@ if [[ "$PROJECT_ROOT" == "--help" || "$PROJECT_ROOT" == "-h" ]]; then
   echo "  --cbm_ui           CBM Graph-UI auf Port 9749 aktivieren"
   echo "  --start_opencode   OpenCode direkt nach Container-Start starten"
   echo "  --detach           Container im Hintergrund starten"
+  echo "  --container-id     Persisted project container identity"
   exit 0
 fi
 if [[ -z "$PROJECT_ROOT" ]]; then
@@ -70,6 +72,7 @@ HIL_MODE=false
 CBM_UI=false
 START_OPENCODE=false
 DETACH=false
+CONTAINER_ID=""
 EDITION=full
 
 while [[ $# -gt 0 ]]; do
@@ -85,6 +88,11 @@ while [[ $# -gt 0 ]]; do
     --cbm_ui)           CBM_UI=true;    shift ;;
     --start_opencode)   START_OPENCODE=true; shift ;;
     --detach)           DETACH=true; shift ;;
+    --container-id)
+      [[ $# -ge 2 ]] || { echo "--container-id benötigt einen Wert" >&2; exit 1; }
+      CONTAINER_ID="$2"
+      shift 2
+      ;;
     *)
       echo "Unbekanntes Flag: $1" >&2
       echo "Nutzung: $0 <projekt-root> [--edition <edition>] [--use_proxy] [--offline] [--hil_mode] [--cbm_ui] [--start_opencode] [--detach]" >&2
@@ -278,7 +286,7 @@ if $HIL_MODE; then
 fi
 
 # --- Container starten ---------------------------------------------------------
-CONTAINER_NAME="opencode-sandbox-$(basename "$PROJECT_ROOT")"
+CONTAINER_NAME="opencode-sandbox-${CONTAINER_ID:-$(basename "$PROJECT_ROOT")}"
 IMAGE="opencode-sandbox-${EDITION}"
 RUN_MODE=(-it)
 CONTAINER_COMMAND=()

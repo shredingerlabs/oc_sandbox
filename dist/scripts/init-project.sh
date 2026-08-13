@@ -22,8 +22,10 @@ if [[ -z "$PROJECT_ROOT" ]]; then
 fi
 
 if [[ -e "$PROJECT_ROOT" ]]; then
-  echo "Fehler: $PROJECT_ROOT existiert bereits." >&2
-  exit 1
+  if [[ ! -d "$PROJECT_ROOT" ]] || [[ -n "$(find "$PROJECT_ROOT" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" ]]; then
+    echo "Fehler: $PROJECT_ROOT existiert bereits und ist nicht leer." >&2
+    exit 1
+  fi
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
