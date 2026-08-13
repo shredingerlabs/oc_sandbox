@@ -24,6 +24,14 @@ assert_path "/home/user/Projects" "$(normalize_project_path /home/user/oc-sandbo
 
 printf 'start-tui path tests passed\n'
 
+fallback_choice=$(printf '2\n' | bash -c '
+  source "$1/dist/scripts/start-tui.sh"
+  TUI_MODE=bash
+  bash_select "Fallback navigation" "Open Project" "New Project"
+' _ "$PROJECT_ROOT")
+[[ "$fallback_choice" == "New Project" ]]
+printf 'start-tui bash fallback navigation passed\n'
+
 test_home=$(mktemp -d)
 trap 'rm -rf "$test_home"' EXIT
 export HOME="$test_home"
@@ -148,13 +156,14 @@ show_menu() { printf '%s\n' 'Keep existing'; }
 
 credentials_project="$test_home/credentials project"
 mkdir -p "$credentials_project"
-setup_github_credentials "$credentials_project" >/tmp/tui-credential-output
+credential_output="$test_home/tui-credential-output"
+setup_github_credentials "$credentials_project" >"$credential_output"
 [[ -f "$credentials_project/.git_local/gh-cli/hosts.yml" ]]
 [[ "$(jq -r '.["github.com"].oauth_token' "$credentials_project/.git_local/gh-cli/hosts.yml")" == 'test-secret' ]]
 [[ "$(stat -c '%a' "$credentials_project/.git_local")" == '700' ]]
 [[ "$(stat -c '%a' "$credentials_project/.git_local/gh-cli")" == '700' ]]
 [[ "$(stat -c '%a' "$credentials_project/.git_local/gh-cli/hosts.yml")" == '600' ]]
-! grep -Fq 'test-secret' /tmp/tui-credential-output
+! grep -Fq 'test-secret' "$credential_output"
 
 setup_gitlab_credentials "$credentials_project" >/dev/null
 [[ "$(jq -r '.["gitlab.com"].token' "$credentials_project/.git_local/glab-cli/hosts.yml")" == 'test-secret' ]]
@@ -195,7 +204,7 @@ fi
 
 printf '%s\n' '{"projects": [], "version": "1.0"}' > "$HOME/.config/oc-sandbox/projects.json"
 
-rm -f /tmp/tui-credential-output
+rm -f "$credential_output"
 printf 'start-tui credential safety tests passed\n'
 
 # Lifecycle tests use mocked Podman and native scripts.
@@ -210,7 +219,9 @@ set -euo pipefail
 printf '%s\n' "$*" >> "$PODMAN_LOG"
 case "${1:-}" in
   image) grep -Fxq "${3#opencode-sandbox-}" "$IMAGE_STATE" ;;
-  ps) : ;;
+  ps)
+    [[ -n "${PODMAN_RUNNING:-}" ]] && printf '%s\n' "$PODMAN_RUNNING"
+    ;;
   exec)
     if [[ "${PODMAN_FAIL_CBM:-false}" == true && "$*" == *codebase-memory-mcp* ]]; then
       exit 1
@@ -252,9 +263,11 @@ set -e
 
 cat > "$workflow_home/native/build-container.sh" <<'EOF'
 #!/usr/bin/env bash
+printf '%s\n' "$*" >> "$BUILD_ARGS"
 exit 1
 EOF
 chmod +x "$workflow_home/native/build-container.sh"
+export BUILD_ARGS="$workflow_home/build-args"
 SCRIPT_DIR="$workflow_home/native"
 show_menu() { printf '%s\n' 'Build now'; }
 set +e
@@ -266,6 +279,7 @@ if [[ "$build_result" -eq 0 ]]; then
   exit 1
 fi
 [[ ! -e "$workflow_home/native-start-args" ]]
+grep -Fxq full "$BUILD_ARGS"
 SCRIPT_DIR="$PROJECT_ROOT/dist/scripts"
 
 cat > "$workflow_home/native/start.sh" <<EOF
@@ -284,6 +298,17 @@ create_sandbox_config "$workflow_project" full opencode none
 start_container_with_setup "$workflow_project"
 grep -F -- 'opencode' "$podman_log"
 SCRIPT_DIR="$PROJECT_ROOT/dist/scripts"
+
+reconcile_project="$workflow_home/reconcile"
+mkdir -p "$reconcile_project"
+add_project_to_registry Reconcile "$reconcile_project" none
+create_sandbox_config "$reconcile_project" full console none
+update_sandbox_config_field "$reconcile_project/.opencode_config/sandbox_config.json" setup_complete true
+PODMAN_RUNNING="opencode-sandbox-$(project_container_identity "$reconcile_project")"
+export PODMAN_RUNNING
+handle_project_action "$(get_project_by_path "$reconcile_project")"
+[[ "$(jq -r '.projects[] | select(.name == "Reconcile") | .container_status' "$HOME/.config/oc-sandbox/projects.json")" == running ]]
+unset PODMAN_RUNNING
 
 printf 'start-tui lifecycle tests passed\n'
 

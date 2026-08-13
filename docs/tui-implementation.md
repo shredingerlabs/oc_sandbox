@@ -804,11 +804,26 @@ echo "     ${INSTALL_PATH}/scripts/start-tui.sh"
 
 ## Testing Strategy
 
-1. **Manual Testing**: Walk through all wizard paths
-2. **Config Validation**: Test atomic writes, backup/restore
-3. **Container Operations**: Test start/stop/access with multiple containers
-4. **Edge Cases**: Invalid inputs, network failures, partial setup recovery
-5. **Environment Testing**: Test with/without gum, different terminal sizes
+The shell tests use isolated temporary `HOME` and project roots. Native scripts and
+Podman are replaced with process-boundary mocks that record arguments and return
+controlled failures; no network, credentials, or real container is required.
+
+Run the complete suite with:
+
+```bash
+bash -n dist/scripts/*.sh tests/*.sh
+bash tests/test-start-tui.sh
+bash tests/test-tui-gum.sh
+bash tests/test-install.sh
+```
+
+`test-start-tui.sh` exercises the bash fallback and asserts externally visible
+workflow state: project identity, mode toggles, credentials and permissions,
+deferred/failed builds, setup retry, runtime reconciliation, and atomic restore.
+`test-tui-gum.sh` runs the bundled gum v0.17.0 binary in a PTY and covers input,
+choose/toggle, cancellation, hidden token input, and navigation. Assertions avoid
+private implementation details and verify JSON, registry state, command arguments,
+permissions, and secret non-disclosure.
 
 ## Future Enhancements
 
