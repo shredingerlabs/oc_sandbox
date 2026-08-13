@@ -58,9 +58,12 @@ If the selected container image is missing, the TUI offers `Build now`, `Build
 later`, or `Go back`. New projects run setup in a detached container and then
 attach to the selected console or OpenCode session.
 
-First-run setup records CBM and skills progress separately. A failure keeps the
-project registered and offers `Retry`, `Go back`, or `Exit`; retries only repeat
-the incomplete setup stage. SIGINT and SIGTERM clean up and exit safely.
+First-run setup records CBM and skills progress separately. CBM runs without a
+terminal; the skills command runs through an attached `podman exec -it`, so its
+interactive input and output stay connected to the user. A stage is marked
+complete only after success, and a failure keeps the project registered and
+offers `Retry`, `Go back`, or `Exit`; retries only repeat the incomplete setup
+stage. SIGINT and SIGTERM clean up and exit safely.
 
 Settings can back up and restore `projects.json` or `global_config.json` one file
 at a time. Restore validates JSON and creates a safety backup before the atomic

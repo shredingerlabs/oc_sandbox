@@ -254,6 +254,13 @@ case "${1:-}" in
     if [[ "${PODMAN_FAIL_SKILLS:-false}" == true && "$*" == *'opencode run'* ]]; then
       exit 1
     fi
+    if [[ "$*" == *'opencode run'* ]]; then
+      [[ "$*" == *'exec -it '* ]] || exit 1
+      [[ "$*" != *'bash -c'* ]] || exit 1
+      IFS= read -r skills_input || true
+      printf '%s\n' "$skills_input" > "$SKILLS_INPUT_LOG"
+      printf 'interactive skills output\n'
+    fi
     exit 0
     ;;
   *) exit 0 ;;
@@ -261,6 +268,8 @@ esac
 EOF
 chmod +x "$workflow_home/bin/podman"
 export PODMAN_LOG="$podman_log" IMAGE_STATE="$image_state"
+skills_input_log="$workflow_home/skills-input"
+export SKILLS_INPUT_LOG="$skills_input_log"
 PATH="$workflow_home/bin:$PATH"
 
 workflow_project="$workflow_home/project"
@@ -364,10 +373,12 @@ set -e
 
 export PODMAN_FAIL_SKILLS=false
 show_menu() { printf '%s\n' 'Retry'; }
-run_first_run_setup "$recovery_project"
+skills_output=$(printf 'interactive input\n' | run_first_run_setup "$recovery_project")
 [[ "$(jq -r '.setup_complete' "$recovery_project/.opencode_config/sandbox_config.json")" == true ]]
 [[ "$(jq -r '.setup_cbm_complete' "$recovery_project/.opencode_config/sandbox_config.json")" == true ]]
 [[ "$(jq -r '.setup_skills_complete' "$recovery_project/.opencode_config/sandbox_config.json")" == true ]]
+[[ "$(<"$skills_input_log")" == 'interactive input' ]]
+[[ "$skills_output" == *'interactive skills output'* ]]
 
 # A cancelled recoverable operation returns to its caller rather than exiting the shell.
 show_menu() { printf '%s\n' 'Go back'; }

@@ -410,6 +410,7 @@ start_container_with_setup() {
 
 run_first_run_setup() {
   local project_path="$1"
+  local config_path="${project_path}/.opencode_config/sandbox_config.json"
   local project_name=$(basename "$project_path")
 
   # Container name
@@ -417,20 +418,27 @@ run_first_run_setup() {
 
   echo "Running first-run setup..."
 
-  # CBM Configuration
+  # CBM Configuration (non-interactive; mark the stage only after success)
   echo "Configuring Codebase Memory..."
-  podman exec -it --user dev "$container_name" bash -c '
-    codebase-memory-mcp config set auto_index true
-    codebase-memory-mcp config set auto_index_limit 50000
+  if podman exec --user dev "$container_name" bash -c '
+    codebase-memory-mcp config set auto_index true &&
+    codebase-memory-mcp config set auto_index_limit 50000 &&
     codebase-memory-mcp config set auto_watch true
-  '
+  '; then
+    update_sandbox_config_field "$config_path" "setup_cbm_complete" "true"
+  else
+    return 1
+  fi
 
-  # Skills Setup
+  # Skills Setup (interactive stdin/stdout via the attached exec)
   echo "Setting up skills..."
-  podman exec -it --user dev "$container_name" bash -c 'opencode run "setup-matt-pocock-skills"'
+  if podman exec -it --user dev "$container_name" opencode run "setup-matt-pocock-skills"; then
+    update_sandbox_config_field "$config_path" "setup_skills_complete" "true"
+  else
+    return 1
+  fi
 
-  # Update setup complete flag
-  local config_path="${project_path}/.opencode_config/sandbox_config.json"
+  # Update each stage only after its command succeeds; setup_complete is last.
   update_sandbox_config_field "$config_path" "setup_complete" "true"
 
   echo "Setup complete!"

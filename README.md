@@ -32,8 +32,10 @@ Für jede VCS-Auswahl außer `none` fragt die TUI die projekt-lokale Git-Identit
 kehrt zum übergeordneten Wizard zurück.
 
 Fehlende Container-Images bieten **Build now**, **Build later** oder **Go back**.
-Neue Projekte werden für die Einrichtung detached gestartet und danach an die
-ausgewählte Console- oder OpenCode-Sitzung angeschlossen.
+Neue Projekte werden für die Einrichtung detached gestartet. Die CBM-Konfiguration
+läuft nicht-interaktiv; die Skills-Einrichtung wird anschließend über ein
+interaktives `podman exec -it` ausgeführt, bevor die ausgewählte Console- oder
+OpenCode-Sitzung angeschlossen wird.
 Schlägt die Ersteinrichtung fehl, bleibt das Projekt registriert und bietet
 `Retry`, `Go back` oder `Exit`; ein erneuter Versuch wiederholt nur den
 unvollständigen Einrichtungsschritt.

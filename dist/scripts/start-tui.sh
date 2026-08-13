@@ -1293,7 +1293,7 @@ run_first_run_setup() {
 
     if [[ "$skills_complete" != "true" ]]; then
       echo "Setting up skills..."
-      if podman exec -it --user dev "$container_name" bash -c 'opencode run "setup-matt-pocock-skills"'; then
+      if podman exec -it --user dev "$container_name" opencode run "setup-matt-pocock-skills"; then
         if ! update_sandbox_config_field "$config_path" "setup_skills_complete" "true"; then
           show_page "Setup incomplete" "Could not save skills setup state."
           if handle_recoverable_failure "Saving setup state"; then
