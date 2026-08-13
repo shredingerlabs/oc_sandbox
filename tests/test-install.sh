@@ -7,7 +7,7 @@
 
 TEST_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$TEST_DIR/.." && pwd)"
-INSTALL_SCRIPT="${PROJECT_ROOT}/install.sh"
+INSTALL_SCRIPT="${PROJECT_ROOT}/scripts/install.sh"
 
 # Test-Konfiguration
 TEMP_BASE="${TMPDIR:-/tmp}/install-tests-$$"

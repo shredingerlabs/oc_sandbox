@@ -18,7 +18,7 @@
 
 **first-run setup** — Automated container initialization including CBM configuration and skills setup, tracked via setup-complete flag in sandbox_config.json, offering granular recovery for partial failures.
 
-**VCS integration** — Version Control System setup (GitHub/GitLab) creating credentials/hosts.yml in `.git_local/` subdirectories, separate from AI provider configuration.
+**VCS integration** — Version Control System setup (GitHub, GitLab, or custom host) creating credentials/hosts.yml in `.git_local/` subdirectories, separate from AI provider configuration.
 
 **AI provider** — LLM API service configuration like GWDG, stored in auth.json within `.opencode_data/` with provider sections for OpenCode integration.
 

@@ -45,6 +45,16 @@ The TUI stores each registered project's canonical root and a short SHA-256
 container identity in `~/.config/oc-sandbox/projects.json`. This keeps project
 names unique while allowing projects with identical directory basenames.
 
+During project setup, the TUI can configure GitHub, GitLab, or a custom VCS host.
+Tokens use hidden prompts and remain in project-local `gh-cli/hosts.yml`,
+`glab-cli/hosts.yml`, or `.git_local/vcs/hosts.yml`. The GWDG SAIA token is stored
+in `.opencode_data/auth.json`. Existing credentials are kept unless `Replace` is
+explicitly selected.
+
+If the selected container image is missing, the TUI offers `Build now`, `Build
+later`, or `Go back`. New projects run setup in a detached container and then
+attach to the selected console or OpenCode session.
+
 ## Editionen
 
 - **base**: Python + core system packages

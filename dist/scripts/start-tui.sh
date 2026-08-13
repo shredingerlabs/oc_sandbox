@@ -609,7 +609,7 @@ select_vcs_tracking() {
   local start_option="${modes[-1]}"
   unset 'modes[-1]'
 
-  local options=("none" "github" "gitlab" "← Go Back")
+  local options=("none" "github" "gitlab" "custom" "← Go Back")
   local vcs_tracking=$(show_menu "Select VCS tracking" "${options[@]}")
 
   if [[ "$vcs_tracking" == "← Go Back" ]]; then
@@ -648,21 +648,30 @@ select_ai_provider() {
   create_sandbox_config "$project_path" "$edition" "${modes[@]}" "$start_option" "$ai_provider"
 
   if [[ "$vcs_tracking" == "github" ]]; then
-    setup_github_credentials "$project_path"
+    setup_github_credentials "$project_path" || return 0
   elif [[ "$vcs_tracking" == "gitlab" ]]; then
-    setup_gitlab_credentials "$project_path"
+    setup_gitlab_credentials "$project_path" || return 0
+  elif [[ "$vcs_tracking" == "custom" ]]; then
+    setup_custom_vcs_credentials "$project_path" || return 0
   fi
 
   if [[ "$ai_provider" == "gwdg-saia" ]]; then
-    setup_gwdg_provider "$project_path"
+    setup_gwdg_provider "$project_path" || return 0
   fi
 
-  check_and_build_containers "$project_path"
-
-  add_project_to_registry "$project_name" "$project_path" "$vcs_tracking"
-
-  echo "Project created successfully!"
-  start_container_with_setup "$project_path"
+  if check_and_build_containers "$project_path"; then
+    add_project_to_registry "$project_name" "$project_path" "$vcs_tracking" || return 0
+    echo "Project created successfully!"
+    start_container_with_setup "$project_path"
+  else
+    case "$?" in
+      2) add_project_to_registry "$project_name" "$project_path" "$vcs_tracking" || return 0
+         show_page "Build deferred" "The project was registered stopped. Build its image before starting it." ;;
+      3) select_container_edition "$project_path" "$project_name" ;;
+      *) show_page "Project creation stopped" "The project was not registered because the container image is unavailable." ;;
+    esac
+    wait_for_enter || true
+  fi
 }
 
 create_sandbox_config() {
@@ -670,9 +679,9 @@ create_sandbox_config() {
   local edition="$2"
   shift 2
   local modes=("$@")
-  local start_option="${modes[-1]}"
-  unset 'modes[-1]'
   local ai_provider="${modes[-1]}"
+  unset 'modes[-1]'
+  local start_option="${modes[-1]}"
   unset 'modes[-1]'
 
   local config_path="${project_path}/.opencode_config/sandbox_config.json"
@@ -699,29 +708,167 @@ create_sandbox_config() {
 
 setup_github_credentials() {
   local project_path="$1"
-  local git_dir="${project_path}/.git_local/gh-cli"
-
-  mkdir -p "$git_dir"
-
-  show_page "GitHub credentials" "Run 'gh auth login' inside the container to authenticate."
+  configure_vcs_credentials "$project_path" "github" "${project_path}/.git_local/gh-cli/hosts.yml"
 }
 
 setup_gitlab_credentials() {
   local project_path="$1"
-  local git_dir="${project_path}/.git_local/glab-cli"
+  configure_vcs_credentials "$project_path" "gitlab" "${project_path}/.git_local/glab-cli/hosts.yml"
+}
 
-  mkdir -p "$git_dir"
+setup_custom_vcs_credentials() {
+  local project_path="$1"
+  local host
+  host=$(prompt_for_text "VCS host (for example git.example.com):") || return 1
+  [[ "$host" =~ ^[a-zA-Z0-9.-]+$ ]] || {
+    show_page "Invalid VCS host" "Use a hostname without a scheme or path."
+    return 1
+  }
+  configure_vcs_credentials "$project_path" "custom" "${project_path}/.git_local/vcs/hosts.yml" "$host"
+}
 
-  show_page "GitLab credentials" "Run 'glab auth login' inside the container to authenticate."
+prompt_for_text() {
+  local prompt="$1"
+  if [[ "$TUI_MODE" == "gum" ]] && [[ -x "$GUM_BIN" ]]; then
+    "$GUM_BIN" input --prompt="$prompt " || return 1
+  else
+    local result
+    read -r -p "$prompt " result < /dev/tty || return 1
+    printf '%s\n' "$result"
+  fi
+}
+
+prompt_for_secret() {
+  local prompt="$1"
+  if [[ "$TUI_MODE" == "gum" ]] && [[ -x "$GUM_BIN" ]]; then
+    "$GUM_BIN" input --password --prompt="$prompt " || return 1
+  else
+    local result
+    read -r -s -p "$prompt " result < /dev/tty || return 1
+    printf '\n' >&2
+    printf '%s\n' "$result"
+  fi
+}
+
+confirm_credential_replacement() {
+  [[ -e "$1" ]] || return 0
+  local choice
+  choice=$(show_menu "Credentials already exist" "Keep existing" "Replace") || return 1
+  [[ "$choice" == "Replace" ]]
+}
+
+write_secret_file() {
+  local filepath="$1"
+  local content="$2"
+  local parent_dir
+  parent_dir=$(dirname "$filepath")
+  mkdir -p "$parent_dir"
+  chmod 700 "$parent_dir"
+  case "$filepath" in
+    */.git_local/*) chmod 700 "${filepath%%/.git_local/*}/.git_local" ;;
+    */.opencode_data/*) chmod 700 "${filepath%%/.opencode_data/*}/.opencode_data" ;;
+  esac
+  local temp_file
+  temp_file=$(mktemp "${filepath}.tmp.XXXXXX")
+  chmod 600 "$temp_file"
+  printf '%s\n' "$content" > "$temp_file"
+  mv -f -- "$temp_file" "$filepath"
+  chmod 600 "$filepath"
+}
+
+configure_vcs_credentials() {
+  local project_path="$1"
+  local provider="$2"
+  local credentials_file="$3"
+  local host="${4:-}"
+
+  if [[ -e "$credentials_file" ]] && ! confirm_credential_replacement "$credentials_file"; then
+    return 0
+  fi
+
+  case "$provider" in
+    github) host="github.com"; show_page "GitHub credentials" "Enter a token for github.com." ;;
+    gitlab) host="gitlab.com"; show_page "GitLab credentials" "Enter a token for gitlab.com." ;;
+    custom) show_page "Custom VCS credentials" "Enter a token for ${host}." ;;
+  esac
+
+  local token
+  token=$(prompt_for_secret "Token:") || return 1
+  [[ -n "$token" ]] || return 1
+
+  local config
+  case "$provider" in
+    github) config=$(VCS_TOKEN="$token" jq -n --arg host "$host" \
+      '{($host): {user: "oauth2", oauth_token: $ENV.VCS_TOKEN, git_protocol: "https"}}') ;;
+    gitlab) config=$(VCS_TOKEN="$token" jq -n --arg host "$host" \
+      '{($host): {token: $ENV.VCS_TOKEN}}') ;;
+    custom) config=$(VCS_TOKEN="$token" jq -n --arg host "$host" \
+      '{($host): {token: $ENV.VCS_TOKEN}}') ;;
+  esac
+  write_secret_file "$credentials_file" "$config"
 }
 
 setup_gwdg_provider() {
   local project_path="$1"
-  local data_dir="${project_path}/.opencode_data"
+  local auth_file="${project_path}/.opencode_data/auth.json"
+  local existing=''
 
-  mkdir -p "$data_dir"
+  if [[ -e "$auth_file" ]]; then
+    existing=$(jq -c . "$auth_file") || {
+      show_page "Invalid AI credentials" "Existing auth.json is not valid JSON."
+      return 1
+    }
+    if jq -e 'has("gwdg-saia")' <<< "$existing" >/dev/null && \
+      ! confirm_credential_replacement "$auth_file"; then
+      return 0
+    fi
+  fi
 
-  show_page "GWDG SAIA provider" "Configure credentials in .opencode_data/auth.json."
+  show_page "GWDG SAIA provider" "Enter the GWDG SAIA token."
+  local token
+  token=$(prompt_for_secret "Token:") || return 1
+  [[ -n "$token" ]] || return 1
+
+  local config
+  if [[ -n "$existing" ]]; then
+    config=$(GWDG_TOKEN="$token" jq '. + {"gwdg-saia": {type: "api", key: $ENV.GWDG_TOKEN}}' <<< "$existing")
+  else
+    config=$(GWDG_TOKEN="$token" jq -n '{"gwdg-saia": {type: "api", key: $ENV.GWDG_TOKEN}}')
+  fi
+  write_secret_file "$auth_file" "$config"
+  configure_gwdg_opencode_config "$project_path"
+}
+
+configure_gwdg_opencode_config() {
+  local project_path="$1"
+  local config_file="${project_path}/.opencode_config/opencode.json"
+  local template="${SCRIPT_DIR}/../templates/opencode/opencode-gwdg.json"
+  [[ -f "$template" ]] || return 0
+
+  local config
+  if [[ -f "$config_file" ]]; then
+    config=$(jq --slurpfile gwdg "$template" \
+      '. + {provider: ((.provider // {}) * $gwdg[0].provider), model: $gwdg[0].model,
+        small_model: $gwdg[0].small_model, agent: $gwdg[0].agent}' "$config_file") || return 1
+  else
+    config=$(<"$template")
+  fi
+  write_config_without_backup "$config_file" "$config"
+}
+
+write_config_without_backup() {
+  local filepath="$1"
+  local content="$2"
+  local parent_dir
+  parent_dir=$(dirname "$filepath")
+  mkdir -p "$parent_dir"
+  local temp_file
+  temp_file=$(mktemp "${filepath}.tmp.XXXXXX")
+  printf '%s\n' "$content" > "$temp_file"
+  if [[ -e "$filepath" ]]; then
+    chmod "$(stat -c '%a' "$filepath")" "$temp_file"
+  fi
+  mv -f -- "$temp_file" "$filepath"
 }
 
 add_project_to_registry() {
@@ -759,25 +906,34 @@ check_and_build_containers() {
   local config_path="${project_path}/.opencode_config/sandbox_config.json"
   local edition=$(jq -r '.container_edition' "$config_path")
 
-  if ! check_container_images_exist "$edition"; then
-    echo "Container images not found for edition: $edition"
-    echo
-
-    local options=("Build now" "Build later" "Go back")
-    local choice=$(show_menu "Container images not found" "${options[@]}")
-
-    case "$choice" in
-      "Build now")
-        build_container_wizard
-        ;;
-      "Build later")
-        echo "Remember to build containers before starting project"
-        ;;
-      "Go back")
-        return 1
-        ;;
-    esac
+  if check_container_images_exist "$edition"; then
+    return 0
   fi
+
+  echo "Container images not found for edition: $edition"
+  echo
+
+  local options=("Build now" "Build later" "Go back")
+  local choice=$(show_menu "Container images not found" "${options[@]}")
+
+  case "$choice" in
+    "Build now")
+      if build_container_for_edition "$edition" && check_container_images_exist "$edition"; then
+        return 0
+      fi
+      show_page "Build failed" "The ${edition} image is still unavailable. Check the build output."
+      return 1
+      ;;
+    "Build later")
+      echo "Remember to build containers before starting project"
+      return 2
+      ;;
+    "Go back")
+      return 3
+      ;;
+  esac
+
+  return 1
 }
 
 check_container_images_exist() {
@@ -791,13 +947,18 @@ start_container_with_setup() {
   local config_path="${project_path}/.opencode_config/sandbox_config.json"
   local setup_complete=$(jq -r '.setup_complete' "$config_path")
 
-  start_container "$project_path" "$config_path" true
+  start_container "$project_path" "$config_path" true || return 1
 
   if [[ "$setup_complete" == "true" ]]; then
-    return 0
+    access_running_container "$project_path"
+    return $?
   fi
 
-  run_first_run_setup "$project_path"
+  if ! run_first_run_setup "$project_path"; then
+    return 1
+  fi
+
+  access_running_container "$project_path"
 }
 
 start_container() {
@@ -925,10 +1086,23 @@ handle_project_action() {
   done
 
   if [[ "$is_running" == "true" ]]; then
+    update_project_status "$project_path" "running"
+  else
+    update_project_status "$project_path" "stopped"
+  fi
+
+  if [[ "$is_running" == "true" ]]; then
+    if [[ "$(jq -r '.setup_complete' "${project_path}/.opencode_config/sandbox_config.json")" != "true" ]]; then
+      local setup_choice
+      setup_choice=$(show_menu "Setup incomplete" "Retry setup" "Go Back")
+      [[ "$setup_choice" == "Retry setup" ]] || return 0
+      run_first_run_setup "$project_path" || return 1
+    fi
     access_running_container "$project_path"
   else
     local config_path="${project_path}/.opencode_config/sandbox_config.json"
-    start_container "$project_path" "$config_path"
+    check_and_build_containers "$project_path" || return 1
+    start_container_with_setup "$project_path"
   fi
 }
 
@@ -962,14 +1136,19 @@ build_container_wizard() {
   fi
 
   local edition="$choice"
-  echo "Building ${edition} containers..."
-  if bash "${SCRIPT_DIR}/build-container.sh" "$edition"; then
+  if build_container_for_edition "$edition"; then
     echo "Build successful!"
   else
     echo "Build failed. Check logs for details."
   fi
 
   wait_for_enter
+}
+
+build_container_for_edition() {
+  local edition="$1"
+  echo "Building ${edition} containers..."
+  bash "${SCRIPT_DIR}/build-container.sh" "$edition"
 }
 
 detect_available_editions() {

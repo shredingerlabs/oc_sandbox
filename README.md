@@ -19,6 +19,16 @@ Entwicklungssandbox** – mehrere Editionen für unterschiedliche Use Cases:
 - **Proxy**: Squid-Egress-Allowlist (optional, per `--use_proxy`)
 - **TUI**: Terminal-UI für interaktive Sandbox-Steuerung (`start-tui.sh`)
 
+Die TUI kann bei der Projekteinrichtung GitHub, GitLab oder einen eigenen VCS-Host
+auswählen. Tokens werden verborgen abgefragt und ausschließlich projekt-lokal in
+`.git_local/` gespeichert. Der GWDG-SAIA-Token wird ebenfalls verborgen abgefragt
+und in `.opencode_data/auth.json` gespeichert. Vorhandene Zugangsdaten bleiben
+erhalten, sofern nicht ausdrücklich **Replace** gewählt wird.
+
+Fehlende Container-Images bieten **Build now**, **Build later** oder **Go back**.
+Neue Projekte werden für die Einrichtung detached gestartet und danach an die
+ausgewählte Console- oder OpenCode-Sitzung angeschlossen.
+
 ## Repository-Struktur
 
 ```

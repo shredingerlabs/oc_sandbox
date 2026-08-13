@@ -28,7 +28,7 @@ test_home=$(mktemp -d)
 trap 'rm -rf "$test_home"' EXIT
 export HOME="$test_home"
 mkdir -p "$HOME/.config/oc-sandbox/backups"
-printf '{"projects": [], "version": "1.0"}\n' > "$HOME/.config/oc-sandbox/projects.json"
+printf '%s\n' '{"projects": [], "version": "1.0"}' > "$HOME/.config/oc-sandbox/projects.json"
 
 empty_dir="$test_home/projects/empty project"
 mkdir -p "$empty_dir"
@@ -139,3 +139,142 @@ fi
 SCRIPT_DIR="$PROJECT_ROOT/dist/scripts"
 
 printf 'start-tui discovery tests passed\n'
+
+# Credential setup tests use prompt seams so no real terminal or secret is needed.
+TUI_MODE=bash
+prompt_for_secret() { printf '%s\n' 'test-secret'; }
+prompt_for_text() { printf '%s\n' 'git.example.com'; }
+show_menu() { printf '%s\n' 'Keep existing'; }
+
+credentials_project="$test_home/credentials project"
+mkdir -p "$credentials_project"
+setup_github_credentials "$credentials_project" >/tmp/tui-credential-output
+[[ -f "$credentials_project/.git_local/gh-cli/hosts.yml" ]]
+[[ "$(jq -r '.["github.com"].oauth_token' "$credentials_project/.git_local/gh-cli/hosts.yml")" == 'test-secret' ]]
+[[ "$(stat -c '%a' "$credentials_project/.git_local")" == '700' ]]
+[[ "$(stat -c '%a' "$credentials_project/.git_local/gh-cli")" == '700' ]]
+[[ "$(stat -c '%a' "$credentials_project/.git_local/gh-cli/hosts.yml")" == '600' ]]
+! grep -Fq 'test-secret' /tmp/tui-credential-output
+
+setup_gitlab_credentials "$credentials_project" >/dev/null
+[[ "$(jq -r '.["gitlab.com"].token' "$credentials_project/.git_local/glab-cli/hosts.yml")" == 'test-secret' ]]
+setup_custom_vcs_credentials "$credentials_project" >/dev/null
+[[ "$(jq -r '.["git.example.com"].token' "$credentials_project/.git_local/vcs/hosts.yml")" == 'test-secret' ]]
+
+printf '%s\n' 'original' > "$credentials_project/.git_local/gh-cli/hosts.yml"
+show_menu() { printf '%s\n' 'Keep existing'; }
+setup_github_credentials "$credentials_project" >/dev/null
+[[ "$(<"$credentials_project/.git_local/gh-cli/hosts.yml")" == 'original' ]]
+
+show_menu() { printf '%s\n' 'Replace'; }
+setup_github_credentials "$credentials_project" >/dev/null
+[[ "$(jq -r '.["github.com"].oauth_token' "$credentials_project/.git_local/gh-cli/hosts.yml")" == 'test-secret' ]]
+
+cancelled_project="$test_home/cancelled credentials"
+mkdir -p "$cancelled_project"
+prompt_for_secret() { return 1; }
+if setup_github_credentials "$cancelled_project" >/dev/null; then
+  printf 'cancelled credential prompt was accepted\n' >&2
+  exit 1
+fi
+[[ ! -e "$cancelled_project/.git_local/gh-cli/hosts.yml" ]]
+
+prompt_for_secret() { printf '%s\n' 'ai-secret'; }
+show_menu() { printf '%s\n' 'Keep existing'; }
+setup_gwdg_provider "$credentials_project" >/dev/null
+[[ "$(jq -r '."gwdg-saia".key' "$credentials_project/.opencode_data/auth.json")" == 'ai-secret' ]]
+[[ "$(jq -r '.provider."gwdg-saia".options.baseURL' "$credentials_project/.opencode_config/opencode.json")" == 'https://chat-ai.academiccloud.de/v1' ]]
+[[ "$(stat -c '%a' "$credentials_project/.opencode_data")" == '700' ]]
+[[ "$(stat -c '%a' "$credentials_project/.opencode_data/auth.json")" == '600' ]]
+
+printf '%s\n' 'credential-output-safety' > "$HOME/.config/oc-sandbox/projects.json"
+if grep -R --exclude='test-start-tui.sh' -Fq 'ai-secret' "$HOME/.config/oc-sandbox"; then
+  printf 'secret leaked into general configuration\n' >&2
+  exit 1
+fi
+
+printf '%s\n' '{"projects": [], "version": "1.0"}' > "$HOME/.config/oc-sandbox/projects.json"
+
+rm -f /tmp/tui-credential-output
+printf 'start-tui credential safety tests passed\n'
+
+# Lifecycle tests use mocked Podman and native scripts.
+workflow_home="$test_home/workflow"
+mkdir -p "$workflow_home/bin" "$workflow_home/native"
+image_state="$workflow_home/images"
+podman_log="$workflow_home/podman-args"
+touch "$image_state"
+cat > "$workflow_home/bin/podman" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\n' "$*" >> "$PODMAN_LOG"
+case "${1:-}" in
+  image) grep -Fxq "${3#opencode-sandbox-}" "$IMAGE_STATE" ;;
+  ps) : ;;
+  exec) exit 0 ;;
+  *) exit 0 ;;
+esac
+EOF
+chmod +x "$workflow_home/bin/podman"
+export PODMAN_LOG="$podman_log" IMAGE_STATE="$image_state"
+PATH="$workflow_home/bin:$PATH"
+
+workflow_project="$workflow_home/project"
+mkdir -p "$workflow_project"
+add_project_to_registry Workflow "$workflow_project" none
+create_sandbox_config "$workflow_project" full console none
+show_menu() { printf '%s\n' 'Build later'; }
+set +e
+check_and_build_containers "$workflow_project"
+build_result=$?
+set -e
+if [[ "$build_result" -eq 0 ]]; then
+  printf 'deferred build was accepted as ready\n' >&2
+  exit 1
+fi
+[[ "$build_result" -eq 2 ]]
+[[ "$(jq -r '.projects[] | select(.name == "Workflow") | .container_status' "$HOME/.config/oc-sandbox/projects.json")" == stopped ]]
+[[ ! -e "$workflow_home/native-start-args" ]]
+show_menu() { printf '%s\n' 'Go back'; }
+set +e
+check_and_build_containers "$workflow_project"
+build_result=$?
+set -e
+[[ "$build_result" -eq 3 ]]
+
+cat > "$workflow_home/native/build-container.sh" <<'EOF'
+#!/usr/bin/env bash
+exit 1
+EOF
+chmod +x "$workflow_home/native/build-container.sh"
+SCRIPT_DIR="$workflow_home/native"
+show_menu() { printf '%s\n' 'Build now'; }
+set +e
+check_and_build_containers "$workflow_project"
+build_result=$?
+set -e
+if [[ "$build_result" -eq 0 ]]; then
+  printf 'failed build was accepted\n' >&2
+  exit 1
+fi
+[[ ! -e "$workflow_home/native-start-args" ]]
+SCRIPT_DIR="$PROJECT_ROOT/dist/scripts"
+
+cat > "$workflow_home/native/start.sh" <<EOF
+#!/usr/bin/env bash
+printf '%s\n' "\$*" >> "$workflow_home/native-start-args"
+EOF
+chmod +x "$workflow_home/native/start.sh"
+printf 'full\n' > "$image_state"
+SCRIPT_DIR="$workflow_home/native"
+create_sandbox_config "$workflow_project" full console none
+start_container_with_setup "$workflow_project"
+grep -F -- '--detach' "$workflow_home/native-start-args"
+[[ "$(jq -r '.setup_complete' "$workflow_project/.opencode_config/sandbox_config.json")" == true ]]
+
+create_sandbox_config "$workflow_project" full opencode none
+start_container_with_setup "$workflow_project"
+grep -F -- 'opencode' "$podman_log"
+SCRIPT_DIR="$PROJECT_ROOT/dist/scripts"
+
+printf 'start-tui lifecycle tests passed\n'

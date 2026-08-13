@@ -31,7 +31,8 @@ dist/
 └── .git_local/
     ├── gitconfig                 # Git configuration
     ├── gh-cli/hosts.yml          # GitHub CLI credentials
-    └── glab-cli/hosts.yml        # GitLab CLI credentials
+     ├── glab-cli/hosts.yml        # GitLab CLI credentials
+     └── vcs/hosts.yml             # Custom VCS host credentials
 ```
 
 ## Configuration Schema
@@ -53,7 +54,7 @@ dist/
       "path": "/home/user/oc-sandbox/my-project",
       "last_used": "2025-01-15T10:30:00Z",
       "container_status": "running|stopped",
-      "git_tracking": "github|gitlab|none"
+      "git_tracking": "github|gitlab|custom|none"
     }
   ],
   "version": "1.0"
