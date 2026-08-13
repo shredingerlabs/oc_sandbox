@@ -54,7 +54,7 @@ dist/
       "path": "/home/user/oc-sandbox/my-project",
       "last_used": "2025-01-15T10:30:00Z",
       "container_status": "running|stopped",
-      "git_tracking": "github|gitlab|custom|none"
+      "git_tracking": "github.com|gitlab.com|own GitLab|others|none"
     }
   ],
   "version": "1.0"
@@ -267,16 +267,27 @@ init_project_wizard() {
   # Step 5: VCS Integration
   local vcs_tracking=$(select_vcs_tracking)
   case "$vcs_tracking" in
-    "github")
+    "github.com")
       setup_github_credentials "$project_path"
       ;;
-    "gitlab")
-      setup_gitlab_credentials "$project_path"
+    "gitlab.com")
+      setup_gitlab_credentials "$project_path" gitlab.com
+      ;;
+    "own GitLab")
+      setup_self_hosted_gitlab_credentials "$project_path"
+      ;;
+    "others")
+      setup_custom_vcs_credentials "$project_path"
       ;;
     "none")
       # No VCS setup
       ;;
   esac
+
+  # Non-none VCS choices also configure only the project-local Git identity.
+  if [[ "$vcs_tracking" != "none" ]]; then
+    configure_git_identity "$project_path"
+  fi
 
   # Step 6: AI Provider
   local ai_provider=$(select_ai_provider)

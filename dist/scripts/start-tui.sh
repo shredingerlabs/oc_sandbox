@@ -809,7 +809,7 @@ setup_self_hosted_gitlab_credentials() {
   local project_path="$1"
   local host
   host=$(prompt_for_text "GitLab host (for example gitlab.example.com):") || return 1
-  [[ "$host" =~ ^[a-zA-Z0-9.-]+$ ]] || {
+  validate_vcs_host "$host" || {
     show_page "Invalid GitLab host" "Use a hostname without a scheme or path."
     return 1
   }
@@ -820,11 +820,16 @@ setup_custom_vcs_credentials() {
   local project_path="$1"
   local host
   host=$(prompt_for_text "VCS host (for example git.example.com):") || return 1
-  [[ "$host" =~ ^[a-zA-Z0-9.-]+$ ]] || {
+  validate_vcs_host "$host" || {
     show_page "Invalid VCS host" "Use a hostname without a scheme or path."
     return 1
   }
   configure_vcs_credentials "$project_path" "custom" "${project_path}/.git_local/vcs/hosts.yml" "$host"
+}
+
+validate_vcs_host() {
+  local host="$1"
+  [[ "$host" =~ ^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?)+$ ]]
 }
 
 prompt_for_text() {
@@ -860,6 +865,7 @@ configure_git_identity() {
   }
 
   mkdir -p "$(dirname "$git_config")"
+  chmod 700 "${project_path}/.git_local"
   touch "$git_config"
   git config --file "$git_config" user.name "$name"
   git config --file "$git_config" user.email "$email"

@@ -16,9 +16,10 @@ Comprehensive specification created for OpenCode Sandbox TUI system using grill-
 - Multiple projects can operate simultaneously
 
 ### 3. **Separated Integration Concerns**
-- VCS integration (GitHub/GitLab) stored in .git_local/
+- VCS integration (GitHub, public/self-hosted GitLab, or other host) stored in .git_local/
 - AI providers (GWDG) configured via auth.json in .opencode_data/
 - Each project supports one VCS option plus optional AI provider
+- Non-none VCS choices configure only project-local `user.name` and `user.email`.
 
 ### 4. **Enhanced Scripts Over Replacement**
 - Existing scripts used as subprocesses

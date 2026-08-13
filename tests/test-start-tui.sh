@@ -175,6 +175,12 @@ show_menu() { printf '%s\n' 'Replace'; }
 setup_self_hosted_gitlab_credentials "$credentials_project" >/dev/null
 [[ "$(jq -r --arg host selfhosted.example.com '.[$host].token' "$credentials_project/.git_local/glab-cli/hosts.yml")" == 'test-secret' ]]
 
+prompt_for_text() { printf '%s\n' 'https://invalid.example.com/path'; }
+if setup_self_hosted_gitlab_credentials "$credentials_project" >/dev/null; then
+  printf 'invalid GitLab host was accepted\n' >&2
+  exit 1
+fi
+
 printf '%s\n' '[user]' '    name = Existing Name' '    email = existing@example.com' '[core]' '    editor = vi' > "$credentials_project/.git_local/gitconfig"
 prompt_for_text() {
   case "$1" in
@@ -187,6 +193,7 @@ configure_git_identity "$credentials_project"
 [[ "$(git config --file "$credentials_project/.git_local/gitconfig" user.name)" == 'Project Name' ]]
 [[ "$(git config --file "$credentials_project/.git_local/gitconfig" user.email)" == 'project@example.com' ]]
 [[ "$(git config --file "$credentials_project/.git_local/gitconfig" core.editor)" == 'vi' ]]
+[[ "$(stat -c '%a' "$credentials_project/.git_local")" == '700' ]]
 
 printf '%s\n' 'original' > "$credentials_project/.git_local/gh-cli/hosts.yml"
 show_menu() { printf '%s\n' 'Keep existing'; }
