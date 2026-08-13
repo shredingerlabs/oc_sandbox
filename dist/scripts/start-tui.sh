@@ -16,6 +16,7 @@ DEFAULT_PROJECT_PATH=""
 AVAILABLE_EDITIONS=()
 AVAILABLE_MODES=()
 TUI_TEMP_FILES=()
+OPENCODE_MODEL="opencode/big-pickle"
 
 cleanup() {
   local temp_file
@@ -1059,11 +1060,13 @@ check_and_build_containers() {
           return 0
         fi
         show_page "Build failed" "The ${edition} image is still unavailable. Check the build output."
-        if handle_recoverable_failure "Container build"; then
-          continue
-        fi
-        [[ $? -eq 2 ]] && exit 1
-        return 3
+        local recovery_result=0
+        handle_recoverable_failure "Container build" || recovery_result=$?
+        case "$recovery_result" in
+          0) continue ;;
+          2) exit 1 ;;
+          *) return 3 ;;
+        esac
       done
       ;;
     "Build later")
@@ -1093,16 +1096,18 @@ start_container_with_setup() {
     if start_container "$project_path" "$config_path" true; then
       break
     fi
-    local recovery_result
-    if handle_recoverable_failure "Starting container"; then
-      revisit_project_settings "$project_path" || return 1
-    else
-      recovery_result=$?
-      case "$recovery_result" in
-        2) return 2 ;;
-        *) return 1 ;;
-      esac
-    fi
+    local recovery_result=0
+    handle_recoverable_failure "Starting container" || recovery_result=$?
+    case "$recovery_result" in
+      0)
+        if ! revisit_project_settings "$project_path"; then
+          show_page "Settings adjustment failed" \
+            "Could not update project settings. You can retry or choose a different option."
+        fi
+        ;;
+      2) return 2 ;;
+      *) return 1 ;;
+    esac
   done
 
   if [[ "$setup_complete" == "true" ]]; then
@@ -1278,19 +1283,23 @@ run_first_run_setup() {
          codebase-memory-mcp config set auto_watch true'; then
         if ! update_sandbox_config_field "$config_path" "setup_cbm_complete" "true"; then
           show_page "Setup incomplete" "Could not save Codebase Memory setup state."
-          if handle_recoverable_failure "Saving setup state"; then
-            continue
-          fi
-          [[ $? -eq 2 ]] && exit 1
-          return 1
+          local recovery_result=0
+          handle_recoverable_failure "Saving setup state" || recovery_result=$?
+          case "$recovery_result" in
+            0) continue ;;
+            2) exit 1 ;;
+            *) return 1 ;;
+          esac
         fi
       else
         show_page "Setup incomplete" "Codebase Memory configuration failed."
-        if handle_recoverable_failure "Codebase Memory setup"; then
-          continue
-        fi
-        [[ $? -eq 2 ]] && exit 1
-        return 1
+        local recovery_result=0
+        handle_recoverable_failure "Codebase Memory setup" || recovery_result=$?
+        case "$recovery_result" in
+          0) continue ;;
+          2) exit 1 ;;
+          *) return 1 ;;
+        esac
       fi
     fi
 
@@ -1299,19 +1308,23 @@ run_first_run_setup() {
       if podman exec -it --user dev "$container_name" opencode run "setup-matt-pocock-skills"; then
         if ! update_sandbox_config_field "$config_path" "setup_skills_complete" "true"; then
           show_page "Setup incomplete" "Could not save skills setup state."
-          if handle_recoverable_failure "Saving setup state"; then
-            continue
-          fi
-          [[ $? -eq 2 ]] && exit 1
-          return 1
+          local recovery_result=0
+          handle_recoverable_failure "Saving setup state" || recovery_result=$?
+          case "$recovery_result" in
+            0) continue ;;
+            2) exit 1 ;;
+            *) return 1 ;;
+          esac
         fi
       else
         show_page "Setup incomplete" "Skills setup failed."
-        if handle_recoverable_failure "Skills setup"; then
-          continue
-        fi
-        [[ $? -eq 2 ]] && exit 1
-        return 1
+        local recovery_result=0
+        handle_recoverable_failure "Skills setup" || recovery_result=$?
+        case "$recovery_result" in
+          0) continue ;;
+          2) exit 1 ;;
+          *) return 1 ;;
+        esac
       fi
     fi
 
@@ -1321,12 +1334,13 @@ run_first_run_setup() {
       return 0
     fi
 
-    if handle_recoverable_failure "Saving setup state"; then
-      continue
-    fi
-    local recovery_result=$?
-    [[ "$recovery_result" -eq 2 ]] && exit 1
-    return 1
+    local recovery_result=0
+    handle_recoverable_failure "Saving setup state" || recovery_result=$?
+    case "$recovery_result" in
+      0) continue ;;
+      2) exit 1 ;;
+      *) return 1 ;;
+    esac
   done
 }
 

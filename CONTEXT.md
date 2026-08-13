@@ -119,3 +119,5 @@
 **setup recovery** — Explicit retry path for incomplete first-run setup while preserving setup-complete as false until CBM and skills setup both succeed.
 
 **credential file** — Project-local VCS or AI secret configuration stored separately from global TUI metadata, with restrictive permissions and excluded from general configuration backups.
+
+**retry flow** — Error recovery pattern where users who choose "Retry" after a failure remain in the recovery loop even if intermediate steps (like settings adjustment) fail. Failures show context-aware error messages and return to the retry menu, except for explicit user aborts (exit code 2) which are respected throughout.
