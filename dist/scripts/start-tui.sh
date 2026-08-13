@@ -15,12 +15,23 @@ GLOBAL_CONFIG=""
 DEFAULT_PROJECT_PATH=""
 AVAILABLE_EDITIONS=()
 AVAILABLE_MODES=()
+TUI_TEMP_FILES=()
 
 cleanup() {
-  :
+  local temp_file
+  for temp_file in "${TUI_TEMP_FILES[@]}"; do
+    rm -f -- "$temp_file"
+  done
+  TUI_TEMP_FILES=()
 }
 
-trap cleanup EXIT INT TERM
+handle_signal() {
+  cleanup
+  exit 130
+}
+
+trap cleanup EXIT
+trap handle_signal INT TERM
 
 check_multiple_tui_instances() {
   local instances=$(pgrep -f "start-tui.sh" | wc -l)
@@ -230,6 +241,20 @@ show_menu() {
   else
     bash_select "$title" "${options[@]}"
   fi
+}
+
+handle_recoverable_failure() {
+  local operation="$1"
+  local choice
+
+  show_page "${operation} failed" "Choose how to continue."
+  choice=$(show_menu "${operation} failed" "Retry" "Go back" "Exit") || choice="Go back"
+  case "$choice" in
+    Retry) return 0 ;;
+    "Go back"|"Go Back"|"← Go Back") return 1 ;;
+    Exit) return 2 ;;
+    *) return 1 ;;
+  esac
 }
 
 bash_select() {
@@ -699,9 +724,10 @@ create_sandbox_config() {
     --argjson modes "$modes_json" \
     --arg start_option "$start_option" \
     --arg ai_provider "$ai_provider" \
-    '{container_edition: $edition, container_modes: $modes, start_option: $start_option,
-      cbm_auto_index: true, cbm_auto_watch: true, ai_provider: $ai_provider,
-      setup_complete: false, version: "1.0"}')
+     '{container_edition: $edition, container_modes: $modes, start_option: $start_option,
+       cbm_auto_index: true, cbm_auto_watch: true, ai_provider: $ai_provider,
+       setup_cbm_complete: false, setup_skills_complete: false,
+       setup_complete: false, version: "1.0"}')
 
   atomic_write "$config_path" "$config"
 }
@@ -770,6 +796,7 @@ write_secret_file() {
   esac
   local temp_file
   temp_file=$(mktemp "${filepath}.tmp.XXXXXX")
+  TUI_TEMP_FILES+=("$temp_file")
   chmod 600 "$temp_file"
   printf '%s\n' "$content" > "$temp_file"
   mv -f -- "$temp_file" "$filepath"
@@ -864,6 +891,7 @@ write_config_without_backup() {
   mkdir -p "$parent_dir"
   local temp_file
   temp_file=$(mktemp "${filepath}.tmp.XXXXXX")
+  TUI_TEMP_FILES+=("$temp_file")
   printf '%s\n' "$content" > "$temp_file"
   if [[ -e "$filepath" ]]; then
     chmod "$(stat -c '%a' "$filepath")" "$temp_file"
@@ -918,11 +946,17 @@ check_and_build_containers() {
 
   case "$choice" in
     "Build now")
-      if build_container_for_edition "$edition" && check_container_images_exist "$edition"; then
-        return 0
-      fi
-      show_page "Build failed" "The ${edition} image is still unavailable. Check the build output."
-      return 1
+      while true; do
+        if build_container_for_edition "$edition" && check_container_images_exist "$edition"; then
+          return 0
+        fi
+        show_page "Build failed" "The ${edition} image is still unavailable. Check the build output."
+        if handle_recoverable_failure "Container build"; then
+          continue
+        fi
+        [[ $? -eq 2 ]] && exit 1
+        return 3
+      done
       ;;
     "Build later")
       echo "Remember to build containers before starting project"
@@ -947,7 +981,13 @@ start_container_with_setup() {
   local config_path="${project_path}/.opencode_config/sandbox_config.json"
   local setup_complete=$(jq -r '.setup_complete' "$config_path")
 
-  start_container "$project_path" "$config_path" true || return 1
+  while ! start_container "$project_path" "$config_path" true; do
+    if handle_recoverable_failure "Starting container"; then
+      continue
+    fi
+    [[ $? -eq 2 ]] && exit 1
+    return 1
+  done
 
   if [[ "$setup_complete" == "true" ]]; then
     access_running_container "$project_path"
@@ -1002,31 +1042,74 @@ run_first_run_setup() {
   local project_path="$1"
   local project_data=$(get_project_by_path "$project_path")
   local container_name=$(container_name_for_project "$project_data")
+  local config_path="${project_path}/.opencode_config/sandbox_config.json"
+  local cbm_complete
+  local skills_complete
 
   echo "Running first-run setup..."
 
-  echo "Configuring Codebase Memory..."
-  if ! podman exec -it --user dev "$container_name" bash -c \
-    'codebase-memory-mcp config set auto_index true &&
-     codebase-memory-mcp config set auto_index_limit 50000 &&
-     codebase-memory-mcp config set auto_watch true'; then
-    show_page "Setup incomplete" "Codebase Memory configuration failed."
-    wait_for_enter || true
+  while true; do
+    cbm_complete=$(jq -r '.setup_cbm_complete // false' "$config_path")
+    skills_complete=$(jq -r '.setup_skills_complete // false' "$config_path")
+
+    if [[ "$cbm_complete" != "true" ]]; then
+      echo "Configuring Codebase Memory..."
+      if podman exec -it --user dev "$container_name" bash -c \
+        'codebase-memory-mcp config set auto_index true &&
+         codebase-memory-mcp config set auto_index_limit 50000 &&
+         codebase-memory-mcp config set auto_watch true'; then
+        if ! update_sandbox_config_field "$config_path" "setup_cbm_complete" "true"; then
+          show_page "Setup incomplete" "Could not save Codebase Memory setup state."
+          if handle_recoverable_failure "Saving setup state"; then
+            continue
+          fi
+          [[ $? -eq 2 ]] && exit 1
+          return 1
+        fi
+      else
+        show_page "Setup incomplete" "Codebase Memory configuration failed."
+        if handle_recoverable_failure "Codebase Memory setup"; then
+          continue
+        fi
+        [[ $? -eq 2 ]] && exit 1
+        return 1
+      fi
+    fi
+
+    if [[ "$skills_complete" != "true" ]]; then
+      echo "Setting up skills..."
+      if podman exec -it --user dev "$container_name" bash -c 'opencode run "setup-matt-pocock-skills"'; then
+        if ! update_sandbox_config_field "$config_path" "setup_skills_complete" "true"; then
+          show_page "Setup incomplete" "Could not save skills setup state."
+          if handle_recoverable_failure "Saving setup state"; then
+            continue
+          fi
+          [[ $? -eq 2 ]] && exit 1
+          return 1
+        fi
+      else
+        show_page "Setup incomplete" "Skills setup failed."
+        if handle_recoverable_failure "Skills setup"; then
+          continue
+        fi
+        [[ $? -eq 2 ]] && exit 1
+        return 1
+      fi
+    fi
+
+    if update_sandbox_config_field "$config_path" "setup_complete" "true"; then
+      show_page "Setup complete" "The project container is ready."
+      wait_for_enter || true
+      return 0
+    fi
+
+    if handle_recoverable_failure "Saving setup state"; then
+      continue
+    fi
+    local recovery_result=$?
+    [[ "$recovery_result" -eq 2 ]] && exit 1
     return 1
-  fi
-
-  echo "Setting up skills..."
-  if ! podman exec -it --user dev "$container_name" bash -c 'opencode run "setup-matt-pocock-skills"'; then
-    show_page "Setup incomplete" "Skills setup failed. Retry from the project menu."
-    wait_for_enter || true
-    return 1
-  fi
-
-  local config_path="${project_path}/.opencode_config/sandbox_config.json"
-  update_sandbox_config_field "$config_path" "setup_complete" "true"
-
-  show_page "Setup complete" "The project container is ready."
-  wait_for_enter || true
+  done
 }
 
 update_sandbox_config_field() {

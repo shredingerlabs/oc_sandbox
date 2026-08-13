@@ -211,7 +211,15 @@ printf '%s\n' "$*" >> "$PODMAN_LOG"
 case "${1:-}" in
   image) grep -Fxq "${3#opencode-sandbox-}" "$IMAGE_STATE" ;;
   ps) : ;;
-  exec) exit 0 ;;
+  exec)
+    if [[ "${PODMAN_FAIL_CBM:-false}" == true && "$*" == *codebase-memory-mcp* ]]; then
+      exit 1
+    fi
+    if [[ "${PODMAN_FAIL_SKILLS:-false}" == true && "$*" == *'opencode run'* ]]; then
+      exit 1
+    fi
+    exit 0
+    ;;
   *) exit 0 ;;
 esac
 EOF
@@ -278,3 +286,50 @@ grep -F -- 'opencode' "$podman_log"
 SCRIPT_DIR="$PROJECT_ROOT/dist/scripts"
 
 printf 'start-tui lifecycle tests passed\n'
+
+# Setup recovery tests verify stage persistence and that retries skip completed work.
+recovery_project="$workflow_home/recovery"
+mkdir -p "$recovery_project"
+add_project_to_registry Recovery "$recovery_project" none
+create_sandbox_config "$recovery_project" full console none
+export PODMAN_FAIL_CBM=true
+show_menu() { printf '%s\n' 'Go back'; }
+set +e
+run_first_run_setup "$recovery_project"
+recovery_result=$?
+set -e
+[[ "$recovery_result" -eq 1 ]]
+[[ "$(jq -r '.setup_complete' "$recovery_project/.opencode_config/sandbox_config.json")" == false ]]
+[[ "$(jq -r '.setup_cbm_complete' "$recovery_project/.opencode_config/sandbox_config.json")" == false ]]
+
+export PODMAN_FAIL_CBM=false PODMAN_FAIL_SKILLS=true
+show_menu() { printf '%s\n' 'Go back'; }
+set +e
+run_first_run_setup "$recovery_project"
+recovery_result=$?
+set -e
+[[ "$recovery_result" -eq 1 ]]
+[[ "$(jq -r '.setup_cbm_complete' "$recovery_project/.opencode_config/sandbox_config.json")" == true ]]
+[[ "$(jq -r '.setup_skills_complete' "$recovery_project/.opencode_config/sandbox_config.json")" == false ]]
+
+export PODMAN_FAIL_SKILLS=false
+show_menu() { printf '%s\n' 'Retry'; }
+run_first_run_setup "$recovery_project"
+[[ "$(jq -r '.setup_complete' "$recovery_project/.opencode_config/sandbox_config.json")" == true ]]
+[[ "$(jq -r '.setup_cbm_complete' "$recovery_project/.opencode_config/sandbox_config.json")" == true ]]
+[[ "$(jq -r '.setup_skills_complete' "$recovery_project/.opencode_config/sandbox_config.json")" == true ]]
+
+# A cancelled recoverable operation returns to its caller rather than exiting the shell.
+show_menu() { printf '%s\n' 'Go back'; }
+if handle_recoverable_failure "Test operation"; then
+  printf 'cancelled operation was retried\n' >&2
+  exit 1
+fi
+show_menu() { printf '%s\n' 'Exit'; }
+set +e
+handle_recoverable_failure "Test operation"
+recovery_result=$?
+set -e
+[[ "$recovery_result" -eq 2 ]]
+
+printf 'start-tui setup recovery tests passed\n'

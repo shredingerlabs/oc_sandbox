@@ -55,6 +55,10 @@ If the selected container image is missing, the TUI offers `Build now`, `Build
 later`, or `Go back`. New projects run setup in a detached container and then
 attach to the selected console or OpenCode session.
 
+First-run setup records CBM and skills progress separately. A failure keeps the
+project registered and offers `Retry`, `Go back`, or `Exit`; retries only repeat
+the incomplete setup stage. SIGINT and SIGTERM clean up and exit safely.
+
 ## Editionen
 
 - **base**: Python + core system packages

@@ -28,6 +28,9 @@ erhalten, sofern nicht ausdrücklich **Replace** gewählt wird.
 Fehlende Container-Images bieten **Build now**, **Build later** oder **Go back**.
 Neue Projekte werden für die Einrichtung detached gestartet und danach an die
 ausgewählte Console- oder OpenCode-Sitzung angeschlossen.
+Schlägt die Ersteinrichtung fehl, bleibt das Projekt registriert und bietet
+`Retry`, `Go back` oder `Exit`; ein erneuter Versuch wiederholt nur den
+unvollständigen Einrichtungsschritt.
 
 ## Repository-Struktur
 
