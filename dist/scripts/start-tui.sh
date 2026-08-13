@@ -685,7 +685,7 @@ select_vcs_tracking() {
   local start_option="${modes[-1]}"
   unset 'modes[-1]'
 
-  local options=("none" "github" "gitlab" "custom" "← Go Back")
+  local options=("none" "github.com" "gitlab.com" "own GitLab" "others" "← Go Back")
   local vcs_tracking=$(show_menu "Select VCS tracking" "${options[@]}")
 
   if [[ "$vcs_tracking" == "← Go Back" ]]; then
@@ -722,13 +722,20 @@ select_ai_provider() {
   fi
 
   create_sandbox_config "$project_path" "$edition" "${modes[@]}" "$start_option" "$ai_provider"
+  update_sandbox_config_field "$project_path/.opencode_config/sandbox_config.json" "vcs_tracking" "$vcs_tracking"
 
-  if [[ "$vcs_tracking" == "github" ]]; then
+  if [[ "$vcs_tracking" == "github.com" ]]; then
     setup_github_credentials "$project_path" || return 0
-  elif [[ "$vcs_tracking" == "gitlab" ]]; then
-    setup_gitlab_credentials "$project_path" || return 0
-  elif [[ "$vcs_tracking" == "custom" ]]; then
+  elif [[ "$vcs_tracking" == "gitlab.com" ]]; then
+    setup_gitlab_credentials "$project_path" gitlab.com || return 0
+  elif [[ "$vcs_tracking" == "own GitLab" ]]; then
+    setup_self_hosted_gitlab_credentials "$project_path" || return 0
+  elif [[ "$vcs_tracking" == "others" ]]; then
     setup_custom_vcs_credentials "$project_path" || return 0
+  fi
+
+  if [[ "$vcs_tracking" != "none" ]]; then
+    configure_git_identity "$project_path" || return 0
   fi
 
   if [[ "$ai_provider" == "gwdg-saia" ]]; then
@@ -738,7 +745,11 @@ select_ai_provider() {
   if check_and_build_containers "$project_path"; then
     add_project_to_registry "$project_name" "$project_path" "$vcs_tracking" || return 0
     echo "Project created successfully!"
-    start_container_with_setup "$project_path"
+    start_container_with_setup "$project_path" || {
+      local start_result=$?
+      [[ "$start_result" -eq 2 ]] && exit 1
+      return 0
+    }
   else
     case "$?" in
       2) add_project_to_registry "$project_name" "$project_path" "$vcs_tracking" || return 0
@@ -790,7 +801,19 @@ setup_github_credentials() {
 
 setup_gitlab_credentials() {
   local project_path="$1"
-  configure_vcs_credentials "$project_path" "gitlab" "${project_path}/.git_local/glab-cli/hosts.yml"
+  local host="${2:-gitlab.com}"
+  configure_vcs_credentials "$project_path" "gitlab" "${project_path}/.git_local/glab-cli/hosts.yml" "$host"
+}
+
+setup_self_hosted_gitlab_credentials() {
+  local project_path="$1"
+  local host
+  host=$(prompt_for_text "GitLab host (for example gitlab.example.com):") || return 1
+  [[ "$host" =~ ^[a-zA-Z0-9.-]+$ ]] || {
+    show_page "Invalid GitLab host" "Use a hostname without a scheme or path."
+    return 1
+  }
+  configure_vcs_credentials "$project_path" "gitlab" "${project_path}/.git_local/glab-cli/hosts.yml" "$host"
 }
 
 setup_custom_vcs_credentials() {
@@ -806,13 +829,41 @@ setup_custom_vcs_credentials() {
 
 prompt_for_text() {
   local prompt="$1"
+  local default="${2:-}"
   if [[ "$TUI_MODE" == "gum" ]] && [[ -x "$GUM_BIN" ]]; then
-    "$GUM_BIN" input --prompt="$prompt " || return 1
+    "$GUM_BIN" input --prompt="$prompt " --value="$default" || return 1
   else
     local result
-    read -r -p "$prompt " result < /dev/tty || return 1
+    read -r -p "$prompt " -i "$default" result < /dev/tty || return 1
+    result="${result:-$default}"
     printf '%s\n' "$result"
   fi
+}
+
+configure_git_identity() {
+  local project_path="$1"
+  local git_config="${project_path}/.git_local/gitconfig"
+  local current_name=""
+  local current_email=""
+
+  if [[ -f "$git_config" ]]; then
+    current_name=$(git config --file "$git_config" --get user.name || true)
+    current_email=$(git config --file "$git_config" --get user.email || true)
+  fi
+
+  local name email
+  name=$(prompt_for_text "Git user.name:" "$current_name") || return 1
+  email=$(prompt_for_text "Git user.email:" "$current_email") || return 1
+  [[ -n "$name" && -n "$email" ]] || {
+    show_page "Invalid Git identity" "user.name and user.email cannot be empty."
+    return 1
+  }
+
+  mkdir -p "$(dirname "$git_config")"
+  touch "$git_config"
+  git config --file "$git_config" user.name "$name"
+  git config --file "$git_config" user.email "$email"
+  chmod 600 "$git_config"
 }
 
 prompt_for_secret() {
@@ -866,7 +917,7 @@ configure_vcs_credentials() {
 
   case "$provider" in
     github) host="github.com"; show_page "GitHub credentials" "Enter a token for github.com." ;;
-    gitlab) host="gitlab.com"; show_page "GitLab credentials" "Enter a token for gitlab.com." ;;
+    gitlab) host="${host:-gitlab.com}"; show_page "GitLab credentials" "Enter a token for ${host}." ;;
     custom) show_page "Custom VCS credentials" "Enter a token for ${host}." ;;
   esac
 
@@ -1032,12 +1083,17 @@ start_container_with_setup() {
   local config_path="${project_path}/.opencode_config/sandbox_config.json"
   local setup_complete=$(jq -r '.setup_complete' "$config_path")
 
-  while ! start_container "$project_path" "$config_path" true; do
-    if handle_recoverable_failure "Starting container"; then
-      continue
+  while true; do
+    if start_container "$project_path" "$config_path" true; then
+      break
     fi
-    [[ $? -eq 2 ]] && exit 1
-    return 1
+    handle_recoverable_failure "Starting container"
+    local recovery_result=$?
+    case "$recovery_result" in
+      0) revisit_project_settings "$project_path" || return 1 ;;
+      2) return 2 ;;
+      *) return 1 ;;
+    esac
   done
 
   if [[ "$setup_complete" == "true" ]]; then
@@ -1050,6 +1106,108 @@ start_container_with_setup() {
   fi
 
   access_running_container "$project_path"
+}
+
+show_menu_prefilled() {
+  local title="$1"
+  local selected="$2"
+  shift 2
+  if [[ "$TUI_MODE" == "gum" ]]; then
+    "$GUM_BIN" choose --header="$title" --selected="$selected" "$@" || printf '%s\n' "← Go Back"
+  else
+    local options=("$selected")
+    local option
+    for option in "$@"; do
+      [[ "$option" == "$selected" ]] || options+=("$option")
+    done
+    show_menu "$title (current: $selected)" "${options[@]}"
+  fi
+}
+
+revisit_project_settings() {
+  local project_path="$1"
+  local config_path="${project_path}/.opencode_config/sandbox_config.json"
+  local edition current_start current_ai current_vcs
+  edition=$(jq -r '.container_edition' "$config_path")
+  current_start=$(jq -r '.start_option' "$config_path")
+  current_ai=$(jq -r '.ai_provider' "$config_path")
+  current_vcs=$(jq -r '.vcs_tracking // "none"' "$config_path")
+
+  detect_available_editions || return 1
+  local edition_choice
+  edition_choice=$(show_menu_prefilled "Select container edition" "$edition" "${AVAILABLE_EDITIONS[@]}" "← Go Back")
+  [[ "$edition_choice" != "← Go Back" ]] || return 1
+  edition="$edition_choice"
+
+  local selected_modes=()
+  mapfile -t selected_modes < <(jq -r '.container_modes[]' "$config_path")
+  while true; do
+    local mode_options=()
+    local available_mode status_symbol
+    for available_mode in "${AVAILABLE_MODES[@]}"; do
+      status_symbol="○"
+      mode_is_selected "$available_mode" "${selected_modes[@]}" && status_symbol="●"
+      mode_options+=("${status_symbol} ${available_mode}")
+    done
+    mode_options+=("Done" "← Go Back")
+    local mode_choice
+    mode_choice=$(show_menu "Select container modes (current selections marked)" "${mode_options[@]}")
+    case "$mode_choice" in
+      Done) break ;;
+      "← Go Back") return 1 ;;
+      *)
+        mode_choice="${mode_choice#* }"
+        if mode_is_selected "$mode_choice" "${selected_modes[@]}"; then
+          remove_selected_mode "$mode_choice" selected_modes
+        else
+          selected_modes+=("$mode_choice")
+        fi
+        ;;
+    esac
+  done
+  validate_container_modes "${selected_modes[@]}" || return 1
+
+  local start_choice
+  start_choice=$(show_menu_prefilled "Select start option" "$current_start" console opencode "← Go Back")
+  [[ "$start_choice" != "← Go Back" ]] || return 1
+
+  local vcs_choice
+  vcs_choice=$(show_menu_prefilled "Select VCS tracking" "$current_vcs" none "github.com" "gitlab.com" "own GitLab" "others" "← Go Back")
+  [[ "$vcs_choice" != "← Go Back" ]] || return 1
+
+  local ai_choice
+  ai_choice=$(show_menu_prefilled "Select AI provider" "$current_ai" gwdg-saia none "← Go Back")
+  [[ "$ai_choice" != "← Go Back" ]] || return 1
+
+  local modes_json='[]'
+  if [[ ${#selected_modes[@]} -gt 0 ]]; then
+    modes_json=$(printf '%s\n' "${selected_modes[@]}" | jq -R . | jq -s .)
+  fi
+  jq --arg edition "$edition" --argjson modes "$modes_json" \
+    --arg start "$start_choice" --arg vcs "$vcs_choice" --arg ai "$ai_choice" \
+    '.container_edition=$edition | .container_modes=$modes | .start_option=$start |
+     .vcs_tracking=$vcs | .ai_provider=$ai' "$config_path" | atomic_write "$config_path"
+
+  local vcs_credentials_file=""
+  case "$vcs_choice" in
+    github.com) vcs_credentials_file="${project_path}/.git_local/gh-cli/hosts.yml" ;;
+    gitlab.com|"own GitLab") vcs_credentials_file="${project_path}/.git_local/glab-cli/hosts.yml" ;;
+    others) vcs_credentials_file="${project_path}/.git_local/vcs/hosts.yml" ;;
+  esac
+  if [[ "$vcs_choice" != "$current_vcs" || ( "$vcs_choice" != "none" && ! -e "$vcs_credentials_file" ) ]]; then
+    case "$vcs_choice" in
+      github.com) setup_github_credentials "$project_path" || return 1 ;;
+      gitlab.com) setup_gitlab_credentials "$project_path" gitlab.com || return 1 ;;
+      "own GitLab") setup_self_hosted_gitlab_credentials "$project_path" || return 1 ;;
+      others) setup_custom_vcs_credentials "$project_path" || return 1 ;;
+    esac
+  fi
+  if [[ "$vcs_choice" != "none" ]]; then
+    configure_git_identity "$project_path" || return 1
+  fi
+  if [[ "$ai_choice" == "gwdg-saia" && ( "$ai_choice" != "$current_ai" || ! -e "${project_path}/.opencode_data/auth.json" ) ]]; then
+    setup_gwdg_provider "$project_path" || return 1
+  fi
 }
 
 start_container() {
@@ -1105,7 +1263,7 @@ run_first_run_setup() {
 
     if [[ "$cbm_complete" != "true" ]]; then
       echo "Configuring Codebase Memory..."
-      if podman exec -it --user dev "$container_name" bash -c \
+      if podman exec --user dev "$container_name" bash -c \
         'codebase-memory-mcp config set auto_index true &&
          codebase-memory-mcp config set auto_index_limit 50000 &&
          codebase-memory-mcp config set auto_watch true'; then
@@ -1236,7 +1394,11 @@ handle_project_action() {
   else
     local config_path="${project_path}/.opencode_config/sandbox_config.json"
     check_and_build_containers "$project_path" || return 1
-    start_container_with_setup "$project_path"
+    start_container_with_setup "$project_path" || {
+      local start_result=$?
+      [[ "$start_result" -eq 2 ]] && exit 1
+      return 0
+    }
   fi
 }
 

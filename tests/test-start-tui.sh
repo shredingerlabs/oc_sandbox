@@ -170,6 +170,24 @@ setup_gitlab_credentials "$credentials_project" >/dev/null
 setup_custom_vcs_credentials "$credentials_project" >/dev/null
 [[ "$(jq -r '.["git.example.com"].token' "$credentials_project/.git_local/vcs/hosts.yml")" == 'test-secret' ]]
 
+prompt_for_text() { printf '%s\n' 'selfhosted.example.com'; }
+show_menu() { printf '%s\n' 'Replace'; }
+setup_self_hosted_gitlab_credentials "$credentials_project" >/dev/null
+[[ "$(jq -r --arg host selfhosted.example.com '.[$host].token' "$credentials_project/.git_local/glab-cli/hosts.yml")" == 'test-secret' ]]
+
+printf '%s\n' '[user]' '    name = Existing Name' '    email = existing@example.com' '[core]' '    editor = vi' > "$credentials_project/.git_local/gitconfig"
+prompt_for_text() {
+  case "$1" in
+    'Git user.name:') printf '%s\n' 'Project Name' ;;
+    'Git user.email:') printf '%s\n' 'project@example.com' ;;
+    *) printf '%s\n' 'selfhosted.example.com' ;;
+  esac
+}
+configure_git_identity "$credentials_project"
+[[ "$(git config --file "$credentials_project/.git_local/gitconfig" user.name)" == 'Project Name' ]]
+[[ "$(git config --file "$credentials_project/.git_local/gitconfig" user.email)" == 'project@example.com' ]]
+[[ "$(git config --file "$credentials_project/.git_local/gitconfig" core.editor)" == 'vi' ]]
+
 printf '%s\n' 'original' > "$credentials_project/.git_local/gh-cli/hosts.yml"
 show_menu() { printf '%s\n' 'Keep existing'; }
 setup_github_credentials "$credentials_project" >/dev/null
