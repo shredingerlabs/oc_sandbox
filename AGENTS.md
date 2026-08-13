@@ -1,3 +1,7 @@
+Use the `diagnosing-bugs` skill when investigating or searching for bugs.
+Use the `implement` skill when writing fixes.
+Production only serves the contents of the `dist/` folder — do not assume other files are available at runtime.
+
 ## Agent skills
 
 ### Issue tracker

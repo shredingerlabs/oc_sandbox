@@ -13,6 +13,12 @@ cd "$(dirname "$0")/.."
 
 EDITION="${1:-full}"
 
+if [[ "$EDITION" == "--help" || "$EDITION" == "-h" ]]; then
+  echo "Nutzung: $0 [base|web|embedded|full|all]"
+  echo "Editionen: base web embedded full all"
+  exit 0
+fi
+
 case "$EDITION" in
   base)
     echo "==> Baue opencode-sandbox-base"

@@ -1,0 +1,3 @@
+# TUI Workflow, Identity, and Credential Safety
+
+The TUI will keep project display names unique while using a persisted collision-safe container identity derived from each canonical project root. New projects start detached for first-run setup, then attach using the selected console or OpenCode mode; deferred builds remain stopped, zero modes are valid, Podman state is authoritative, and incomplete setup exposes an explicit retry path. VCS setup offers GitHub, GitLab, and custom-host choices, while AI setup prompts securely for the current provider token; credentials stay in project-local files with 700 directories and 600 files, are never logged, and are excluded from general configuration backups.

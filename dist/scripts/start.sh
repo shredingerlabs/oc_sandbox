@@ -21,6 +21,8 @@
 #   --hil_mode         USB-Passthrough für Oszi (scope0) und MCU (ttyUSB*, ttyACM*, ttyAMA*)
 #   --cbm_ui           Aktiviert CBM Graph-UI auf Port 9749
 #   --start_opencode   Startet OpenCode direkt nach Container-Start
+#   --edition          Container-Edition: base, web, embedded, full
+#   --detach            Container im Hintergrund starten
 #
 # Beispiele:
 #   scripts/start.sh ~/projects/kunde-x                            # Default (volle Netzanbindung)
@@ -38,8 +40,19 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 # --- Flags parsen -------------------------------------------------------------
 PROJECT_ROOT="${1:-}"
+if [[ "$PROJECT_ROOT" == "--help" || "$PROJECT_ROOT" == "-h" ]]; then
+  echo "Nutzung: $0 <projekt-root> [--edition <base|web|embedded|full>] [Flags]"
+  echo "  --edition          Container-Edition auswählen (Standard: full)"
+  echo "  --use_proxy        Squid-Egress-Allowlist-Proxy starten und nutzen"
+  echo "  --offline          Kein Netzwerk (--network=none)"
+  echo "  --hil_mode         USB-Passthrough für Oszi und MCU-Geräte"
+  echo "  --cbm_ui           CBM Graph-UI auf Port 9749 aktivieren"
+  echo "  --start_opencode   OpenCode direkt nach Container-Start starten"
+  echo "  --detach           Container im Hintergrund starten"
+  exit 0
+fi
 if [[ -z "$PROJECT_ROOT" ]]; then
-  echo "Nutzung: $0 <projekt-root> [--use_proxy] [--offline] [--hil_mode] [--cbm_ui] [--start_opencode]" >&2
+  echo "Nutzung: $0 <projekt-root> [--edition <edition>] [--use_proxy] [--offline] [--hil_mode] [--cbm_ui] [--start_opencode] [--detach]" >&2
   echo "" >&2
   echo "  <projekt-root>        Pfad zum Projekt-Root (siehe init-project.sh)" >&2
   echo "  --use_proxy           Squid-Egress-Allowlist-Proxy starten und nutzen" >&2
@@ -56,21 +69,34 @@ OFFLINE=false
 HIL_MODE=false
 CBM_UI=false
 START_OPENCODE=false
+DETACH=false
+EDITION=full
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --edition)
+      [[ $# -ge 2 ]] || { echo "--edition benötigt einen Wert" >&2; exit 1; }
+      EDITION="$2"
+      shift 2
+      ;;
     --use_proxy)        USE_PROXY=true; shift ;;
     --offline)          OFFLINE=true;   shift ;;
     --hil_mode)         HIL_MODE=true;  shift ;;
     --cbm_ui)           CBM_UI=true;    shift ;;
     --start_opencode)   START_OPENCODE=true; shift ;;
+    --detach)           DETACH=true; shift ;;
     *)
       echo "Unbekanntes Flag: $1" >&2
-      echo "Nutzung: $0 <projekt-root> [--use_proxy] [--offline] [--hil_mode] [--cbm_ui] [--start_opencode]" >&2
+      echo "Nutzung: $0 <projekt-root> [--edition <edition>] [--use_proxy] [--offline] [--hil_mode] [--cbm_ui] [--start_opencode] [--detach]" >&2
       exit 1
       ;;
   esac
 done
+
+case "$EDITION" in
+  base|web|embedded|full) ;;
+  *) echo "Unbekannte Edition: $EDITION" >&2; exit 1 ;;
+esac
 
 # --- Projekt-Root validieren ---------------------------------------------------
 PROJECT_ROOT="$(realpath "$PROJECT_ROOT")"
@@ -253,8 +279,15 @@ fi
 
 # --- Container starten ---------------------------------------------------------
 CONTAINER_NAME="opencode-sandbox-$(basename "$PROJECT_ROOT")"
+IMAGE="opencode-sandbox-${EDITION}"
+RUN_MODE=(-it)
+CONTAINER_COMMAND=()
+if $DETACH; then
+  RUN_MODE=(-d)
+  CONTAINER_COMMAND=(-c 'sleep infinity')
+fi
 
-exec podman run --rm -it \
+podman run --rm "${RUN_MODE[@]}" \
   --replace \
   --name "$CONTAINER_NAME" \
   --userns=keep-id \
@@ -278,4 +311,4 @@ exec podman run --rm -it \
   -v "${GIT_DIR}:/home/dev/.git_local:Z" \
   -v "${CBM_DIR}:/home/dev/.cache/codebase-memory-mcp:Z" \
   -v "${BASH_DIR}/bash_profile:/home/dev/.bash_profile:Z" \
-  opencode-sandbox
+  "$IMAGE" "${CONTAINER_COMMAND[@]}"

@@ -5,7 +5,7 @@
 #
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 TUI_ROOT="${TUI_ROOT:-$HOME/.oc-sandbox}"
@@ -13,9 +13,11 @@ GUM_BIN="${TUI_ROOT}/gum/gum"
 TUI_MODE=""
 GLOBAL_CONFIG=""
 DEFAULT_PROJECT_PATH=""
+AVAILABLE_EDITIONS=()
+AVAILABLE_MODES=()
 
 cleanup() {
-  echo "Cleaning up..."
+  :
 }
 
 trap cleanup EXIT INT TERM
@@ -48,6 +50,7 @@ initialize_tui() {
   mkdir -p "$HOME/.config/oc-sandbox/backups"
 
   if [[ -x "$GUM_BIN" ]] || command -v gum &>/dev/null; then
+    [[ -x "$GUM_BIN" ]] || GUM_BIN="$(command -v gum)"
     TUI_MODE="gum"
   else
     TUI_MODE="bash"
@@ -62,18 +65,7 @@ initialize_tui() {
 }
 
 show_welcome_message() {
-  cat << 'EOF'
-╔══════════════════════════════════════════════════════════════╗
-║                                                              ║
-║              Welcome to OpenCode Sandbox TUI                 ║
-║                                                              ║
-║     Modern project management for containerized development  ║
-║                                                              ║
-╚══════════════════════════════════════════════════════════════╝
-
-This wizard will guide you through the initial setup.
-
-EOF
+  show_page "Welcome to OpenCode Sandbox TUI" "This wizard will guide you through the initial setup."
   wait_for_enter
 }
 
@@ -83,27 +75,37 @@ prompt_for_path() {
   local result=""
 
   if [[ "$TUI_MODE" == "gum" ]]; then
-    if [[ -x "$GUM_BIN" ]]; then
-      # Use gum file for directory selection (path is positional argument)
-      if result=$("$GUM_BIN" file --directory "$default" 2>/dev/null); then
-        # Success - result contains the selected path
-        :
-      else
-        # gum file failed, fall back to input
-        result=$("$GUM_BIN" input --prompt="$prompt " --value="$default" 2>/dev/null) || result=""
-      fi
-    else
-      read -e -p "$prompt " -i "$default" result < /dev/tty
-    fi
+    result=$("$GUM_BIN" input --prompt="$prompt (Ctrl+A to replace): " --value="$default") || return 1
   else
-    read -e -p "$prompt " -i "$default" result < /dev/tty
+    read -e -p "$prompt (Ctrl+A to replace): " -i "$default" result < /dev/tty || return 1
   fi
 
   if [[ -z "$result" ]]; then
     result="$default"
   fi
 
-  echo "$result"
+  normalize_project_path "$result" "$default"
+}
+
+normalize_project_path() {
+  local path="$1"
+  local default="$2"
+
+  if [[ "$path" == "$default"* && "$path" != "$default" ]]; then
+    path="${path#"$default"}"
+    if [[ "$path" == /*/* ]]; then
+      printf '%s\n' "$path"
+      return
+    fi
+    printf '%s\n' "${default%/}/${path#./}"
+    return
+  fi
+
+  if [[ "$path" == /* ]]; then
+    printf '%s\n' "$path"
+  else
+    printf '%s\n' "${default%/}/${path#./}"
+  fi
 }
 
 create_global_config() {
@@ -128,7 +130,12 @@ create_projects_json() {
 
 atomic_write() {
   local filepath="$1"
-  local content="$2"
+  local content=""
+  if [[ $# -ge 2 ]]; then
+    content="$2"
+  else
+    content=$(cat)
+  fi
   local temp_file="${filepath}.tmp.$$"
 
   echo "$content" > "$temp_file"
@@ -167,25 +174,13 @@ rotate_backups() {
 }
 
 handle_first_run_setup() {
-  # Show welcome message without waiting
-  cat << 'EOF'
-╔══════════════════════════════════════════════════════════════╗
-║                                                              ║
-║              Welcome to OpenCode Sandbox TUI                 ║
-║                                                              ║
-║     Modern project management for containerized development  ║
-║                                                              ║
-╚══════════════════════════════════════════════════════════════╝
-
-This wizard will guide you through the initial setup.
-
-EOF
+  show_page "Welcome to OpenCode Sandbox TUI" "This wizard needs a default project path."
 
   local default_path="$HOME/oc-sandbox"
   local project_path=""
 
   while [[ -z "$project_path" ]]; do
-    project_path=$(prompt_for_path "Enter default project path:" "$default_path")
+    project_path=$(prompt_for_path "Default project path:" "$default_path") || return 1
     if [[ -z "$project_path" ]]; then
       echo "Path cannot be empty"
     fi
@@ -199,7 +194,7 @@ EOF
     create_projects_json
   fi
 
-  wait_for_enter
+  wait_for_enter || return 1
 }
 
 load_global_config() {
@@ -208,8 +203,22 @@ load_global_config() {
 }
 
 wait_for_enter() {
-  echo
-  read -p "Press Enter to continue..." < /dev/tty
+  if [[ "$TUI_MODE" == "gum" ]]; then
+    "$GUM_BIN" input --prompt="Press Enter to continue... " --placeholder="" >/dev/null || return 1
+  else
+    read -p "Press Enter to continue..." < /dev/tty || return 1
+  fi
+}
+
+show_page() {
+  local title="$1"
+  shift
+  if [[ "$TUI_MODE" == "gum" ]]; then
+    "$GUM_BIN" style --border rounded --padding "1 2" -- "$title" "$@"
+  else
+    printf '\n%s\n' "$title"
+    printf '%s\n' "$@"
+  fi
 }
 
 show_menu() {
@@ -218,7 +227,7 @@ show_menu() {
   local options=("$@")
 
   if [[ "$TUI_MODE" == "gum" ]]; then
-    "$GUM_BIN" choose --header="$title" "${options[@]}" --height="${#options[@]}"
+    "$GUM_BIN" choose --header="$title" "${options[@]}" --height="${#options[@]}" || printf '%s\n' "← Go Back"
   else
     bash_select "$title" "${options[@]}"
   fi
@@ -318,8 +327,8 @@ project_selection_wizard() {
   local projects=($(get_all_projects_ordered))
 
   if [[ ${#projects[@]} -eq 0 ]]; then
-    echo "No projects found. Please create a new project first."
-    wait_for_enter
+    show_page "No projects" "Create a new project first."
+    wait_for_enter || true
     return
   fi
 
@@ -357,37 +366,22 @@ project_selection_wizard() {
 }
 
 init_project_wizard() {
-  echo "New Project Wizard"
-  echo "=================="
-  echo
+  show_page "New Project Wizard" "Choose a name and path, then configure the sandbox."
 
-  local project_name=""
-  while [[ -z "$project_name" ]]; do
-    echo "Enter project name (alphanumeric, dashes, underscores only):"
-    read -r project_name < /dev/tty
-    if [[ ! "$project_name" =~ ^[a-zA-Z0-9_-]+$ ]]; then
-      echo "Invalid project name. Please use only letters, numbers, dashes, and underscores."
-      project_name=""
-    fi
-  done
+  local project_name
+  project_name=$(prompt_for_name "Project name:") || return 0
 
   local default_path="$DEFAULT_PROJECT_PATH/$project_name"
-  local project_path=$(prompt_for_path "Enter project path:" "$default_path")
+  local project_path
+  project_path=$(prompt_for_path "Project path:" "$default_path") || return 0
 
   if ! validate_project_path "$project_path"; then
-    echo "Invalid project path"
-    wait_for_enter
-    return 1
+    show_page "Invalid project path" "The path must be empty or not exist, with a writable parent."
+    wait_for_enter || true
+    return 0
   fi
 
-  echo "Initializing project at: $project_path"
-  if ! run_init_project "$project_path"; then
-    echo "Project initialization failed"
-    wait_for_enter
-    return 1
-  fi
-
-  select_container_edition "$project_path"
+  select_container_edition "$project_path" "$project_name"
 }
 
 prompt_for_name() {
@@ -396,10 +390,10 @@ prompt_for_name() {
 
   if [[ "$TUI_MODE" == "gum" ]]; then
     if [[ -x "$GUM_BIN" ]]; then
-      result=$("$GUM_BIN" input --prompt="$prompt " --placeholder="project-name" --validation.alphanumeric)
+      result=$("$GUM_BIN" input --prompt="$prompt " --placeholder="project-name") || return 1
     else
       while [[ -z "$result" ]]; do
-        read -p "$prompt " result < /dev/tty
+        read -p "$prompt " result < /dev/tty || return 1
         if [[ ! "$result" =~ ^[a-zA-Z0-9_-]+$ ]]; then
           echo "Invalid name. Use only letters, numbers, dashes, and underscores."
           result=""
@@ -408,7 +402,7 @@ prompt_for_name() {
     fi
   else
     while [[ -z "$result" ]]; do
-      read -p "$prompt " result < /dev/tty
+      read -p "$prompt " result < /dev/tty || return 1
       if [[ ! "$result" =~ ^[a-zA-Z0-9_-]+$ ]]; then
         echo "Invalid name. Use only letters, numbers, dashes, and underscores."
         result=""
@@ -422,7 +416,7 @@ prompt_for_name() {
 validate_project_path() {
   local path="$1"
 
-  if [[ -e "$path" ]] && ! [[ -z "$(ls -A "$path" 2>/dev/null)" ]]; then
+  if [[ -e "$path" ]]; then
     return 1
   fi
 
@@ -448,42 +442,46 @@ run_init_project() {
 
 select_container_edition() {
   local project_path="$1"
+  local project_name="$2"
 
-  local options=("full" "web" "embedded" "base" "← Go Back")
+  detect_available_editions
+  local options=("${AVAILABLE_EDITIONS[@]}" "← Go Back")
   local edition=$(show_menu "Select container edition" "${options[@]}")
 
   if [[ "$edition" == "← Go Back" ]]; then
     return 1
   fi
 
-  select_container_modes "$project_path" "$edition"
+  select_container_modes "$project_path" "$project_name" "$edition"
 }
 
 select_container_modes() {
   local project_path="$1"
-  local edition="$2"
+  local project_name="$2"
+  local edition="$3"
 
-  local options=("use_proxy" "offline" "hil_mode" "cbm_ui" "Done" "← Go Back")
+  local options=("${AVAILABLE_MODES[@]}" "Done" "← Go Back")
   local modes=()
 
   while true; do
     local mode=$(show_menu "Select container modes (Done when finished)" "${options[@]}")
 
     case "$mode" in
-      "use_proxy"|"offline"|"hil_mode"|"cbm_ui")
-        modes+=("$mode")
-        ;;
       "Done")
         if [[ ${#modes[@]} -eq 0 ]]; then
-          echo "Please select at least one mode"
+          show_page "No mode selected" "Select at least one mode, or go back."
+          wait_for_enter || true
         else
-          select_start_option "$project_path" "$edition" "${modes[@]}"
+          select_start_option "$project_path" "$project_name" "$edition" "${modes[@]}"
           return
         fi
         ;;
       "← Go Back")
-        select_container_edition "$project_path"
+        select_container_edition "$project_path" "$project_name"
         return
+        ;;
+      *)
+        modes+=("$mode")
         ;;
     esac
   done
@@ -491,25 +489,27 @@ select_container_modes() {
 
 select_start_option() {
   local project_path="$1"
-  local edition="$2"
-  shift 2
+  local project_name="$2"
+  local edition="$3"
+  shift 3
   local modes=("$@")
 
   local options=("console" "opencode" "← Go Back")
   local start_option=$(show_menu "Select start option" "${options[@]}")
 
   if [[ "$start_option" == "← Go Back" ]]; then
-    select_container_modes "$project_path" "$edition"
+    select_container_modes "$project_path" "$project_name" "$edition"
     return
   fi
 
-  select_vcs_tracking "$project_path" "$edition" "${modes[@]}" "$start_option"
+  select_vcs_tracking "$project_path" "$project_name" "$edition" "${modes[@]}" "$start_option"
 }
 
 select_vcs_tracking() {
   local project_path="$1"
-  local edition="$2"
-  shift 2
+  local project_name="$2"
+  local edition="$3"
+  shift 3
   local modes=("$@")
   local start_option="${modes[-1]}"
   unset 'modes[-1]'
@@ -518,29 +518,36 @@ select_vcs_tracking() {
   local vcs_tracking=$(show_menu "Select VCS tracking" "${options[@]}")
 
   if [[ "$vcs_tracking" == "← Go Back" ]]; then
-    select_start_option "$project_path" "$edition" "${modes[@]}"
+    select_start_option "$project_path" "$project_name" "$edition" "${modes[@]}"
     return
   fi
 
-  select_ai_provider "$project_path" "$edition" "${modes[@]}" "$start_option" "$vcs_tracking"
+  select_ai_provider "$project_path" "$project_name" "$edition" "${modes[@]}" "$start_option" "$vcs_tracking"
 }
 
 select_ai_provider() {
   local project_path="$1"
-  local edition="$2"
-  shift 2
+  local project_name="$2"
+  local edition="$3"
+  shift 3
   local modes=("$@")
-  local start_option="${modes[-1]}"
-  unset 'modes[-1]'
   local vcs_tracking="${modes[-1]}"
+  unset 'modes[-1]'
+  local start_option="${modes[-1]}"
   unset 'modes[-1]'
 
   local options=("gwdg-saia" "none" "← Go Back")
   local ai_provider=$(show_menu "Select AI provider" "${options[@]}")
 
   if [[ "$ai_provider" == "← Go Back" ]]; then
-    select_vcs_tracking "$project_path" "$edition" "${modes[@]}" "$start_option"
+    select_vcs_tracking "$project_path" "$project_name" "$edition" "${modes[@]}" "$start_option"
     return
+  fi
+
+  if ! run_init_project "$project_path"; then
+    show_page "Project initialization failed" "No project state was registered."
+    wait_for_enter || true
+    return 0
   fi
 
   create_sandbox_config "$project_path" "$edition" "${modes[@]}" "$start_option" "$ai_provider"
@@ -557,8 +564,7 @@ select_ai_provider() {
 
   check_and_build_containers "$project_path"
 
-  local project_name=$(basename "$project_path")
-  add_project_to_registry "$project_name" "$project_path"
+  add_project_to_registry "$project_name" "$project_path" "$vcs_tracking"
 
   echo "Project created successfully!"
   start_container_with_setup "$project_path"
@@ -603,10 +609,7 @@ setup_github_credentials() {
 
   mkdir -p "$git_dir"
 
-  echo "GitHub CLI credentials setup"
-  echo "============================"
-  echo "Please run 'gh auth login' inside the container to authenticate."
-  echo
+  show_page "GitHub credentials" "Run 'gh auth login' inside the container to authenticate."
 }
 
 setup_gitlab_credentials() {
@@ -615,10 +618,7 @@ setup_gitlab_credentials() {
 
   mkdir -p "$git_dir"
 
-  echo "GitLab CLI credentials setup"
-  echo "============================"
-  echo "Please run 'glab auth login' inside the container to authenticate."
-  echo
+  show_page "GitLab credentials" "Run 'glab auth login' inside the container to authenticate."
 }
 
 setup_gwdg_provider() {
@@ -627,15 +627,13 @@ setup_gwdg_provider() {
 
   mkdir -p "$data_dir"
 
-  echo "GWDG SAIA provider setup"
-  echo "======================="
-  echo "Please configure your credentials in .opencode_data/auth.json"
-  echo
+  show_page "GWDG SAIA provider" "Configure credentials in .opencode_data/auth.json."
 }
 
 add_project_to_registry() {
   local name="$1"
   local path="$2"
+  local vcs_tracking="$3"
   local timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
   local projects_json="$HOME/.config/oc-sandbox/projects.json"
 
@@ -645,8 +643,8 @@ add_project_to_registry() {
     return 1
   fi
 
-  jq --arg name "$name" --arg path "$path" --arg timestamp "$timestamp" \
-    '.projects += [{"name": $name, "path": $path, "last_used": $timestamp, "container_status": "stopped", "git_tracking": "none"}]' \
+  jq --arg name "$name" --arg path "$path" --arg timestamp "$timestamp" --arg vcs "$vcs_tracking" \
+    '.projects += [{"name": $name, "path": $path, "last_used": $timestamp, "container_status": "stopped", "git_tracking": $vcs}]' \
     "$projects_json" | atomic_write "$projects_json"
 }
 
@@ -687,7 +685,7 @@ start_container_with_setup() {
   local config_path="${project_path}/.opencode_config/sandbox_config.json"
   local setup_complete=$(jq -r '.setup_complete' "$config_path")
 
-  start_container "$project_path" "$config_path"
+  start_container "$project_path" "$config_path" true
 
   if [[ "$setup_complete" == "true" ]]; then
     return 0
@@ -699,22 +697,24 @@ start_container_with_setup() {
 start_container() {
   local project_path="$1"
   local config_path="$2"
+  local detached="${3:-false}"
 
   local edition=$(jq -r '.container_edition' "$config_path")
   local modes=($(jq -r '.container_modes[]' "$config_path"))
   local start_option=$(jq -r '.start_option' "$config_path")
 
-  local start_cmd="${SCRIPT_DIR}/start.sh ${project_path}"
+  local start_args=("$project_path" "--edition" "$edition")
   for mode in "${modes[@]}"; do
-    start_cmd+=" --${mode}"
+    start_args+=("--${mode}")
   done
 
-  if [[ "$start_option" == "opencode" ]]; then
-    start_cmd+=" --start_opencode"
+  if [[ "$start_option" == "opencode" && "$detached" != "true" ]]; then
+    start_args+=("--start_opencode")
   fi
+  [[ "$detached" == "true" ]] && start_args+=("--detach")
 
   echo "Starting container..."
-  if bash -c "$start_cmd"; then
+  if bash "${SCRIPT_DIR}/start.sh" "${start_args[@]}"; then
     update_project_status "$project_path" "running"
   else
     echo "Failed to start container"
@@ -730,20 +730,27 @@ run_first_run_setup() {
   echo "Running first-run setup..."
 
   echo "Configuring Codebase Memory..."
-  podman exec -it --user dev "$container_name" bash -c '
-    opencode run "codebase-memory-mcp config set auto_index true" 2>/dev/null || true
-    opencode run "codebase-memory-mcp config set auto_index_limit 50000" 2>/dev/null || true
-    opencode run "codebase-memory-mcp config set auto_watch true" 2>/dev/null || true
-  ' || true
+  if ! podman exec -it --user dev "$container_name" bash -c \
+    'codebase-memory-mcp config set auto_index true &&
+     codebase-memory-mcp config set auto_index_limit 50000 &&
+     codebase-memory-mcp config set auto_watch true'; then
+    show_page "Setup incomplete" "Codebase Memory configuration failed."
+    wait_for_enter || true
+    return 1
+  fi
 
   echo "Setting up skills..."
-  podman exec -it --user dev "$container_name" bash -c 'opencode run "setup-matt-pocock-skills"' 2>/dev/null || true
+  if ! podman exec -it --user dev "$container_name" bash -c 'opencode run "setup-matt-pocock-skills"'; then
+    show_page "Setup incomplete" "Skills setup failed. Retry from the project menu."
+    wait_for_enter || true
+    return 1
+  fi
 
   local config_path="${project_path}/.opencode_config/sandbox_config.json"
   update_sandbox_config_field "$config_path" "setup_complete" "true"
 
-  echo "Setup complete!"
-  wait_for_enter
+  show_page "Setup complete" "The project container is ready."
+  wait_for_enter || true
 }
 
 update_sandbox_config_field() {
@@ -822,7 +829,7 @@ access_running_container() {
 build_container_wizard() {
   detect_available_editions
 
-  local options=("all" "full" "web" "embedded" "base" "← Go Back")
+  local options=("all" "${AVAILABLE_EDITIONS[@]}" "← Go Back")
   local choice=$(show_menu "Select container edition to build" "${options[@]}")
 
   if [[ "$choice" == "← Go Back" ]]; then
@@ -843,7 +850,21 @@ build_container_wizard() {
 }
 
 detect_available_editions() {
-  echo "Detecting available container editions..."
+  local help
+  help=$(bash "${SCRIPT_DIR}/build-container.sh" --help 2>&1 || true)
+  AVAILABLE_EDITIONS=()
+  while read -r edition; do
+    [[ -n "$edition" ]] && AVAILABLE_EDITIONS+=("$edition")
+  done < <(grep -oE 'base|web|embedded|full' <<< "$help" | awk '!seen[$0]++')
+  [[ ${#AVAILABLE_EDITIONS[@]} -gt 0 ]] || AVAILABLE_EDITIONS=(base web embedded full)
+
+  local start_help
+  start_help=$(bash "${SCRIPT_DIR}/start.sh" --help 2>&1 || true)
+  AVAILABLE_MODES=()
+  while read -r mode; do
+    [[ -n "$mode" ]] && AVAILABLE_MODES+=("$mode")
+  done < <(grep -oE -- '--[a-z_]+\s' <<< "$start_help" | sed 's/^--//; s/[[:space:]]*$//' | grep -Ev '^(start_opencode|edition|detach)$' | awk '!seen[$0]++')
+  [[ ${#AVAILABLE_MODES[@]} -gt 0 ]] || AVAILABLE_MODES=(use_proxy offline hil_mode cbm_ui)
 }
 
 settings_menu() {
@@ -905,4 +926,6 @@ main() {
   main_menu
 }
 
-main "$@"
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  main "$@"
+fi

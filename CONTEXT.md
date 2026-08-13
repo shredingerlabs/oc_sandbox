@@ -109,3 +109,13 @@
 **runtime detection** — Dynamic parsing of script help text (build-container.sh, start.sh) to discover available container editions and modes, avoiding hardcoded lists and maintaining flexibility for future script enhancements.
 
 **native script enhancement** — Strategy of extending existing scripts (start.sh, build-container.sh, init-project.sh) with additional parameters (like --start_opencode) rather than creating parallel TUI-specific implementations, preserving backward compatibility and avoiding code duplication.
+
+**project display name** — Unique user-facing name for a registered project, used in TUI menus and registry selection.
+
+**container identity** — Stable project-specific identifier derived from the canonical project root, persisted with the project, and used to avoid container-name collisions.
+
+**deferred build** — Registered project state in which the container image is not yet built; the project remains stopped until a later build and start.
+
+**setup recovery** — Explicit retry path for incomplete first-run setup while preserving setup-complete as false until CBM and skills setup both succeed.
+
+**credential file** — Project-local VCS or AI secret configuration stored separately from global TUI metadata, with restrictive permissions and excluded from general configuration backups.
