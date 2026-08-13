@@ -84,11 +84,13 @@ prompt_for_path() {
 
   if [[ "$TUI_MODE" == "gum" ]]; then
     if [[ -x "$GUM_BIN" ]]; then
-      # Use gum file for directory selection
-      result=$("$GUM_BIN" file --directory --path="$default" 2>/dev/null)
-      # If gum file fails or returns empty, fall back to input
-      if [[ -z "$result" ]]; then
-        result=$("$GUM_BIN" input --prompt="$prompt " --value="$default" 2>/dev/null)
+      # Use gum file for directory selection (path is positional argument)
+      if result=$("$GUM_BIN" file --directory "$default" 2>/dev/null); then
+        # Success - result contains the selected path
+        :
+      else
+        # gum file failed, fall back to input
+        result=$("$GUM_BIN" input --prompt="$prompt " --value="$default" 2>/dev/null) || result=""
       fi
     else
       read -e -p "$prompt " -i "$default" result < /dev/tty
