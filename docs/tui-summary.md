@@ -72,6 +72,8 @@ Complete technical specification covering:
 - Main menu and project selection
 - New project wizard with multi-step flow
 - Container operations (start/access/build)
+- Failed-start recovery with Retry, Go Back, and explicit Exit choices
+- Retry settings are prefilled and persisted only after credential setup succeeds
 - First-run setup automation
 - Configuration management utilities
 

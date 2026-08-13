@@ -1093,13 +1093,16 @@ start_container_with_setup() {
     if start_container "$project_path" "$config_path" true; then
       break
     fi
-    handle_recoverable_failure "Starting container"
-    local recovery_result=$?
-    case "$recovery_result" in
-      0) revisit_project_settings "$project_path" || return 1 ;;
-      2) return 2 ;;
-      *) return 1 ;;
-    esac
+    local recovery_result
+    if handle_recoverable_failure "Starting container"; then
+      revisit_project_settings "$project_path" || return 1
+    else
+      recovery_result=$?
+      case "$recovery_result" in
+        2) return 2 ;;
+        *) return 1 ;;
+      esac
+    fi
   done
 
   if [[ "$setup_complete" == "true" ]]; then
@@ -1185,15 +1188,6 @@ revisit_project_settings() {
   ai_choice=$(show_menu_prefilled "Select AI provider" "$current_ai" gwdg-saia none "← Go Back")
   [[ "$ai_choice" != "← Go Back" ]] || return 1
 
-  local modes_json='[]'
-  if [[ ${#selected_modes[@]} -gt 0 ]]; then
-    modes_json=$(printf '%s\n' "${selected_modes[@]}" | jq -R . | jq -s .)
-  fi
-  jq --arg edition "$edition" --argjson modes "$modes_json" \
-    --arg start "$start_choice" --arg vcs "$vcs_choice" --arg ai "$ai_choice" \
-    '.container_edition=$edition | .container_modes=$modes | .start_option=$start |
-     .vcs_tracking=$vcs | .ai_provider=$ai' "$config_path" | atomic_write "$config_path"
-
   local vcs_credentials_file=""
   case "$vcs_choice" in
     github.com) vcs_credentials_file="${project_path}/.git_local/gh-cli/hosts.yml" ;;
@@ -1214,6 +1208,15 @@ revisit_project_settings() {
   if [[ "$ai_choice" == "gwdg-saia" && ( "$ai_choice" != "$current_ai" || ! -e "${project_path}/.opencode_data/auth.json" ) ]]; then
     setup_gwdg_provider "$project_path" || return 1
   fi
+
+  local modes_json='[]'
+  if [[ ${#selected_modes[@]} -gt 0 ]]; then
+    modes_json=$(printf '%s\n' "${selected_modes[@]}" | jq -R . | jq -s .)
+  fi
+  jq --arg edition "$edition" --argjson modes "$modes_json" \
+    --arg start "$start_choice" --arg vcs "$vcs_choice" --arg ai "$ai_choice" \
+    '.container_edition=$edition | .container_modes=$modes | .start_option=$start |
+     .vcs_tracking=$vcs | .ai_provider=$ai' "$config_path" | atomic_write "$config_path"
 }
 
 start_container() {

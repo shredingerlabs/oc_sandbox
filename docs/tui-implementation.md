@@ -785,6 +785,12 @@ check_multiple_tui_instances() {
 
 ## Error Handling
 
+Failed container starts offer `Retry`, `Go back`, and `Exit`. `Retry` reopens
+the complete project settings sequence with current values prefilled. Settings
+are persisted only after the sequence and any required credential setup succeed;
+`Go back` therefore returns to the launching menu without partially updating the
+project configuration.
+
 ```bash
 handle_error() {
   local operation="$1"

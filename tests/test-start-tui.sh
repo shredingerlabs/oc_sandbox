@@ -333,6 +333,72 @@ start_container_with_setup "$workflow_project"
 grep -F -- 'opencode' "$podman_log"
 SCRIPT_DIR="$PROJECT_ROOT/dist/scripts"
 
+# A failed native start must return to its caller when Go back is selected,
+# even though the TUI runs with set -e.
+failed_start_dir="$workflow_home/failed-start"
+mkdir -p "$failed_start_dir"
+cat > "$failed_start_dir/start.sh" <<'EOF'
+#!/usr/bin/env bash
+exit 1
+EOF
+chmod +x "$failed_start_dir/start.sh"
+failed_start_project="$workflow_home/failed-start-project"
+mkdir -p "$failed_start_project"
+add_project_to_registry FailedStart "$failed_start_project" none
+create_sandbox_config "$failed_start_project" full console none
+failed_start_return="$workflow_home/failed-start-returned"
+if bash -c '
+  source "$1/dist/scripts/start-tui.sh"
+  set -euo pipefail
+  SCRIPT_DIR="$2"
+  show_menu() { printf "%s\n" "Go back"; }
+  if start_container_with_setup "$3"; then
+    exit 1
+  else
+    printf returned > "$4"
+    exit 1
+  fi
+' _ "$PROJECT_ROOT" "$failed_start_dir" "$failed_start_project" "$failed_start_return"; then
+  printf 'failed start unexpectedly succeeded\n' >&2
+  exit 1
+fi
+[[ -f "$failed_start_return" ]]
+[[ "$(jq -r '.projects[] | select(.name == "FailedStart") | .container_status' "$HOME/.config/oc-sandbox/projects.json")" == stopped ]]
+
+# Retry reopens every setting with the current values and keeps existing VCS
+# credentials when the integration is unchanged.
+retry_project="$workflow_home/retry-settings"
+mkdir -p "$retry_project/.git_local/gh-cli"
+add_project_to_registry RetrySettings "$retry_project" github.com
+create_sandbox_config "$retry_project" full offline console none
+update_sandbox_config_field "$retry_project/.opencode_config/sandbox_config.json" vcs_tracking github.com
+printf '%s\n' 'existing credentials' > "$retry_project/.git_local/gh-cli/hosts.yml"
+prompt_for_text() {
+  case "$1" in
+    'Git user.name:') printf '%s\n' 'Retry User' ;;
+    'Git user.email:') printf '%s\n' 'retry@example.com' ;;
+  esac
+}
+setup_github_credentials() {
+  printf 'unchanged credentials were prompted\n' >&2
+  return 1
+}
+show_menu() {
+  case "$1" in
+    'Select container edition'*) printf '%s\n' full ;;
+    'Select container modes'*) printf '%s\n' Done ;;
+    'Select start option'*) printf '%s\n' console ;;
+    'Select VCS tracking'*) printf '%s\n' github.com ;;
+    'Select AI provider'*) printf '%s\n' none ;;
+    *) return 1 ;;
+  esac
+}
+revisit_project_settings "$retry_project"
+[[ "$(jq -r '.container_edition' "$retry_project/.opencode_config/sandbox_config.json")" == full ]]
+[[ "$(jq -r '.container_modes | join(",")' "$retry_project/.opencode_config/sandbox_config.json")" == offline ]]
+[[ "$(jq -r '.vcs_tracking' "$retry_project/.opencode_config/sandbox_config.json")" == github.com ]]
+[[ "$(<"$retry_project/.git_local/gh-cli/hosts.yml")" == 'existing credentials' ]]
+
 reconcile_project="$workflow_home/reconcile"
 mkdir -p "$reconcile_project"
 add_project_to_registry Reconcile "$reconcile_project" none
