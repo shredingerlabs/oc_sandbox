@@ -189,7 +189,7 @@ if $USE_PROXY; then
 fi
 
 # --- Netzwerk-Optionen ---------------------------------------------------------
-NETWORK_ARGS=(--network=pasta)
+NETWORK_ARGS=(--network=pasta:--ipv4-only)
 PROXY_ENV=()
 if $USE_PROXY; then
   PROXY_ENV=(
@@ -205,6 +205,37 @@ if $OFFLINE; then
   PROXY_ENV=()
 fi
 
+port_is_in_use() {
+  local port="$1"
+
+  if command -v ss >/dev/null 2>&1; then
+    ss -H -ltn "sport = :${port}" 2>/dev/null | grep -q .
+    return
+  fi
+
+  if command -v timeout >/dev/null 2>&1; then
+    timeout 1 bash -c ": </dev/tcp/127.0.0.1/${port}" >/dev/null 2>&1
+  else
+    bash -c ": </dev/tcp/127.0.0.1/${port}" >/dev/null 2>&1
+  fi
+}
+
+select_cbm_host_port() {
+  local port=9749
+  local last_port=$((port + 100))
+
+  while (( port <= last_port )); do
+    if ! port_is_in_use "$port"; then
+      printf '%s\n' "$port"
+      return 0
+    fi
+    port=$((port + 1))
+  done
+
+  echo "Fehler: Kein freier Host-Port für die CBM-UI im Bereich 9749-${last_port}." >&2
+  return 1
+}
+
 # --- Flag-Validierung ----------------------------------------------------------
 if $OFFLINE && $CBM_UI; then
   echo "Fehler: --cbm_ui erfordert Netzwerk (--offline inkompatibel)" >&2
@@ -215,7 +246,11 @@ fi
 CBM_PORT_ARGS=()
 CBM_ENV_UI=()
 if $CBM_UI; then
-  CBM_PORT_ARGS=(-p 127.0.0.1:9749:9749)
+  CBM_HOST_PORT=$(select_cbm_host_port)
+  if [[ "$CBM_HOST_PORT" != "9749" ]]; then
+    echo "Hinweis: Host-Port 9749 ist belegt; CBM-UI wird auf http://127.0.0.1:${CBM_HOST_PORT} veröffentlicht." >&2
+  fi
+  CBM_PORT_ARGS=(-p "127.0.0.1:${CBM_HOST_PORT}:9749")
   CBM_ENV_UI=(-e CBM_UI=true)
 fi
 

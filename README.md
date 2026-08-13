@@ -298,11 +298,12 @@ scripts/start.sh ~/projects/hil-tests --hil_mode
 # HIL-Tests mit Proxy
 scripts/start.sh ~/projects/hil-tests --use_proxy --hil_mode
 
-# Mit CBM Knowledge-Graph-UI (http://localhost:9749)
+# Mit CBM Knowledge-Graph-UI (bevorzugt http://localhost:9749)
 scripts/start.sh ~/projects/kunde-x --cbm_ui
 ```
 
 > **Hinweis zu `--cbm_ui`:** Der `codebase-memory-mcp` Dienst startet im Hintergrund mit `autoindex: true` und bietet eine Web-UI auf Port 9749. Die Graph-UI benötigt Netzwerkzugriff und funktioniert daher nicht mit `--offline` (network=none). In allen anderen Modi kombinierbar. Siehe [codebase-memory-mcp](https://github.com/DeusData/codebase-memory-mcp).
+> Ist Port 9749 bereits belegt, wählt `start.sh` automatisch den nächsten freien Port bis 9849 und gibt die URL aus.
 
 > **Hinweis zu `--hil_mode` und USB-Sicherheit:**
 > Das Skript ermittelt zur Laufzeit den realen Pfad von `/dev/scope0`
