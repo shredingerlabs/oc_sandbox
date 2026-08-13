@@ -333,3 +333,66 @@ set -e
 [[ "$recovery_result" -eq 2 ]]
 
 printf 'start-tui setup recovery tests passed\n'
+
+# Configuration backup/restore tests cover malformed input, safety copies,
+# per-file scope, rapid writes, rotation, and secret exclusion.
+backup_project="$test_home/backup-project"
+mkdir -p "$backup_project/.opencode_config" "$backup_project/.opencode_data"
+printf '%s\n' '{"active": true}' > "$HOME/.config/oc-sandbox/global_config.json"
+printf '%s\n' '{"projects": []}' > "$HOME/.config/oc-sandbox/projects.json"
+projects_before=$(<"$HOME/.config/oc-sandbox/projects.json")
+BACKUP_HISTORY_LIMIT=5
+for _ in 1 2 3 4 5 6; do
+  backup_config "$HOME/.config/oc-sandbox/global_config.json"
+done
+backup_count=0
+for backup in "$HOME/.config/oc-sandbox/backups/global_config.json".*; do
+  [[ -f "$backup" ]] && backup_count=$((backup_count + 1))
+done
+[[ "$backup_count" -eq 5 ]]
+
+printf '%s\n' 'secret' > "$backup_project/.opencode_data/auth.json"
+if backup_config "$backup_project/.opencode_data/auth.json"; then
+  printf 'secret file was backed up\n' >&2
+  exit 1
+fi
+for backup in "$HOME/.config/oc-sandbox/backups"/*; do
+  ! grep -Fq 'secret' "$backup"
+done
+
+malformed_backup="$HOME/.config/oc-sandbox/backups/global_config.json.malformed"
+printf '%s\n' '{malformed' > "$malformed_backup"
+printf '%s\n' 'unchanged' > "$HOME/.config/oc-sandbox/global_config.json"
+restore_answers=(global_config.json global_config.json.malformed)
+show_menu() {
+  if [[ "$1" == "Select configuration to restore" ]]; then
+    printf '%s\n' 'global_config.json'
+  else
+    printf '%s\n' 'global_config.json.malformed'
+  fi
+}
+restore_config >/dev/null || true
+[[ "$(<"$HOME/.config/oc-sandbox/global_config.json")" == 'unchanged' ]]
+
+valid_backup="$HOME/.config/oc-sandbox/backups/global_config.json.valid"
+printf '%s\n' '{"restored": true}' > "$valid_backup"
+restore_answers=(global_config.json global_config.json.valid)
+show_menu() {
+  if [[ "$1" == "Select configuration to restore" ]]; then
+    printf '%s\n' 'global_config.json'
+  else
+    printf '%s\n' 'global_config.json.valid'
+  fi
+}
+wait_for_enter() { :; }
+restore_config >/dev/null
+[[ "$(jq -r '.restored' "$HOME/.config/oc-sandbox/global_config.json")" == true ]]
+[[ "$(<"$HOME/.config/oc-sandbox/projects.json")" == "$projects_before" ]]
+safety_count=0
+for backup in "$HOME/.config/oc-sandbox/backups/global_config.json".*; do
+  [[ -f "$backup" ]] && safety_count=$((safety_count + 1))
+done
+[[ "$safety_count" -eq 5 ]]
+[[ ! -e "$HOME/.config/oc-sandbox/backups/auth.json" ]]
+
+printf 'start-tui configuration backup and restore tests passed\n'

@@ -363,6 +363,7 @@ Hinweise:
 - `--offline` für Läufe ohne Netzwerkbedarf
 - Container-Name pro Projekt-Root, damit mehrere Sandboxes parallel laufen können
 - Nur die sechs definierten Projekt-Root-Unterordner werden gemountet – nicht `$HOME`
+- Allgemeine Konfigurations-Backups enthalten keine VCS- oder AI-Credentials; Restore validiert JSON und ersetzt jeweils nur eine Datei atomar
 
 ## Troubleshooting
 

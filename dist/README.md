@@ -59,6 +59,11 @@ First-run setup records CBM and skills progress separately. A failure keeps the
 project registered and offers `Retry`, `Go back`, or `Exit`; retries only repeat
 the incomplete setup stage. SIGINT and SIGTERM clean up and exit safely.
 
+Settings can back up and restore `projects.json` or `global_config.json` one file
+at a time. Restore validates JSON and creates a safety backup before the atomic
+replacement. Credential files under `.git_local/` and `.opencode_data/` are
+never included in general configuration backups.
+
 ## Editionen
 
 - **base**: Python + core system packages

@@ -160,11 +160,18 @@ atomic_write() {
 backup_config() {
   local filepath="$1"
   local backup_dir="$HOME/.config/oc-sandbox/backups"
+
+  if ! is_general_config_file "$filepath"; then
+    echo "Refusing to back up secret or unsupported configuration: $filepath" >&2
+    return 1
+  fi
+
   mkdir -p "$backup_dir"
 
-  local filename=$(basename "$filepath")
+  local filename
+  filename=$(basename "$filepath")
   local backup_file
-  backup_file=$(mktemp "${backup_dir}/${filename}.XXXXXX")
+  backup_file=$(mktemp "${backup_dir}/${filename}.$(date -u +%Y%m%dT%H%M%S%N).XXXXXX")
   cp -- "$filepath" "$backup_file"
 
   rotate_backups "$backup_dir" "$filename"
@@ -173,14 +180,58 @@ backup_config() {
 rotate_backups() {
   local backup_dir="$1"
   local filename="$2"
+  local history_limit="${BACKUP_HISTORY_LIMIT:-5}"
+  local backups=()
+  local backup
 
-  local backups=($(ls -t "${backup_dir}/${filename}".* 2>/dev/null))
-  if [[ ${#backups[@]} -gt 5 ]]; then
-    local excess=$(( ${#backups[@]} - 5 ))
-    for ((i=5; i<${#backups[@]}; i++)); do
-      rm "${backups[$i]}"
+  [[ "$history_limit" =~ ^[1-9][0-9]*$ ]] || history_limit=5
+  for backup in "$backup_dir/${filename}".*; do
+    [[ -f "$backup" ]] && backups+=("$backup")
+  done
+
+  while [[ ${#backups[@]} -gt history_limit ]]; do
+    local oldest="${backups[0]}"
+    local oldest_mtime
+    oldest_mtime=$(stat -c '%Y' -- "$oldest")
+    local i mtime
+    for ((i=1; i<${#backups[@]}; i++)); do
+      mtime=$(stat -c '%Y' -- "${backups[$i]}")
+      if [[ "$mtime" -lt "$oldest_mtime" ]] ||
+         [[ "$mtime" -eq "$oldest_mtime" && "${backups[$i]}" < "$oldest" ]]; then
+        oldest="${backups[$i]}"
+        oldest_mtime="$mtime"
+      fi
     done
-  fi
+    rm -f -- "$oldest"
+    local remaining=()
+    for backup in "${backups[@]}"; do
+      [[ "$backup" != "$oldest" ]] && remaining+=("$backup")
+    done
+    backups=("${remaining[@]}")
+  done
+}
+
+is_general_config_file() {
+  local filepath
+  filepath=$(realpath -m -- "$1") || return 1
+
+  case "$filepath" in
+    */.git_local/*|*/.opencode_data/*|*/auth.json|*/credentials|*/hosts.yml)
+      return 1
+      ;;
+  esac
+
+  [[ "$filepath" == "$(realpath -m -- "$HOME/.config/oc-sandbox/global_config.json")" ||
+     "$filepath" == "$(realpath -m -- "$HOME/.config/oc-sandbox/projects.json")" ||
+     "$filepath" == */.opencode_config/* ]]
+}
+
+supported_config_path() {
+  case "$1" in
+    projects.json) printf '%s\n' "$HOME/.config/oc-sandbox/projects.json" ;;
+    global_config.json) printf '%s\n' "$HOME/.config/oc-sandbox/global_config.json" ;;
+    *) return 1 ;;
+  esac
 }
 
 handle_first_run_setup() {
@@ -1288,8 +1339,12 @@ backup_config_manually() {
   local projects_json="$HOME/.config/oc-sandbox/projects.json"
   local global_config="$HOME/.config/oc-sandbox/global_config.json"
 
-  backup_config "$projects_json"
-  backup_config "$global_config"
+  if [[ -f "$projects_json" ]]; then
+    backup_config "$projects_json" || return 1
+  fi
+  if [[ -f "$global_config" ]]; then
+    backup_config "$global_config" || return 1
+  fi
 
   echo "Configuration backed up successfully"
   wait_for_enter
@@ -1298,22 +1353,65 @@ backup_config_manually() {
 restore_config() {
   local backup_dir="$HOME/.config/oc-sandbox/backups"
   local configs=("projects.json" "global_config.json")
-
-  echo "Available backups:"
-  echo
+  local available_configs=()
+  local config backup
 
   for config in "${configs[@]}"; do
-    local backups=($(ls -t "${backup_dir}/${config}".* 2>/dev/null))
-    if [[ ${#backups[@]} -gt 0 ]]; then
-      echo "$config:"
-      for backup in "${backups[@]}"; do
-        echo "  - $(basename "$backup")"
-      done
-    fi
+    for backup in "$backup_dir/${config}".*; do
+      if [[ -f "$backup" ]]; then
+        available_configs+=("$config")
+        break
+      fi
+    done
   done
 
-  echo
-  echo "To restore, manually copy files from $backup_dir"
+  if [[ ${#available_configs[@]} -eq 0 ]]; then
+    show_page "No configuration backups" "Create a backup before restoring configuration."
+    wait_for_enter || true
+    return 1
+  fi
+
+  local selected_config
+  selected_config=$(show_menu "Select configuration to restore" "${available_configs[@]}" "← Go Back") || return 1
+  [[ "$selected_config" != "← Go Back" ]] || return 1
+
+  local target
+  target=$(supported_config_path "$selected_config") || return 1
+  local available_backups=()
+  for backup in "$backup_dir/${selected_config}".*; do
+    [[ -f "$backup" ]] && available_backups+=("$(basename "$backup")")
+  done
+  [[ ${#available_backups[@]} -gt 0 ]] || return 1
+
+  local selected_backup
+  selected_backup=$(show_menu "Select backup for ${selected_config}" "${available_backups[@]}" "← Go Back") || return 1
+  [[ "$selected_backup" != "← Go Back" ]] || return 1
+  local backup_path="$backup_dir/$selected_backup"
+  [[ "$backup_path" == "$backup_dir/${selected_config}".* && -f "$backup_path" ]] || return 1
+
+  # Validate before creating the safety backup or touching the active file.
+  if ! jq empty "$backup_path" >/dev/null 2>&1; then
+    show_page "Invalid configuration backup" "The selected backup is not valid JSON."
+    wait_for_enter || true
+    return 1
+  fi
+
+  local content
+  content=$(<"$backup_path")
+
+  if [[ -f "$target" ]] && ! backup_config "$target"; then
+    show_page "Restore failed" "Could not create a safety backup."
+    wait_for_enter || true
+    return 1
+  fi
+
+  if ! write_config_without_backup "$target" "$content"; then
+    show_page "Restore failed" "The active configuration was not changed."
+    wait_for_enter || true
+    return 1
+  fi
+
+  echo "Restored ${selected_config} from ${selected_backup}"
   wait_for_enter
 }
 
