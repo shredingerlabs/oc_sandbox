@@ -58,3 +58,84 @@ add_project_to_registry "Spaced" "$spaced_path" "none"
 [[ "$(get_project_by_name Spaced | jq -r '.path')" == "$(canonicalize_project_path "$spaced_path")" ]]
 
 printf 'start-tui identity and registry tests passed\n'
+
+AVAILABLE_MODES=(offline cbm_ui hil_mode)
+selected_modes=(offline)
+mode_is_selected offline "${selected_modes[@]}"
+! mode_is_selected cbm_ui "${selected_modes[@]}"
+remove_selected_mode offline selected_modes
+[[ ${#selected_modes[@]} -eq 0 ]]
+
+show_page() { :; }
+wait_for_enter() { :; }
+captured_modes=()
+select_start_option() {
+  captured_modes=("$@")
+}
+
+menu_sequence="$test_home/menu-sequence"
+printf '%s\n' "● offline" "● offline" "Done" > "$menu_sequence"
+show_menu() {
+  local answers=()
+  mapfile -t answers < "$menu_sequence"
+  local answer="${answers[0]}"
+  : > "$menu_sequence"
+  if [[ ${#answers[@]} -gt 1 ]]; then
+    printf '%s\n' "${answers[@]:1}" > "$menu_sequence"
+  fi
+  printf '%s\n' "$answer"
+}
+select_container_modes /tmp/project Test full
+[[ ${#captured_modes[@]} -eq 3 ]]
+
+printf '%s\n' "● offline" "● cbm_ui" "Done" "← Go Back" > "$menu_sequence"
+captured_modes=()
+select_container_edition() { :; }
+select_container_modes /tmp/project Test full
+[[ ${#captured_modes[@]} -eq 0 ]]
+
+validate_container_modes offline
+if validate_container_modes offline cbm_ui; then
+  printf 'incompatible modes were accepted\n' >&2
+  exit 1
+fi
+
+config_project="$test_home/config project"
+mkdir -p "$config_project"
+add_project_to_registry "Args" "$config_project" "none"
+create_sandbox_config "$config_project" full console none
+[[ "$(jq -c '.container_modes' "$config_project/.opencode_config/sandbox_config.json")" == '[]' ]]
+
+native_dir="$test_home/native"
+args_file="$test_home/native-args"
+mkdir -p "$native_dir"
+printf '%s\n' '#!/usr/bin/env bash' "printf '%s\\n' \"\$@\" > '$args_file'" > "$native_dir/start.sh"
+chmod +x "$native_dir/start.sh"
+SCRIPT_DIR="$native_dir"
+create_sandbox_config "$config_project" full offline console none
+start_container "$config_project" "$config_project/.opencode_config/sandbox_config.json" true
+mapfile -t native_args < "$args_file"
+[[ "${native_args[0]}" == "$config_project" ]]
+[[ "${native_args[*]}" == *"--offline --detach"* ]]
+
+printf 'start-tui mode selection tests passed\n'
+
+discovery_dir="$test_home/discovery"
+mkdir -p "$discovery_dir"
+printf '%s\n' '#!/usr/bin/env bash' 'printf "Usage: %s [alpha|beta|all]\\n" "$0"' > "$discovery_dir/build-container.sh"
+printf '%s\n' '#!/usr/bin/env bash' 'printf "Usage: %s --safe --other --start_opencode --detach\\n" "$0"' > "$discovery_dir/start.sh"
+chmod +x "$discovery_dir/build-container.sh" "$discovery_dir/start.sh"
+SCRIPT_DIR="$discovery_dir"
+detect_available_editions
+[[ "${AVAILABLE_EDITIONS[*]}" == "alpha beta" ]]
+[[ "${AVAILABLE_MODES[*]}" == "safe other" ]]
+
+printf '%s\n' '#!/usr/bin/env bash' 'exit 1' > "$discovery_dir/build-container.sh"
+chmod +x "$discovery_dir/build-container.sh"
+if detect_available_editions; then
+  printf 'discovery failure was accepted\n' >&2
+  exit 1
+fi
+SCRIPT_DIR="$PROJECT_ROOT/dist/scripts"
+
+printf 'start-tui discovery tests passed\n'

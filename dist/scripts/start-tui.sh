@@ -476,7 +476,11 @@ select_container_edition() {
   local project_path="$1"
   local project_name="$2"
 
-  detect_available_editions
+  if ! detect_available_editions; then
+    show_page "Native option discovery failed" "Unable to read supported editions and modes from the native scripts."
+    wait_for_enter || true
+    return 1
+  fi
   local options=("${AVAILABLE_EDITIONS[@]}" "← Go Back")
   local edition=$(show_menu "Select container edition" "${options[@]}")
 
@@ -492,16 +496,32 @@ select_container_modes() {
   local project_name="$2"
   local edition="$3"
 
-  local options=("${AVAILABLE_MODES[@]}" "Done" "← Go Back")
-  local modes=()
+  local selected_modes=()
 
   while true; do
-    local mode=$(show_menu "Select container modes (Done when finished)" "${options[@]}")
+    local options=()
+    local available_mode
+    for available_mode in "${AVAILABLE_MODES[@]}"; do
+      local status_symbol="○"
+      if mode_is_selected "$available_mode" "${selected_modes[@]}"; then
+        status_symbol="●"
+      fi
+      options+=("${status_symbol} ${available_mode}")
+    done
+    options+=("Done" "← Go Back")
+
+    local mode=$(show_menu "Select container modes (toggle, then Done)" "${options[@]}")
 
     case "$mode" in
       "Done")
-        if [[ ${#modes[@]} -eq 0 ]]; then
-          show_page "No mode selected" "Select at least one mode, or go back."
+        local modes=()
+        local candidate
+        for candidate in "${AVAILABLE_MODES[@]}"; do
+          if mode_is_selected "$candidate" "${selected_modes[@]}"; then
+            modes+=("$candidate")
+          fi
+        done
+        if ! validate_container_modes "${modes[@]}"; then
           wait_for_enter || true
         else
           select_start_option "$project_path" "$project_name" "$edition" "${modes[@]}"
@@ -513,10 +533,53 @@ select_container_modes() {
         return
         ;;
       *)
-        modes+=("$mode")
+        mode="${mode#* }"
+        if mode_is_selected "$mode" "${selected_modes[@]}"; then
+          remove_selected_mode "$mode" selected_modes
+        else
+          selected_modes+=("$mode")
+        fi
         ;;
     esac
   done
+}
+
+mode_is_selected() {
+  local mode="$1"
+  shift
+  local selected
+  for selected in "$@"; do
+    [[ "$selected" == "$mode" ]] && return 0
+  done
+  return 1
+}
+
+remove_selected_mode() {
+  local mode="$1"
+  local array_name="$2"
+  local -n selected_ref="$array_name"
+  local remaining=()
+  local selected
+  for selected in "${selected_ref[@]}"; do
+    [[ "$selected" == "$mode" ]] || remaining+=("$selected")
+  done
+  selected_ref=("${remaining[@]}")
+}
+
+validate_container_modes() {
+  local has_offline=false
+  local has_cbm_ui=false
+  local mode
+  for mode in "$@"; do
+    [[ "$mode" == "offline" ]] && has_offline=true
+    [[ "$mode" == "cbm_ui" ]] && has_cbm_ui=true
+  done
+
+  if [[ "$has_offline" == "true" && "$has_cbm_ui" == "true" ]]; then
+    echo "Error: --offline cannot be combined with --cbm_ui." >&2
+    show_page "Incompatible modes" "Offline mode cannot be combined with CBM UI."
+    return 1
+  fi
 }
 
 select_start_option() {
@@ -616,21 +679,20 @@ create_sandbox_config() {
 
   mkdir -p "$(dirname "$config_path")"
 
-  local modes_json=$(printf '%s\n' "${modes[@]}" | jq -R . | jq -s .)
+  local modes_json='[]'
+  if [[ ${#modes[@]} -gt 0 ]]; then
+    modes_json=$(printf '%s\n' "${modes[@]}" | jq -R . | jq -s .)
+  fi
 
-  local config=$(cat <<EOF
-{
-  "container_edition": "${edition}",
-  "container_modes": ${modes_json},
-  "start_option": "${start_option}",
-  "cbm_auto_index": true,
-  "cbm_auto_watch": true,
-  "ai_provider": "${ai_provider}",
-  "setup_complete": false,
-  "version": "1.0"
-}
-EOF
-)
+  local config
+  config=$(jq -n \
+    --arg edition "$edition" \
+    --argjson modes "$modes_json" \
+    --arg start_option "$start_option" \
+    --arg ai_provider "$ai_provider" \
+    '{container_edition: $edition, container_modes: $modes, start_option: $start_option,
+      cbm_auto_index: true, cbm_auto_watch: true, ai_provider: $ai_provider,
+      setup_complete: false, version: "1.0"}')
 
   atomic_write "$config_path" "$config"
 }
@@ -747,6 +809,11 @@ start_container() {
   local modes=()
   mapfile -t modes < <(jq -r '.container_modes[]' "$config_path")
   local start_option=$(jq -r '.start_option' "$config_path")
+
+  if ! validate_container_modes "${modes[@]}"; then
+    echo "Container start aborted due to incompatible modes." >&2
+    return 1
+  fi
 
   local project_data
   project_data=$(get_project_by_path "$project_path")
@@ -881,7 +948,11 @@ access_running_container() {
 }
 
 build_container_wizard() {
-  detect_available_editions
+  if ! detect_available_editions; then
+    show_page "Native option discovery failed" "Unable to read supported editions and modes from the native scripts."
+    wait_for_enter || true
+    return 1
+  fi
 
   local options=("all" "${AVAILABLE_EDITIONS[@]}" "← Go Back")
   local choice=$(show_menu "Select container edition to build" "${options[@]}")
@@ -891,10 +962,8 @@ build_container_wizard() {
   fi
 
   local edition="$choice"
-  local build_cmd="${SCRIPT_DIR}/build-container.sh ${edition}"
-
   echo "Building ${edition} containers..."
-  if bash -c "$build_cmd"; then
+  if bash "${SCRIPT_DIR}/build-container.sh" "$edition"; then
     echo "Build successful!"
   else
     echo "Build failed. Check logs for details."
@@ -905,20 +974,32 @@ build_container_wizard() {
 
 detect_available_editions() {
   local help
-  help=$(bash "${SCRIPT_DIR}/build-container.sh" --help 2>&1 || true)
+  if ! help=$(bash "${SCRIPT_DIR}/build-container.sh" --help 2>&1); then
+    echo "Error: unable to discover container editions from build-container.sh." >&2
+    return 1
+  fi
   AVAILABLE_EDITIONS=()
   while read -r edition; do
     [[ -n "$edition" ]] && AVAILABLE_EDITIONS+=("$edition")
-  done < <(grep -oE 'base|web|embedded|full' <<< "$help" | awk '!seen[$0]++')
-  [[ ${#AVAILABLE_EDITIONS[@]} -gt 0 ]] || AVAILABLE_EDITIONS=(base web embedded full)
+  done < <(sed -nE 's/.*\[([^]]+)\].*/\1/p' <<< "$help" | tr '|' '\n' | grep -Ev '^all$' | awk '!seen[$0]++')
+  if [[ ${#AVAILABLE_EDITIONS[@]} -eq 0 ]]; then
+    echo "Error: build-container.sh help did not list any supported editions." >&2
+    return 1
+  fi
 
   local start_help
-  start_help=$(bash "${SCRIPT_DIR}/start.sh" --help 2>&1 || true)
+  if ! start_help=$(bash "${SCRIPT_DIR}/start.sh" --help 2>&1); then
+    echo "Error: unable to discover container modes from start.sh." >&2
+    return 1
+  fi
   AVAILABLE_MODES=()
   while read -r mode; do
     [[ -n "$mode" ]] && AVAILABLE_MODES+=("$mode")
-  done < <(grep -oE -- '--[a-z_]+\s' <<< "$start_help" | sed 's/^--//; s/[[:space:]]*$//' | grep -Ev '^(start_opencode|edition|detach)$' | awk '!seen[$0]++')
-  [[ ${#AVAILABLE_MODES[@]} -gt 0 ]] || AVAILABLE_MODES=(use_proxy offline hil_mode cbm_ui)
+  done < <(grep -oE -- '(^|[[:space:]])--[a-zA-Z0-9_-]+' <<< "$start_help" | sed -E 's/^[[:space:]]*--//' | grep -Ev '^(start_opencode|edition|detach|container-id|help)$' | awk '!seen[$0]++')
+  if [[ ${#AVAILABLE_MODES[@]} -eq 0 ]]; then
+    echo "Error: start.sh help did not list any supported modes." >&2
+    return 1
+  fi
 }
 
 settings_menu() {
