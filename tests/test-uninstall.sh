@@ -1,0 +1,274 @@
+#!/usr/bin/env bash
+#
+# Tests für uninstall.sh Script
+# Testet externes Verhalten (Exit-Codes, Dateisystem-Änderungen)
+#
+
+TEST_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$TEST_DIR/.." && pwd)"
+UNINSTALL_SCRIPT="${PROJECT_ROOT}/dist/scripts/uninstall.sh"
+
+TEMP_BASE="${TMPDIR:-/tmp}/uninstall-tests-$$"
+mkdir -p "$TEMP_BASE"
+
+TESTS_RUN=0
+TESTS_PASSED=0
+TESTS_FAILED=0
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+NC='\033[0m'
+
+# Hilfsfunktionen
+setup_test_env() {
+  local test_name="$1"
+  local test_dir="${TEMP_BASE}/${test_name}"
+  mkdir -p "$test_dir"
+  echo "$test_dir"
+}
+
+cleanup_test_env() {
+  local test_dir="$1"
+  if [[ -d "$test_dir" ]]; then
+    rm -rf "$test_dir"
+  fi
+}
+
+run_test() {
+  local test_name="$1"
+  local test_function="$2"
+
+  ((TESTS_RUN++))
+  printf "Test: ${test_name}... "
+
+  if $test_function; then
+    ((TESTS_PASSED++))
+    printf "${GREEN}PASSED${NC}\n"
+  else
+    ((TESTS_FAILED++))
+    printf "${RED}FAILED${NC}\n"
+  fi
+}
+
+assert_equals() {
+  local expected="$1"
+  local actual="$2"
+  local message="${3:-}"
+
+  if [[ "$expected" != "$actual" ]]; then
+    if [[ -n "$message" ]]; then
+      echo "  Assertion fehlgeschlagen: $message"
+    fi
+    echo "  Erwartet: '$expected', erhalten: '$actual'"
+    return 1
+  fi
+}
+
+assert_dir_exists() {
+  local dir="$1"
+  if [[ ! -d "$dir" ]]; then
+    echo "  Verzeichnis existiert nicht: $dir"
+    return 1
+  fi
+}
+
+assert_file_exists() {
+  local file="$1"
+  if [[ ! -f "$file" ]]; then
+    echo "  Datei existiert nicht: $file"
+    return 1
+  fi
+}
+
+assert_dir_not_exists() {
+  local dir="$1"
+  if [[ -d "$dir" ]]; then
+    echo "  Verzeichnis existiert: $dir"
+    return 1
+  fi
+}
+
+# Fixture: simuliert eine Installation + Config in isoliertem HOME
+setup_installed_home() {
+  local test_dir="$1"
+  local home="$test_dir/home"
+  local install_path="$home/.oc-sandbox"
+
+  mkdir -p "$install_path" "$home/.config/oc-sandbox" "$home/.local/bin"
+  echo "fake" > "$install_path/some-file.txt"
+  echo '{}' > "$home/.config/oc-sandbox/projects.json"
+
+  # Ein Symlink, der auf die Installation zeigt
+  ln -s "$install_path/uninstall.sh" "$home/.local/bin/uninstall.sh"
+
+  echo "$home"
+}
+
+run_uninstall() {
+  local home="$1"
+  shift
+  HOME="$home" bash "$UNINSTALL_SCRIPT" --force "$@" >/dev/null 2>&1
+}
+
+# --- Tests ---------------------------------------------------------------------
+
+test_help_shows_new_flags() {
+  local test_dir
+  test_dir=$(setup_test_env "help")
+  local home
+  home=$(setup_installed_home "$test_dir")
+
+  local output
+  output=$(HOME="$home" bash "$UNINSTALL_SCRIPT" --help 2>&1)
+
+  assert_equals "0" "$?" "exit code" || return 1
+
+  if [[ "$output" != *"--remove-config"* ]]; then
+    echo "  --remove-config fehlt in Hilfe"
+    return 1
+  fi
+  if [[ "$output" != *"--no-backup"* ]]; then
+    echo "  --no-backup fehlt in Hilfe"
+    return 1
+  fi
+  if [[ "$output" != *"--no-symlinks"* ]]; then
+    echo "  --no-symlinks fehlt in Hilfe"
+    return 1
+  fi
+
+  cleanup_test_env "$test_dir"
+}
+
+test_default_keeps_config_and_removes_symlinks() {
+  local test_dir
+  test_dir=$(setup_test_env "default")
+  local home
+  home=$(setup_installed_home "$test_dir")
+
+  run_uninstall "$home"
+
+  assert_dir_not_exists "$home/.oc-sandbox" || return 1
+  assert_dir_exists "$home/.config/oc-sandbox" "Config soll unberührt bleiben" || return 1
+  if [[ -L "$home/.local/bin/uninstall.sh" ]]; then
+    echo "  Symlink sollte entfernt sein"
+    return 1
+  fi
+
+  cleanup_test_env "$test_dir"
+}
+
+test_remove_config_removes_dir_and_creates_backup() {
+  local test_dir
+  test_dir=$(setup_test_env "remove-config")
+  local home
+  home=$(setup_installed_home "$test_dir")
+
+  run_uninstall "$home" --remove-config
+
+  assert_dir_not_exists "$home/.oc-sandbox" || return 1
+  assert_dir_not_exists "$home/.config/oc-sandbox/projects.json" "Config soll entfernt werden" || return 1
+  assert_dir_exists "$home/.config/oc-sandbox/backups" "Backup soll erhalten bleiben" || return 1
+
+  # Backup-Verzeichnis mit Timestamp-Schema
+  local backup_count
+  backup_count=$(find "$home/.config/oc-sandbox/backups" -maxdepth 1 -type d -name "config-*" | wc -l)
+  assert_equals "1" "$backup_count" "genau ein Backup erwartet" || return 1
+
+  # Backup enthält die Config
+  assert_file_exists "$(find "$home/.config/oc-sandbox/backups" -maxdepth 1 -type d -name "config-*" | head -1)/projects.json" || return 1
+
+  cleanup_test_env "$test_dir"
+}
+
+test_remove_config_with_no_backup_creates_no_backup() {
+  local test_dir
+  test_dir=$(setup_test_env "remove-config-no-backup")
+  local home
+  home=$(setup_installed_home "$test_dir")
+
+  run_uninstall "$home" --remove-config --no-backup
+
+  assert_dir_not_exists "$home/.config/oc-sandbox" || return 1
+
+  local backup_count
+  backup_count=$(find "$home/.config/oc-sandbox/backups" -maxdepth 1 -type d -name "config-*" 2>/dev/null | wc -l)
+  assert_equals "0" "$backup_count" "kein Backup erwartet" || return 1
+
+  cleanup_test_env "$test_dir"
+}
+
+test_backup_rotation_keeps_five() {
+  local test_dir
+  test_dir=$(setup_test_env "rotation")
+  local home
+  home=$(setup_installed_home "$test_dir")
+
+  # 7 alte Backups anlegen
+  local backups_dir="$home/.config/oc-sandbox/backups"
+  mkdir -p "$backups_dir"
+  for i in 1 2 3 4 5 6 7; do
+    mkdir -p "$backups_dir/config-2020010${i}_000000"
+  done
+
+  run_uninstall "$home" --remove-config
+
+  local backup_count
+  backup_count=$(find "$backups_dir" -maxdepth 1 -type d -name "config-*" | wc -l)
+  assert_equals "5" "$backup_count" "Rotation soll 5 neueste behalten" || return 1
+
+  # Neueste (incl. frischem Backup) müssen überlebt haben
+  assert_dir_exists "$backups_dir/config-20200107_000000" || return 1
+
+  cleanup_test_env "$test_dir"
+}
+
+test_no_symlinks_keeps_symlinks() {
+  local test_dir
+  test_dir=$(setup_test_env "no-symlinks")
+  local home
+  home=$(setup_installed_home "$test_dir")
+
+  run_uninstall "$home" --no-symlinks
+
+  assert_dir_not_exists "$home/.oc-sandbox" || return 1
+  if [[ ! -L "$home/.local/bin/uninstall.sh" ]]; then
+    echo "  Symlink sollte erhalten bleiben"
+    return 1
+  fi
+
+  cleanup_test_env "$test_dir"
+}
+
+test_unknown_flag_fails() {
+  local test_dir
+  test_dir=$(setup_test_env "unknown-flag")
+  local home
+  home=$(setup_installed_home "$test_dir")
+
+  if HOME="$home" bash "$UNINSTALL_SCRIPT" --bogus-flag >/dev/null 2>&1; then
+    echo "  Unbekanntes Flag sollte fehlschlagen"
+    return 1
+  fi
+
+  cleanup_test_env "$test_dir"
+}
+
+# --- Main ----------------------------------------------------------------------
+
+run_test "Hilfe zeigt neue Flags" test_help_shows_new_flags
+run_test "Default: Config bleibt, Symlinks werden entfernt" test_default_keeps_config_and_removes_symlinks
+run_test "--remove-config: Config entfernt, Backup erstellt" test_remove_config_removes_dir_and_creates_backup
+run_test "--remove-config --no-backup: kein Backup" test_remove_config_with_no_backup_creates_no_backup
+run_test "Backup-Rotation behält 5 neueste" test_backup_rotation_keeps_five
+run_test "--no-symlinks: Symlinks bleiben" test_no_symlinks_keeps_symlinks
+run_test "Unbekanntes Flag schlägt fehl" test_unknown_flag_fails
+
+echo ""
+echo "Tests gesamt: $TESTS_RUN, bestanden: $TESTS_PASSED, fehlgeschlagen: $TESTS_FAILED"
+
+rm -rf "$TEMP_BASE"
+
+if [[ $TESTS_FAILED -gt 0 ]]; then
+  exit 1
+fi
+exit 0
