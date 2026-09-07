@@ -1,6 +1,7 @@
 # ToDos
 
 ### sandbox
+- symlinks only for start-tui as "oc-sandbox" (install.sh)	
 
 - Add implementation to re-/build to Start Option (-> build-container.sh)
 
