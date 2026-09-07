@@ -110,6 +110,12 @@ run_uninstall() {
   HOME="$home" bash "$UNINSTALL_SCRIPT" --force "$@" >/dev/null 2>&1
 }
 
+run_uninstall_capture() {
+  local home="$1"
+  shift
+  HOME="$home" bash "$UNINSTALL_SCRIPT" --force "$@" 2>&1
+}
+
 # --- Tests ---------------------------------------------------------------------
 
 test_help_shows_new_flags() {
@@ -253,6 +259,108 @@ test_unknown_flag_fails() {
   cleanup_test_env "$test_dir"
 }
 
+test_dry_run_shows_config_removal() {
+  local test_dir
+  test_dir=$(setup_test_env "dry-run-config")
+  local home
+  home=$(setup_installed_home "$test_dir")
+
+  local output
+  output=$(HOME="$home" bash "$UNINSTALL_SCRIPT" --dry-run --remove-config 2>&1)
+
+  if [[ "$output" != *"Config-Verzeichnis würde entfernt"* ]]; then
+    echo "  Dry-Run zeigt Config-Entfernung nicht an"
+    return 1
+  fi
+  assert_dir_exists "$home/.oc-sandbox" "Dry-Run darf nichts löschen" || return 1
+  assert_file_exists "$home/.config/oc-sandbox/projects.json" || return 1
+
+  cleanup_test_env "$test_dir"
+}
+
+test_completion_message_lists_actions() {
+  local test_dir
+  test_dir=$(setup_test_env "completion")
+  local home
+  home=$(setup_installed_home "$test_dir")
+
+  local output
+  output=$(run_uninstall_capture "$home")
+
+  if [[ "$output" != *"Durchgeführte Aktionen"* ]]; then
+    echo "  Abschlussmeldung listet Aktionen nicht auf"
+    return 1
+  fi
+  if [[ "$output" != *"Installation entfernt: $home/.oc-sandbox"* ]]; then
+    echo "  'Installation entfernt' fehlt in Abschlussmeldung"
+    return 1
+  fi
+  if [[ "$output" != *"Symlink"* ]]; then
+    echo "  Symlink-Aktion fehlt in Abschlussmeldung"
+    return 1
+  fi
+
+  cleanup_test_env "$test_dir"
+}
+
+test_backup_failure_with_force_continues() {
+  if [[ $EUID -eq 0 ]]; then
+    return 0
+  fi
+  local test_dir
+  test_dir=$(setup_test_env "backup-failure-force")
+  local home
+  home=$(setup_installed_home "$test_dir")
+
+  # Unlesbare Datei -> cp schlägt fehl -> Backup fehlschlägt
+  echo "secret" > "$home/.config/oc-sandbox/unreadable.json"
+  chmod 000 "$home/.config/oc-sandbox/unreadable.json"
+
+  run_uninstall "$home" --remove-config --force
+
+  assert_dir_not_exists "$home/.oc-sandbox" || return 1
+  assert_dir_not_exists "$home/.config/oc-sandbox/projects.json" || return 1
+  chmod 600 "$home/.config/oc-sandbox/unreadable.json" 2>/dev/null || true
+
+  cleanup_test_env "$test_dir"
+}
+
+test_backup_failure_without_force_aborts() {
+  if [[ $EUID -eq 0 ]]; then
+    return 0
+  fi
+  local test_dir
+  test_dir=$(setup_test_env "backup-failure-abort")
+  local home
+  home=$(setup_installed_home "$test_dir")
+
+  echo "secret" > "$home/.config/oc-sandbox/unreadable.json"
+  chmod 000 "$home/.config/oc-sandbox/unreadable.json"
+
+  # Nein-Antwort auf Fortfahren-Prompt -> Abbruch
+  HOME="$home" bash "$UNINSTALL_SCRIPT" --remove-config <<< "n" >/dev/null 2>&1
+
+  # Config muss noch vorhanden sein (Abbruch vor Entfernung)
+  assert_file_exists "$home/.config/oc-sandbox/projects.json" "Abbruch darf Config nicht entfernen" || return 1
+  chmod 600 "$home/.config/oc-sandbox/unreadable.json" 2>/dev/null || true
+
+  cleanup_test_env "$test_dir"
+}
+
+test_running_container_detection_still_works() {
+  local test_dir
+  test_dir=$(setup_test_env "containers")
+  local home
+  home=$(setup_installed_home "$test_dir")
+
+  # podman nicht verfügbar/keine Container -> Deinstallation läuft durch
+  run_uninstall "$home"
+
+  assert_dir_not_exists "$home/.oc-sandbox" || return 1
+
+  cleanup_test_env "$test_dir"
+}
+
 # --- Main ----------------------------------------------------------------------
 
 run_test "Hilfe zeigt neue Flags" test_help_shows_new_flags
@@ -262,6 +370,11 @@ run_test "--remove-config --no-backup: kein Backup" test_remove_config_with_no_b
 run_test "Backup-Rotation behält 5 neueste" test_backup_rotation_keeps_five
 run_test "--no-symlinks: Symlinks bleiben" test_no_symlinks_keeps_symlinks
 run_test "Unbekanntes Flag schlägt fehl" test_unknown_flag_fails
+run_test "Dry-Run zeigt Config-Entfernung" test_dry_run_shows_config_removal
+run_test "Abschlussmeldung listet Aktionen" test_completion_message_lists_actions
+run_test "Backup-Fehler mit --force läuft weiter" test_backup_failure_with_force_continues
+run_test "Backup-Fehler ohne Fortfahren bricht ab" test_backup_failure_without_force_aborts
+run_test "Container-Erkennung blockiert nicht bei keiner Ausgabe" test_running_container_detection_still_works
 
 echo ""
 echo "Tests gesamt: $TESTS_RUN, bestanden: $TESTS_PASSED, fehlgeschlagen: $TESTS_FAILED"

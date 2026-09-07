@@ -43,6 +43,12 @@
 
 
 # Done
+- uninstall.sh: enhanced error handling & reporting (#29)
+  - permission-denied files skipped & tracked (SKIPPED_FILES)
+  - skipped files listed at end of deinstallation
+  - config backup failure prompts abort/continue (--force continues)
+  - completion message lists all actions taken
+  - dry-run shows config removal with --remove-config
 - pulling skills from github on init into project skill folder (skills folder on each):
   1. https://github.com/mattpocock/skills
   2. https://github.com/shredingerlabs/shredinger-skills

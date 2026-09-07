@@ -21,6 +21,8 @@ VERBOSE=false
 REMOVE_CONFIG=false
 REMOVE_SYMLINKS=true
 CONFIG_DIR="$HOME/.config/oc-sandbox"
+SKIPPED_FILES=()
+ACTIONS_TAKEN=()
 
 # --- Hilfsfunktionen -----------------------------------------------------------
 log_info() {
@@ -39,6 +41,43 @@ log_verbose() {
   if $VERBOSE; then
     echo "$1"
   fi
+}
+
+# Tracket Dateien, die wegen fehlender Berechtigungen nicht entfernt wurden.
+track_skipped() {
+  local path="$1"
+  local reason="${2:-Keine Berechtigung}"
+  SKIPPED_FILES+=("$path ($reason)")
+}
+
+remove_path_safe() {
+  local path="$1"
+  if rm -rf "$path" 2>/dev/null; then
+    return 0
+  fi
+  if [[ -e "$path" ]]; then
+    track_skipped "$path"
+    return 1
+  fi
+  return 0
+}
+
+report_skipped_files() {
+  if [[ ${#SKIPPED_FILES[@]} -eq 0 ]]; then
+    return 0
+  fi
+  echo ""
+  log_warn "Folgende Dateien konnten aufgrund fehlender Berechtigungen NICHT entfernt werden:"
+  local entry
+  for entry in "${SKIPPED_FILES[@]}"; do
+    echo "  - $entry"
+  done
+  echo ""
+  echo "Bereinigen Sie diese manuell mit sudo, falls gewünscht."
+}
+
+record_action() {
+  ACTIONS_TAKEN+=("$1")
 }
 
 # --- Signal-Handling -----------------------------------------------------------
@@ -154,10 +193,22 @@ create_config_backup() {
   
   if ! $failed; then
     log_info "Config-Backup erstellt: $backup_dir"
+    record_action "Config-Backup erstellt: $backup_dir"
     rotate_config_backups
   else
     log_warn "Config-Backup fehlgeschlagen."
     rm -rf "$backup_dir"
+    if $FORCE; then
+      log_warn "Backup-Fehler ignoriert (--force gesetzt), Deinstallation läuft weiter."
+      return 0
+    fi
+    echo -n "Ohne Backup fortfahren und Config entfernen? [y/N] "
+    read -r response
+    if [[ ! "$response" =~ ^[Yy]$ ]]; then
+      log_error "Deinstallation abgebrochen – Config wurde nicht entfernt."
+      exit 1
+    fi
+    log_warn "Deinstallation wird ohne Config-Backup fortgesetzt."
   fi
 }
 
@@ -207,6 +258,7 @@ create_backup() {
   
   if cp -r "$INSTALL_PATH" "$backup_dir"; then
     log_info "Backup erstellt: $backup_dir"
+    record_action "Backup erstellt: $backup_dir"
     echo ""
     echo "Sie können bei Bedarf wiederherstellen mit:"
     echo "  cp -r $backup_dir/* $INSTALL_PATH/"
@@ -242,15 +294,30 @@ remove_config() {
     mv "$backup_base_dir" "$HOME/.oc-sandbox-config-backups"
   fi
   
-  rm -rf "$CONFIG_DIR"
-  
+  local entry
+  for entry in "$CONFIG_DIR"/* "$CONFIG_DIR"/.[!.]*; do
+    [[ -e "$entry" ]] || continue
+    [[ "$(basename "$entry")" == "backups" ]] && continue
+    remove_path_safe "$entry" || true
+  done
+
   if $keep_backups; then
     mkdir -p "$CONFIG_DIR"
     mv "$HOME/.oc-sandbox-config-backups" "$backup_base_dir"
+    record_action "Config-Backups erhalten unter: $backup_base_dir"
     log_info "Config-Backups erhalten unter: $backup_base_dir"
   fi
-  
-  log_info "Config-Verzeichnis entfernt: $CONFIG_DIR"
+
+  if [[ -d "$CONFIG_DIR" ]] && ! rmdir "$CONFIG_DIR" 2>/dev/null; then
+    track_skipped "$CONFIG_DIR" "Nicht leer (übrige Dateien ohne Berechtigung)"
+  fi
+
+  if [[ ! -d "$CONFIG_DIR" ]]; then
+    record_action "Config-Verzeichnis entfernt: $CONFIG_DIR"
+    log_info "Config-Verzeichnis entfernt: $CONFIG_DIR"
+  else
+    log_warn "Config-Verzeichnis nicht vollständig entfernt: $CONFIG_DIR"
+  fi
 }
 
 remove_symlinks() {
@@ -285,6 +352,7 @@ remove_symlinks() {
   
   if [[ $removed -gt 0 ]]; then
     log_info "$removed Symlink(s) entfernt."
+    record_action "$removed Symlink(s) entfernt aus $bin_dir"
   else
     log_info "Keine Symlinks zum Entfernen gefunden."
   fi
@@ -293,7 +361,9 @@ remove_symlinks() {
 remove_gum() {
   if [[ -d "$GUM_BIN" ]]; then
     log_info "Entferne gum-Installation: $GUM_BIN"
-    rm -rf "$(dirname "$GUM_BIN")"
+    if remove_path_safe "$(dirname "$GUM_BIN")"; then
+      record_action "gum-Installation entfernt: $(dirname "$GUM_BIN")"
+    fi
   fi
 }
 
@@ -451,7 +521,7 @@ perform_removal() {
     if $REMOVE_CONFIG; then
       echo "Config-Verzeichnis: $CONFIG_DIR"
       if [[ -d "$CONFIG_DIR" ]]; then
-        echo "  (würde entfernt)"
+        echo "  (Config-Verzeichnis würde entfernt)"
         if $BACKUP_CONFIG; then
           echo "  (Backup würde erstellt: $CONFIG_DIR/backups/config-$(date +%Y%m%d_%H%M%S))"
         fi
@@ -485,20 +555,38 @@ perform_removal() {
   echo ""
   echo "Entferne Installation..."
   
-  rm -rf "$INSTALL_PATH"
-  log_info "Installation entfernt: $INSTALL_PATH"
-  
+  rm -rf "$INSTALL_PATH" 2>/dev/null || true
+  if [[ -e "$INSTALL_PATH" ]]; then
+    local remaining
+    while IFS= read -r remaining; do
+      track_skipped "$remaining"
+    done < <(find "$INSTALL_PATH" 2>/dev/null)
+    log_warn "Installation nicht vollständig entfernt: $INSTALL_PATH"
+  else
+    record_action "Installation entfernt: $INSTALL_PATH"
+    log_info "Installation entfernt: $INSTALL_PATH"
+  fi
+
   # Cleanup symlinks
   remove_symlinks
-  
+
   # Cleanup gum
   remove_gum
-  
+
   # Cleanup config directory if requested
   remove_config
-  
+
   echo ""
   echo "==> Deinstallation abgeschlossen!"
+  echo ""
+  echo "Durchgeführte Aktionen:"
+  local action
+  for action in "${ACTIONS_TAKEN[@]}"; do
+    echo "  - $action"
+  done
+
+  report_skipped_files
+
   echo ""
   echo "Verbleibende Artefakte (manuelle Bereinigung optional):"
   echo "  - Container-Images: podman images | grep opencode-sandbox"
