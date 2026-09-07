@@ -44,55 +44,51 @@ unvollständigen Einrichtungsschritt.
 
 ```
 .
-├── Dockerfile                    <- Multi-Stage: base, web, embedded, full
 ├── AGENTS.md                     <- Agent-spezifische Anweisungen
 ├── CONTEXT.md                    <- Domain-Vokabular & Kontext
-├── picoscope.md                  <- PicoScope 2204A Referenz (Library, ctypes, Pitfalls)
-├── dist/                         <- Produktions-Release (wenn gebaut)
-│   ├── Dockerfile
+├── dist/                         <- Produktions-Release (Quelle für Releases)
+│   ├── Dockerfile                <- Multi-Stage: base, web, embedded, full
+│   ├── README.md                 <- Kurzanleitung für Produktion
 │   ├── scripts/
+│   │   ├── start.sh              <- Einheitliches Start-Skript (--edition flag)
+│   │   ├── start-tui.sh          <- TUI-Variante des Start-Skripts
+│   │   ├── build-container.sh    <- Baut Sandbox-Editionen + Proxy
+│   │   ├── init-project.sh       <- Legt Projekt-Root-Struktur an
+│   │   └── uninstall.sh          <- Deinstallation
 │   ├── proxy/
+│   │   ├── Dockerfile            <- Separates Squid-Proxy-Image
+│   │   ├── squid.conf
+│   │   └── allowlist.txt
 │   ├── udev/
-│   ├── templates/
-│   └── README.md                 <- Kurzanleitung für Produktion
+│   │   └── 99-hil.rules          <- udev-Regeln für HIL-Geräte (Oszi + MCU)
+│   └── templates/
+│       ├── ssh_local/config
+│       ├── git_local/
+│       │   ├── gitconfig
+│       │   ├── credentials
+│       │   ├── gh-cli/
+│       │   └── glab-cli/
+│       ├── opencode/
+│       │   ├── opencode-gwdg.json    <- GWDG-spezifische Config
+│       │   ├── opencode-basic.json   <- Minimale Config
+│       │   ├── AGENTS.md             <- Agent-Config (wird kopiert)
+│       │   └── skills/               <- Skill-Vorlagen
+│       ├── scripts/
+│       │   ├── afkLoop.sh        <- Agent-Loop-Skript (Ticket-Queue)
+│       │   ├── LoopPrompt.md     <- Prompt-Vorlage für afkLoop
+│       │   └── README.md
+│       └── docs/humans/
+│           ├── GWDG_MODEL_GUIDE.md
+│           └── HOWTO_WAYFINDER_SKILL.md
 ├── docs/
 │   ├── adr/                      <- Architecture Decision Records
 │   ├── agents/                   <- Agent-Dokumentation
-│   └── research/                 <- Research-Notizen
-├── proxy/
-│   ├── Dockerfile                <- Separates Squid-Proxy-Image
-│   ├── squid.conf
-│   └── allowlist.txt
-├── udev/
-│   └── 99-hil.rules              <- udev-Regeln für HIL-Geräte (Oszi + MCU)
+│   └── research/                 <- Research-Notizen (u.a. picoscope.md)
 ├── scripts/
-│   ├── start.sh                  <- Einheitliches Start-Skript (--edition flag)
-│   ├── start-tui.sh              <- TUI-Variante des Start-Skripts
-│   ├── build-container.sh        <- Baut Sandbox-Editionen + Proxy
-│   ├── init-project.sh           <- Legt Projekt-Root-Struktur an
 │   ├── create-release.sh         <- Erstellt GitHub Releases aus dist/ Ordner
 │   ├── install.sh                <- Installationsskript
 │   ├── RELEASE_README.md         <- Release-Prozess-Dokumentation
 │   └── USAGE_EXAMPLES.md         <- Verwendungsbeispiele
-├── templates/
-│   ├── ssh_local/config
-│   ├── git_local/
-│   │   ├── gitconfig
-│   │   ├── credentials
-│   │   ├── gh-cli/config.yml
-│   │   └── glab-cli/config.yml
-│   ├── opencode/
-│   │   ├── opencode-gwdg.json    <- GWDG-spezifische Config
-│   │   ├── opencode-basic.json   <- Minimale Config
-│   │   ├── AGENTS.md             <- Agent-Config (wird kopiert)
-│   │   └── skills/               <- Skill-Vorlagen
-│   ├── scripts/
-│   │   ├── afkLoop.sh            <- Agent-Loop-Skript (Ticket-Queue)
-│   │   ├── LoopPrompt.md         <- Prompt-Vorlage für afkLoop
-│   │   └── README.md
-│   └── docs/humans/
-│       ├── GWDG_MODEL_GUIDE.md
-│       └── HOWTO_WAYFINDER_SKILL.md
 ├── tests/                        <- Test-Suite
 ├── specs/                        <- Spezifikationen
 ├── .devcontainer/
@@ -100,9 +96,11 @@ unvollständigen Einrichtungsschritt.
 └── README.md
 ```
 
-**Hinweis:** Der `dist/` Ordner enthält die produktionsreifen Dateien für Releases.
-Alle anderen Ordner (`docs/`, `tests/`, `specs/`, `scripts/install.sh`, etc.) sind
-nur für die Entwicklung und werden nicht in Releases veröffentlicht.
+**Hinweis:** Die Laufzeit-Skripte (`start.sh`, `start-tui.sh`, `build-container.sh`,
+`init-project.sh`, `uninstall.sh`) liegen in `dist/scripts/` – der `dist/` Ordner
+ist die Quelle für Releases. Alle anderen Ordner (`docs/`, `tests/`, `specs/`,
+`scripts/install.sh`, etc.) sind nur für die Entwicklung und werden nicht in
+Releases veröffentlicht.
 
 ## Projekt-Root-Struktur
 
@@ -132,7 +130,7 @@ und `.cbm_cache/` **Geschwister** von `project/` sind, sieht das Git-Repo in
 Neuen Projekt-Root mit korrekter Struktur/Rechten anlegen:
 
 ```bash
-scripts/init-project.sh ~/projects/kunde-x
+dist/scripts/init-project.sh ~/projects/kunde-x
 ```
 
 Siehe [Voraussetzungen](#voraussetzungen) und [Projekt-Root einrichten](#3-projekt-root-einrichten).
@@ -155,7 +153,7 @@ Einmalig die gewünschte Sandbox-Edition bauen:
 
 ```bash
 cd opencode-sandbox
-./scripts/build-container.sh full     # oder: base, web, embedded, all
+./dist/scripts/build-container.sh full     # oder: base, web, embedded, all
 ```
 
 Das baut:
@@ -165,9 +163,9 @@ Das baut:
 - `opencode-sandbox-full` — web + embedded (default)
 - `oc-proxy` — optionaler Squid-Egress-Proxy (wird nur bei `--use_proxy` benötigt)
 
-**Hinweis:** Nach dem Build werden die Produktionsdateien in den `dist/` Ordner kopiert.
-Dieser enthält nur die für den Betrieb notwendigen Dateien – ohne Entwicklungs-Artefakte
-wie Tests, Spezifikationen oder Installations-Skripte.
+**Hinweis:** `dist/` enthält die produktionsreifen Dateien und ist die Basis für
+Releases – ohne Entwicklungs-Artefakte wie Tests, Spezifikationen oder
+Installations-Skripte.
 
 ## 2. Einmalig: udev-Regeln für HIL-Geräte installieren
 
@@ -197,7 +195,7 @@ ls -l /dev/scope0 /dev/hil/
 ## 3. Projekt-Root einrichten
 
 ```bash
-scripts/init-project.sh ~/projects/kunde-x
+dist/scripts/init-project.sh ~/projects/kunde-x
 # ... Repo nach ~/projects/kunde-x/project klonen, Git-Config anpassen ...
 ```
 
@@ -261,16 +259,16 @@ https://dein-token:ghp_xxxxx@github.com
 ## 4. Sandbox starten
 
 ```bash
-scripts/start.sh ~/projects/kunde-x            # Default: full edition, volles Netz
+dist/scripts/start.sh ~/projects/kunde-x            # Default: full edition, volles Netz
 ```
 
 **Edition wählen:**
 
 ```bash
-scripts/start.sh ~/projects/kunde-x --edition web       # Web-only
-scripts/start.sh ~/projects/kunde-x --edition embedded  # Embedded-only
-scripts/start.sh ~/projects/kunde-x --edition base      # Minimal Python
-scripts/start.sh ~/projects/kunde-x --edition full      # Web + Embedded (default)
+dist/scripts/start.sh ~/projects/kunde-x --edition web       # Web-only
+dist/scripts/start.sh ~/projects/kunde-x --edition embedded  # Embedded-only
+dist/scripts/start.sh ~/projects/kunde-x --edition base      # Minimal Python
+dist/scripts/start.sh ~/projects/kunde-x --edition full      # Web + Embedded (default)
 ```
 
 | Flag-Kombination | Netzwerk | Proxy | Geräte | Anwendung |
@@ -286,28 +284,28 @@ scripts/start.sh ~/projects/kunde-x --edition full      # Web + Embedded (defaul
 Beispiele:
 ```bash
 # Coding ohne Einschränkungen (full edition)
-scripts/start.sh ~/projects/kunde-x
+dist/scripts/start.sh ~/projects/kunde-x
 
 # Web-only edition
-scripts/start.sh ~/projects/kunde-x --edition web
+dist/scripts/start.sh ~/projects/kunde-x --edition web
 
 # Embedded-only edition mit HIL
-scripts/start.sh ~/projects/hil-tests --edition embedded --hil_mode
+dist/scripts/start.sh ~/projects/hil-tests --edition embedded --hil_mode
 
 # Mit Egress-Proxy (Allowlist)
-scripts/start.sh ~/projects/kunde-x --use_proxy
+dist/scripts/start.sh ~/projects/kunde-x --use_proxy
 
 # Komplett offline
-scripts/start.sh ~/projects/kunde-x --offline
+dist/scripts/start.sh ~/projects/kunde-x --offline
 
 # HIL-Tests mit Oszi + Mikrocontrollern
-scripts/start.sh ~/projects/hil-tests --hil_mode
+dist/scripts/start.sh ~/projects/hil-tests --hil_mode
 
 # HIL-Tests mit Proxy
-scripts/start.sh ~/projects/hil-tests --use_proxy --hil_mode
+dist/scripts/start.sh ~/projects/hil-tests --use_proxy --hil_mode
 
 # Mit CBM Knowledge-Graph-UI (bevorzugt http://localhost:9749)
-scripts/start.sh ~/projects/kunde-x --cbm_ui
+dist/scripts/start.sh ~/projects/kunde-x --cbm_ui
 ```
 
 > **Hinweis zu `--cbm_ui`:** Der `codebase-memory-mcp` Dienst startet im Hintergrund mit `autoindex: true` und bietet eine Web-UI auf Port 9749. Die Graph-UI benötigt Netzwerkzugriff und funktioniert daher nicht mit `--offline` (network=none). In allen anderen Modi kombinierbar. Siehe [codebase-memory-mcp](https://github.com/DeusData/codebase-memory-mcp).
@@ -355,7 +353,7 @@ Hinweise:
   `NO_PROXY`). Der Proxy muss nicht zwingend laufen – Devcontainer ohne
   `--use_proxy` ignorieren die Variablen.
 - **USB-Geräte (HIL)** funktionieren nicht über den Devcontainer (kein
-  dynamisches udev-Mounting). Für HIL-Tests `scripts/start.sh --hil_mode`
+  dynamisches udev-Mounting). Für HIL-Tests `dist/scripts/start.sh --hil_mode`
   verwenden.
 
 ## Sicherheitsprinzipien
@@ -373,6 +371,35 @@ Hinweise:
 - Container-Name pro Projekt-Root, damit mehrere Sandboxes parallel laufen können
 - Nur die sechs definierten Projekt-Root-Unterordner werden gemountet – nicht `$HOME`
 - Allgemeine Konfigurations-Backups enthalten keine VCS- oder AI-Credentials; Restore validiert JSON und ersetzt jeweils nur eine Datei atomar
+
+## Deinstallation
+
+Die Sandbox wird mit `dist/scripts/uninstall.sh` entfernt. Es werden nur der
+Installationspfad, die Symlinks und optional die Config entfernt – niemals
+Projekt-Roots oder Nutzer-Daten. Laufende Container werden erkannt und gemeldet;
+Dateien ohne entfernbare Berechtigungen werden übersprungen und am Ende
+aufgelistet.
+
+```bash
+dist/scripts/uninstall.sh                    # Interaktiv, Bestätigung per [y/N]
+dist/scripts/uninstall.sh --remove-config    # Entfernt zusätzlich ~/.config/oc-sandbox/ (mit Backup)
+dist/scripts/uninstall.sh --force            # Ohne Rückfragen (Skripte/CI)
+dist/scripts/uninstall.sh --dry-run          # Nur anzeigen, nichts löschen
+```
+
+**Optionen:**
+- `--install_path <pfad>` – Installationspfad (default: `$HOME/.oc-sandbox`)
+- `--remove-config` – Config-Verzeichnis `~/.config/oc-sandbox/` entfernen (vorher automatisches Backup; Rotation behält die 5 neuesten)
+- `--no-backup` – Kein Config-Backup erstellen (nur mit `--remove-config` relevant)
+- `--no-symlinks` – Symlinks in `~/.local/bin` behalten
+- `--force` – Keine Bestätigungen, sofort entfernen
+- `--dry-run` – Zeigt, was entfernt würde, ohne zu löschen
+- `--verbose` – Detaillierte Ausgabe
+
+Im TUI (Settings → **Deinstallation**) führt derselbe Ablauf durch einen
+geführten Wizard: Warnung mit laufenden Containern → Options-Auswahl →
+Zusammenfassung mit `DEINSTALL`-Bestätigung; jeder Schritt ist abbrechbar.
+Details siehe `dist/README.md` und `docs/adr/0012-deinstallation-routine.md`.
 
 ## Troubleshooting
 
@@ -402,7 +429,7 @@ an; den Self-Eintrag muss man von Hand ergänzen. Ohne ihn versuchen
 echo "$(id -un):$(id -u):1" | sudo tee -a /etc/subuid
 echo "$(id -un):$(id -g):1" | sudo tee -a /etc/subgid
 ```
-Danach `scripts/start.sh` nochmal starten — `start.sh` selbst prüft den
+Danach `dist/scripts/start.sh` nochmal starten — `start.sh` selbst prüft den
 Self-Eintrag per `getsubids` und bricht vorher mit der genauen Anweisung
 ab, falls er fehlt. Dasselbe gilt für `devcontainer.json`-Workflows
  (`.devcontainer/devcontainer.json` → `devcontainer up`).
@@ -441,7 +468,7 @@ echo "$(id -un):20:1" | sudo tee -a /etc/subgid
 # Danach ab- und wieder anmelden, Podman-Userns wird neu initialisiert.
 ```
 
-`scripts/start.sh --hil_mode` versucht automatisch Option (a) bzw. (b), wenn
+`dist/scripts/start.sh --hil_mode` versucht automatisch Option (a) bzw. (b), wenn
 `sudo` mit `NOPASSWD` konfiguriert ist. Schlägt der Auto-Fix fehlt, erscheint
 eine Meldung mit den manuellen Schritten.
 

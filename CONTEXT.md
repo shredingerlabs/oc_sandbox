@@ -24,7 +24,7 @@
 
 **install script** — Script that downloads and sets up the opencode-sandbox files to a designated installation directory.
 
-**installation folder** — Directory where opencode-sandbox files are stored, defaulting to `$HOME/.opencode_sandbox` but configurable via `--install_path`.
+**installation folder** — Directory where opencode-sandbox files are stored, defaulting to `$HOME/.oc-sandbox` but configurable via `--install_path`.
 
 **bash one-liner** — Single bash command that downloads and executes the install script from GitHub.
 
@@ -121,3 +121,9 @@
 **credential file** — Project-local VCS or AI secret configuration stored separately from global TUI metadata, with restrictive permissions and excluded from general configuration backups.
 
 **retry flow** — Error recovery pattern where users who choose "Retry" after a failure remain in the recovery loop even if intermediate steps (like settings adjustment) fail. Failures show context-aware error messages and return to the retry menu, except for explicit user aborts (exit code 2) which are respected throughout.
+
+**deinstallation wizard** — Guided TUI flow in Settings (warning screen with running containers and their stop commands, option checkboxes for symlinks/config/backup, summary screen). Every screen can be cancelled or navigated back; the choices are mapped to uninstall.sh flags and run with `--force`.
+
+**DEINSTALL confirmation** — Typed text confirmation required on the deinstallation summary before anything is removed; rendered as a red gum input when gum is available, plain `read` fallback otherwise.
+
+**skipped files** — Files that could not be removed during deinstallation because of missing permissions; tracked during removal and reported at the end with a hint to clean them up manually (e.g. with sudo).

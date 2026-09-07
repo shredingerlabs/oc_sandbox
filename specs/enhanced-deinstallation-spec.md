@@ -2,7 +2,7 @@
 
 ## Overview
 
-Implement enhanced deinstallation behavior with CLI flags and TUI integration per ADR 0013.
+Implement enhanced deinstallation behavior with CLI flags and TUI integration per ADR 0012.
 
 ## Part 1: CLI (uninstall.sh)
 
@@ -56,7 +56,6 @@ SKIPPED_FILES=()  # Track permission-denied files
 
 Add cases for:
 ```bash
---remove-symlinks) REMOVE_SYMLINKS=true; shift ;;
 --no-symlinks) REMOVE_SYMLINKS=false; shift ;;
 --remove-config) REMOVE_CONFIG=true; shift ;;
 --no-backup) BACKUP_CONFIG=false; shift ;;
@@ -66,8 +65,7 @@ Add cases for:
 
 Add new options:
 ```
---remove-symlinks    Remove symlinks from ~/.local/bin/ (default: true)
---no-symlinks        Keep symlinks in ~/.local/bin/
+--no-symlinks        Keep symlinks in ~/.local/bin/ (default: remove)
 --remove-config      Remove ~/.config/oc-sandbox/ directory
 --no-backup          Disable config backup (with --remove-config)
 ```

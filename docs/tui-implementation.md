@@ -12,14 +12,15 @@ dist/
 │   ├── start-tui.sh              # Main TUI entry point
 │   ├── start.sh                  # (existing - enhanced with --start_opencode flag)
 │   ├── build-container.sh        # (existing - used as subprocess)
-│   └── init-project.sh           # (existing - used as subprocess)
+│   ├── init-project.sh           # (existing - used as subprocess)
+│   └── uninstall.sh              # Deinstaller, invoked by the wizard
 
 ~/
 ├── .config/oc-sandbox/
 │   ├── global_config.json        # Global user preferences
 │   ├── projects.json             # Project registry with metadata
 │   └── backups/                  # Automatic config backups
-└── .oc-sandbox/gum              # Gum binary installation
+└── .oc-sandbox/gum/gum           # Gum binary installation
 
 <project_root>/
 ├── .opencode_config/
@@ -739,6 +740,32 @@ add_project_to_registry() {
 }
 ```
 
+### Deinstallation Wizard
+
+The Settings menu has a "Deinstallation" entry that starts a guided wizard:
+
+```bash
+deinstallation_wizard() {
+  show_deinstallation_warning || return 0
+  select_deinstallation_options remove_symlinks remove_config create_backup || return 0
+  show_deinstallation_summary "$remove_symlinks" "$remove_config" "$create_backup" || return 0
+  run_deinstallation "$remove_symlinks" "$remove_config" "$create_backup"
+}
+```
+
+- **Warning screen**: lists running containers with their `podman stop`
+  commands; `Continue` proceeds, `← Go Back` cancels.
+- **Options screen**: checkboxes for symlinks (default: selected), config
+  (default: unselected) and backup. "Create backup" only takes effect when
+  "Remove config" is selected — otherwise it is reset with a notice. gum mode
+  uses `gum choose --no-limit`, bash mode uses a toggle-select loop.
+- **Summary screen**: shows what will be removed and requires typing
+  `DEINSTALL` to confirm (red `gum input` when available, plain `read`
+  fallback). Wrong input or cancellation aborts with "Nothing was removed".
+- **Run**: invokes `uninstall.sh --force` plus `--no-symlinks`,
+  `--remove-config` and `--no-backup` according to the selected options, then
+  reports the uninstaller's output.
+
 ## Enhanced Features
 
 ### Signal Handling and Cleanup
@@ -839,6 +866,9 @@ Run the complete suite with:
 bash -n dist/scripts/*.sh tests/*.sh
 bash tests/test-start-tui.sh
 bash tests/test-tui-gum.sh
+bash tests/test-start.sh
+bash tests/test-uninstall.sh
+bash tests/test-tui-deinstall.sh
 bash tests/test-install.sh
 ```
 
@@ -849,6 +879,10 @@ deferred/failed builds, setup retry, runtime reconciliation, and atomic restore.
 choose/toggle, cancellation, hidden token input, and navigation. Assertions avoid
 private implementation details and verify JSON, registry state, command arguments,
 permissions, and secret non-disclosure.
+`test-uninstall.sh` covers the deinstaller flags (config removal with backup and
+rotation, `--no-symlinks`, `--no-backup`, dry-run, backup-failure abort/continue,
+permission-error tracking) and `test-tui-deinstall.sh` covers the wizard screens
+including cancellation paths.
 
 ## Future Enhancements
 

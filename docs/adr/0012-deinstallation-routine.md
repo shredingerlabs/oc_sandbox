@@ -31,8 +31,7 @@ Users need:
 
 **CLI flags:**
 - `--install_path <pfad>` - Custom installation path
-- `--remove-symlinks` - Remove symlinks (default: true)
-- `--no-symlinks` - Keep symlinks in ~/.local/bin/
+- `--no-symlinks` - Keep symlinks in ~/.local/bin/ (default: remove)
 - `--remove-config` - Remove ~/.config/oc-sandbox/ directory
 - `--no-backup` - Disable config backup (only relevant with `--remove-config`)
 - `--force` - Non-interactive mode, skip confirmations
@@ -136,5 +135,5 @@ To enable new behavior, users must explicitly:
 ## Dependencies
 
 - gum (optional, for TUI wizard)
-- bash 4.0+ (for associative arrays in config backup tracking)
-- jq (for config manipulation)
+- bash 4.x (indexed arrays for tracking; namerefs in the TUI options screen)
+- jq (used by the TUI for config restore; uninstall.sh parses projects.json paths with grep)
