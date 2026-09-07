@@ -1502,7 +1502,7 @@ detect_available_editions() {
 
 settings_menu() {
   while true; do
-    local options=("Config Backup" "Config Restore" "← Back to Main Menu")
+    local options=("Config Backup" "Config Restore" "Deinstallation" "← Back to Main Menu")
     local choice=$(show_menu "Settings" "${options[@]}")
 
     case "$choice" in
@@ -1511,6 +1511,9 @@ settings_menu() {
         ;;
       "Config Restore")
         restore_config
+        ;;
+      "Deinstallation")
+        deinstallation_wizard
         ;;
       "← Back to Main Menu")
         return
@@ -1598,6 +1601,149 @@ restore_config() {
 
   echo "Restored ${selected_config} from ${selected_backup}"
   wait_for_enter
+}
+
+deinstallation_wizard() {
+  show_deinstallation_warning || return 0
+
+  local remove_symlinks=false remove_config=false create_backup=false
+  if ! select_deinstallation_options remove_symlinks remove_config create_backup; then
+    return 0
+  fi
+
+  if ! show_deinstallation_summary "$remove_symlinks" "$remove_config" "$create_backup"; then
+    show_page "Deinstallation cancelled" "Nothing was removed."
+    wait_for_enter || true
+    return 0
+  fi
+
+  run_deinstallation "$remove_symlinks" "$remove_config" "$create_backup"
+}
+
+show_deinstallation_warning() {
+  local containers=()
+  mapfile -t containers < <(get_running_containers)
+
+  local lines=()
+  if [[ ${#containers[@]} -gt 0 ]]; then
+    lines+=("The following containers are currently running:")
+    local container
+    for container in "${containers[@]}"; do
+      lines+=("  - ${container}" "    podman stop ${container}")
+    done
+    lines+=("" "Stop these containers before deinstalling.")
+  else
+    lines+=("No running opencode-sandbox containers detected.")
+  fi
+
+  show_page "Deinstallation Warning" "${lines[@]}"
+
+  local choice
+  choice=$(show_menu "Continue with deinstallation?" "Continue" "← Go Back") || return 1
+  [[ "$choice" == "Continue" ]]
+}
+
+select_deinstallation_options() {
+  local -n ref_symlinks=$1
+  local -n ref_config=$2
+  local -n ref_backup=$3
+  ref_symlinks=true
+  ref_config=false
+  ref_backup=false
+
+  if [[ "$TUI_MODE" != "gum" ]]; then
+    local toggle_choice
+    while true; do
+      local labels=()
+      labels+=("$([[ $ref_symlinks == true ]] && printf '[x]' || printf '[ ]') Remove symlinks (~/.local/bin)")
+      labels+=("$([[ $ref_config == true ]] && printf '[x]' || printf '[ ]') Remove config (~/.config/oc-sandbox)")
+      if [[ $ref_config == true ]]; then
+        labels+=("$([[ $ref_backup == true ]] && printf '[x]' || printf '[ ]') Create backup")
+      fi
+      toggle_choice=$(bash_select "Toggle options (select an item to toggle)" "${labels[@]}" "Done") || return 1
+      case "$toggle_choice" in
+        "Done") break ;;
+        *"Remove symlinks"*) [[ $ref_symlinks == true ]] && ref_symlinks=false || ref_symlinks=true ;;
+        *"Remove config"*) [[ $ref_config == true ]] && ref_config=false || ref_config=true ;;
+        *"Create backup"*) [[ $ref_backup == true ]] && ref_backup=false || ref_backup=true ;;
+      esac
+    done
+  fi
+
+  local symlinks_item="Remove symlinks (~/.local/bin)"
+  local config_item="Remove config (~/.config/oc-sandbox)"
+  local backup_item="Create backup"
+  local raw
+  local args
+
+  if [[ "$TUI_MODE" == "gum" ]]; then
+    args=()
+    [[ $ref_symlinks == true ]] && args+=(--selected "$symlinks_item")
+    [[ $ref_config == true ]] && args+=(--selected "$config_item")
+    [[ $ref_backup == true ]] && args+=(--selected "$backup_item")
+
+    raw=$("$GUM_BIN" choose --no-limit \
+      --header="Deinstallation options (space to toggle, enter to confirm)" \
+      --height=5 \
+      "${args[@]}" "$symlinks_item" "$config_item" "$backup_item") || return 1
+
+    [[ "$raw" == *"$symlinks_item"* ]] && ref_symlinks=true || ref_symlinks=false
+    [[ "$raw" == *"$config_item"* ]] && ref_config=true || ref_config=false
+    [[ "$raw" == *"$backup_item"* ]] && ref_backup=true || ref_backup=false
+  fi
+
+  if [[ $ref_backup == true && $ref_config != true ]]; then
+    ref_backup=false
+    show_page "Create backup unavailable" "Remove config must be selected to create a backup."
+  fi
+
+  return 0
+}
+
+show_deinstallation_summary() {
+  local remove_symlinks="$1" remove_config="$2" create_backup="$3"
+
+  local lines=("The following will be removed:")
+  lines+=("  - Installation: ${INSTALL_ROOT:-$HOME/.oc-sandbox}")
+  if [[ $remove_symlinks == true ]]; then
+    lines+=("  - Symlinks in ~/.local/bin")
+  fi
+  if [[ $remove_config == true ]]; then
+    lines+=("  - Config: ~/.config/oc-sandbox")
+    if [[ $create_backup == true ]]; then
+      lines+=("    (backup is created before removal)")
+    fi
+  fi
+
+  show_page "Deinstallation Summary" "${lines[@]}"
+
+  local response=""
+  if [[ "$TUI_MODE" == "gum" ]]; then
+    response=$("$GUM_BIN" input --prompt.foreground="196" --prompt="Type DEINSTALL to confirm: ") || return 1
+  else
+    read -r -p "Type DEINSTALL to confirm: " response < /dev/tty || return 1
+  fi
+
+  [[ "$response" == "DEINSTALL" ]]
+}
+
+run_deinstallation() {
+  local remove_symlinks="$1" remove_config="$2" create_backup="$3"
+
+  local args=("--force")
+  [[ $remove_symlinks != true ]] && args+=("--no-symlinks")
+  if [[ $remove_config == true ]]; then
+    args+=("--remove-config")
+    [[ $create_backup != true ]] && args+=("--no-backup")
+  fi
+
+  show_page "Deinstallation" "Running uninstall script..."
+  local status=0
+  bash "${SCRIPT_DIR}/uninstall.sh" "${args[@]}" || status=$?
+
+  show_page "Deinstallation finished" "See the output above for details and manual cleanup reminders."
+  wait_for_enter || true
+  return $status
 }
 
 main() {

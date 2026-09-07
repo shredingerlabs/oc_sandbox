@@ -43,7 +43,7 @@ toggle_result=$(run_gum_result $' \033[B ' $'\r' choose --no-limit one two)
   exit 1
 }
 
-cancel_result=$(run_gum $'\033' '' choose one two)
+cancel_result=$(run_gum $'\033' '' choose one two) || true
 if [[ "$cancel_result" != *"nothing selected"* ]]; then
   printf 'gum cancellation was not observable\n' >&2
   exit 1

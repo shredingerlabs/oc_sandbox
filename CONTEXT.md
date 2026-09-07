@@ -58,7 +58,7 @@
 
 **symlinks** — Optional `--symlinks` flag creates symlinks in `$HOME/.local/bin` for easier command access.
 
-**color output** — Uses plain text output only for maximum compatibility; no colored output.
+**color output** — Install script output uses plain text only for maximum compatibility. The TUI may use color through gum (e.g. the red `DEINSTALL` confirmation prompt), with plain-text fallback.
 
 **exit codes** — Standard exit codes: 0 (success), 1 (general error), 2 (user abort), 3 (missing dependencies).
 

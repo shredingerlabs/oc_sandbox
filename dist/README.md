@@ -71,6 +71,13 @@ at a time. Restore validates JSON and creates a safety backup before the atomic
 replacement. Credential files under `.git_local/` and `.opencode_data/` are
 never included in general configuration backups.
 
+The Settings menu also offers **Deinstallation**: a guided wizard with a warning
+screen (running containers with their `podman stop` commands), option checkboxes
+for symlinks/config/backup ("Create backup" is only available when "Remove
+config" is selected), a summary with `DEINSTALL` text confirmation, and
+cancel/back navigation at every screen. Confirmation uses a red `gum input`
+prompt when gum is available and a plain `read` fallback otherwise.
+
 ## Editionen
 
 - **base**: Python + core system packages

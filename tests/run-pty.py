@@ -70,6 +70,7 @@ def main():
                 break
             if waited == pid:
                 break
+            status = None
         else:
             os.kill(pid, signal.SIGTERM)
             _, status = os.waitpid(pid, 0)
