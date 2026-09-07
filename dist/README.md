@@ -13,7 +13,8 @@ dist/
 │   ├── start.sh                  <- Einheitliches Start-Skript (--edition flag)
 │   ├── start-tui.sh              <- TUI-Variante des Start-Skripts
 │   ├── build-container.sh        <- Baut Sandbox-Editionen + Proxy
-│   └── init-project.sh           <- Legt Projekt-Root-Struktur an
+│   ├── init-project.sh           <- Legt Projekt-Root-Struktur an
+│   └── uninstall.sh              <- Deinstalliert opencode-sandbox
 ├── proxy/
 │   ├── Dockerfile                <- Separates Squid-Proxy-Image
 │   ├── squid.conf
@@ -121,6 +122,27 @@ sudo udevadm trigger
 - `--offline` – Komplett offline (kein Netzwerk)
 - `--hil_mode` – HIL-Tests mit USB-Geräten (Oszilloskop, MCU)
 - `--cbm_ui` – CBM Knowledge-Graph-UI (Port 9749)
+
+## Deinstallation
+
+```bash
+./scripts/uninstall.sh
+```
+
+**Optionen:**
+- `--install_path <pfad>` – Installationspfad (default: `$HOME/.oc-sandbox`)
+- `--remove-config` – Config-Verzeichnis ebenfalls entfernen (mit Backup)
+- `--no-backup` – Kein Backup erstellen (auch für Config)
+- `--no-symlinks` – Symlinks nicht entfernen
+- `--force` – Keine Bestätigungen (für Skripte/CI)
+- `--dry-run` – Zeige was entfernt würde, ohne zu löschen
+- `--verbose` – Detaillierte Ausgabe
+
+**Sicherheit:**
+- Prüft auf laufende Container und warnt
+- Bietet Backup vor Entfernung an
+- Entfernt niemals Projekt-Roots oder User-Daten
+- Entfernt automatisch Symlinks und gum-Installation
 
 ## Verwendung
 

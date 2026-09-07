@@ -515,6 +515,7 @@ validate_installation() {
     "scripts/build-container.sh"
     "scripts/init-project.sh"
     "scripts/start-tui.sh"
+    "scripts/uninstall.sh"
     "Dockerfile"
   )
   
@@ -750,6 +751,7 @@ main() {
     echo "  init-project.sh"
     echo "  start.sh"
     echo "  start-tui.sh"
+    echo "  uninstall.sh"
   fi
 }
 
