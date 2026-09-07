@@ -108,7 +108,28 @@ bash_opts=$(python3 "$PTY_RUNNER" --input $'2\n4\n' --submit '' -- bash -c '
 ' _ "$PROJECT_ROOT") || true
 [[ "$bash_opts" == *'OPTS=true true false'* ]] || fail "bash fallback options toggling wrong (got: $bash_opts)"
 
-# 8. Settings menu offers Deinstallation entry.
+# 8. Options screen: Esc cancels the wizard.
+if python3 "$PTY_RUNNER" --input $'\033' --submit '' -- bash -c '
+  source "$1/dist/scripts/start-tui.sh"
+  TUI_MODE=gum
+  GUM_BIN="$2"
+  remove_symlinks=false remove_config=false create_backup=false
+  select_deinstallation_options remove_symlinks remove_config create_backup
+' _ "$PROJECT_ROOT" "$GUM_BIN"; then
+  fail "options screen Esc did not cancel"
+fi
+
+# 9. Summary screen: Esc cancels confirmation.
+if python3 "$PTY_RUNNER" --input $'\033' --submit '' -- bash -c '
+  source "$1/dist/scripts/start-tui.sh"
+  TUI_MODE=gum
+  GUM_BIN="$2"
+  show_deinstallation_summary true true false
+' _ "$PROJECT_ROOT" "$GUM_BIN"; then
+  fail "summary screen Esc did not cancel"
+fi
+
+# 10. Settings menu offers Deinstallation entry.
 menu_source="$(mktemp)"
 trap 'rm -rf "$STUB_BIN" "$STUB_HOME" "$menu_source"' EXIT
 grep -n "Deinstallation" "$PROJECT_ROOT/dist/scripts/start-tui.sh" | grep -q "options=(" || fail "settings menu missing Deinstallation option"

@@ -347,6 +347,68 @@ test_backup_failure_without_force_aborts() {
   cleanup_test_env "$test_dir"
 }
 
+test_permission_error_reports_skipped_files() {
+  if [[ $EUID -eq 0 ]]; then
+    return 0
+  fi
+  local test_dir
+  test_dir=$(setup_test_env "permission-install")
+  local home
+  home=$(setup_installed_home "$test_dir")
+
+  # Unbeschreibbares Unterverzeichnis -> rm -rf schlägt fehl -> Dateien werden getrackt
+  mkdir -p "$home/.oc-sandbox/locked"
+  echo "protected" > "$home/.oc-sandbox/locked/keep.txt"
+  chmod 555 "$home/.oc-sandbox/locked"
+
+  local output
+  output=$(run_uninstall_capture "$home")
+  chmod -R u+w "$home" 2>/dev/null || true
+
+  if [[ "$output" != *"fehlender Berechtigungen"* ]]; then
+    echo "  Ausgabe nennt fehlende Berechtigungen nicht"
+    return 1
+  fi
+  if [[ "$output" != *"$home/.oc-sandbox"* ]]; then
+    echo "  Geschützte Dateien werden nicht aufgelistet"
+    return 1
+  fi
+  assert_dir_exists "$home/.oc-sandbox" "Installation soll wegen Berechtigungen bestehen bleiben" || return 1
+
+  cleanup_test_env "$test_dir"
+}
+
+test_config_not_empty_permission_tracked() {
+  if [[ $EUID -eq 0 ]]; then
+    return 0
+  fi
+  local test_dir
+  test_dir=$(setup_test_env "permission-config")
+  local home
+  home=$(setup_installed_home "$test_dir")
+
+  # Unbeschreibbares Unterverzeichnis in der Config -> rmdir schlägt fehl -> getrackt
+  mkdir -p "$home/.config/oc-sandbox/locked"
+  echo "protected" > "$home/.config/oc-sandbox/locked/keep.txt"
+  chmod 555 "$home/.config/oc-sandbox/locked"
+
+  local output
+  output=$(run_uninstall_capture "$home" --remove-config --force)
+  chmod -R u+w "$home" 2>/dev/null || true
+
+  if [[ "$output" != *"Nicht leer (übrige Dateien ohne Berechtigung)"* ]]; then
+    echo "  Config-Verzeichnis nicht als 'Nicht leer' getrackt"
+    return 1
+  fi
+  if [[ "$output" != *"$home/.config/oc-sandbox"* ]]; then
+    echo "  Config-Pfad fehlt in Ausgabe"
+    return 1
+  fi
+  assert_dir_exists "$home/.config/oc-sandbox" "Config soll wegen Berechtigungen bestehen bleiben" || return 1
+
+  cleanup_test_env "$test_dir"
+}
+
 test_running_container_detection_still_works() {
   local test_dir
   test_dir=$(setup_test_env "containers")
@@ -375,6 +437,8 @@ run_test "Abschlussmeldung listet Aktionen" test_completion_message_lists_action
 run_test "Backup-Fehler mit --force läuft weiter" test_backup_failure_with_force_continues
 run_test "Backup-Fehler ohne Fortfahren bricht ab" test_backup_failure_without_force_aborts
 run_test "Container-Erkennung blockiert nicht bei keiner Ausgabe" test_running_container_detection_still_works
+run_test "Berechtigungsfehler werden getrackt und berichtet" test_permission_error_reports_skipped_files
+run_test "Config nicht leer wegen Berechtigungen wird getrackt" test_config_not_empty_permission_tracked
 
 echo ""
 echo "Tests gesamt: $TESTS_RUN, bestanden: $TESTS_PASSED, fehlgeschlagen: $TESTS_FAILED"
