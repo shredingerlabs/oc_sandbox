@@ -1,11 +1,29 @@
 {
+  "$schema": "https://opencode.ai/config.json",
+  "plugin": ["opencode-models-discovery@1.5.3"],
   "provider": {
     "gwdg-saia": {
       "npm": "@ai-sdk/openai-compatible",
       "name": "GWDG SAIA",
       "options": {
         "baseURL": "https://chat-ai.academiccloud.de/v1",
-        "timeout": false
+        "timeout": false,
+        "modelsDiscovery": {
+          "enabled": true,
+          "endpoint": "/models",
+          "models": {
+            "excludeBy": [
+              {
+                "field": "id",
+                "match": "embed|e5-|bge-|gte-|nomic-|instructor|rerank"
+              }
+            ]
+          },
+          "cache": {
+            "enabled": true,
+            "ttlSeconds": 3600
+          }
+        }
       },
       "models": {
         "qwen3-coder-next": {
