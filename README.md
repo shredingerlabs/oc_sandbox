@@ -314,6 +314,7 @@ dist/scripts/start.sh ~/projects/kunde-x --edition full      # Web + Embedded (d
 | `--use_proxy --hil_mode` | pasta | Squid-Allowlist | Oszi + MCU | HIL mit Restricted-Net |
 | `--cbm_ui` | pasta | nein | – | CBM Knowledge-Graph-UI (Port 9749) |
 | `--use_proxy --cbm_ui` | pasta | Squid-Allowlist | – | Proxy + Graph-UI |
+| `--start_web --detach` | pasta | nein | – | OpenCode-Weboberfläche (Port 4096) |
 
 Beispiele:
 ```bash
@@ -340,10 +341,15 @@ dist/scripts/start.sh ~/projects/hil-tests --use_proxy --hil_mode
 
 # Mit CBM Knowledge-Graph-UI (bevorzugt http://localhost:9749)
 dist/scripts/start.sh ~/projects/kunde-x --cbm_ui
+
+# Als Webserver mit OpenCode-Weboberfläche (bevorzugt http://localhost:4096)
+dist/scripts/start.sh ~/projects/kunde-x --start_web --detach
 ```
 
 > **Hinweis zu `--cbm_ui`:** Der `codebase-memory-mcp` Dienst startet im Hintergrund mit `autoindex: true` und bietet eine Web-UI auf Port 9749. Die Graph-UI benötigt Netzwerkzugriff und funktioniert daher nicht mit `--offline` (network=none). In allen anderen Modi kombinierbar. Siehe [codebase-memory-mcp](https://github.com/DeusData/codebase-memory-mcp).
 > Ist Port 9749 bereits belegt, wählt `start.sh` automatisch den nächsten freien Port bis 9849 und gibt die URL aus.
+
+> **Hinweis zu `--start_web`:** Startet `opencode web --port 4096` im Container und veröffentlicht ihn auf `127.0.0.1` (Port-Scan 4096-4196, wenn 4096 belegt ist). Mit `--detach` läuft der Webserver als Container-Hauptprozess, die URL wird nach dem Start ausgegeben. Ohne `--detach` läuft der Server im Vordergrund; Strg+C beendet und entfernt den Container. Im TUI-Startdialog als Start-Option „web" wählbar (läuft dort immer als Hintergrunddienst im Container).
 
 > **Hinweis zu `--hil_mode` und USB-Sicherheit:**
 > Das Skript ermittelt zur Laufzeit den realen Pfad von `/dev/scope0`

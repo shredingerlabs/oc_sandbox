@@ -21,6 +21,7 @@
 #   --hil_mode         USB-Passthrough für Oszi (scope0) und MCU (ttyUSB*, ttyACM*, ttyAMA*)
 #   --cbm_ui           Aktiviert CBM Graph-UI auf Port 9749
 #   --start_opencode   Startet OpenCode direkt nach Container-Start
+#   --start_web        Startet OpenCode Web (Port 4096) nach Container-Start
 #   --edition          Container-Edition: base, web, embedded, full
 #   --detach            Container im Hintergrund starten
 #   --container-id      Persisted project container identity
@@ -33,6 +34,7 @@
 #   scripts/start.sh ~/projects/kunde-x --use_proxy --hil_mode      # Kombiniert
 #   scripts/start.sh ~/projects/kunde-x --cbm_ui                    # Mit CBM Graph-UI
 #   scripts/start.sh ~/projects/kunde-x --start_opencode            # Mit direktem OpenCode-Start
+#   scripts/start.sh ~/projects/kunde-x --start_web --detach        # Als Webserver
 #
 set -euo pipefail
 
@@ -49,12 +51,13 @@ if [[ "$PROJECT_ROOT" == "--help" || "$PROJECT_ROOT" == "-h" ]]; then
   echo "  --hil_mode         USB-Passthrough für Oszi und MCU-Geräte"
   echo "  --cbm_ui           CBM Graph-UI auf Port 9749 aktivieren"
   echo "  --start_opencode   OpenCode direkt nach Container-Start starten"
+  echo "  --start_web        OpenCode Web (Port 4096) starten und veröffentlichen"
   echo "  --detach           Container im Hintergrund starten"
   echo "  --container-id     Persisted project container identity"
   exit 0
 fi
 if [[ -z "$PROJECT_ROOT" ]]; then
-  echo "Nutzung: $0 <projekt-root> [--edition <edition>] [--use_proxy] [--offline] [--hil_mode] [--cbm_ui] [--start_opencode] [--detach]" >&2
+  echo "Nutzung: $0 <projekt-root> [--edition <edition>] [--use_proxy] [--offline] [--hil_mode] [--cbm_ui] [--start_opencode] [--start_web] [--detach]" >&2
   echo "" >&2
   echo "  <projekt-root>        Pfad zum Projekt-Root (siehe init-project.sh)" >&2
   echo "  --use_proxy           Squid-Egress-Allowlist-Proxy starten und nutzen" >&2
@@ -62,6 +65,7 @@ if [[ -z "$PROJECT_ROOT" ]]; then
   echo "  --hil_mode            USB-Passthrough für Oszi + MCU-Geräte" >&2
   echo "  --cbm_ui              CBM Graph-UI auf Port 9749 aktivieren" >&2
   echo "  --start_opencode      OpenCode direkt nach Container-Start starten" >&2
+  echo "  --start_web           OpenCode Web (Port 4096) starten und veröffentlichen" >&2
   exit 1
 fi
 shift
@@ -71,6 +75,7 @@ OFFLINE=false
 HIL_MODE=false
 CBM_UI=false
 START_OPENCODE=false
+START_WEB=false
 DETACH=false
 CONTAINER_ID=""
 EDITION=full
@@ -87,6 +92,7 @@ while [[ $# -gt 0 ]]; do
     --hil_mode)         HIL_MODE=true;  shift ;;
     --cbm_ui)           CBM_UI=true;    shift ;;
     --start_opencode)   START_OPENCODE=true; shift ;;
+    --start_web)        START_WEB=true; shift ;;
     --detach)           DETACH=true; shift ;;
     --container-id)
       [[ $# -ge 2 ]] || { echo "--container-id benötigt einen Wert" >&2; exit 1; }
@@ -95,7 +101,7 @@ while [[ $# -gt 0 ]]; do
       ;;
     *)
       echo "Unbekanntes Flag: $1" >&2
-      echo "Nutzung: $0 <projekt-root> [--edition <edition>] [--use_proxy] [--offline] [--hil_mode] [--cbm_ui] [--start_opencode] [--detach]" >&2
+      echo "Nutzung: $0 <projekt-root> [--edition <edition>] [--use_proxy] [--offline] [--hil_mode] [--cbm_ui] [--start_opencode] [--start_web] [--detach]" >&2
       exit 1
       ;;
   esac
@@ -220,9 +226,11 @@ port_is_in_use() {
   fi
 }
 
-select_cbm_host_port() {
-  local port=9749
-  local last_port=$((port + 100))
+select_free_host_port() {
+  local base_port="$1"
+  local label="$2"
+  local port="$base_port"
+  local last_port=$((base_port + 100))
 
   while (( port <= last_port )); do
     if ! port_is_in_use "$port"; then
@@ -232,8 +240,12 @@ select_cbm_host_port() {
     port=$((port + 1))
   done
 
-  echo "Fehler: Kein freier Host-Port für die CBM-UI im Bereich 9749-${last_port}." >&2
+  echo "Fehler: Kein freier Host-Port für ${label} im Bereich ${base_port}-${last_port}." >&2
   return 1
+}
+
+select_cbm_host_port() {
+  select_free_host_port 9749 "die CBM-UI"
 }
 
 # --- Flag-Validierung ----------------------------------------------------------
@@ -252,6 +264,22 @@ if $CBM_UI; then
   fi
   CBM_PORT_ARGS=(-p "127.0.0.1:${CBM_HOST_PORT}:9749")
   CBM_ENV_UI=(-e CBM_UI=true)
+fi
+
+# --- OpenCode-Web-Optionen ------------------------------------------------------
+WEB_PORT_ARGS=()
+if $START_WEB; then
+  WEB_HOST_PORT=$(select_free_host_port 4096 "die OpenCode-Weboberfläche")
+  if [[ "$WEB_HOST_PORT" != "4096" ]]; then
+    echo "Hinweis: Host-Port 4096 ist belegt; OpenCode Web wird auf http://127.0.0.1:${WEB_HOST_PORT} veröffentlicht." >&2
+  fi
+  WEB_PORT_ARGS=(-p "127.0.0.1:${WEB_HOST_PORT}:4096")
+fi
+# Im Detached-Modus startet der Containerbefehl den Webserver selbst;
+# START_WEB=true würde über die Login-Shell den Server doppelt starten.
+START_WEB_ENV=false
+if $START_WEB && ! $DETACH; then
+  START_WEB_ENV=true
 fi
 
 # --- HIL-Geräte ----------------------------------------------------------------
@@ -327,7 +355,15 @@ RUN_MODE=(-it)
 CONTAINER_COMMAND=()
 if $DETACH; then
   RUN_MODE=(-d)
-  CONTAINER_COMMAND=(-c 'sleep infinity')
+  if $START_WEB; then
+    CONTAINER_COMMAND=(-c 'opencode web --port 4096')
+  else
+    CONTAINER_COMMAND=(-c 'sleep infinity')
+  fi
+fi
+
+if $START_WEB && ! $DETACH; then
+  echo "OpenCode Web: http://127.0.0.1:${WEB_HOST_PORT} (Strg+C beendet den Server)"
 fi
 
 podman run --rm "${RUN_MODE[@]}" \
@@ -340,6 +376,7 @@ podman run --rm "${RUN_MODE[@]}" \
   "${NETWORK_ARGS[@]}" \
   "${PROXY_ENV[@]}" \
   "${CBM_PORT_ARGS[@]}" \
+  "${WEB_PORT_ARGS[@]}" \
   "${CBM_ENV_UI[@]}" \
   "${DEVICE_ARGS[@]}" \
   -e TERM="${TERM:-xterm-256color}" \
@@ -347,6 +384,7 @@ podman run --rm "${RUN_MODE[@]}" \
   -e XDG_DATA_HOME="/home/dev/.local/share" \
   -e GIT_CONFIG_GLOBAL="/home/dev/.git_local/gitconfig" \
   -e START_OPENCODE="${START_OPENCODE}" \
+  -e START_WEB="${START_WEB_ENV}" \
   -v "${PROJECT_DIR}:/home/dev/project:Z" \
   -v "${CONFIG_DIR}:/home/dev/.config/opencode:Z" \
   -v "${DATA_DIR}:/home/dev/.local/share/opencode:Z" \
@@ -355,3 +393,7 @@ podman run --rm "${RUN_MODE[@]}" \
   -v "${CBM_DIR}:/home/dev/.cache/codebase-memory-mcp:Z" \
   -v "${BASH_DIR}/bash_profile:/home/dev/.bash_profile:Z" \
   "$IMAGE" "${CONTAINER_COMMAND[@]}"
+
+if $START_WEB && $DETACH; then
+  echo "OpenCode Web: http://127.0.0.1:${WEB_HOST_PORT}"
+fi

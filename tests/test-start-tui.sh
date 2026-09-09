@@ -131,7 +131,7 @@ printf 'start-tui mode selection tests passed\n'
 discovery_dir="$test_home/discovery"
 mkdir -p "$discovery_dir"
 printf '%s\n' '#!/usr/bin/env bash' 'printf "Usage: %s [alpha|beta|all]\\n" "$0"' > "$discovery_dir/build-container.sh"
-printf '%s\n' '#!/usr/bin/env bash' 'printf "Usage: %s --safe --other --start_opencode --detach\\n" "$0"' > "$discovery_dir/start.sh"
+printf '%s\n' '#!/usr/bin/env bash' 'printf "Usage: %s --safe --other --start_opencode --start_web --detach\\n" "$0"' > "$discovery_dir/start.sh"
 chmod +x "$discovery_dir/build-container.sh" "$discovery_dir/start.sh"
 SCRIPT_DIR="$discovery_dir"
 detect_available_editions
@@ -247,6 +247,7 @@ case "${1:-}" in
   ps)
     [[ -n "${PODMAN_RUNNING:-}" ]] && printf '%s\n' "$PODMAN_RUNNING"
     ;;
+  port) printf '%s\n' '127.0.0.1:4096' ;;
   exec)
     if [[ "${PODMAN_FAIL_CBM:-false}" == true && "$*" == *codebase-memory-mcp* ]]; then
       exit 1
@@ -330,6 +331,26 @@ grep -F -- '--detach' "$workflow_home/native-start-args"
 create_sandbox_config "$workflow_project" full opencode none
 start_container_with_setup "$workflow_project"
 grep -F -- 'opencode' "$podman_log"
+SCRIPT_DIR="$PROJECT_ROOT/dist/scripts"
+
+# The web start option is selectable during creation and passed through to
+# start.sh; access of a running web project reports the published URL.
+# Restore the real select_start_option (an earlier test stub replaced it).
+# shellcheck disable=SC1091
+source "$PROJECT_ROOT/dist/scripts/start-tui.sh"
+show_menu() { printf '%s\n' 'web'; }
+captured_start_choice=""
+select_vcs_tracking() { captured_start_choice="${*: -1}"; }
+select_start_option /tmp/project Test full
+[[ "$captured_start_choice" == web ]]
+
+SCRIPT_DIR="$workflow_home/native"
+web_project_log="$workflow_home/web-access-output"
+create_sandbox_config "$workflow_project" full web none
+start_container_with_setup "$workflow_project" > "$web_project_log"
+grep -F -- '--start_web' "$workflow_home/native-start-args"
+! grep -F -- '--start_opencode' "$workflow_home/native-start-args"
+grep -q 'OpenCode Web: http://127.0.0.1:4096' "$web_project_log"
 SCRIPT_DIR="$PROJECT_ROOT/dist/scripts"
 
 # A failed native start must return to its caller when Go back is selected,

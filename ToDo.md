@@ -17,8 +17,6 @@
   - desktop entry -> on WSL / MAC?
   
 - update build-container.sh to support building only singe container and editions
-  
-- as a developer, i want to add an webui mode --oc_webui flag: run opencode webui --port 4096 -> port passthroug im Startscript für OC Weboberfläche
 
 ### Docker image
 
@@ -44,6 +42,7 @@
 
 
 # Done
+- webui start option: `--start_web` flag on start.sh / start option "web" in TUI; detached container runs `opencode web --port 4096` as main process, host port scanned 4096-4196, URL printed; foreground variant via bash_profile (was: --oc_webui flag)
 - first-run skills setup runs as interactive OpenCode TUI session (`opencode --prompt "run skill setup-matt-pocock-skills" -m "$OPENCODE_MODEL"`) so skill questions reach the user (ADR-0014)
 - uninstall.sh: enhanced error handling & reporting (#29)
   - permission-denied files skipped & tracked (SKIPPED_FILES)

@@ -159,6 +159,8 @@ sudo udevadm trigger
 - `--offline` – Komplett offline (kein Netzwerk)
 - `--hil_mode` – HIL-Tests mit USB-Geräten (Oszilloskop, MCU)
 - `--cbm_ui` – CBM Knowledge-Graph-UI (Port 9749)
+- `--start_opencode` – OpenCode direkt nach Container-Start starten
+- `--start_web` – OpenCode-Weboberfläche starten (`opencode web --port 4096`, veröffentlicht auf 127.0.0.1, Port-Scan 4096-4196; mit `--detach` läuft der Server als Container-Hauptprozess und die URL wird ausgegeben)
 
 ## Deinstallation
 

@@ -67,7 +67,7 @@ dist/
 {
   "container_edition": "full|web|embedded|base",
   "container_modes": ["use_proxy", "offline", "hil_mode", "cbm_ui"],
-  "start_option": "console|opencode",
+  "start_option": "console|opencode|web",
   "cbm_auto_index": true,
   "cbm_auto_watch": true,
   "ai_provider": "gwdg-saia|none",

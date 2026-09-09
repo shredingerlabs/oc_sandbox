@@ -666,7 +666,7 @@ select_start_option() {
   shift 3
   local modes=("$@")
 
-  local options=("console" "opencode" "← Go Back")
+  local options=("console" "opencode" "web" "← Go Back")
   local start_option=$(show_menu "Select start option" "${options[@]}")
 
   if [[ "$start_option" == "← Go Back" ]]; then
@@ -1182,7 +1182,7 @@ revisit_project_settings() {
   validate_container_modes "${selected_modes[@]}" || return 1
 
   local start_choice
-  start_choice=$(show_menu_prefilled "Select start option" "$current_start" console opencode "← Go Back")
+  start_choice=$(show_menu_prefilled "Select start option" "$current_start" console opencode web "← Go Back")
   [[ "$start_choice" != "← Go Back" ]] || return 1
 
   local vcs_choice
@@ -1249,6 +1249,9 @@ start_container() {
 
   if [[ "$start_option" == "opencode" && "$detached" != "true" ]]; then
     start_args+=("--start_opencode")
+  fi
+  if [[ "$start_option" == "web" ]]; then
+    start_args+=("--start_web")
   fi
   [[ "$detached" == "true" ]] && start_args+=("--detach")
 
@@ -1434,6 +1437,17 @@ access_running_container() {
   local container_name=$(container_name_for_project "$project_data")
   local start_option=$(jq -r '.start_option' "$config_path")
 
+  if [[ "$start_option" == "web" ]]; then
+    local web_port
+    if web_port=$(podman port "$container_name" 4096/tcp 2>/dev/null | head -n 1); then
+      [[ -n "$web_port" ]] && printf 'OpenCode Web: http://%s\n' "$web_port"
+    fi
+    if [[ -z "${web_port:-}" ]]; then
+      echo "Note: OpenCode Web is not published for this project (the container may not run the web server)." >&2
+    fi
+    return 0
+  fi
+
   if [[ "$start_option" == "opencode" ]]; then
     podman exec -it --user dev "$container_name" opencode
   else
@@ -1494,7 +1508,7 @@ detect_available_editions() {
   AVAILABLE_MODES=()
   while read -r mode; do
     [[ -n "$mode" ]] && AVAILABLE_MODES+=("$mode")
-  done < <(grep -oE -- '(^|[[:space:]])--[a-zA-Z0-9_-]+' <<< "$start_help" | sed -E 's/^[[:space:]]*--//' | grep -Ev '^(start_opencode|edition|detach|container-id|help)$' | awk '!seen[$0]++')
+  done < <(grep -oE -- '(^|[[:space:]])--[a-zA-Z0-9_-]+' <<< "$start_help" | sed -E 's/^[[:space:]]*--//' | grep -Ev '^(start_opencode|start_web|edition|detach|container-id|help)$' | awk '!seen[$0]++')
   if [[ ${#AVAILABLE_MODES[@]} -eq 0 ]]; then
     echo "Error: start.sh help did not list any supported modes." >&2
     return 1

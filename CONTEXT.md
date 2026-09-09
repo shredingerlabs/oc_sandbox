@@ -126,4 +126,8 @@
 
 **DEINSTALL confirmation** — Typed text confirmation required on the deinstallation summary before anything is removed; rendered as a red gum input when gum is available, plain `read` fallback otherwise.
 
+**web start option** — Launch style that runs the project container as a web server (`opencode web --port 4096`). Selectable at project creation and in settings; the server runs from the first start (first-run setup executes alongside via exec). Following the detached+exec start architecture, the detached container runs the web server as its main process, the host port is auto-scanned upward from 4096 (like the CBM-UI range), and the actual URL is printed rather than opening a browser. The server is stopped via normal container stop. Direct CLI usage of start.sh with `--start_web` and without `--detach` runs the server foreground, where Ctrl+C stops and removes the container (`--rm`). Implemented via the `--start_web` flag on start.sh, mirroring `--start_opencode`.
+
+**squid allowlist scope** — The squid egress proxy governs outbound traffic from inside the container only. Host-browser access to published container ports (web UI, CBM UI) never traverses squid, so allowlist entries are never needed for ingress.
+
 **skipped files** — Files that could not be removed during deinstallation because of missing permissions; tracked during removal and reported at the end with a hint to clean them up manually (e.g. with sudo).
