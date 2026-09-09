@@ -335,7 +335,7 @@ remove_symlinks() {
   
   log_info "Prüfe auf Symlinks in $bin_dir..."
   
-  local scripts=("build-container.sh" "init-project.sh" "start.sh" "start-tui.sh" "create-release.sh" "install.sh" "uninstall.sh")
+  local scripts=("oc-sandbox" "build-container.sh" "init-project.sh" "start.sh" "start-tui.sh" "create-release.sh" "install.sh" "uninstall.sh")
   
   for script in "${scripts[@]}"; do
     local link="$bin_dir/$script"

@@ -56,7 +56,7 @@
 
 **disk space check** — Validates minimum 500MB available disk space before starting installation.
 
-**symlinks** — Optional `--symlinks` flag creates symlinks in `$HOME/.local/bin` for easier command access.
+**symlinks** — Optional `--symlinks` flag creates a single symlink `oc-sandbox` → `scripts/start-tui.sh` in `$HOME/.local/bin` for easier command access.
 
 **color output** — Install script output uses plain text only for maximum compatibility. The TUI may use color through gum (e.g. the red `DEINSTALL` confirmation prompt), with plain-text fallback.
 
@@ -82,7 +82,7 @@
 
 **signal handling** — Handles SIGINT (Ctrl+C) gracefully to clean up temporary files before exiting.
 
-**symlink creation** — Creates symlinks for all executable scripts from `scripts/` directory when `--symlinks` flag is used.
+**symlink creation** — Creates a single entry-point symlink `oc-sandbox` → `scripts/start-tui.sh` when `--symlinks` flag is used; removes stale symlinks in `$HOME/.local/bin` pointing into the install path first.
 
 **symlink overwriting** — Overwrites existing symlinks without prompting when using `--symlinks` flag.
 

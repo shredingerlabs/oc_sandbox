@@ -65,7 +65,7 @@ Das Skript:
 - `--install_path <pfad>` – Installationspfad (default: `~/.oc-sandbox`)
 - `--version <tag>` – Spezifische Version installieren (default: latest)
 - `--force` – Vorhandene Installation ohne Nachfrage überschreiben
-- `--symlinks` – Symlinks in `~/.local/bin` erstellen
+- `--symlinks` – Symlink `oc-sandbox` → `start-tui.sh` in `~/.local/bin` erstellen
 - `--verbose` – Detaillierte Ausgabe
 
 **Nächste Schritte:** [Voraussetzungen](#voraussetzungen) erfüllen, dann

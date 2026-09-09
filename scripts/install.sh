@@ -481,25 +481,35 @@ create_symlinks() {
   
   mkdir -p "$bin_dir"
   
-  local scripts_dir="${install_dir}/scripts"
-  if [[ -d "$scripts_dir" ]]; then
-    while IFS= read -r -d '' script; do
-      local script_name
-      script_name=$(basename "$script")
-      
-      local link_target="${bin_dir}/${script_name}"
-      
-      # Entferne existierenden Symlink
-      if [[ -L "$link_target" ]]; then
-        rm "$link_target"
-        log_verbose "Entferne existierenden Symlink: $link_target"
-      fi
-      
-      # Erstelle neuen Symlink
-      ln -s "$script" "$link_target"
-      log_verbose "Erzeuge Symlink: $link_target -> $script"
-    done < <(find "$scripts_dir" -type f -name "*.sh" -print0 2>/dev/null)
+  # Entferne veraltete Symlinks, die in die Installation zeigen
+  while IFS= read -r -d '' link; do
+    local target
+    target=$(readlink "$link")
+    if [[ "$target" == "$install_dir"* ]]; then
+      rm "$link"
+      log_verbose "Entferne veralteten Symlink: $link -> $target"
+    fi
+  done < <(find "$bin_dir" -maxdepth 1 -type l -print0 2>/dev/null)
+  
+  # Erzeuge einzelnen Entry-Point-Symlink
+  local script="${install_dir}/scripts/start-tui.sh"
+  
+  if [[ ! -f "$script" ]]; then
+    log_error "Skript nicht gefunden: $script"
+    return 1
   fi
+  
+  local link_target="${bin_dir}/oc-sandbox"
+  
+  # Entferne existierenden Symlink
+  if [[ -L "$link_target" ]]; then
+    rm "$link_target"
+    log_verbose "Entferne existierenden Symlink: $link_target"
+  fi
+  
+  # Erstelle neuen Symlink
+  ln -s "$script" "$link_target"
+  log_verbose "Erzeuge Symlink: $link_target -> $script"
 }
 
 validate_installation() {
@@ -745,13 +755,9 @@ main() {
 
   if $SYMLINKS; then
     echo ""
-    echo "Symlinks erstellt in \$HOME/.local/bin/."
-    echo "Sie können die Skripte jetzt von überall aufrufen:"
-    echo "  build-container.sh"
-    echo "  init-project.sh"
-    echo "  start.sh"
-    echo "  start-tui.sh"
-    echo "  uninstall.sh"
+    echo "Symlink erstellt in \$HOME/.local/bin/."
+    echo "Sie können die Sandbox jetzt von überall starten:"
+    echo "  oc-sandbox"
   fi
 }
 
