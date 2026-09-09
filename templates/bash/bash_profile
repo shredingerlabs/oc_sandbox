@@ -1,0 +1,8 @@
+# OpenCode Sandbox - User Bash Profile
+# This file is copied to ~/.bash_profile during project initialization and runs
+# on container start. It handles automatic opencode startup when requested.
+
+if [[ "${START_OPENCODE}" == "true" ]]; then
+  echo "Starting OpenCode..."
+  opencode
+fi
