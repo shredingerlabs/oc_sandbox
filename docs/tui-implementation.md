@@ -431,9 +431,11 @@ run_first_run_setup() {
     return 1
   fi
 
-  # Skills Setup (interactive stdin/stdout via the attached exec)
+  # Skills Setup (interactive OpenCode TUI session via the attached exec;
+  # model and prompt make skill questions answerable by the user, ADR-0014)
   echo "Setting up skills..."
-  if podman exec -it --user dev "$container_name" opencode run "setup-matt-pocock-skills"; then
+  if podman exec -it --user dev "$container_name" \
+    opencode --prompt "run skill setup-matt-pocock-skills" -m "$OPENCODE_MODEL"; then
     update_sandbox_config_field "$config_path" "setup_skills_complete" "true"
   else
     return 1

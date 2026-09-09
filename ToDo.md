@@ -44,6 +44,7 @@
 
 
 # Done
+- first-run skills setup runs as interactive OpenCode TUI session (`opencode --prompt "run skill setup-matt-pocock-skills" -m "$OPENCODE_MODEL"`) so skill questions reach the user (ADR-0014)
 - uninstall.sh: enhanced error handling & reporting (#29)
   - permission-denied files skipped & tracked (SKIPPED_FILES)
   - skipped files listed at end of deinstallation

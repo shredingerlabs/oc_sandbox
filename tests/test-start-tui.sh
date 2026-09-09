@@ -251,14 +251,13 @@ case "${1:-}" in
     if [[ "${PODMAN_FAIL_CBM:-false}" == true && "$*" == *codebase-memory-mcp* ]]; then
       exit 1
     fi
-    if [[ "${PODMAN_FAIL_SKILLS:-false}" == true && "$*" == *'opencode run'* ]]; then
+    if [[ "${PODMAN_FAIL_SKILLS:-false}" == true && "$*" == *'setup-matt-pocock-skills'* ]]; then
       exit 1
     fi
-    if [[ "$*" == *'opencode run'* ]]; then
+    if [[ "$*" == *'setup-matt-pocock-skills'* ]]; then
       [[ "$*" == *'exec -it '* ]] || exit 1
       [[ "$*" != *'bash -c'* ]] || exit 1
-      IFS= read -r skills_input || true
-      printf '%s\n' "$skills_input" > "$SKILLS_INPUT_LOG"
+      printf '%s\n' "$*" > "$SKILLS_INPUT_LOG"
       printf 'interactive skills output\n'
     fi
     exit 0
@@ -439,11 +438,12 @@ set -e
 
 export PODMAN_FAIL_SKILLS=false
 show_menu() { printf '%s\n' 'Retry'; }
-skills_output=$(printf 'interactive input\n' | run_first_run_setup "$recovery_project")
+skills_output=$(run_first_run_setup "$recovery_project")
 [[ "$(jq -r '.setup_complete' "$recovery_project/.opencode_config/sandbox_config.json")" == true ]]
 [[ "$(jq -r '.setup_cbm_complete' "$recovery_project/.opencode_config/sandbox_config.json")" == true ]]
 [[ "$(jq -r '.setup_skills_complete' "$recovery_project/.opencode_config/sandbox_config.json")" == true ]]
-[[ "$(<"$skills_input_log")" == 'interactive input' ]]
+[[ "$(<"$skills_input_log")" == *'opencode --prompt run skill setup-matt-pocock-skills'* ]]
+[[ "$(<"$skills_input_log")" == *'-m opencode/big-pickle'* ]]
 [[ "$skills_output" == *'interactive skills output'* ]]
 
 # A cancelled recoverable operation returns to its caller rather than exiting the shell.
