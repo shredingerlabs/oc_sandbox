@@ -55,9 +55,16 @@ Non-empty project-local Git `user.name` and `user.email` are requested for every
 non-`none` VCS choice. A failed start offers `Retry`, `Go back`, or `Exit`; retry
 reopens the settings with current values.
 
+Project setup also selects a start option: `console` (shell), `opencode`
+(OpenCode TUI), or `web` (OpenCode web surface). With `web`, the container runs
+`opencode web --port 4096` permanently as a background service, published on
+`127.0.0.1` (port scan 4096-4196); the TUI prints the URL after start and when
+accessing the running project.
+
 If the selected container image is missing, the TUI offers `Build now`, `Build
 later`, or `Go back`. New projects run setup in a detached container and then
-attach to the selected console or OpenCode session.
+attach to the selected console or OpenCode session (with the `web` start option,
+the web surface URL is printed instead).
 
 First-run setup records CBM and skills progress separately. CBM runs without a
 terminal; the skills command runs through an attached `podman exec -it`, so its

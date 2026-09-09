@@ -31,13 +31,20 @@ Für jede VCS-Auswahl außer `none` fragt die TUI die projekt-lokale Git-Identit
 `Retry` die vollständige Einstellungsauswahl mit den aktuellen Werten; `Go back`
 kehrt zum übergeordneten Wizard zurück.
 
+Bei der Projekteinrichtung wählt die TUI zusätzlich eine Start-Option:
+`console` (Shell), `opencode` (OpenCode-TUI) oder `web` (OpenCode-Weboberfläche).
+Bei `web` läuft im Container dauerhaft `opencode web --port 4096` als
+Hintergrunddienst, veröffentlicht auf `127.0.0.1` (Port-Scan 4096-4196); die
+TUI zeigt nach dem Start bzw. beim Zugriff auf das laufende Projekt die URL an.
+
 Fehlende Container-Images bieten **Build now**, **Build later** oder **Go back**.
 Neue Projekte werden für die Einrichtung detached gestartet. Die CBM-Konfiguration
 läuft nicht-interaktiv; die Skills-Einrichtung startet anschließend über ein
 interaktives `podman exec -it` eine OpenCode-TUI-Sitzung mit dem Modell
 `opencode/big-pickle` und dem Prompt „run skill setup-matt-pocock-skills",
 sodass Fragen des Skills direkt beantwortet werden können, bevor die
-ausgewählte Console- oder OpenCode-Sitzung angeschlossen wird.
+ausgewählte Console- oder OpenCode-Sitzung angeschlossen wird (bei der
+Start-Option `web` wird stattdessen die URL der Weboberfläche ausgegeben).
 Schlägt die Ersteinrichtung fehl, bleibt das Projekt registriert und bietet
 `Retry`, `Go back` oder `Exit`; ein erneuter Versuch wiederholt nur den
 unvollständigen Einrichtungsschritt.
