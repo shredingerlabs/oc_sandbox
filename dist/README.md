@@ -85,6 +85,36 @@ prompt when gum is available and a plain `read` fallback otherwise.
 - **embedded**: base + ARM toolchains/Arduino/MicroPython
 - **full**: web + embedded (default)
 
+## Installation & Update
+
+Installation bzw. Update per Bash one-liner (lädt das neueste Release von
+GitHub und installiert es nach `~/.oc-sandbox`):
+
+```bash
+curl -sL https://raw.githubusercontent.com/shredingerlabs/oc_sandbox/main/scripts/install.sh | bash
+```
+
+oder falls `curl` nicht verfügbar:
+
+```bash
+wget -qO- https://raw.githubusercontent.com/shredingerlabs/oc_sandbox/main/scripts/install.sh | bash
+```
+
+Der Aufruf kann jederzeit wiederholt werden, um auf die neueste Version zu
+aktualisieren: Vor dem Überschreiben einer bestehenden Installation wird
+nachgefragt, eigene Anpassungen an `proxy/allowlist.txt` bleiben erhalten
+(es sei denn, sie werden ausdrücklich überschrieben). Das Skript verwendet nie
+automatisch `sudo`.
+
+**Optionen:**
+- `--install_path <pfad>` – Installationspfad (default: `$HOME/.oc-sandbox`)
+- `--version <tag>` – Spezifische Version installieren (default: latest)
+- `--force` – Vorhandene Installation ohne Nachfrage überschreiben
+- `--symlinks` – Symlinks in `~/.local/bin` erstellen
+- `--verbose` – Detaillierte Ausgabe
+
+Deinstallation siehe [unten](#deinstallation).
+
 ## Schnellstart
 
 ### 1. Voraussetzungen

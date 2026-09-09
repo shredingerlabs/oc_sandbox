@@ -40,6 +40,38 @@ Schlägt die Ersteinrichtung fehl, bleibt das Projekt registriert und bietet
 `Retry`, `Go back` oder `Exit`; ein erneuter Versuch wiederholt nur den
 unvollständigen Einrichtungsschritt.
 
+## Installation
+
+Installation per Bash one-liner (lädt das neueste Release von GitHub und
+installiert es nach `~/.oc-sandbox`):
+
+```bash
+curl -sL https://raw.githubusercontent.com/shredingerlabs/oc_sandbox/main/scripts/install.sh | bash
+```
+
+oder falls `curl` nicht verfügbar:
+
+```bash
+wget -qO- https://raw.githubusercontent.com/shredingerlabs/oc_sandbox/main/scripts/install.sh | bash
+```
+
+Das Skript:
+- Ermittelt automatisch das neueste Release (oder eine feste Version per `--version`)
+- Fragt vor dem Überschreiben einer bestehenden Installation nach
+- Erhält bei Updates vorhandene `proxy/allowlist.txt`-Anpassungen
+- Verwendet nie automatisch `sudo`
+
+**Optionen:**
+- `--install_path <pfad>` – Installationspfad (default: `~/.oc-sandbox`)
+- `--version <tag>` – Spezifische Version installieren (default: latest)
+- `--force` – Vorhandene Installation ohne Nachfrage überschreiben
+- `--symlinks` – Symlinks in `~/.local/bin` erstellen
+- `--verbose` – Detaillierte Ausgabe
+
+**Nächste Schritte:** [Voraussetzungen](#voraussetzungen) erfüllen, dann
+[Image bauen](#1-image-bauen) und [Projekt-Root einrichten](#3-projekt-root-einrichten).
+Deinstallation siehe [unten](#deinstallation).
+
 ## Repository-Struktur
 
 ```

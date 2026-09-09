@@ -610,10 +610,10 @@ Beispiele:
   $0 --install_path ~/sandbox --version v1.0.0 --symlinks --verbose
 
 Bash one-liner:
-  curl -sL https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/main/install.sh | bash
+  curl -sL https://raw.githubusercontent.com/shredingerlabs/oc_sandbox/main/scripts/install.sh | bash
 
   oder falls curl nicht verfügbar:
-  wget -qO- https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/main/install.sh | bash
+  wget -qO- https://raw.githubusercontent.com/shredingerlabs/oc_sandbox/main/scripts/install.sh | bash
 
 EOF
 }
