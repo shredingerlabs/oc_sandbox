@@ -1,6 +1,25 @@
 {
   "$schema": "https://opencode.ai/config.json",
-  "plugin": ["opencode-models-discovery@1.5.3"],
+  "plugin": [
+    "opencode-models-discovery@1.5.3"
+  ],
+  "permission": {
+    "external_directory": {
+      "/tmp/**": "allow",
+      "/home/dev/**": "allow",
+      "/opt/picoscope/**": "allow",
+      "/usr/local/lib/python3.12/dist-packages/picosdk/**": "allow"
+    }
+  },
+  "mcp": {
+    "codebase-memory-mcp": {
+      "type": "local",
+      "command": [
+        "/usr/local/bin/codebase-memory-mcp"
+      ],
+      "enabled": true
+    }
+  },
   "provider": {
     "gwdg-saia": {
       "npm": "@ai-sdk/openai-compatible",
@@ -10,7 +29,7 @@
         "timeout": false,
         "modelsDiscovery": {
           "enabled": true,
-          "endpoint": "/models",
+          "smartModelName": true,
           "models": {
             "excludeBy": [
               {
@@ -25,40 +44,6 @@
           }
         }
       }
-    }
-  },
-  "model": "gwdg-saia/glm-4.7",
-  "small_model": "gwdg-saia/qwen3-30b-a3b-instruct-2507",
-  "agent": {
-    "plan": {
-      "model": "gwdg-saia/qwen3.5-397b-a17b"
-    },
-    "build": {
-      "model": "gwdg-saia/glm-4.7"
-    },
-    "general": {
-      "model": "gwdg-saia/deepseek-v4-flash"
-    },
-    "explore": {
-      "model": "gwdg-saia/qwen3.6-27b"
-    },
-    "scout": {
-      "model": "gwdg-saia/qwen3.5-397b-a17b"
-    },
-    "debug": {
-      "mode": "subagent",
-      "description": "Tiefes Debugging über große Codebasen, lange Logs oder Multi-File-Traces (ROS2, C++, Web)",
-      "model": "gwdg-saia/deepseek-v4-flash"
-    },
-    "embedded": {
-      "mode": "subagent",
-      "description": "Code-Generierung/Debugging für MicroPython, Arduino Framework, PicoScope-ctypes-Anbindung",
-      "model": "gwdg-saia/qwen3-coder-next"
-    },
-    "webapp": {
-      "mode": "subagent",
-      "description": "Frontend/Backend-Code für moderne Web Apps",
-      "model": "gwdg-saia/glm-4.7"
     }
   }
 }
