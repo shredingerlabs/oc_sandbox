@@ -27,7 +27,15 @@ Für **jede neue Aufgabe jeweils eine neue Session** starten. Bereits nach relat
 
 - Englische Promps funktionieren meißt besser
 
-- Große Prompts kann .md Files auslagern, sauber strukturieren und im Prompt darauf referenzieren
+- **Große Prompts** kann .md Files **auslagern**, sauber strukturieren und im Prompt darauf referenzieren
+
+- Für **Planungsaufgaben** (wayfinder, grilling, ...) möglichst gute Modelle und **hohes Reasoning** einstellen (/variants)
+
+- Für **Implementierungsaufgaben** gehen auch einfachere Modelle und **niedriges** oder kein **Reasoning** funktioniert besser
+
+- **Alle** unten genannten **Skills im Build-Mode** ausführen (Umschalten über Tab).
+
+- Plan-Mode nur für marginale Änderungen. 
 
 ## Skill-Reihenfolge
 
