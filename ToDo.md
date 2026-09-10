@@ -1,22 +1,19 @@
 # ToDos
 
 ### sandbox
-- symlinks only for start-tui as "oc-sandbox" (install.sh)	
-
+- GWDG provider endpoint to the squid allowlist e.g. chat-ai.academiccloud.de
+- add .config folder to allow list (at least read??) for code review skill
+- add connect to a running session
+- add "open new to console" on existing container
 - Add implementation to re-/build to Start Option (-> build-container.sh)
 
 - test new tui interface
-- test if run "setup...-skills" works if skills are in folder
-
-- test create dist release script
 
 - copy templates/docs on init to project folder
 	
 - integrate start better into OS
   - symlink with oc_sandbox -> on mac?
   - desktop entry -> on WSL / MAC?
-  
-- update build-container.sh to support building only singe container and editions
 
 ### Docker image
 
@@ -26,16 +23,17 @@
 
 ### afkLoop
   - --verbose flag for output in terminal
-  - add a short sleep time between iteration -> not accidentaly start when already doen
+  - add a short sleep time between iteration -> not accidentaly start when already done
   - change LoopPrompt after two or three failing attempts to one with bug fix approach.
   - give the stdout to next loop?
   - give error-log to next loop (ater thee? failing attempts?)
 
 # Bugs	
-
+- create dist release creates only tag no release on --pre option
+- build web container hung
 
 # in progress
-    
+
 
 
 
@@ -85,7 +83,7 @@ One common start and setup mechanism / script:
   - ask for git host and token -> copy only these files
   - ask for gdwg saia token -> copy opencode.json with gwdg models and create auth.json with token and host
   - ask for opencode go token -> add to auth.json
-- on startup
+- on startup	
   1. Start 
     - select project from list
     - select modes (proxy, offline, cbm-ui, hil, ...)
@@ -97,3 +95,9 @@ One common start and setup mechanism / script:
     - Start Opencode and codebase-memory
 - install better-sqlite3
 - implement wayfinder map TUI (untested)
+- symlinks only for start-tui as "oc-sandbox" (install.sh) (check if done)	
+- test if run "setup...-skills" works if skills are in folder
+- test create dist release script
+- update build-container.sh to support building only singe container and editions
+- init matt skills accepts no input
+- wenn user input in opencode run nicht funktioniert, dann is bash init first start flag und opencode with model and prompt flagö
