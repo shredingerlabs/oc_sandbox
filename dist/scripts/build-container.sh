@@ -22,32 +22,32 @@ fi
 case "$EDITION" in
   base)
     echo "==> Baue opencode-sandbox-base"
-    podman build -t opencode-sandbox-base --target opencode-sandbox-base -f Dockerfile .
+    podman build --network host -t opencode-sandbox-base --target opencode-sandbox-base -f Dockerfile .
     ;;
   web)
     echo "==> Baue opencode-sandbox-web"
-    podman build -t opencode-sandbox-web --target opencode-sandbox-web -f Dockerfile .
+    podman build --network host -t opencode-sandbox-web --target opencode-sandbox-web -f Dockerfile .
     ;;
   embedded)
     echo "==> Baue opencode-sandbox-embedded"
-    podman build -t opencode-sandbox-embedded --target opencode-sandbox-embedded -f Dockerfile .
+    podman build --network host -t opencode-sandbox-embedded --target opencode-sandbox-embedded -f Dockerfile .
     ;;
   full)
     echo "==> Baue opencode-sandbox-base"
-    podman build -t opencode-sandbox-base --target opencode-sandbox-base -f Dockerfile .
+    podman build --network host -t opencode-sandbox-base --target opencode-sandbox-base -f Dockerfile .
     echo "==> Baue opencode-sandbox-web"
-    podman build -t opencode-sandbox-web --target opencode-sandbox-web -f Dockerfile .
+    podman build --network host -t opencode-sandbox-web --target opencode-sandbox-web -f Dockerfile .
     echo "==> Baue opencode-sandbox-embedded"
-    podman build -t opencode-sandbox-embedded --target opencode-sandbox-embedded -f Dockerfile .
+    podman build --network host -t opencode-sandbox-embedded --target opencode-sandbox-embedded -f Dockerfile .
     echo "==> Baue opencode-sandbox-full (web + embedded)"
-    podman build -t opencode-sandbox-full --target opencode-sandbox-full -f Dockerfile .
+    podman build --network host -t opencode-sandbox-full --target opencode-sandbox-full -f Dockerfile .
     ;;
   all)
     echo "==> Baue alle Editionen"
-    podman build -t opencode-sandbox-base --target opencode-sandbox-base -f Dockerfile .
-    podman build -t opencode-sandbox-web --target opencode-sandbox-web -f Dockerfile .
-    podman build -t opencode-sandbox-embedded --target opencode-sandbox-embedded -f Dockerfile .
-    podman build -t opencode-sandbox-full --target opencode-sandbox-full -f Dockerfile .
+    podman build --network host -t opencode-sandbox-base --target opencode-sandbox-base -f Dockerfile .
+    podman build --network host -t opencode-sandbox-web --target opencode-sandbox-web -f Dockerfile .
+    podman build --network host -t opencode-sandbox-embedded --target opencode-sandbox-embedded -f Dockerfile .
+    podman build --network host -t opencode-sandbox-full --target opencode-sandbox-full -f Dockerfile .
     ;;
   *)
     echo "Unbekannte Edition: $EDITION" >&2
