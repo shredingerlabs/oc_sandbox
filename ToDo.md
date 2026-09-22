@@ -1,7 +1,7 @@
 # ToDos
 
 ### sandbox
-- GWDG provider endpoint to the squid allowlist e.g. chat-ai.academiccloud.de
+
 - add .config folder to allow list (at least read??) for code review skill
 - add connect to a running session
 - add "open new to console" on existing container
@@ -22,6 +22,8 @@
   - change the picoscope usb mount mechanism from mounting whole bus to the same as usb µC devices is possible (but without symlinks)
 
 ### afkLoop
+  - add a tracker flag (gh or glab) 
+  - add a issue number functionality (combined with tracker flag)
   - --verbose flag for output in terminal
   - add a short sleep time between iteration -> not accidentaly start when already done
   - change LoopPrompt after two or three failing attempts to one with bug fix approach.
@@ -101,3 +103,4 @@ One common start and setup mechanism / script:
 - update build-container.sh to support building only singe container and editions
 - init matt skills accepts no input
 - wenn user input in opencode run nicht funktioniert, dann is bash init first start flag und opencode with model and prompt flagö
+- GWDG provider endpoint to the squid allowlist e.g. chat-ai.academiccloud.de

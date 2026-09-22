@@ -23,7 +23,7 @@ Für **jede neue Aufgabe jeweils eine neue Session** starten. Bereits nach relat
 
 - Ergebnisse, wichtige **Infos**, usw. **extern speichern und verfügbar machen** (github / gitlab issues oder .md files sind gut geeignet)
 
--  **Compaction** unbedingt **vermeiden**
+- **Compaction** unbedingt **vermeiden**
 
 - Englische Promps funktionieren meißt besser
 
@@ -107,16 +107,16 @@ Umsetzen eines `ready-for-agent` Ticket zur Implementierung :
 
 Starten einer Wayfinder Session:
 
-`Use /grill-me-with-docs skill on: "Hier die Idee beschreiben. Lose Idee oder umfangreiche, detailierte Anwendungsbeschreibung möglich."`
+` /grill-me-with-docs Hier die Idee beschreiben. Lose Idee oder umfangreiche, detailierte Anwendungsbeschreibung möglich.`
 
 1. Am Ende der Session (wenn Ergebnis mehr als eine implementierungs-Session benötigt)
-   `Use /to-spec skill`
+   ` /to-spec` 
    dann:
-   `Use /to-tickets skill spec gh issue #4.`
+   ` /to-tickets on spec gh issue #4.` (Nummer des Tickets anpassen)
    dann umsetzen eines `ready-for-agent` Ticket zur Implementierung :
-   
-   `Use skill /implement on ticket gh issue #3. Only if implementation is complete and all tests are green, close ticket and commit.`
+   ` /implement on ticket gh issue #3. Only if implementation is complete and all tests are green, close ticket and commit.`
 
 2. Am Ende einer kurzen Session 
-   `implement using /implement skill`
-   
+   ` /implement`
+
+<u>**TIPP:**</u> Mit einem **Leerzeichen vor /skillname** wird der Skill über das Skill-Tool geöffnet und nicht komplett im Terminal ausgegeben.
