@@ -6,9 +6,9 @@
   "permission": {
     "external_directory": {
       "/tmp/**": "allow",
-      "/home/dev/**": "allow",
+      "/home/dev/**": "read",
       "/opt/picoscope/**": "allow",
-      "/usr/local/lib/python3.12/dist-packages/picosdk/**": "allow"
+      "/usr/local/lib/python3.12/dist-packages/picosdk/**": "allow",
     }
   },
   "mcp": {
