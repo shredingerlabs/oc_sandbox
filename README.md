@@ -180,7 +180,7 @@ Siehe [Voraussetzungen](#voraussetzungen) und [Projekt-Root einrichten](#3-proje
 
 ```bash
 sudo apt-get update
-sudo apt-get install -y podman paste fuse-overlayfs
+sudo apt-get install -y git curl podman passt fuse-overlayfs
 ```
 
 Podman rootless prüfen:
