@@ -121,7 +121,8 @@ Create a downloadable install script and bash one-liner that automates the entir
 **Advanced Features**
 - GitHub API: Unauthenticated, handle rate limits gracefully
 - Special file handling: Only `proxy/allowlist.txt` protected during updates
-- Symlink creation: All executable scripts from `scripts/` directory
+- Symlink creation: Single entry-point symlink `oc-sandbox` → `scripts/start-tui.sh` in `~/.local/bin`
+- Stale symlink cleanup: Removes existing symlinks in `~/.local/bin` pointing into the install path before creating the `oc-sandbox` symlink
 - Existing symlink handling: Overwrite without prompting when using `--symlinks`
 - Logging: stdout/stderr only, no log files created
 

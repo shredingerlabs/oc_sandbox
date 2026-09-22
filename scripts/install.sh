@@ -8,7 +8,7 @@ set -euo pipefail
 # --- Konfiguration ------------------------------------------------------------
 REPO_OWNER="shredingerlabs"
 REPO_NAME="oc_sandbox"
-DEFAULT_INSTALL_PATH="$HOME/.opencode_sandbox"
+DEFAULT_INSTALL_PATH="$HOME/.oc-sandbox"
 MIN_DISK_SPACE_MB=500
 GITHUB_API_BASE="https://api.github.com"
 TEMP_DIR=""
@@ -25,7 +25,7 @@ PRESERVE_ALLOWLIST=true
 
 # --- Gum Configuration ---------------------------------------------------------
 GUM_VERSION="${GUM_VERSION:-0.17.0}"
-GUM_BIN="${DEFAULT_INSTALL_PATH}/gum"
+GUM_BIN="${DEFAULT_INSTALL_PATH}/gum/gum"
 PLATFORM_OS=""
 PLATFORM_ARCH=""
 
@@ -201,6 +201,7 @@ install_gum() {
   fi
 
   mkdir -p "$INSTALL_PATH"
+  mkdir -p "$(dirname "$GUM_BIN")"
   cp "$extracted_bin" "$GUM_BIN"
   chmod +x "$GUM_BIN"
 
@@ -480,25 +481,35 @@ create_symlinks() {
   
   mkdir -p "$bin_dir"
   
-  local scripts_dir="${install_dir}/scripts"
-  if [[ -d "$scripts_dir" ]]; then
-    while IFS= read -r -d '' script; do
-      local script_name
-      script_name=$(basename "$script")
-      
-      local link_target="${bin_dir}/${script_name}"
-      
-      # Entferne existierenden Symlink
-      if [[ -L "$link_target" ]]; then
-        rm "$link_target"
-        log_verbose "Entferne existierenden Symlink: $link_target"
-      fi
-      
-      # Erstelle neuen Symlink
-      ln -s "$script" "$link_target"
-      log_verbose "Erzeuge Symlink: $link_target -> $script"
-    done < <(find "$scripts_dir" -type f -name "*.sh" -print0 2>/dev/null)
+  # Entferne veraltete Symlinks, die in die Installation zeigen
+  while IFS= read -r -d '' link; do
+    local target
+    target=$(readlink "$link")
+    if [[ "$target" == "$install_dir"* ]]; then
+      rm "$link"
+      log_verbose "Entferne veralteten Symlink: $link -> $target"
+    fi
+  done < <(find "$bin_dir" -maxdepth 1 -type l -print0 2>/dev/null)
+  
+  # Erzeuge einzelnen Entry-Point-Symlink
+  local script="${install_dir}/scripts/start-tui.sh"
+  
+  if [[ ! -f "$script" ]]; then
+    log_error "Skript nicht gefunden: $script"
+    return 1
   fi
+  
+  local link_target="${bin_dir}/oc-sandbox"
+  
+  # Entferne existierenden Symlink
+  if [[ -L "$link_target" ]]; then
+    rm "$link_target"
+    log_verbose "Entferne existierenden Symlink: $link_target"
+  fi
+  
+  # Erstelle neuen Symlink
+  ln -s "$script" "$link_target"
+  log_verbose "Erzeuge Symlink: $link_target -> $script"
 }
 
 validate_installation() {
@@ -513,6 +524,8 @@ validate_installation() {
     "scripts/start.sh"
     "scripts/build-container.sh"
     "scripts/init-project.sh"
+    "scripts/start-tui.sh"
+    "scripts/uninstall.sh"
     "Dockerfile"
   )
   
@@ -607,10 +620,10 @@ Beispiele:
   $0 --install_path ~/sandbox --version v1.0.0 --symlinks --verbose
 
 Bash one-liner:
-  curl -sL https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/main/install.sh | bash
+  curl -sL https://raw.githubusercontent.com/shredingerlabs/oc_sandbox/main/scripts/install.sh | bash
 
   oder falls curl nicht verfügbar:
-  wget -qO- https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/main/install.sh | bash
+  wget -qO- https://raw.githubusercontent.com/shredingerlabs/oc_sandbox/main/scripts/install.sh | bash
 
 EOF
 }
@@ -739,14 +752,12 @@ main() {
   echo ""
   echo "  5. Interaktive TUI starten:"
   echo "     ${INSTALL_PATH}/scripts/start-tui.sh"
-  
+
   if $SYMLINKS; then
     echo ""
-    echo "Symlinks erstellt in \$HOME/.local/bin/."
-    echo "Sie können die Skripte jetzt von überall aufrufen:"
-    echo "  build-container.sh"
-    echo "  init-project.sh"
-    echo "  start.sh"
+    echo "Symlink erstellt in \$HOME/.local/bin/."
+    echo "Sie können die Sandbox jetzt von überall starten:"
+    echo "  oc-sandbox"
   fi
 }
 

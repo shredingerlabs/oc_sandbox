@@ -1,0 +1,3 @@
+# VCS Integration vs AI Provider Separation
+
+Decided to treat version control services (none, GitHub, public GitLab, self-hosted GitLab, or another host) and AI providers (GWDG) as completely separate configuration stages. GitHub credentials use the project-local gh host file, both GitLab choices use the glab host file keyed by the selected host, and other hosts use the generic VCS host file. Every non-none VCS choice also updates only project-local `user.name` and `user.email`; AI providers generate auth.json with provider sections in .opencode_data/. Each project supports one VCS tracking option with optional AI provider configuration, maintaining clear separation between code versioning and AI services while supporting both simultaneously.

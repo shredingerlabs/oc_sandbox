@@ -2,22 +2,18 @@
 
 ### sandbox
 
+- add .config folder to allow list (at least read??) for code review skill
+- add connect to a running session
+- add "open new to console" on existing container
 - Add implementation to re-/build to Start Option (-> build-container.sh)
 
 - test new tui interface
-- test if run "setup...-skills" works if skills are in folder
-
-- test create dist release script
 
 - copy templates/docs on init to project folder
 	
 - integrate start better into OS
   - symlink with oc_sandbox -> on mac?
   - desktop entry -> on WSL / MAC?
-  
-- update build-container.sh to support building only singe container and editions
-  
-- as a developer, i want to add an webui mode --oc_webui flag: run opencode webui --port 4096 -> port passthroug im Startscript für OC Weboberfläche
 
 ### Docker image
 
@@ -26,23 +22,34 @@
   - change the picoscope usb mount mechanism from mounting whole bus to the same as usb µC devices is possible (but without symlinks)
 
 ### afkLoop
+  - add a tracker flag (gh or glab) 
+  - add a issue number functionality (combined with tracker flag)
   - --verbose flag for output in terminal
-  - add a short sleep time between iteration -> not accidentaly start when already doen
+  - add a short sleep time between iteration -> not accidentaly start when already done
   - change LoopPrompt after two or three failing attempts to one with bug fix approach.
   - give the stdout to next loop?
   - give error-log to next loop (ater thee? failing attempts?)
 
 # Bugs	
-
+- create dist release creates only tag no release on --pre option
+- build web container hung
 
 # in progress
-    
+
 
 
 
 
 
 # Done
+- webui start option: `--start_web` flag on start.sh / start option "web" in TUI; detached container runs `opencode web --port 4096` as main process, host port scanned 4096-4196, URL printed; foreground variant via bash_profile (was: --oc_webui flag)
+- first-run skills setup runs as interactive OpenCode TUI session (`opencode --prompt "run skill setup-matt-pocock-skills" -m "$OPENCODE_MODEL"`) so skill questions reach the user (ADR-0014)
+- uninstall.sh: enhanced error handling & reporting (#29)
+  - permission-denied files skipped & tracked (SKIPPED_FILES)
+  - skipped files listed at end of deinstallation
+  - config backup failure prompts abort/continue (--force continues)
+  - completion message lists all actions taken
+  - dry-run shows config removal with --remove-config
 - pulling skills from github on init into project skill folder (skills folder on each):
   1. https://github.com/mattpocock/skills
   2. https://github.com/shredingerlabs/shredinger-skills
@@ -78,7 +85,7 @@ One common start and setup mechanism / script:
   - ask for git host and token -> copy only these files
   - ask for gdwg saia token -> copy opencode.json with gwdg models and create auth.json with token and host
   - ask for opencode go token -> add to auth.json
-- on startup
+- on startup	
   1. Start 
     - select project from list
     - select modes (proxy, offline, cbm-ui, hil, ...)
@@ -90,3 +97,10 @@ One common start and setup mechanism / script:
     - Start Opencode and codebase-memory
 - install better-sqlite3
 - implement wayfinder map TUI (untested)
+- symlinks only for start-tui as "oc-sandbox" (install.sh) (check if done)	
+- test if run "setup...-skills" works if skills are in folder
+- test create dist release script
+- update build-container.sh to support building only singe container and editions
+- init matt skills accepts no input
+- wenn user input in opencode run nicht funktioniert, dann is bash init first start flag und opencode with model and prompt flagö
+- GWDG provider endpoint to the squid allowlist e.g. chat-ai.academiccloud.de

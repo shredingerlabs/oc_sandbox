@@ -1,0 +1,3 @@
+# Atomic Configuration with Backup Strategy
+
+Decided to use atomic file writes (temp file + rename) for both global_config.json and projects.json to prevent corruption during crashes, with single backup copies maintained on successful writes. Automatic backup rotation keeps the last 5 backups with timestamps, while explicit backup/restore functionality is available in TUI settings menu. This strategy balances data safety with recovery options without requiring external version control systems for configuration management.

@@ -1,0 +1,3 @@
+# Runtime Edition/Mode Detection Over Hardcoding
+
+Decided to parse script help text and flag definitions at runtime to discover available container editions and modes instead of hardcoding lists. The TUI extracts these from build-container.sh (base, web, embedded, full, all) and start.sh (--use_proxy, --offline, --hil_mode, --cbm_ui) dynamically, allowing future additions without TUI modifications. This approach maintains flexibility for evolving script interfaces while providing consistent user experience.

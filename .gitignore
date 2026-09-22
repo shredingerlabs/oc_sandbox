@@ -7,4 +7,6 @@ __pycache__/
 .DS_Store
 *BackUp*
 gum*
+!tests/gum_bin/
+!tests/gum_bin/gum
 prototypes/

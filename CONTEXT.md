@@ -6,9 +6,25 @@
 
 **CBM (codebase-memory-mcp)** — Knowledge-graph indexing tool. Uses `auto_index` and `auto_watch` config (persisted to `.cbm_cache/`) instead of manual entrypoint hooks. UI variant is always installed; `--cbm_ui` flag toggles runtime behavior only.
 
+**TUI (Text-based User Interface)** — Primary user interaction method using gum (https://github.com/charmbracelet/gum) with bash select fallback, providing structured navigation, validation, and project management while maintaining terminal compatibility.
+
+**sandbox_config.json** — Per-project configuration file stored in `<project_root>/.opencode_config/` containing container edition, modes, auto-start options, CBM settings, and setup completion status.
+
+**projects.json** — Global project registry stored in `$HOME/.config/oc-sandbox/` with project metadata including project names, paths, container states, and last-used timestamps for ordering.
+
+**global_config.json** — Global user preferences stored in `$HOME/.config/oc-sandbox/` containing default project paths and user-specific settings not tied to individual projects.
+
+**concurrent containers** — Multiple project containers can run simultaneously using project-specific naming (opencode-sandbox-PROJECTNAME), with TUI using podman exec for accessing running containers instead of starting new ones.
+
+**first-run setup** — Automated container initialization including CBM configuration and skills setup, tracked via setup-complete flag in sandbox_config.json, offering granular recovery for partial failures.
+
+**VCS integration** — Version Control System setup (GitHub, GitLab, or custom host) creating credentials/hosts.yml in `.git_local/` subdirectories, separate from AI provider configuration.
+
+**AI provider** — LLM API service configuration like GWDG, stored in auth.json within `.opencode_data/` with provider sections for OpenCode integration.
+
 **install script** — Script that downloads and sets up the opencode-sandbox files to a designated installation directory.
 
-**installation folder** — Directory where opencode-sandbox files are stored, defaulting to `$HOME/.opencode_sandbox` but configurable via `--install_path`.
+**installation folder** — Directory where opencode-sandbox files are stored, defaulting to `$HOME/.oc-sandbox` but configurable via `--install_path`.
 
 **bash one-liner** — Single bash command that downloads and executes the install script from GitHub.
 
@@ -40,9 +56,9 @@
 
 **disk space check** — Validates minimum 500MB available disk space before starting installation.
 
-**symlinks** — Optional `--symlinks` flag creates symlinks in `$HOME/.local/bin` for easier command access.
+**symlinks** — Optional `--symlinks` flag creates a single symlink `oc-sandbox` → `scripts/start-tui.sh` in `$HOME/.local/bin` for easier command access.
 
-**color output** — Uses plain text output only for maximum compatibility; no colored output.
+**color output** — Install script output uses plain text only for maximum compatibility. The TUI may use color through gum (e.g. the red `DEINSTALL` confirmation prompt), with plain-text fallback.
 
 **exit codes** — Standard exit codes: 0 (success), 1 (general error), 2 (user abort), 3 (missing dependencies).
 
@@ -66,7 +82,7 @@
 
 **signal handling** — Handles SIGINT (Ctrl+C) gracefully to clean up temporary files before exiting.
 
-**symlink creation** — Creates symlinks for all executable scripts from `scripts/` directory when `--symlinks` flag is used.
+**symlink creation** — Creates a single entry-point symlink `oc-sandbox` → `scripts/start-tui.sh` when `--symlinks` flag is used; removes stale symlinks in `$HOME/.local/bin` pointing into the install path first.
 
 **symlink overwriting** — Overwrites existing symlinks without prompting when using `--symlinks` flag.
 
@@ -85,3 +101,33 @@
 **special file handling** — Only `proxy/allowlist.txt` gets special treatment during updates; all other files are overwritten.
 
 **post-installation message** — Shows brief reminder about system requirements (podman, etc.) and suggests next steps after successful installation.
+
+**setup-complete marker** — Boolean flag in sandbox_config.json tracking whether first-run setup (CBM configuration and skills setup) has been completed for a project.
+
+**atomic config write** — Configuration update method using temporary files and atomic rename operations to prevent corruption during crashes, with automatic backup creation.
+
+**runtime detection** — Dynamic parsing of script help text (build-container.sh, start.sh) to discover available container editions and modes, avoiding hardcoded lists and maintaining flexibility for future script enhancements.
+
+**native script enhancement** — Strategy of extending existing scripts (start.sh, build-container.sh, init-project.sh) with additional parameters (like --start_opencode) rather than creating parallel TUI-specific implementations, preserving backward compatibility and avoiding code duplication.
+
+**project display name** — Unique user-facing name for a registered project, used in TUI menus and registry selection.
+
+**container identity** — Stable project-specific identifier derived from the canonical project root, persisted with the project, and used to avoid container-name collisions.
+
+**deferred build** — Registered project state in which the container image is not yet built; the project remains stopped until a later build and start.
+
+**setup recovery** — Explicit retry path for incomplete first-run setup while preserving setup-complete as false until CBM and skills setup both succeed.
+
+**credential file** — Project-local VCS or AI secret configuration stored separately from global TUI metadata, with restrictive permissions and excluded from general configuration backups.
+
+**retry flow** — Error recovery pattern where users who choose "Retry" after a failure remain in the recovery loop even if intermediate steps (like settings adjustment) fail. Failures show context-aware error messages and return to the retry menu, except for explicit user aborts (exit code 2) which are respected throughout.
+
+**deinstallation wizard** — Guided TUI flow in Settings (warning screen with running containers and their stop commands, option checkboxes for symlinks/config/backup, summary screen). Every screen can be cancelled or navigated back; the choices are mapped to uninstall.sh flags and run with `--force`.
+
+**DEINSTALL confirmation** — Typed text confirmation required on the deinstallation summary before anything is removed; rendered as a red gum input when gum is available, plain `read` fallback otherwise.
+
+**web start option** — Launch style that runs the project container as a web server (`opencode web --port 4096`). Selectable at project creation and in settings; the server runs from the first start (first-run setup executes alongside via exec). Following the detached+exec start architecture, the detached container runs the web server as its main process, the host port is auto-scanned upward from 4096 (like the CBM-UI range), and the actual URL is printed rather than opening a browser. The server is stopped via normal container stop. Direct CLI usage of start.sh with `--start_web` and without `--detach` runs the server foreground, where Ctrl+C stops and removes the container (`--rm`). Implemented via the `--start_web` flag on start.sh, mirroring `--start_opencode`.
+
+**squid allowlist scope** — The squid egress proxy governs outbound traffic from inside the container only. Host-browser access to published container ports (web UI, CBM UI) never traverses squid, so allowlist entries are never needed for ingress.
+
+**skipped files** — Files that could not be removed during deinstallation because of missing permissions; tracked during removal and reported at the end with a hint to clean them up manually (e.g. with sudo).
