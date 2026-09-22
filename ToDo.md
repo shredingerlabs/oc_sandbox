@@ -2,7 +2,11 @@
 
 ### sandbox
 
-- add .config folder to allow list (at least read??) for code review skill
+- README:
+  - change to new tui workflow
+  - reorder so "Voraussetungen" are before "install" and so on
+
+- test if node.js and npm istall can be changed to latest
 - add connect to a running session
 - add "open new to console" on existing container
 - Add implementation to re-/build to Start Option (-> build-container.sh)
@@ -14,6 +18,10 @@
 - integrate start better into OS
   - symlink with oc_sandbox -> on mac?
   - desktop entry -> on WSL / MAC?
+
+## install script
+- TArball method doesnt work (if no curl is installed)
+- pasta couldnt be installed (maby already there?)
 
 ### Docker image
 
@@ -28,15 +36,13 @@
   - add a short sleep time between iteration -> not accidentaly start when already done
   - change LoopPrompt after two or three failing attempts to one with bug fix approach.
   - give the stdout to next loop?
-  - give error-log to next loop (ater thee? failing attempts?)
+  - give error-log to next loop (ater three? failing attempts?)
 
 # Bugs	
 - create dist release creates only tag no release on --pre option
-- build web container hung
-
+- build web container hung -> 
+  - playwright firefox timed out
 # in progress
-
-
 
 
 

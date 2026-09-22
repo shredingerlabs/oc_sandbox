@@ -64,6 +64,24 @@ oder falls `curl` nicht verfügbar:
 wget -qO- https://raw.githubusercontent.com/shredingerlabs/oc_sandbox/main/scripts/install.sh | bash
 ```
 
+**Achtung:** Bei `... | bash` ohne weitere Angaben werden eventuelle Argumente
+ignoriert. Um Flags wie `--symlinks` zu übergeben, muss `bash -s --` verwendet
+werden – alles nach `--` wird als Argument an das Skript durchgereicht:
+
+```bash
+# Mit Symlink (oc-sandbox → start-tui.sh in ~/.local/bin)
+curl -sL https://raw.githubusercontent.com/shredingerlabs/oc_sandbox/main/scripts/install.sh | bash -s -- --symlinks
+
+# wget-Variante
+wget -qO- https://raw.githubusercontent.com/shredingerlabs/oc_sandbox/main/scripts/install.sh | bash -s -- --symlinks
+
+# Anderer Installationspfad + feste Version + Symlinks
+curl -sL https://raw.githubusercontent.com/shredingerlabs/oc_sandbox/main/scripts/install.sh | bash -s -- --install_path ~/mein-sandbox --version v1.0.0 --symlinks
+
+# Vorhandene Installation ohne Nachfrage überschreiben
+curl -sL https://raw.githubusercontent.com/shredingerlabs/oc_sandbox/main/scripts/install.sh | bash -s -- --force --symlinks
+```
+
 Das Skript:
 - Ermittelt automatisch das neueste Release (oder eine feste Version per `--version`)
 - Fragt vor dem Überschreiben einer bestehenden Installation nach
@@ -75,7 +93,9 @@ Das Skript:
 - `--version <tag>` – Spezifische Version installieren (default: latest)
 - `--force` – Vorhandene Installation ohne Nachfrage überschreiben
 - `--symlinks` – Symlink `oc-sandbox` → `start-tui.sh` in `~/.local/bin` erstellen
+  (single entry point, keine weiteren Skript-Symlinks)
 - `--verbose` – Detaillierte Ausgabe
+- `--help` – Hilfe anzeigen und beenden
 
 **Nächste Schritte:** [Voraussetzungen](#voraussetzungen) erfüllen, dann
 [Image bauen](#1-image-bauen) und [Projekt-Root einrichten](#3-projekt-root-einrichten).
