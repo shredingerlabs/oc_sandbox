@@ -3,7 +3,8 @@
   "permission": {
     "external_directory": {
       "/tmp/**": "allow",
-      "/home/dev/**": "read",
+      "/home/dev/**": "allow",
+      "/usr/local/share/playwright-browsers/**": "allow",
       "/opt/picoscope/**": "allow",
       "/usr/local/lib/python3.12/dist-packages/picosdk/**": "allow"
     }

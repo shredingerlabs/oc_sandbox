@@ -1,22 +1,19 @@
 {
   "$schema": "https://opencode.ai/config.json",
-  "plugin": [
-    "opencode-models-discovery@1.5.3"
-  ],
+  "plugin": ["opencode-models-discovery@1.5.3"],
   "permission": {
     "external_directory": {
       "/tmp/**": "allow",
-      "/home/dev/**": "read",
+      "/home/dev/**": "allow",
+      "/usr/local/share/playwright-browsers/**": "allow",
       "/opt/picoscope/**": "allow",
-      "/usr/local/lib/python3.12/dist-packages/picosdk/**": "allow",
+      "/usr/local/lib/python3.12/dist-packages/picosdk/**": "allow"
     }
   },
   "mcp": {
     "codebase-memory-mcp": {
       "type": "local",
-      "command": [
-        "/usr/local/bin/codebase-memory-mcp"
-      ],
+      "command": ["/usr/local/bin/codebase-memory-mcp"],
       "enabled": true
     }
   },
