@@ -160,7 +160,7 @@ ohne `gum` auf einen einfachen Textmodus zurück.
 | **Open Project**            | Registriertes Projekt auswählen und starten                          |
 | **New Project**             | Projekt-Root neu anlegen (Wizard)                                    |
 | **Build Container**         | Container-Images bauen (Editionen wie `build-container.sh`)          |
-| **Settings**                | Config-Backup/-Restore, Deinstallation                               |
+| **Settings**                | Config-Backup/-Restore, Uninstall                                    |
 | **Exit**                    | TUI beenden                                                          |
 
 ### Typischer Ablauf
@@ -187,7 +187,7 @@ ohne `gum` auf einen einfachen Textmodus zurück.
 
 Projekte werden in `~/.config/oc-sandbox/projects.json` registriert (kanonischer
 Pfad + kurze SHA-256-Container-Identität). Settings-Backup/Restore und der
-Deinstallations-Wizard finden sich unter **Settings** – Details siehe
+Deinstallations-Wizard (TUI-Label „Uninstall“) finden sich unter **Settings** – Details siehe
 [Deinstallation](#deinstallation).
 
 ## HIL: udev-Regeln installieren (optional)
@@ -523,9 +523,9 @@ Hinweise:
 
 ## Deinstallation
 
-Im TUI (Settings → **Deinstallation**) läuft der Ablauf als geführter Wizard:
+Im TUI (Settings → **Uninstall**) läuft der Ablauf als geführter Wizard:
 Warnung mit laufenden Containern → Options-Auswahl → Zusammenfassung mit
-`DEINSTALL`-Bestätigung; jeder Schritt ist abbrechbar.
+`UNINSTALL`-Bestätigung; jeder Schritt ist abbrechbar.
 
 Direkt per Skript wird die Sandbox mit `dist/scripts/uninstall.sh` entfernt. Es
 werden nur der Installationspfad, die Symlinks und optional die Config entfernt –

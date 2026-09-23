@@ -763,9 +763,9 @@ add_project_to_registry() {
 }
 ```
 
-### Deinstallation Wizard
+### Uninstall Wizard
 
-The Settings menu has a "Deinstallation" entry that starts a guided wizard:
+The Settings menu has an "Uninstall" entry that starts a guided wizard:
 
 ```bash
 deinstallation_wizard() {
@@ -783,7 +783,7 @@ deinstallation_wizard() {
   "Remove config" is selected — otherwise it is reset with a notice. gum mode
   uses `gum choose --no-limit`, bash mode uses a toggle-select loop.
 - **Summary screen**: shows what will be removed and requires typing
-  `DEINSTALL` to confirm (red `gum input` when available, plain `read`
+  `UNINSTALL` to confirm (red `gum input` when available, plain `read`
   fallback). Wrong input or cancellation aborts with "Nothing was removed".
 - **Run**: invokes `uninstall.sh --force` plus `--no-symlinks`,
   `--remove-config` and `--no-backup` according to the selected options, then

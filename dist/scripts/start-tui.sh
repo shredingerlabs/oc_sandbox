@@ -1532,7 +1532,7 @@ detect_available_editions() {
 
 settings_menu() {
   while true; do
-    local options=("Config Backup" "Config Restore" "Deinstallation" "← Back to Main Menu")
+    local options=("Config Backup" "Config Restore" "Uninstall" "← Back to Main Menu")
     local choice=$(show_menu "Settings" "${options[@]}")
 
     case "$choice" in
@@ -1542,7 +1542,7 @@ settings_menu() {
       "Config Restore")
         restore_config
         ;;
-      "Deinstallation")
+      "Uninstall")
         deinstallation_wizard
         ;;
       "← Back to Main Menu")
@@ -1642,7 +1642,7 @@ deinstallation_wizard() {
   fi
 
   if ! show_deinstallation_summary "$remove_symlinks" "$remove_config" "$create_backup"; then
-    show_page "Deinstallation cancelled" "Nothing was removed."
+    show_page "Uninstall cancelled" "Nothing was removed."
     wait_for_enter || true
     return 0
   fi
@@ -1661,15 +1661,15 @@ show_deinstallation_warning() {
     for container in "${containers[@]}"; do
       lines+=("  - ${container}" "    podman stop ${container}")
     done
-    lines+=("" "Stop these containers before deinstalling.")
+    lines+=("" "Stop these containers before uninstalling.")
   else
     lines+=("No running opencode-sandbox containers detected.")
   fi
 
-  show_page "Deinstallation Warning" "${lines[@]}"
+  show_page "Uninstall Warning" "${lines[@]}"
 
   local choice
-  choice=$(show_menu "Continue with deinstallation?" "Continue" "← Go Back") || return 1
+  choice=$(show_menu "Continue with uninstall?" "Continue" "← Go Back") || return 1
   [[ "$choice" == "Continue" ]]
 }
 
@@ -1713,7 +1713,7 @@ select_deinstallation_options() {
     [[ $ref_backup == true ]] && args+=(--selected "$backup_item")
 
     raw=$("$GUM_BIN" choose --no-limit \
-      --header="Deinstallation options (space to toggle, enter to confirm)" \
+      --header="Uninstall options (space to toggle, enter to confirm)" \
       --height=5 \
       "${args[@]}" "$symlinks_item" "$config_item" "$backup_item") || return 1
 
@@ -1745,16 +1745,16 @@ show_deinstallation_summary() {
     fi
   fi
 
-  show_page "Deinstallation Summary" "${lines[@]}"
+  show_page "Uninstall Summary" "${lines[@]}"
 
   local response=""
   if [[ "$TUI_MODE" == "gum" ]]; then
-    response=$("$GUM_BIN" input --prompt.foreground="196" --prompt="Type DEINSTALL to confirm: ") || return 1
+    response=$("$GUM_BIN" input --prompt.foreground="196" --prompt="Type UNINSTALL to confirm: ") || return 1
   else
-    read -r -p "Type DEINSTALL to confirm: " response < /dev/tty || return 1
+    read -r -p "Type UNINSTALL to confirm: " response < /dev/tty || return 1
   fi
 
-  [[ "$response" == "DEINSTALL" ]]
+  [[ "$response" == "UNINSTALL" ]]
 }
 
 run_deinstallation() {
@@ -1767,11 +1767,11 @@ run_deinstallation() {
     [[ $create_backup != true ]] && args+=("--no-backup")
   fi
 
-  show_page "Deinstallation" "Running uninstall script..."
+  show_page "Uninstall" "Running uninstall script..."
   local status=0
   bash "${SCRIPT_DIR}/uninstall.sh" "${args[@]}" || status=$?
 
-  show_page "Deinstallation finished" "See the output above for details and manual cleanup reminders."
+  show_page "Uninstall finished" "See the output above for details and manual cleanup reminders."
   wait_for_enter || true
   return $status
 }
