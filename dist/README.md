@@ -117,24 +117,57 @@ automatisch `sudo`.
 - `--install_path <pfad>` – Installationspfad (default: `$HOME/.oc-sandbox`)
 - `--version <tag>` – Spezifische Version installieren (default: latest)
 - `--force` – Vorhandene Installation ohne Nachfrage überschreiben
-- `--symlinks` – Symlinks in `~/.local/bin` erstellen
+- `--symlinks` – Symlink `oc-sandbox` → `scripts/start-tui.sh` in `~/.local/bin` erstellen
+  (single entry point, keine weiteren Skript-Symlinks)
 - `--verbose` – Detaillierte Ausgabe
 
 Deinstallation siehe [unten](#deinstallation).
 
 ## Schnellstart
 
+Der bevorzugte Weg ist die TUI – sie führt durch Container-Bau, Projekt-
+einrichtung und Start, ohne dass Skripte von Hand aufgerufen werden müssen.
+Die direkte Skript-Nutzung bleibt als [Legacy-Weg](#direkte-skript-nutzung-legacy)
+erhalten.
+
 ### 1. Voraussetzungen
 
 ```bash
 sudo apt-get update
-sudo apt-get install -y podman pasta fuse-overlayfs
+sudo apt-get install -y podman pasta fuse-overlayfs git curl
 
 # Podman rootless prüfen
 podman info --format '{{.Host.Security.Rootless}}'   # sollte "true" liefern
 ```
 
-### 2. udev-Regeln installieren (für HIL-Tests)
+### 2. TUI starten
+
+Mit dem `--symlinks`-Flag der Installation aus jedem Verzeichnis:
+
+```bash
+oc-sandbox
+```
+
+Ohne Symlink direkt über den Installationspfad bzw. aus diesem Ordner:
+
+```bash
+~/.oc-sandbox/scripts/start-tui.sh
+./scripts/start-tui.sh
+```
+
+Die TUI nutzt `gum` (wird von `install.sh` automatisch installiert) und fällt
+ohne `gum` auf einen einfachen Textmodus zurück. Über das Hauptmenü
+(**Start last used project**, **Open Project**, **New Project**, **Build
+Container**, **Settings**) laufen alle weiteren Schritte: Edition bauen,
+Projekt-Root anlegen, VCS/Tokens verborgen abfragen, Start-Option wählen
+(`console`, `opencode` oder `web`) und die Sandbox starten. Laufende Container
+werden per `podman exec` wiederverwendet statt neu gestartet.
+
+## Direkte Skript-Nutzung (Legacy)
+
+Alle TUI-Schritte lassen sich auch direkt per Skript ausführen.
+
+### 1. udev-Regeln installieren (für HIL-Tests)
 
 ```bash
 sudo cp udev/99-hil.rules /etc/udev/rules.d/
@@ -142,19 +175,19 @@ sudo udevadm control --reload-rules
 sudo udevadm trigger
 ```
 
-### 3. Images bauen
+### 2. Images bauen
 
 ```bash
 ./scripts/build-container.sh full
 ```
 
-### 4. Projekt-Root einrichten
+### 3. Projekt-Root einrichten
 
 ```bash
 ./scripts/init-project.sh ~/projects/mein-projekt
 ```
 
-### 5. Sandbox starten
+### 4. Sandbox starten
 
 ```bash
 ./scripts/start.sh ~/projects/mein-projekt
@@ -170,6 +203,11 @@ sudo udevadm trigger
 - `--start_web` – OpenCode-Weboberfläche starten (`opencode web --port 4096`, veröffentlicht auf 127.0.0.1, Port-Scan 4096-4196; mit `--detach` läuft der Server als Container-Hauptprozess und die URL wird ausgegeben)
 
 ## Deinstallation
+
+Im TUI (Settings → **Deinstallation**) läuft derselbe Ablauf als geführter
+Wizard mit Warnung, Options-Auswahl und `DEINSTALL`-Bestätigung.
+
+Direkt per Skript:
 
 ```bash
 ./scripts/uninstall.sh

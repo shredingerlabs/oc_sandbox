@@ -4,12 +4,14 @@ Dieses Repo enthält ein direkt lauffähiges Grundgerüst für eine **einheitlic
 Entwicklungssandbox** – mehrere Editionen für unterschiedliche Use Cases:
 
 **Editionen:**
+
 - **base**: Python + core system packages
 - **web**: base + Node/TypeScript/Playwright
 - **embedded**: base + ARM toolchains/Arduino/MicroPython
 - **full**: web + embedded (default)
 
 **Use Cases:**
+
 - **Coding**: TS/JS/HTML, Go, Python, C++, inkl. Cross-Compile für Embedded
 - **Arduino / ESP32**: Arduino CLI + AVR/ESP32-Toolchains (Arduino Framework)
 - **MicroPython**: mpremote, esptool für ESP32-Firmware-Entwicklung
@@ -49,6 +51,19 @@ Schlägt die Ersteinrichtung fehl, bleibt das Projekt registriert und bietet
 `Retry`, `Go back` oder `Exit`; ein erneuter Versuch wiederholt nur den
 unvollständigen Einrichtungsschritt.
 
+## Voraussetzungen
+
+```bash
+sudo apt-get update
+sudo apt-get install -y git curl podman passt fuse-overlayfs
+```
+
+Podman rootless prüfen:
+
+```bash
+podman info --format '{{.Host.Security.Rootless}}'   # sollte "true" liefern
+```
+
 ## Installation
 
 Installation per Bash one-liner (lädt das neueste Release von GitHub und
@@ -83,12 +98,15 @@ curl -sL https://raw.githubusercontent.com/shredingerlabs/oc_sandbox/main/script
 ```
 
 Das Skript:
+
 - Ermittelt automatisch das neueste Release (oder eine feste Version per `--version`)
 - Fragt vor dem Überschreiben einer bestehenden Installation nach
 - Erhält bei Updates vorhandene `proxy/allowlist.txt`-Anpassungen
+- Installiert `gum` für die TUI (Fallback-Modus, falls die Installation scheitert)
 - Verwendet nie automatisch `sudo`
 
 **Optionen:**
+
 - `--install_path <pfad>` – Installationspfad (default: `~/.oc-sandbox`)
 - `--version <tag>` – Spezifische Version installieren (default: latest)
 - `--force` – Vorhandene Installation ohne Nachfrage überschreiben
@@ -97,9 +115,310 @@ Das Skript:
 - `--verbose` – Detaillierte Ausgabe
 - `--help` – Hilfe anzeigen und beenden
 
-**Nächste Schritte:** [Voraussetzungen](#voraussetzungen) erfüllen, dann
-[Image bauen](#1-image-bauen) und [Projekt-Root einrichten](#3-projekt-root-einrichten).
+**Nächste Schritte:** [Schnellstart mit der TUI](#schnellstart-mit-der-tui-empfohlen).
+Für HIL-Tests zusätzlich [udev-Regeln installieren](#hil-udev-regeln-installieren-optional).
 Deinstallation siehe [unten](#deinstallation).
+
+## Schnellstart mit der TUI (empfohlen)
+
+Die TUI ist der zentrale Einstiegspunkt: Sie führt durch Container-Bau,
+Projekt-Einrichtung (inkl. VCS- und Token-Konfiguration) und den Start der
+Sandbox – ohne dass Skripte von Hand aufgerufen werden müssen.
+
+### TUI starten
+
+Mit dem `--symlinks`-Flag der Installation existiert ein einzelner
+Entry-Point-Symlink (siehe
+[ADR-0013](docs/adr/0013-single-entry-point-symlink.md)):
+
+```bash
+oc-sandbox
+```
+
+Ohne Symlink direkt über den Installationspfad:
+
+```bash
+~/.oc-sandbox/scripts/start-tui.sh
+```
+
+Die TUI nutzt `gum` (wird von `install.sh` automatisch installiert) und fällt
+ohne `gum` auf einen einfachen Textmodus zurück.
+
+### Hauptmenü
+
+| Menüpunkt                   | Funktion                                                             |
+| --------------------------- | -------------------------------------------------------------------- |
+| **Start last used project** | Startet das zuletzt genutzte Projekt mit gespeicherten Einstellungen |
+| **Open Project**            | Registriertes Projekt auswählen und starten                          |
+| **New Project**             | Projekt-Root neu anlegen (Wizard)                                    |
+| **Build Container**         | Container-Images bauen (Editionen wie `build-container.sh`)          |
+| **Settings**                | Config-Backup/-Restore, Deinstallation                               |
+| **Exit**                    | TUI beenden                                                          |
+
+### Typischer Ablauf
+
+1. **Build Container** – gewünschte Edition bauen (einmalig, oder später über
+   **Build now**, wenn beim Projektstart ein Image fehlt).
+2. **New Project** – der Wizard legt den Projekt-Root an (gleiche Struktur wie
+   `init-project.sh`), fragt VCS-Host und Tokens verborgen ab, konfiguriert die
+   Git-Identität und wählt eine Start-Option:
+   
+   - `console` – interaktive Shell im Container
+   
+   - `opencode` – OpenCode-TUI
+   
+   - `web` – OpenCode-Weboberfläche (`opencode web --port 4096`, Hintergrunddienst)
+3. **Ersteinrichtung** – läuft automatisch im Hintergrund (CBM-Konfiguration,
+   danach interaktive Skills-Einrichtung über OpenCode-TUI). Bei Fehlern bietet
+   die TUI `Retry`, `Go back` oder `Exit`; ein Retry wiederholt nur den
+   unvollständigen Schritt. **OpenCode** muss **unbeding über /exit beendet** werden.
+4. **Open Project / Start last used project** – Projekt später erneut starten;
+   laufende Container werden per `podman exec` wiederverwendet statt neu
+   gestartet. Die Modus-Auswahl (Proxy, Offline, HIL, CBM-UI, …) entspricht den
+   Flags von `start.sh` – siehe [Flag-Referenz](#legacy-direkte-skript-nutzung).
+
+Projekte werden in `~/.config/oc-sandbox/projects.json` registriert (kanonischer
+Pfad + kurze SHA-256-Container-Identität). Settings-Backup/Restore und der
+Deinstallations-Wizard finden sich unter **Settings** – Details siehe
+[Deinstallation](#deinstallation).
+
+## HIL: udev-Regeln installieren (optional)
+
+Nur für HIL-Tests mit USB-Oszilloskop und Mikrocontrollern. `udev/99-hil.rules`
+enthält Regeln für:
+
+- **PicoScope 2000**: Symlink `/dev/scope0` (USB-Bus-Verzeichnis wird in `start.sh` live ermittelt)
+- **Serielle MCU-Geräte** (ttyUSB\*, ttyACM\*): Echte Geräteknoten + stabile Vendor/Produkt-Symlinks in `/dev/hil/`
+
+Vendor/Product-ID eures Geräts ermitteln:
+
+```bash
+lsusb
+```
+
+`udev/99-hil.rules` mit den korrekten IDs anpassen (bei mehreren Oszis/Geräten weitere Zeilen ergänzen), dann:
+
+```bash
+sudo cp udev/99-hil.rules /etc/udev/rules.d/
+sudo udevadm control --reload-rules
+sudo udevadm trigger
+```
+
+Prüfen:
+
+```bash
+ls -l /dev/scope0 /dev/hil/
+```
+
+`/dev/scope0` sollte erscheinen, sobald der PicoScope angeschlossen ist. Serielle Geräte erscheinen als `/dev/hil/ttyACM0` etc. – `start.sh --hil_mode` mountet `/dev/hil` live in den Container.
+
+## Legacy: direkte Skript-Nutzung
+
+Alle Schritte aus dem TUI-Workflow lassen sich auch direkt per Skript
+ausführen. Die Skripte liegen in `dist/scripts/` (bzw.
+`~/.oc-sandbox/scripts/` nach Installation).
+
+### 1. Image bauen
+
+Einmalig die gewünschte Sandbox-Edition bauen:
+
+```bash
+cd opencode-sandbox
+./dist/scripts/build-container.sh full     # oder: base, web, embedded, all
+```
+
+Das baut:
+
+- `opencode-sandbox-base` — Python + core system packages
+- `opencode-sandbox-web` — base + Node/TypeScript/Playwright
+- `opencode-sandbox-embedded` — base + ARM toolchains/Arduino/MicroPython
+- `opencode-sandbox-full` — web + embedded (default)
+- `oc-proxy` — optionaler Squid-Egress-Proxy (wird nur bei `--use_proxy` benötigt)
+
+### 2. Projekt-Root einrichten
+
+Das Start-Skript nimmt genau **einen** Pfad entgegen: einen **Projekt-Root** mit
+folgenden Unterordnern.
+
+```
+<PROJECT_ROOT>/
+  project/             <- euer eigentliches Repo (git clone/init hier hinein)
+  .opencode_config/     <- OpenCode-Config, projektspezifisch, persistent
+  .opencode_data/        <- OpenCode-Daten inkl. Sessions & Auth/Credentials
+  .ssh_local/            <- SSH-Keys + eigene ssh-Config für dieses Projekt
+  .git_local/            <- Git-Identität/-Settings + optionale HTTPS-Credentials
+    gitconfig             <- user.name/user.email, safe.directory
+    credentials           <- git credential-store (optional)
+    gh-cli/config.yml     <- GitHub CLI Token (Alternative zu SSH Deploy Keys)
+    glab-cli/config.yml   <- GitLab CLI Token
+  .cbm_cache/            <- CBM Knowledge-Graph-Datenbank (persistent)
+```
+
+Damit könnt ihr für jedes Projekt/jeden Kunden einen eigenen Projekt-Root anlegen,
+mit eigenen Git-Credentials und eigenem OpenCode-Login – ohne die Skripte
+anzufassen. Da `.opencode_config/`, `.opencode_data/`, `.ssh_local/`, `.git_local/`
+und `.cbm_cache/` **Geschwister** von `project/` sind, sieht das Git-Repo in
+`project/` diese sensiblen Daten nie, auch nicht versehentlich per `git add .`.
+
+Neuen Projekt-Root mit korrekter Struktur/Rechten anlegen:
+
+```bash
+dist/scripts/init-project.sh ~/projects/kunde-x
+# ... Repo nach ~/projects/kunde-x/project klonen, Git-Config anpassen ...
+```
+
+#### `.git_local/` anpassen
+
+```bash
+$EDITOR ~/projects/kunde-x/.git_local/gitconfig   # user.name / user.email setzen
+```
+
+#### `.ssh_local/` befüllen
+
+```bash
+ssh-keygen -t ed25519 -f ~/projects/kunde-x/.ssh_local/id_ed25519_github -N ""
+ssh-keygen -t ed25519 -f ~/projects/kunde-x/.ssh_local/id_ed25519_gitlab -N ""
+chmod 600 ~/projects/kunde-x/.ssh_local/id_ed25519_*
+```
+
+Öffentliche Schlüssel als **Deploy Key** hinterlegen (GitHub: Repo → Settings →
+Deploy keys; eigenes GitLab: Projekt → Deploy Keys). `.ssh_local/config` anpassen.
+
+#### Alternativen zu SSH: HTTPS + Token (gh / glab)
+
+Statt SSH Deploy Keys könnt ihr auch **HTTPS mit Personal Access Token** nutzen.
+Das Token wird einmalig hinterlegt und übernimmt Git-Authentifizierung +
+CLI-Tools (Issues, PRs etc.):
+
+**GitHub (`gh`):**
+
+```bash
+cp templates/git_local/gh-cli/config.yml ~/projects/kunde-x/.git_local/gh-cli/config.yml
+$EDITOR ~/projects/kunde-x/.git_local/gh-cli/config.yml   # token eintragen
+chmod 600 ~/projects/kunde-x/.git_local/gh-cli/config.yml
+```
+
+Token erzeugen: GitHub → Settings → Developer settings → Personal access tokens
+→ Tokens (classic). Benötigte Scopes: `repo`, `read:org`, `workflow`.
+
+**GitLab (`glab`):**
+
+```bash
+cp templates/git_local/glab-cli/config.yml ~/projects/kunde-x/.git_local/glab-cli/config.yml
+$EDITOR ~/projects/kunde-x/.git_local/glab-cli/config.yml   # token eintragen
+chmod 600 ~/projects/kunde-x/.git_local/glab-cli/config.yml
+```
+
+Token erzeugen: GitLab → Preferences → Access Tokens. Benötigte Scopes: `api`, `read_repository`, `write_repository`.
+
+Für **git push/pull via HTTPS** zusätzlich den Credential-Helper aktivieren:
+
+```bash
+# In .git_local/gitconfig einkommentieren:
+[credential]
+    helper = store --file=/home/dev/.git_local/credentials
+```
+
+Dann das Token in `.git_local/credentials` ablegen:
+
+```
+https://dein-token:ghp_xxxxx@github.com
+```
+
+### 3. Sandbox starten
+
+```bash
+dist/scripts/start.sh ~/projects/kunde-x            # Default: full edition, volles Netz
+```
+
+**Edition wählen:**
+
+```bash
+dist/scripts/start.sh ~/projects/kunde-x --edition web       # Web-only
+dist/scripts/start.sh ~/projects/kunde-x --edition embedded  # Embedded-only
+dist/scripts/start.sh ~/projects/kunde-x --edition base      # Minimal Python
+dist/scripts/start.sh ~/projects/kunde-x --edition full      # Web + Embedded (default)
+```
+
+| Flag-Kombination         | Netzwerk | Proxy           | Geräte                    | Anwendung                          |
+| ------------------------ | -------- | --------------- | ------------------------- | ---------------------------------- |
+| *(keine)*                | pasta    | nein            | –                         | Coding, volle Netzanbindung        |
+| `--use_proxy`            | pasta    | Squid-Allowlist | –                         | Restriktiver Netz-Zugriff          |
+| `--offline`              | none     | nein            | –                         | Air-Gapped, nur lokale Modelle     |
+| `--hil_mode`             | pasta    | nein            | Oszi + MCU (ttyUSB* etc.) | HIL-Tests                          |
+| `--use_proxy --hil_mode` | pasta    | Squid-Allowlist | Oszi + MCU                | HIL mit Restricted-Net             |
+| `--cbm_ui`               | pasta    | nein            | –                         | CBM Knowledge-Graph-UI (Port 9749) |
+| `--use_proxy --cbm_ui`   | pasta    | Squid-Allowlist | –                         | Proxy + Graph-UI                   |
+| `--start_web --detach`   | pasta    | nein            | –                         | OpenCode-Weboberfläche (Port 4096) |
+
+Beispiele:
+
+```bash
+# Coding ohne Einschränkungen (full edition)
+dist/scripts/start.sh ~/projects/kunde-x
+
+# Web-only edition
+dist/scripts/start.sh ~/projects/kunde-x --edition web
+
+# Embedded-only edition mit HIL
+dist/scripts/start.sh ~/projects/hil-tests --edition embedded --hil_mode
+
+# Mit Egress-Proxy (Allowlist)
+dist/scripts/start.sh ~/projects/kunde-x --use_proxy
+
+# Komplett offline
+dist/scripts/start.sh ~/projects/kunde-x --offline
+
+# HIL-Tests mit Oszi + Mikrocontrollern
+dist/scripts/start.sh ~/projects/hil-tests --hil_mode
+
+# HIL-Tests mit Proxy
+dist/scripts/start.sh ~/projects/hil-tests --use_proxy --hil_mode
+
+# Mit CBM Knowledge-Graph-UI (bevorzugt http://localhost:9749)
+dist/scripts/start.sh ~/projects/kunde-x --cbm_ui
+
+# Als Webserver mit OpenCode-Weboberfläche (bevorzugt http://localhost:4096)
+dist/scripts/start.sh ~/projects/kunde-x --start_web --detach
+```
+
+> **Hinweis zu `--cbm_ui`:** Der `codebase-memory-mcp` Dienst startet im Hintergrund mit `autoindex: true` und bietet eine Web-UI auf Port 9749. Die Graph-UI benötigt Netzwerkzugriff und funktioniert daher nicht mit `--offline` (network=none). In allen anderen Modi kombinierbar. Siehe [codebase-memory-mcp](https://github.com/DeusData/codebase-memory-mcp).
+> Ist Port 9749 bereits belegt, wählt `start.sh` automatisch den nächsten freien Port bis 9849 und gibt die URL aus.
+
+> **Hinweis zu `--start_web`:** Startet `opencode web --port 4096` im Container und veröffentlicht ihn auf `127.0.0.1` (Port-Scan 4096-4196, wenn 4096 belegt ist). Mit `--detach` läuft der Webserver als Container-Hauptprozess, die URL wird nach dem Start ausgegeben. Ohne `--detach` läuft der Server im Vordergrund; Strg+C beendet und entfernt den Container. Im TUI-Startdialog als Start-Option „web" wählbar (läuft dort immer als Hintergrunddienst im Container).
+
+> **Hinweis zu `--hil_mode` und USB-Sicherheit:**
+> Das Skript ermittelt zur Laufzeit den realen Pfad von `/dev/scope0`
+> (z.B. `/dev/bus/usb/007/055`) und mountet das übergeordnete
+> Bus-Verzeichnis (`/dev/bus/usb/007/`) in den Container. Das bedeutet:
+> **Alle USB-Geräte auf derselben physischen USB-Bus-Nummer** sind im
+> Container sichtbar – nicht nur der Oszi. Ein feinerer Scope (einzelnes
+> Gerät) ist mit libusb nicht möglich, da `libps2000` selbst
+> `/dev/bus/usb/*` per `readdir` durchsucht. Das Risiko bleibt begrenzt,
+> da nur der eine Bus gemountet wird, nicht `/dev/bus/usb` im Ganzen.
+
+Der Container startet eine interaktive Shell. OpenCode starten mit:
+
+```bash
+opencode
+```
+
+#### OpenCode Config & Data (persistent, pro Projekt)
+
+| Zweck                                           | Pfad im Container         | Quelle im Projekt-Root |
+| ----------------------------------------------- | ------------------------- | ---------------------- |
+| Config (`opencode.json`, Agents, Themes)        | `~/.config/opencode`      | `.opencode_config/`    |
+| Daten (Sessions, Verlauf, **Auth/Credentials**) | `~/.local/share/opencode` | `.opencode_data/`      |
+
+> **Wichtig:** `.opencode_data/` enthält ggf. API-Keys/Auth-Tokens im Klartext –
+> Zugriffsrechte einschränken, nicht in unbeaufsichtigte Backups/Sync-Tools
+> aufnehmen.
+
+Zurücksetzen:
+
+```bash
+rm -rf ~/projects/kunde-x/.opencode_config/* ~/projects/kunde-x/.opencode_data/*
+```
 
 ## Repository-Struktur
 
@@ -112,7 +431,7 @@ Deinstallation siehe [unten](#deinstallation).
 │   ├── README.md                 <- Kurzanleitung für Produktion
 │   ├── scripts/
 │   │   ├── start.sh              <- Einheitliches Start-Skript (--edition flag)
-│   │   ├── start-tui.sh          <- TUI-Variante des Start-Skripts
+│   │   ├── start-tui.sh          <- TUI-Variante des Start-Skripts (Haupt-Einstiegspunkt)
 │   │   ├── build-container.sh    <- Baut Sandbox-Editionen + Proxy
 │   │   ├── init-project.sh       <- Legt Projekt-Root-Struktur an
 │   │   └── uninstall.sh          <- Deinstallation
@@ -163,259 +482,14 @@ ist die Quelle für Releases. Alle anderen Ordner (`docs/`, `tests/`, `specs/`,
 `scripts/install.sh`, etc.) sind nur für die Entwicklung und werden nicht in
 Releases veröffentlicht.
 
-## Projekt-Root-Struktur
-
-Das Start-Skript nimmt genau **einen** Pfad entgegen: einen **Projekt-Root** mit
-folgenden Unterordnern.
-
-```
-<PROJECT_ROOT>/
-  project/             <- euer eigentliches Repo (git clone/init hier hinein)
-  .opencode_config/     <- OpenCode-Config, projektspezifisch, persistent
-  .opencode_data/        <- OpenCode-Daten inkl. Sessions & Auth/Credentials
-  .ssh_local/            <- SSH-Keys + eigene ssh-Config für dieses Projekt
-  .git_local/            <- Git-Identität/-Settings + optionale HTTPS-Credentials
-    gitconfig             <- user.name/user.email, safe.directory
-    credentials           <- git credential-store (optional)
-    gh-cli/config.yml     <- GitHub CLI Token (Alternative zu SSH Deploy Keys)
-    glab-cli/config.yml   <- GitLab CLI Token
-  .cbm_cache/            <- CBM Knowledge-Graph-Datenbank (persistent)
-```
-
-Damit könnt ihr für jedes Projekt/jeden Kunden einen eigenen Projekt-Root anlegen,
-mit eigenen Git-Credentials und eigenem OpenCode-Login – ohne die Skripte
-anzufassen. Da `.opencode_config/`, `.opencode_data/`, `.ssh_local/`, `.git_local/`
-und `.cbm_cache/` **Geschwister** von `project/` sind, sieht das Git-Repo in
-`project/` diese sensiblen Daten nie, auch nicht versehentlich per `git add .`.
-
-Neuen Projekt-Root mit korrekter Struktur/Rechten anlegen:
-
-```bash
-dist/scripts/init-project.sh ~/projects/kunde-x
-```
-
-Siehe [Voraussetzungen](#voraussetzungen) und [Projekt-Root einrichten](#3-projekt-root-einrichten).
-
-## Voraussetzungen
-
-```bash
-sudo apt-get update
-sudo apt-get install -y git curl podman passt fuse-overlayfs
-```
-
-Podman rootless prüfen:
-```bash
-podman info --format '{{.Host.Security.Rootless}}'   # sollte "true" liefern
-```
-
-## 1. Image bauen
-
-Einmalig die gewünschte Sandbox-Edition bauen:
-
-```bash
-cd opencode-sandbox
-./dist/scripts/build-container.sh full     # oder: base, web, embedded, all
-```
-
-Das baut:
-- `opencode-sandbox-base` — Python + core system packages
-- `opencode-sandbox-web` — base + Node/TypeScript/Playwright
-- `opencode-sandbox-embedded` — base + ARM toolchains/Arduino/MicroPython
-- `opencode-sandbox-full` — web + embedded (default)
-- `oc-proxy` — optionaler Squid-Egress-Proxy (wird nur bei `--use_proxy` benötigt)
-
-**Hinweis:** `dist/` enthält die produktionsreifen Dateien und ist die Basis für
-Releases – ohne Entwicklungs-Artefakte wie Tests, Spezifikationen oder
-Installations-Skripte.
-
-## 2. Einmalig: udev-Regeln für HIL-Geräte installieren
-
-`udev/99-hil.rules` enthält Regeln für:
-- **PicoScope 2000**: Symlink `/dev/scope0` (USB-Bus-Verzeichnis wird in `start.sh` live ermittelt)
-- **Serielle MCU-Geräte** (ttyUSB\*, ttyACM\*): Echte Geräteknoten + stabile Vendor/Produkt-Symlinks in `/dev/hil/`
-
-Vendor/Product-ID eures Geräts ermitteln:
-```bash
-lsusb
-```
-
-`udev/99-hil.rules` mit den korrekten IDs anpassen (bei mehreren Oszis/Geräten weitere Zeilen ergänzen), dann:
-```bash
-sudo cp udev/99-hil.rules /etc/udev/rules.d/
-sudo udevadm control --reload-rules
-sudo udevadm trigger
-```
-
-Prüfen:
-```bash
-ls -l /dev/scope0 /dev/hil/
-```
-
-`/dev/scope0` sollte erscheinen, sobald der PicoScope angeschlossen ist. Serielle Geräte erscheinen als `/dev/hil/ttyACM0` etc. – `start.sh --hil_mode` mountet `/dev/hil` live in den Container.
-
-## 3. Projekt-Root einrichten
-
-```bash
-dist/scripts/init-project.sh ~/projects/kunde-x
-# ... Repo nach ~/projects/kunde-x/project klonen, Git-Config anpassen ...
-```
-
-### `.git_local/` anpassen
-
-```bash
-$EDITOR ~/projects/kunde-x/.git_local/gitconfig   # user.name / user.email setzen
-```
-
-### `.ssh_local/` befüllen
-
-```bash
-ssh-keygen -t ed25519 -f ~/projects/kunde-x/.ssh_local/id_ed25519_github -N ""
-ssh-keygen -t ed25519 -f ~/projects/kunde-x/.ssh_local/id_ed25519_gitlab -N ""
-chmod 600 ~/projects/kunde-x/.ssh_local/id_ed25519_*
-```
-
-Öffentliche Schlüssel als **Deploy Key** hinterlegen (GitHub: Repo → Settings →
-Deploy keys; eigenes GitLab: Projekt → Deploy Keys). `.ssh_local/config` anpassen.
-
-### Alternativen zu SSH: HTTPS + Token (gh / glab)
-
-Statt SSH Deploy Keys könnt ihr auch **HTTPS mit Personal Access Token** nutzen.
-Das Token wird einmalig hinterlegt und übernimmt Git-Authentifizierung +
-CLI-Tools (Issues, PRs etc.):
-
-**GitHub (`gh`):**
-
-```bash
-cp templates/git_local/gh-cli/config.yml ~/projects/kunde-x/.git_local/gh-cli/config.yml
-$EDITOR ~/projects/kunde-x/.git_local/gh-cli/config.yml   # token eintragen
-chmod 600 ~/projects/kunde-x/.git_local/gh-cli/config.yml
-```
-
-Token erzeugen: GitHub → Settings → Developer settings → Personal access tokens
-→ Tokens (classic). Benötigte Scopes: `repo`, `read:org`, `workflow`.
-
-**GitLab (`glab`):**
-
-```bash
-cp templates/git_local/glab-cli/config.yml ~/projects/kunde-x/.git_local/glab-cli/config.yml
-$EDITOR ~/projects/kunde-x/.git_local/glab-cli/config.yml   # token eintragen
-chmod 600 ~/projects/kunde-x/.git_local/glab-cli/config.yml
-```
-
-Token erzeugen: GitLab → Preferences → Access Tokens. Benötigte Scopes: `api`, `read_repository`, `write_repository`.
-
-Für **git push/pull via HTTPS** zusätzlich den Credential-Helper aktivieren:
-
-```bash
-# In .git_local/gitconfig einkommentieren:
-[credential]
-    helper = store --file=/home/dev/.git_local/credentials
-```
-
-Dann das Token in `.git_local/credentials` ablegen:
-```
-https://dein-token:ghp_xxxxx@github.com
-```
-
-## 4. Sandbox starten
-
-```bash
-dist/scripts/start.sh ~/projects/kunde-x            # Default: full edition, volles Netz
-```
-
-**Edition wählen:**
-
-```bash
-dist/scripts/start.sh ~/projects/kunde-x --edition web       # Web-only
-dist/scripts/start.sh ~/projects/kunde-x --edition embedded  # Embedded-only
-dist/scripts/start.sh ~/projects/kunde-x --edition base      # Minimal Python
-dist/scripts/start.sh ~/projects/kunde-x --edition full      # Web + Embedded (default)
-```
-
-| Flag-Kombination | Netzwerk | Proxy | Geräte | Anwendung |
-|---|---|---|---|---|
-| *(keine)* | pasta | nein | – | Coding, volle Netzanbindung |
-| `--use_proxy` | pasta | Squid-Allowlist | – | Restriktiver Netz-Zugriff |
-| `--offline` | none | nein | – | Air-Gapped, nur lokale Modelle |
-| `--hil_mode` | pasta | nein | Oszi + MCU (ttyUSB* etc.) | HIL-Tests |
-| `--use_proxy --hil_mode` | pasta | Squid-Allowlist | Oszi + MCU | HIL mit Restricted-Net |
-| `--cbm_ui` | pasta | nein | – | CBM Knowledge-Graph-UI (Port 9749) |
-| `--use_proxy --cbm_ui` | pasta | Squid-Allowlist | – | Proxy + Graph-UI |
-| `--start_web --detach` | pasta | nein | – | OpenCode-Weboberfläche (Port 4096) |
-
-Beispiele:
-```bash
-# Coding ohne Einschränkungen (full edition)
-dist/scripts/start.sh ~/projects/kunde-x
-
-# Web-only edition
-dist/scripts/start.sh ~/projects/kunde-x --edition web
-
-# Embedded-only edition mit HIL
-dist/scripts/start.sh ~/projects/hil-tests --edition embedded --hil_mode
-
-# Mit Egress-Proxy (Allowlist)
-dist/scripts/start.sh ~/projects/kunde-x --use_proxy
-
-# Komplett offline
-dist/scripts/start.sh ~/projects/kunde-x --offline
-
-# HIL-Tests mit Oszi + Mikrocontrollern
-dist/scripts/start.sh ~/projects/hil-tests --hil_mode
-
-# HIL-Tests mit Proxy
-dist/scripts/start.sh ~/projects/hil-tests --use_proxy --hil_mode
-
-# Mit CBM Knowledge-Graph-UI (bevorzugt http://localhost:9749)
-dist/scripts/start.sh ~/projects/kunde-x --cbm_ui
-
-# Als Webserver mit OpenCode-Weboberfläche (bevorzugt http://localhost:4096)
-dist/scripts/start.sh ~/projects/kunde-x --start_web --detach
-```
-
-> **Hinweis zu `--cbm_ui`:** Der `codebase-memory-mcp` Dienst startet im Hintergrund mit `autoindex: true` und bietet eine Web-UI auf Port 9749. Die Graph-UI benötigt Netzwerkzugriff und funktioniert daher nicht mit `--offline` (network=none). In allen anderen Modi kombinierbar. Siehe [codebase-memory-mcp](https://github.com/DeusData/codebase-memory-mcp).
-> Ist Port 9749 bereits belegt, wählt `start.sh` automatisch den nächsten freien Port bis 9849 und gibt die URL aus.
-
-> **Hinweis zu `--start_web`:** Startet `opencode web --port 4096` im Container und veröffentlicht ihn auf `127.0.0.1` (Port-Scan 4096-4196, wenn 4096 belegt ist). Mit `--detach` läuft der Webserver als Container-Hauptprozess, die URL wird nach dem Start ausgegeben. Ohne `--detach` läuft der Server im Vordergrund; Strg+C beendet und entfernt den Container. Im TUI-Startdialog als Start-Option „web" wählbar (läuft dort immer als Hintergrunddienst im Container).
-
-> **Hinweis zu `--hil_mode` und USB-Sicherheit:**
-> Das Skript ermittelt zur Laufzeit den realen Pfad von `/dev/scope0`
-> (z.B. `/dev/bus/usb/007/055`) und mountet das übergeordnete
-> Bus-Verzeichnis (`/dev/bus/usb/007/`) in den Container. Das bedeutet:
-> **Alle USB-Geräte auf derselben physischen USB-Bus-Nummer** sind im
-> Container sichtbar – nicht nur der Oszi. Ein feinerer Scope (einzelnes
-> Gerät) ist mit libusb nicht möglich, da `libps2000` selbst
-> `/dev/bus/usb/*` per `readdir` durchsucht. Das Risiko bleibt begrenzt,
-> da nur der eine Bus gemountet wird, nicht `/dev/bus/usb` im Ganzen.
-
-Der Container startet eine interaktive Shell. OpenCode starten mit:
-```bash
-opencode
-```
-
-### OpenCode Config & Data (persistent, pro Projekt)
-
-| Zweck | Pfad im Container | Quelle im Projekt-Root |
-|---|---|---|
-| Config (`opencode.json`, Agents, Themes) | `~/.config/opencode` | `.opencode_config/` |
-| Daten (Sessions, Verlauf, **Auth/Credentials**) | `~/.local/share/opencode` | `.opencode_data/` |
-
-> **Wichtig:** `.opencode_data/` enthält ggf. API-Keys/Auth-Tokens im Klartext –
-> Zugriffsrechte einschränken, nicht in unbeaufsichtigte Backups/Sync-Tools
-> aufnehmen.
-
-Zurücksetzen:
-```bash
-rm -rf ~/projects/kunde-x/.opencode_config/* ~/projects/kunde-x/.opencode_data/*
-```
-
-## 5. Devcontainer / VS Code (optional)
+## Devcontainer / VS Code (optional)
 
 `.devcontainer/devcontainer.json` erwartet, dass ihr in VS Code den **Projekt-Root**
 öffnet (den Ordner mit `project/`, `.opencode_config/`, `.opencode_data/`,
 `.ssh_local/`, `.git_local/` als Unterordnern) – nicht `project/` selbst.
 
 Hinweise:
+
 - **Proxy-Env-Vars** sind vor-konfiguriert (`HTTP_PROXY`, `HTTPS_PROXY`,
   `NO_PROXY`). Der Proxy muss nicht zwingend laufen – Devcontainer ohne
   `--use_proxy` ignorieren die Variablen.
@@ -441,11 +515,15 @@ Hinweise:
 
 ## Deinstallation
 
-Die Sandbox wird mit `dist/scripts/uninstall.sh` entfernt. Es werden nur der
-Installationspfad, die Symlinks und optional die Config entfernt – niemals
-Projekt-Roots oder Nutzer-Daten. Laufende Container werden erkannt und gemeldet;
-Dateien ohne entfernbare Berechtigungen werden übersprungen und am Ende
-aufgelistet.
+Im TUI (Settings → **Deinstallation**) läuft der Ablauf als geführter Wizard:
+Warnung mit laufenden Containern → Options-Auswahl → Zusammenfassung mit
+`DEINSTALL`-Bestätigung; jeder Schritt ist abbrechbar.
+
+Direkt per Skript wird die Sandbox mit `dist/scripts/uninstall.sh` entfernt. Es
+werden nur der Installationspfad, die Symlinks und optional die Config entfernt –
+niemals Projekt-Roots oder Nutzer-Daten. Laufende Container werden erkannt und
+gemeldet; Dateien ohne entfernbare Berechtigungen werden übersprungen und am
+Ende aufgelistet.
 
 ```bash
 dist/scripts/uninstall.sh                    # Interaktiv, Bestätigung per [y/N]
@@ -455,6 +533,7 @@ dist/scripts/uninstall.sh --dry-run          # Nur anzeigen, nichts löschen
 ```
 
 **Optionen:**
+
 - `--install_path <pfad>` – Installationspfad (default: `$HOME/.oc-sandbox`)
 - `--remove-config` – Config-Verzeichnis `~/.config/oc-sandbox/` entfernen (vorher automatisches Backup; Rotation behält die 5 neuesten)
 - `--no-backup` – Kein Config-Backup erstellen (nur mit `--remove-config` relevant)
@@ -463,9 +542,6 @@ dist/scripts/uninstall.sh --dry-run          # Nur anzeigen, nichts löschen
 - `--dry-run` – Zeigt, was entfernt würde, ohne zu löschen
 - `--verbose` – Detaillierte Ausgabe
 
-Im TUI (Settings → **Deinstallation**) führt derselbe Ablauf durch einen
-geführten Wizard: Warnung mit laufenden Containern → Options-Auswahl →
-Zusammenfassung mit `DEINSTALL`-Bestätigung; jeder Schritt ist abbrechbar.
 Details siehe `dist/README.md` und `docs/adr/0012-deinstallation-routine.md`.
 
 ## Troubleshooting
@@ -473,10 +549,13 @@ Details siehe `dist/README.md` und `docs/adr/0012-deinstallation-routine.md`.
 ### Container startet gar nicht erst (`crun`/`runc` schreibt gid_map nicht)
 
 **Symptom**:
+
 ```
 Error: crun: writing file `/proc/<pid>/gid_map`: Operation not permitted: OCI permission denied
 ```
+
 oder mit `runc`:
+
 ```
 Error: OCI runtime error: runc: runc create failed: unable to start container process: can't get final child's PID from pipe: EOF
 ```
@@ -492,10 +571,12 @@ an; den Self-Eintrag muss man von Hand ergänzen. Ohne ihn versuchen
 `CAP_SETGID` und brechen ab.
 
 **Fix** (einmalig, danach neu einloggen damit Podman die Dateien neu liest):
+
 ```bash
 echo "$(id -un):$(id -u):1" | sudo tee -a /etc/subuid
 echo "$(id -un):$(id -g):1" | sudo tee -a /etc/subgid
 ```
+
 Danach `dist/scripts/start.sh` nochmal starten — `start.sh` selbst prüft den
 Self-Eintrag per `getsubids` und bricht vorher mit der genauen Anweisung
 ab, falls er fehlt. Dasselbe gilt für `devcontainer.json`-Workflows
@@ -519,17 +600,20 @@ Container gar nicht. Die folgenden Optionen setzen ihn voraus.
 **Fix-Optionen** (eine davon ausführen):
 
 **a) chmod – eine Session** (wird beim nächsten Anstecken des Geräts zurückgesetzt):
+
 ```bash
 sudo chmod a+rw /dev/bus/usb/XXX/YYY
 ```
 
 **b) chown – eine Session** (wird beim nächsten Anstecken des Geräts zurückgesetzt):
+
 ```bash
 sudo chown $(id -un):$(id -gn) /dev/bus/usb/XXX/YYY
 ```
 
 **c) Dauerhaft – dialout-GID in /etc/subgid aufnehmen** (zusätzlich zum
 Self-Eintrag aus dem vorigen Abschnitt, einmalig, überlebt Reboots):
+
 ```bash
 echo "$(id -un):20:1" | sudo tee -a /etc/subgid
 # Danach ab- und wieder anmelden, Podman-Userns wird neu initialisiert.
@@ -539,12 +623,12 @@ echo "$(id -un):20:1" | sudo tee -a /etc/subgid
 `sudo` mit `NOPASSWD` konfiguriert ist. Schlägt der Auto-Fix fehlt, erscheint
 eine Meldung mit den manuellen Schritten.
 
-
 ## Releases
 
 Erstelle GitHub Releases automatisch aus dem `dist/` Ordner mit `create-release.sh`:
 
 **Flag-basierter Modus:**
+
 ```bash
 # Veröffentlichtes Release
 ./scripts/create-release.sh --version v1.0.0
@@ -563,12 +647,14 @@ Erstelle GitHub Releases automatisch aus dem `dist/` Ordner mit `create-release.
 ```
 
 **Interaktiver Modus:**
+
 ```bash
 ./scripts/create-release.sh
 # Folge den Prompts für Version, Titel, Release Notes, Pre-Release und Draft
 ```
 
 **Flags:**
+
 - `--version VERSION` - Version-Tag (erforderlich, Format: v1.2.3)
 - `--title TITLE` - Releasetitel (optional, Standard: "Release v1.0.0")
 - `--pre-release` - Als Pre-Release markieren (Presence=true)
@@ -576,6 +662,7 @@ Erstelle GitHub Releases automatisch aus dem `dist/` Ordner mit `create-release.
 - `--help, -h` - Nutzungsinformationen anzeigen
 
 Das Skript:
+
 - Validiert Semantic Versioning
 - Erstellt cleanen Orphan-Branch (nur dist/ Inhalte)
 - Erstellt Releases auf GitHub (Standard: veröffentlicht, optional: Draft)
@@ -586,7 +673,6 @@ Das Skript:
 `README.md` für Endanwender. Bei einem Release wird nur dieser Ordner veröffentlicht.
 
 Siehe `scripts/RELEASE_README.md` für detaillierte Dokumentation und `scripts/USAGE_EXAMPLES.md` für Beispiele.
-
 
 ## Credits
 
