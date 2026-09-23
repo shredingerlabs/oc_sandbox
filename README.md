@@ -39,6 +39,14 @@ Bei `web` läuft im Container dauerhaft `opencode web --port 4096` als
 Hintergrunddienst, veröffentlicht auf `127.0.0.1` (Port-Scan 4096-4196); die
 TUI zeigt nach dem Start bzw. beim Zugriff auf das laufende Projekt die URL an.
 
+Wird ein Projekt geöffnet, dessen Container bereits läuft, fragt die TUI bei
+jedem Zugriff, wie zugegriffen werden soll: Bei `opencode` zwischen
+`OpenCode (configured)` und `Console (bash)`, bei `web` zwischen
+`Show Web URL` und `Console (bash)` (ohne veröffentlichten Port erscheint
+beim URL-Eintrag ein Hinweis), bei `console` direkt. Eine Console-Sitzung ist
+eine unabhängige Bash-Shell über `podman exec` und ändert die konfigurierte
+Start-Option nicht.
+
 Fehlende Container-Images bieten **Build now**, **Build later** oder **Go back**.
 Neue Projekte werden für die Einrichtung detached gestartet. Die CBM-Konfiguration
 läuft nicht-interaktiv; die Skills-Einrichtung startet anschließend über ein

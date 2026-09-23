@@ -378,16 +378,37 @@ access_running_container() {
   # Build container name
   local container_name="opencode-sandbox-${project_name}"
 
-  # Access based on start option
-  if [[ "$start_option" == "opencode" ]]; then
-    # Direct opencode access
-    podman exec -it --user dev "$container_name" opencode
-  else
-    # Access bash first
-    podman exec -it --user dev "$container_name" bash
-  fi
+  # Access-time chooser: configured entry plus Console (bash), asked on every
+  # access; console-configured projects attach directly. Cancellation returns
+  # silently to the caller.
+  case "$start_option" in
+    opencode)
+      local choice
+      choice=$(show_menu "Select access for running container" \
+        "OpenCode (configured)" "Console (bash)")
+      case "$choice" in
+        "Console (bash)") podman exec -it --user dev "$container_name" bash ;;
+        "OpenCode (configured)") podman exec -it --user dev "$container_name" opencode ;;
+      esac
+      ;;
+    web)
+      local choice
+      choice=$(show_menu "Select access for running container" \
+        "Show Web URL" "Console (bash)")
+      case "$choice" in
+        "Console (bash)") podman exec -it --user dev "$container_name" bash ;;
+        "Show Web URL") print_web_url "$container_name" ;;
+      esac
+      ;;
+    *)
+      podman exec -it --user dev "$container_name" bash
+      ;;
+  esac
 }
 ```
+
+Where `print_web_url` is the inlined `podman port 4096/tcp` lookup plus the
+"not published" notice shown in the shipped script.
 
 ### First-Run Setup Handler
 

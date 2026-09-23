@@ -247,7 +247,10 @@ case "${1:-}" in
   ps)
     [[ -n "${PODMAN_RUNNING:-}" ]] && printf '%s\n' "$PODMAN_RUNNING"
     ;;
-  port) printf '%s\n' '127.0.0.1:4096' ;;
+  port)
+    [[ -n "${PODMAN_NO_PORT:-}" ]] && exit 0
+    printf '%s\n' '127.0.0.1:4096'
+    ;;
   exec)
     if [[ "${PODMAN_FAIL_CBM:-false}" == true && "$*" == *codebase-memory-mcp* ]]; then
       exit 1
@@ -329,16 +332,22 @@ grep -F -- '--detach' "$workflow_home/native-start-args"
 [[ "$(jq -r '.setup_complete' "$workflow_project/.opencode_config/sandbox_config.json")" == true ]]
 
 create_sandbox_config "$workflow_project" full opencode none
+show_menu() { printf '%s\n' 'OpenCode (configured)'; }
 start_container_with_setup "$workflow_project"
 grep -F -- 'opencode' "$podman_log"
 SCRIPT_DIR="$PROJECT_ROOT/dist/scripts"
 
 # The web start option is selectable during creation and passed through to
-# start.sh; access of a running web project reports the published URL.
-# Restore the real select_start_option (an earlier test stub replaced it).
+# start.sh; access of a running web project offers the access-time chooser and
+# reports the published URL.
 # shellcheck disable=SC1091
 source "$PROJECT_ROOT/dist/scripts/start-tui.sh"
-show_menu() { printf '%s\n' 'web'; }
+show_menu() {
+  case "$1" in
+    'Select access for running container'*) printf '%s\n' "$ACCESS_CHOICE" ;;
+    *) printf '%s\n' 'web' ;;
+  esac
+}
 captured_start_choice=""
 select_vcs_tracking() { captured_start_choice="${*: -1}"; }
 select_start_option /tmp/project Test full
@@ -346,12 +355,56 @@ select_start_option /tmp/project Test full
 
 SCRIPT_DIR="$workflow_home/native"
 web_project_log="$workflow_home/web-access-output"
+ACCESS_CHOICE='Show Web URL'
+export ACCESS_CHOICE
 create_sandbox_config "$workflow_project" full web none
 start_container_with_setup "$workflow_project" > "$web_project_log"
 grep -F -- '--start_web' "$workflow_home/native-start-args"
 ! grep -F -- '--start_opencode' "$workflow_home/native-start-args"
 grep -q 'OpenCode Web: http://127.0.0.1:4096' "$web_project_log"
 SCRIPT_DIR="$PROJECT_ROOT/dist/scripts"
+
+# The access-time chooser for a running container offers Console (bash) for
+# opencode- and web-configured projects; web projects can fall back to console
+# even when no port is published.
+console_project="$workflow_home/console-access"
+mkdir -p "$console_project"
+add_project_to_registry ConsoleAccess "$console_project" none
+create_sandbox_config "$console_project" full console none
+update_sandbox_config_field "$console_project/.opencode_config/sandbox_config.json" start_option opencode
+update_sandbox_config_field "$console_project/.opencode_config/sandbox_config.json" setup_complete true
+podman_log="$workflow_home/podman-args"
+: > "$podman_log"
+CONSOLE_NAME="opencode-sandbox-$(project_container_identity "$console_project")"
+export PODMAN_RUNNING="$CONSOLE_NAME"
+
+ACCESS_CHOICE='Console (bash)'
+handle_project_action "$(get_project_by_path "$console_project")"
+ACCESS_CHOICE='OpenCode (configured)'
+handle_project_action "$(get_project_by_path "$console_project")"
+grep -c 'exec -it --user dev opencode-sandbox-' "$podman_log" | grep -q '^2$'
+grep -q 'exec -it --user dev .* opencode$' "$podman_log"
+grep -q 'exec -it --user dev .* bash$' "$podman_log"
+
+# Web-configured running project with no published port still reaches console.
+web_no_port="$workflow_home/web-no-port"
+mkdir -p "$web_no_port"
+add_project_to_registry WebNoPort "$web_no_port" none
+create_sandbox_config "$web_no_port" full web none
+update_sandbox_config_field "$web_no_port/.opencode_config/sandbox_config.json" setup_complete true
+export PODMAN_RUNNING="opencode-sandbox-$(project_container_identity "$web_no_port")"
+export PODMAN_NO_PORT=true
+: > "$podman_log"
+ACCESS_CHOICE='Show Web URL'
+no_port_note="$workflow_home/no-port-note"
+handle_project_action "$(get_project_by_path "$web_no_port")" 2> "$no_port_note"
+grep -q 'not published' "$no_port_note"
+unset PODMAN_NO_PORT
+: > "$podman_log"
+ACCESS_CHOICE='Console (bash)'
+handle_project_action "$(get_project_by_path "$web_no_port")"
+grep -Fq 'exec -it --user dev' "$podman_log"
+unset PODMAN_RUNNING ACCESS_CHOICE
 
 # A failed native start must return to its caller when Go back is selected,
 # even though the TUI runs with set -e.

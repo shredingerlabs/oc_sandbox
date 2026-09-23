@@ -61,6 +61,13 @@ Project setup also selects a start option: `console` (shell), `opencode`
 `127.0.0.1` (port scan 4096-4196); the TUI prints the URL after start and when
 accessing the running project.
 
+When a project is opened while its container is already running, the TUI asks
+how to access it every time: with `opencode` the choice is `OpenCode
+(configured)` or `Console (bash)`; with `web` it is `Show Web URL` or `Console
+(bash)` (the URL entry prints a notice if no port is published); with `console`
+it attaches directly. A console session is an independent bash shell attached
+via `podman exec` and does not change the configured start option.
+
 If the selected container image is missing, the TUI offers `Build now`, `Build
 later`, or `Go back`. New projects run setup in a detached container and then
 attach to the selected console or OpenCode session (with the `web` start option,

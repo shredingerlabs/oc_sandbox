@@ -1437,22 +1437,37 @@ access_running_container() {
   local container_name=$(container_name_for_project "$project_data")
   local start_option=$(jq -r '.start_option' "$config_path")
 
-  if [[ "$start_option" == "web" ]]; then
-    local web_port
-    if web_port=$(podman port "$container_name" 4096/tcp 2>/dev/null | head -n 1); then
-      [[ -n "$web_port" ]] && printf 'OpenCode Web: http://%s\n' "$web_port"
-    fi
-    if [[ -z "${web_port:-}" ]]; then
-      echo "Note: OpenCode Web is not published for this project (the container may not run the web server)." >&2
-    fi
-    return 0
-  fi
-
-  if [[ "$start_option" == "opencode" ]]; then
-    podman exec -it --user dev "$container_name" opencode
-  else
-    podman exec -it --user dev "$container_name" bash
-  fi
+  case "$start_option" in
+    opencode)
+      local choice
+      choice=$(show_menu "Select access for running container" "OpenCode (configured)" "Console (bash)")
+      case "$choice" in
+        "Console (bash)") podman exec -it --user dev "$container_name" bash ;;
+        "OpenCode (configured)") podman exec -it --user dev "$container_name" opencode ;;
+      esac
+      ;;
+    web)
+      local choice
+      choice=$(show_menu "Select access for running container" "Show Web URL" "Console (bash)")
+      case "$choice" in
+        "Console (bash)")
+          podman exec -it --user dev "$container_name" bash
+          ;;
+        "Show Web URL")
+          local web_port
+          if web_port=$(podman port "$container_name" 4096/tcp 2>/dev/null | head -n 1); then
+            [[ -n "$web_port" ]] && printf 'OpenCode Web: http://%s\n' "$web_port"
+          fi
+          if [[ -z "${web_port:-}" ]]; then
+            echo "Note: OpenCode Web is not published for this project (the container may not run the web server)." >&2
+          fi
+          ;;
+      esac
+      ;;
+    *)
+      podman exec -it --user dev "$container_name" bash
+      ;;
+  esac
 }
 
 build_container_wizard() {
