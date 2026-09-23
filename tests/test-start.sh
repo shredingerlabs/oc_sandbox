@@ -35,6 +35,12 @@ fi
 
 grep -q -- '--network=pasta:--ipv4-only' "$PODMAN_LOG"
 grep -q -- '-p 127.0.0.1:9750:9749' "$PODMAN_LOG"
+
+# Git-Heal: OpenCode-Web braucht ein Git-Repo in project/ (sonst worktree "/"
+# und Weboberflaeche ohne neue Sessions)
+[[ -e "$test_home/project/.git" ]]
+[[ "$(git -C "$test_home/project" rev-parse --is-inside-work-tree 2>/dev/null)" == "true" ]]
+
 printf 'start networking and CBM port tests passed\n'
 
 : > "$PODMAN_LOG"
@@ -65,3 +71,21 @@ if ! bash "$PROJECT_ROOT/dist/scripts/start.sh" --help | grep -q -- '--start_web
   exit 1
 fi
 printf 'start web option tests passed\n'
+
+# Bestehendes Repo in project/ bleibt unangetastet (kein Re-Init, kein Hinweis)
+rm -rf "$test_home/project"
+mkdir -p "$test_home/project"
+git -C "$test_home/project" init -q
+git -C "$test_home/project" -c user.name=T -c user.email=t@example.com commit --allow-empty -q -m seed
+existing_head="$(git -C "$test_home/project" rev-parse HEAD)"
+
+: > "$PODMAN_LOG"
+heal_output="$test_home/heal-output"
+if ! bash "$PROJECT_ROOT/dist/scripts/start.sh" "$test_home" --detach > "$heal_output" 2>&1; then
+  printf 'start script failed with mocked podman (existing repo)\n' >&2
+  exit 1
+fi
+
+[[ "$(git -C "$test_home/project" rev-parse HEAD)" == "$existing_head" ]]
+! grep -q 'nachgeholt' "$heal_output"
+printf 'start git heal tests passed\n'

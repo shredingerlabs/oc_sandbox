@@ -126,6 +126,21 @@ BASH_DIR="${PROJECT_ROOT}/.bash_local"
 mkdir -p "$PROJECT_DIR" "$CONFIG_DIR" "$DATA_DIR" "$SSH_DIR" "$GIT_DIR" "$GIT_DIR/gh-cli" "$GIT_DIR/glab-cli" "$CBM_DIR"
 chmod 700 "$SSH_DIR" "$GIT_DIR"
 
+# OpenCode-Web braucht ein Git-Repo als Worktree: ohne .git in project/
+# faellt opencode auf das "global"-Projekt mit worktree "/" zurueck
+# (Weboberflaeche: "+" disabled, kein Projekt anlegbar).
+# Bestehende Projekte werden beim Start nachgepflegt (Heal).
+if [[ ! -e "$PROJECT_DIR/.git" ]]; then
+  if git -C "$PROJECT_DIR" init -q 2>/dev/null; then
+    echo "Hinweis: ${PROJECT_DIR} war kein Git-Repo; 'git init' nachgeholt." >&2
+    echo "  (Noetig fuer OpenCode-Web, sonst worktree \"/\" und keine neuen Sessions.)" >&2
+  else
+    echo "Warnung: 'git init' in ${PROJECT_DIR} fehlgeschlagen - OpenCode-Web" >&2
+    echo "  wird dann worktree \"/\" verwenden (keine Sessions anlegbar)." >&2
+  fi
+fi
+chmod 700 "$SSH_DIR" "$GIT_DIR"
+
 if [[ -z "$(find "$SSH_DIR" -maxdepth 1 -type f 2>/dev/null)" ]]; then
   echo "Warnung: ${SSH_DIR} enthält keine Dateien (keine Keys/Config)." >&2
   echo "  Git-Push/Pull über SSH wird ohne Keys fehlschlagen." >&2
