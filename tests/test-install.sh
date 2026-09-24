@@ -745,7 +745,150 @@ test_macos_shortcut_without_osascript_warns() {
   cleanup_test_env "$test_dir"
 }
 
-# --- Main Test Runner ----------------------------------------------------------
+test_gum_tmpdir_parent_skips_windows_mounts() {
+  # Regression (Win11 WSL): TMPDIR/TEMP/TMP können über WSLENV auf ein Windows-
+  # Laufwerk (/mnt/c/...) zeigen. Auf drvfs/9p schlägt das tar-Entpacken mit
+  # "Function not implemented" fehl. select_gum_tmpdir_parent muss solche
+  # Pfade überspringen und auf /tmp oder $HOME ausweichen.
+  local test_dir
+  test_dir=$(setup_test_env "gum-tmpdir-wsl")
+
+  local parent
+  parent=$( (source "$INSTALL_SCRIPT" --help >/dev/null 2>&1
+             is_wsl() { return 0; }
+             TMPDIR="/mnt/c/Users/test/AppData/Local/Temp"
+             TEMP="/mnt/c/Users/test/Temp"
+             TMP="/mnt/c/Users/test/tmp"
+             select_gum_tmpdir_parent) )
+
+  assert_equals "/tmp" "$parent" "Windows-Mounts dürfen nicht als gum-Temp-Basis dienen" || {
+    cleanup_test_env "$test_dir"; return 1; }
+
+  cleanup_test_env "$test_dir"
+}
+
+test_gum_tmpdir_parent_prefers_existing_tmpdir() {
+  local test_dir
+  test_dir=$(setup_test_env "gum-tmpdir-native")
+  local home="$test_dir/home"
+  mkdir -p "$home"
+
+  local parent
+  parent=$( (source "$INSTALL_SCRIPT" --help >/dev/null 2>&1
+             HOME="$home"
+             TMPDIR="$home/tmp"
+             mkdir -p "$home/tmp"
+             select_gum_tmpdir_parent) )
+
+  assert_equals "$home/tmp" "$parent" "existierendes TMPDIR auf Linux-FS wird bevorzugt" || {
+    cleanup_test_env "$test_dir"; return 1; }
+
+  cleanup_test_env "$test_dir"
+}
+
+setup_gum_fixture() {
+  # Baut ein gum-Release-ähnliches Archiv + passendes checksums.txt im Testverzeichnis.
+  local test_dir="$1"
+  mkdir -p "$test_dir/src/gum_0.17.0_Linux_x86_64/completions"
+  mkdir -p "$test_dir/src/gum_0.17.0_Linux_x86_64/manpages"
+  printf '#!/usr/bin/env bash\necho gum-fake "$@"\n' > "$test_dir/src/gum_0.17.0_Linux_x86_64/gum"
+  chmod +x "$test_dir/src/gum_0.17.0_Linux_x86_64/gum"
+  touch "$test_dir/src/gum_0.17.0_Linux_x86_64/LICENSE" \
+        "$test_dir/src/gum_0.17.0_Linux_x86_64/README.md" \
+        "$test_dir/src/gum_0.17.0_Linux_x86_64/completions/gum.bash" \
+        "$test_dir/src/gum_0.17.0_Linux_x86_64/manpages/gum.1.gz"
+  tar -czf "$test_dir/gum.tar.gz" -C "$test_dir/src" gum_0.17.0_Linux_x86_64
+  local sha
+  sha=$(sha256sum "$test_dir/gum.tar.gz" | awk '{print $1}')
+  printf '%s  gum_0.17.0_Linux_x86_64.tar.gz\n' "$sha" > "$test_dir/checksums.txt"
+}
+
+setup_gum_curl_shim() {
+  local test_dir="$1"
+  local test_bin="$test_dir/bin"
+  mkdir -p "$test_bin"
+  cat > "$test_bin/curl" << EOF
+#!/usr/bin/env bash
+out_file=""
+prev=""
+for arg in "\$@"; do
+  if [[ "\$prev" == "-o" ]]; then out_file="\$arg"; fi
+  prev="\$arg"
+done
+if [[ "\$*" == *"checksums.txt"* ]]; then
+  src="$test_dir/checksums.txt"
+else
+  src="$test_dir/gum.tar.gz"
+fi
+if [[ -n "\$out_file" ]]; then
+  cat "\$src" > "\$out_file"
+else
+  cat "\$src"
+fi
+EOF
+  chmod +x "$test_bin/curl"
+}
+
+test_gum_install_success() {
+  local test_dir
+  test_dir=$(setup_test_env "gum-install-ok")
+  local home="$test_dir/home"
+  mkdir -p "$home"
+  setup_gum_fixture "$test_dir"
+  setup_gum_curl_shim "$test_dir"
+
+  local output rc=0
+  output=$( (source "$INSTALL_SCRIPT" --help >/dev/null 2>&1
+             HOME="$home"
+             INSTALL_PATH="$home/.oc-sandbox"
+             GUM_BIN="$home/.oc-sandbox/gum/gum"
+             VERBOSE=false
+             PATH="$test_dir/bin:$PATH"
+             install_gum >/dev/null 2>"$test_dir/ig-stderr") ) || rc=$?
+  output=$(cat "$test_dir/ig-stderr" 2>/dev/null || true)
+
+  assert_equals "0" "$rc" "install_gum mit gültigem Archiv liefert 0" || { echo "$output"; cleanup_test_env "$test_dir"; return 1; }
+
+  assert_file_exists "$home/.oc-sandbox/gum/gum" || { echo "$output"; cleanup_test_env "$test_dir"; return 1; }
+  assert_file_executable "$home/.oc-sandbox/gum/gum" || { echo "$output"; cleanup_test_env "$test_dir"; return 1; }
+
+  cleanup_test_env "$test_dir"
+}
+
+test_gum_install_tar_failure_reports_error() {
+  # Regression (Win11 WSL): tar schlug beim Entpacken fehl ("Function not
+  # implemented" auf drvfs) – vorher lief der Code still weiter und meldete
+  # irreführend "Binary 'gum' im Archiv nicht gefunden". Jetzt: klare Fehlermeldung.
+  local test_dir
+  test_dir=$(setup_test_env "gum-install-tarfail")
+  local home="$test_dir/home"
+  mkdir -p "$home"
+  printf 'kein-gzip-kein-tarball' > "$test_dir/gum.tar.gz"
+  : > "$test_dir/checksums.txt"
+  setup_gum_curl_shim "$test_dir"
+
+  local output rc=0
+  output=$( (source "$INSTALL_SCRIPT" --help >/dev/null 2>&1
+             HOME="$home"
+             INSTALL_PATH="$home/.oc-sandbox"
+             GUM_BIN="$home/.oc-sandbox/gum/gum"
+             VERBOSE=false
+             PATH="$test_dir/bin:$PATH"
+             install_gum) 2>&1 ) || rc=$?
+
+  assert_equals "1" "$rc" "kaputtes Archiv liefert 1" || { echo "$output"; cleanup_test_env "$test_dir"; return 1; }
+
+  if [[ "$output" != *"Entpacken des gum-Archivs fehlgeschlagen"* ]]; then
+    echo "tar-Fehlermeldung fehlt"
+    echo "$output"
+    cleanup_test_env "$test_dir"
+    return 1
+  fi
+
+  cleanup_test_env "$test_dir"
+}
+
+
 
 main() {
   echo "========================================="
@@ -785,6 +928,15 @@ main() {
   run_test "WSL: fehlende Interop warnt nur" test_wsl_missing_mnt_c_leaves_install_exit_0
   run_test "macOS: .app-Bundle erstellt (Shim)" test_macos_shortcut_shim
   run_test "macOS: fehlendes osascript warnt nur" test_macos_shortcut_without_osascript_warns
+
+  # Gum-Installation-Tests
+  echo ""
+  echo "Running gum installation tests..."
+  run_test "gum: Temp-Basis überspringt Windows-Mounts (WSL)" test_gum_tmpdir_parent_skips_windows_mounts
+  run_test "gum: Temp-Basis nutzt existierendes TMPDIR" test_gum_tmpdir_parent_prefers_existing_tmpdir
+  run_test "gum: Installation aus Release-Archiv" test_gum_install_success
+  run_test "gum: kaputtes Archiv liefert klare Fehlermeldung" test_gum_install_tar_failure_reports_error
+
   
   # Zusammenfassung
   echo ""

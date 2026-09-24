@@ -30,6 +30,9 @@ GUM_VERSION="${GUM_VERSION:-0.17.0}"
 GUM_BIN="${DEFAULT_INSTALL_PATH}/gum/gum"
 PLATFORM_OS=""
 PLATFORM_ARCH=""
+# Temp-Verzeichnis der gum-Installation – global, damit der EXIT-Trap cleanup_gum
+# nach Funktionsende noch darauf zugreifen kann (set -u).
+tmpdir=""
 
 # --- Signal-Handling -----------------------------------------------------------
 cleanup() {
@@ -38,6 +41,10 @@ cleanup() {
       echo "Räume temporäres Verzeichnis auf: $TEMP_DIR"
     fi
     rm -rf "$TEMP_DIR"
+  fi
+  if [[ -n "$tmpdir" && -d "$tmpdir" ]]; then
+    rm -rf "$tmpdir"
+    tmpdir=""
   fi
 }
 
@@ -164,8 +171,24 @@ gum_available() {
   return 1
 }
 
+# --- Gum Installation ----------------------------------------------------------
+# Wählt die Basis für das gum-Install-Temp-Verzeichnis. In WSL können TMPDIR/
+# TEMP/TMP über WSLENV auf ein Windows-Laufwerk (/mnt/c/...) zeigen; auf drvfs/
+# 9p schlägt das Entpacken mit "Function not implemented" fehl. Daher nur
+# Verzeichnisse auf Linux-Dateisystemen zulassen.
+select_gum_tmpdir_parent() {
+  local candidate
+  for candidate in "${TMPDIR:-}" "${TEMP:-}" "${TMP:-}" /tmp "$HOME"; do
+    if [[ -n "$candidate" && -d "$candidate" && ! "$candidate" =~ ^/mnt/[a-z]($|/) ]]; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done
+  printf '/tmp\n'
+}
+
 install_gum() {
-  local tmpdir tarball_name url checksums_url sha_cmd expected actual
+  local tarball_name url checksums_url sha_cmd expected actual
 
   detect_platform || return 1
 
@@ -187,12 +210,9 @@ install_gum() {
     sha_cmd=""
   fi
 
-  tmpdir=$(mktemp -d)
-
-  cleanup_gum() {
-    rm -rf "$tmpdir"
-  }
-  trap cleanup_gum EXIT
+  # Temp-Verzeichnis nur auf Linux-Dateisystemen extrahieren (siehe
+  # select_gum_tmpdir_parent). Das Aufräumen übernimmt der globale cleanup-Trap.
+  tmpdir=$(mktemp -d "$(select_gum_tmpdir_parent)/gum-install.XXXXXX")
 
   log_info "Lade gum v${GUM_VERSION} für ${PLATFORM_OS}/${PLATFORM_ARCH} herunter ..."
   if ! curl -fsSL "$url" -o "$tmpdir/$tarball_name"; then
@@ -220,7 +240,10 @@ install_gum() {
   fi
 
   log_info "Entpacke und installiere nach ${INSTALL_PATH} ..."
-  tar -xzf "$tmpdir/$tarball_name" -C "$tmpdir"
+  if ! tar -xzf "$tmpdir/$tarball_name" -C "$tmpdir"; then
+    log_error "Entpacken des gum-Archivs fehlgeschlagen (tmpdir: ${tmpdir})."
+    return 1
+  fi
 
   local extracted_bin
   extracted_bin=$(find "$tmpdir" -type f -name gum | head -n1)
@@ -235,7 +258,7 @@ install_gum() {
   chmod +x "$GUM_BIN"
 
   log_info "gum erfolgreich installiert: $GUM_BIN"
-  trap - EXIT
+  tmpdir=""
 }
 
 # --- Disk-Space-Checking ------------------------------------------------------
