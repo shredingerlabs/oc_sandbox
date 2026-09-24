@@ -1683,51 +1683,35 @@ select_deinstallation_options() {
   ref_backup=false
   ref_shortcuts=false
 
-  if [[ "$TUI_MODE" != "gum" ]]; then
+  while true; do
+    local labels=()
+    labels+=("$([[ $ref_symlinks == true ]] && printf '[x]' || printf '[ ]') Remove symlinks (~/.local/bin)")
+    labels+=("$([[ $ref_config == true ]] && printf '[x]' || printf '[ ]') Remove config (~/.config/oc-sandbox)")
+    labels+=("$([[ $ref_shortcuts == true ]] && printf '[x]' || printf '[ ]') Remove desktop shortcuts")
+    if [[ $ref_config == true ]]; then
+      labels+=("$([[ $ref_backup == true ]] && printf '[x]' || printf '[ ]') Create backup")
+    fi
+    labels+=("Confirm — start uninstall")
+
     local toggle_choice
-    while true; do
-      local labels=()
-      labels+=("$([[ $ref_symlinks == true ]] && printf '[x]' || printf '[ ]') Remove symlinks (~/.local/bin)")
-      labels+=("$([[ $ref_config == true ]] && printf '[x]' || printf '[ ]') Remove config (~/.config/oc-sandbox)")
-      labels+=("$([[ $ref_shortcuts == true ]] && printf '[x]' || printf '[ ]') Remove desktop shortcuts")
-      if [[ $ref_config == true ]]; then
-        labels+=("$([[ $ref_backup == true ]] && printf '[x]' || printf '[ ]') Create backup")
-      fi
-      toggle_choice=$(bash_select "Toggle options (select an item to toggle)" "${labels[@]}" "Done") || return 1
-      case "$toggle_choice" in
-        "Done") break ;;
-        *"Remove symlinks"*) [[ $ref_symlinks == true ]] && ref_symlinks=false || ref_symlinks=true ;;
-        *"Remove config"*) [[ $ref_config == true ]] && ref_config=false || ref_config=true ;;
-        *"desktop shortcuts"*) [[ $ref_shortcuts == true ]] && ref_shortcuts=false || ref_shortcuts=true ;;
-        *"Create backup"*) [[ $ref_backup == true ]] && ref_backup=false || ref_backup=true ;;
-      esac
-    done
-  fi
+    if [[ "$TUI_MODE" == "gum" ]]; then
+      toggle_choice=$("$GUM_BIN" choose \
+        --header="Uninstall options (select an item to toggle)" \
+        --height=6 \
+        "${labels[@]}" "← Go Back") || return 1
+    else
+      toggle_choice=$(bash_select "Uninstall options (select an item to toggle)" "${labels[@]}" "← Go Back") || return 1
+    fi
 
-  local symlinks_item="Remove symlinks (~/.local/bin)"
-  local config_item="Remove config (~/.config/oc-sandbox)"
-  local shortcuts_item="Remove desktop shortcuts"
-  local backup_item="Create backup"
-  local raw
-  local args
-
-  if [[ "$TUI_MODE" == "gum" ]]; then
-    args=()
-    [[ $ref_symlinks == true ]] && args+=(--selected "$symlinks_item")
-    [[ $ref_config == true ]] && args+=(--selected "$config_item")
-    [[ $ref_shortcuts == true ]] && args+=(--selected "$shortcuts_item")
-    [[ $ref_backup == true ]] && args+=(--selected "$backup_item")
-
-    raw=$("$GUM_BIN" choose --no-limit \
-      --header="Uninstall options (space to toggle, enter to confirm)" \
-      --height=6 \
-      "${args[@]}" "$symlinks_item" "$config_item" "$shortcuts_item" "$backup_item") || return 1
-
-    [[ "$raw" == *"$symlinks_item"* ]] && ref_symlinks=true || ref_symlinks=false
-    [[ "$raw" == *"$config_item"* ]] && ref_config=true || ref_config=false
-    [[ "$raw" == *"$shortcuts_item"* ]] && ref_shortcuts=true || ref_shortcuts=false
-    [[ "$raw" == *"$backup_item"* ]] && ref_backup=true || ref_backup=false
-  fi
+    case "$toggle_choice" in
+      "← Go Back") return 1 ;;
+      "Confirm — start uninstall") break ;;
+      *"Remove symlinks"*) [[ $ref_symlinks == true ]] && ref_symlinks=false || ref_symlinks=true ;;
+      *"Remove config"*) [[ $ref_config == true ]] && ref_config=false || ref_config=true ;;
+      *"desktop shortcuts"*) [[ $ref_shortcuts == true ]] && ref_shortcuts=false || ref_shortcuts=true ;;
+      *"Create backup"*) [[ $ref_backup == true ]] && ref_backup=false || ref_backup=true ;;
+    esac
+  done
 
   if [[ $ref_backup == true && $ref_config != true ]]; then
     ref_backup=false

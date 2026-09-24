@@ -122,7 +122,7 @@
 
 **retry flow** — Error recovery pattern where users who choose "Retry" after a failure remain in the recovery loop even if intermediate steps (like settings adjustment) fail. Failures show context-aware error messages and return to the retry menu, except for explicit user aborts (exit code 2) which are respected throughout.
 
-**uninstall wizard** — Guided TUI flow in Settings (warning screen with running containers and their stop commands, option checkboxes for symlinks/config/backup, summary screen). Every screen can be cancelled or navigated back; the choices are mapped to uninstall.sh flags and run with `--force`.
+**uninstall wizard** — Guided TUI flow in Settings (warning screen with running containers and their stop commands, option rows for symlinks/config/backup toggled via Enter, explicit "Confirm — start uninstall" row that must be selected to proceed, summary screen). Every screen can be cancelled or navigated back; toggling a flag row alone never advances the wizard. The choices are mapped to uninstall.sh flags and run with `--force`.
 
 **UNINSTALL confirmation** — Typed text confirmation required on the uninstall summary before anything is removed; rendered as a red gum input when gum is available, plain `read` fallback otherwise.
 

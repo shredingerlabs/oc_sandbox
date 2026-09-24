@@ -534,8 +534,10 @@ Hinweise:
 ## Deinstallation
 
 Im TUI (Settings → **Uninstall**) läuft der Ablauf als geführter Wizard:
-Warnung mit laufenden Containern → Options-Auswahl → Zusammenfassung mit
-`UNINSTALL`-Bestätigung; jeder Schritt ist abbrechbar.
+Warnung mit laufenden Containern → Options-Auswahl (Einträge werden per Enter
+umgeschaltet, Bestätigen startet die Deinstallation erst nach Auswahl von
+„Confirm — start uninstall") → Zusammenfassung mit `UNINSTALL`-Bestätigung;
+jeder Schritt ist abbrechbar.
 
 Direkt per Skript wird die Sandbox mit `dist/scripts/uninstall.sh` entfernt. Es
 werden nur der Installationspfad, die Symlinks und optional die Config entfernt –

@@ -35,12 +35,14 @@ def main():
         os.execvpe(args.command[0], args.command, env)
 
     output = bytearray()
-    input_sent = False
-    submit_sent = False
+    input_chunks = args.input.split("|")
+    if args.submit:
+        input_chunks.append(args.submit)
+    input_index = 0
+    input_due = time.monotonic() + 0.2
     deadline = time.monotonic() + args.timeout
     status = None
     cursor_queries = 0
-    input_due = time.monotonic() + 0.2
     try:
         while time.monotonic() < deadline:
             readable, _, _ = select.select([fd], [], [], 0.05)
@@ -56,14 +58,10 @@ def main():
                 if query_count > cursor_queries:
                     os.write(fd, b"\x1b[1;1R")
                     cursor_queries = query_count
-            if input_due is not None and not input_sent and time.monotonic() >= input_due:
-                os.write(fd, args.input.encode())
-                input_sent = True
-                if args.submit:
-                    input_due = time.monotonic() + 0.2
-            elif input_sent and args.submit and not submit_sent and time.monotonic() >= input_due:
-                os.write(fd, args.submit.encode())
-                submit_sent = True
+            if input_index < len(input_chunks) and time.monotonic() >= input_due:
+                os.write(fd, input_chunks[input_index].encode())
+                input_index += 1
+                input_due = time.monotonic() + 0.2
             try:
                 waited, status = os.waitpid(pid, os.WNOHANG)
             except ChildProcessError:
@@ -72,7 +70,10 @@ def main():
                 break
             status = None
         else:
-            os.kill(pid, signal.SIGTERM)
+            try:
+                os.killpg(pid, signal.SIGTERM)
+            except OSError:
+                pass
             _, status = os.waitpid(pid, 0)
             sys.stdout.buffer.write(output)
             sys.stdout.flush()
