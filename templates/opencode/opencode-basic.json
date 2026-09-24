@@ -1,0 +1,19 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "permission": {
+    "external_directory": {
+      "/tmp/**": "allow",
+      "/home/dev/**": "allow",
+      "/usr/local/share/playwright-browsers/**": "allow",
+      "/opt/picoscope/**": "allow",
+      "/usr/local/lib/python3.12/dist-packages/picosdk/**": "allow"
+    }
+  },
+  "mcp": {
+    "codebase-memory-mcp": {
+      "type": "local",
+      "command": ["/usr/local/bin/codebase-memory-mcp"],
+      "enabled": true
+    }
+  }
+}
