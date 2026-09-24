@@ -391,6 +391,161 @@ test_linux_shortcut_failure_warns_but_install_succeeds() {
   cleanup_test_env "$test_dir"
 }
 
+test_main_wires_detect_platform_before_shortcut() {
+  # Regression: main() rief detect_platform nie auf – PLATFORM_OS blieb leer,
+  # create_shortcut matchte in keinem case-Zweig und schlug stumm fehl
+  # ("Desktop-Shortcut konnte nicht erstellt werden" ohne Details).
+  local test_dir
+  test_dir=$(setup_test_env "shortcut-main-wiring")
+  local home
+  home=$(setup_shortcut_env "shortcut-main-wiring-2")
+  local install_dir="$home/.oc-sandbox"
+
+  local rc=0
+  (source "$INSTALL_SCRIPT" --help >/dev/null 2>&1
+   HOME="$home"
+   INSTALL_PATH="$install_dir"
+   VERBOSE=false
+   check_dependencies() { return 0; }
+   check_disk_space() { return 0; }
+   get_latest_release() { echo "v0.0.34"; }
+   check_existing_installation() { return 0; }
+   install_files() { return 0; }
+   set_executable_permissions() { return 0; }
+   validate_installation() { return 0; }
+   install_gum() { return 0; }
+   gum_available() { return 1; }
+   main --shortcut >/dev/null 2>&1) || rc=$?
+
+  assert_equals "0" "$rc" "main --shortcut liefert 0" || { cleanup_test_env "$test_dir"; return 1; }
+
+  assert_file_exists "$home/.local/share/applications/oc-sandbox.desktop" || {
+    echo "main hat keinen Desktop-Shortcut erstellt (PLATFORM_OS-Verdrahtung fehlt)"
+    cleanup_test_env "$test_dir"
+    return 1
+  }
+
+  cleanup_test_env "$test_dir"
+}
+
+test_existing_install_non_tty_fails_clearly() {
+  # Regression: ohne TTY (z.B. 'curl ... | bash' ohne Terminal) schlug der
+  # read-Prompt still fehl (set -e, Exit 1 ohne Meldung). Jetzt: klare Fehler-
+  # meldung mit --force-Hinweis, Exit 2.
+  local test_dir
+  test_dir=$(setup_test_env "existing-nontty")
+  local home="$test_dir/home"
+  mkdir -p "$home/.oc-sandbox"
+
+  local output rc=0
+  output=$( (source "$INSTALL_SCRIPT" --help >/dev/null 2>&1
+             HOME="$home"
+             INSTALL_PATH="$home/.oc-sandbox"
+             FORCE=false
+             VERBOSE=false
+             check_existing_installation "$INSTALL_PATH") </dev/null 2>&1 ) || rc=$?
+
+  assert_equals "2" "$rc" "Exit 2 ohne TTY bei vorhandener Installation" || { cleanup_test_env "$test_dir"; return 1; }
+
+  if [[ "$output" != *"--force"* ]]; then
+    echo "Fehlermeldung ohne --force-Hinweis"
+    echo "$output"
+    cleanup_test_env "$test_dir"
+    return 1
+  fi
+
+  cleanup_test_env "$test_dir"
+}
+
+test_existing_install_non_tty_with_force_proceeds() {
+  # --force umgeht den Prompt auch ohne TTY (Update-Pfad für CI/curl|bash)
+  local test_dir
+  test_dir=$(setup_test_env "existing-force")
+  local home="$test_dir/home"
+  mkdir -p "$home/.oc-sandbox"
+
+  local rc=0
+  (source "$INSTALL_SCRIPT" --help >/dev/null 2>&1
+   HOME="$home"
+   INSTALL_PATH="$home/.oc-sandbox"
+   FORCE=true
+   VERBOSE=false
+   PRESERVE_ALLOWLIST=false
+   check_existing_installation "$INSTALL_PATH") </dev/null 2>&1 || rc=$?
+
+  assert_equals "0" "$rc" "--force überschreibt ohne Nachfrage" || { cleanup_test_env "$test_dir"; return 1; }
+
+  cleanup_test_env "$test_dir"
+}
+
+test_existing_install_tty_confirm_proceeds() {
+  # PTY: Bestätigung mit 'y' + allowlist-Erhalt → PRESERVE_ALLOWLIST=true
+  if ! command -v python3 >/dev/null 2>&1; then
+    echo "SKIP (python3 fehlt)"
+    return 0
+  fi
+  local test_dir
+  test_dir=$(setup_test_env "existing-tty")
+  local home="$test_dir/home"
+  mkdir -p "$home/.oc-sandbox/proxy"
+  echo "*" > "$home/.oc-sandbox/proxy/allowlist.txt"
+
+  local result rc=0
+  result=$(python3 "$PROJECT_ROOT/tests/run-pty.py" --input 'yy' --submit '' --timeout 10 -- bash -c '
+    source "$1" --help >/dev/null 2>&1
+    HOME="$2"
+    INSTALL_PATH="$2/.oc-sandbox"
+    FORCE=false
+    VERBOSE=false
+    PRESERVE_ALLOWLIST=false
+    check_existing_installation "$INSTALL_PATH"
+    echo "PRESERVE=$PRESERVE_ALLOWLIST"
+  ' _ "$INSTALL_SCRIPT" "$home" 2>&1) || rc=$?
+
+  assert_equals "0" "$rc" "Bestätigung mit 'y' läuft weiter" || { echo "$result"; cleanup_test_env "$test_dir"; return 1; }
+  if [[ "$result" != *"PRESERVE=true"* ]]; then
+    echo "allowlist-Prompt hat PRESERVE_ALLOWLIST nicht auf true gesetzt"
+    echo "$result"
+    cleanup_test_env "$test_dir"
+    return 1
+  fi
+
+  cleanup_test_env "$test_dir"
+}
+
+test_existing_install_tty_decline_aborts() {
+  # PTY: 'n' bricht ab (Exit 2, "Installation abgebrochen.")
+  if ! command -v python3 >/dev/null 2>&1; then
+    echo "SKIP (python3 fehlt)"
+    return 0
+  fi
+  local test_dir
+  test_dir=$(setup_test_env "existing-tty-decline")
+  local home="$test_dir/home"
+  mkdir -p "$home/.oc-sandbox"
+
+  local result rc=0
+  result=$(python3 "$PROJECT_ROOT/tests/run-pty.py" --input 'n' --submit '' --timeout 10 -- bash -c '
+    source "$1" --help >/dev/null 2>&1
+    HOME="$2"
+    INSTALL_PATH="$2/.oc-sandbox"
+    FORCE=false
+    VERBOSE=false
+    check_existing_installation "$INSTALL_PATH"
+    echo "KEIN-ABBRUCH"
+  ' _ "$INSTALL_SCRIPT" "$home" 2>&1) || rc=$?
+
+  assert_equals "2" "$rc" "'n' bricht Installation mit Exit 2 ab" || { echo "$result"; cleanup_test_env "$test_dir"; return 1; }
+  if [[ "$result" == *"KEIN-ABBRUCH"* ]]; then
+    echo "'n' hat die Installation nicht abgebrochen"
+    echo "$result"
+    cleanup_test_env "$test_dir"
+    return 1
+  fi
+
+  cleanup_test_env "$test_dir"
+}
+
 test_wsl_shortcut_uses_powershell_shim() {
   local test_dir
   test_dir=$(setup_test_env "shortcut-wsl")
@@ -615,6 +770,11 @@ main() {
   run_test "Linux: .desktop-Datei erstellt" test_linux_shortcut_creation
   run_test "Linux: .desktop-Datei mit Icon" test_linux_shortcut_with_icon
   run_test "Linux: fehlgeschlagener Shortcut bricht Installation nicht ab" test_linux_shortcut_failure_warns_but_install_succeeds
+  run_test "main verdrahtet detect_platform vor create_shortcut" test_main_wires_detect_platform_before_shortcut
+  run_test "Vorhandene Installation ohne TTY: klare Fehlermeldung" test_existing_install_non_tty_fails_clearly
+  run_test "Vorhandene Installation mit --force ohne TTY: läuft weiter" test_existing_install_non_tty_with_force_proceeds
+  run_test "Vorhandene Installation im TTY: 'y' bestätigt + allowlist erhalten" test_existing_install_tty_confirm_proceeds
+  run_test "Vorhandene Installation im TTY: 'n' bricht ab" test_existing_install_tty_decline_aborts
   run_test "WSL: .lnk via powershell.exe (Shim)" test_wsl_shortcut_uses_powershell_shim
   run_test "WSL: fehlende Interop warnt nur" test_wsl_missing_mnt_c_leaves_install_exit_0
   run_test "macOS: .app-Bundle erstellt (Shim)" test_macos_shortcut_shim

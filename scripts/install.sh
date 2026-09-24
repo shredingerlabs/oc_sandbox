@@ -46,7 +46,7 @@ trap cleanup EXIT INT TERM
 # --- Hilfsfunktionen -----------------------------------------------------------
 log_verbose() {
   if $VERBOSE; then
-    echo "$1"
+    echo "$1" >&2
   fi
 }
 
@@ -71,6 +71,33 @@ exit_with_usage_error() {
   log_error "$1"
   show_help
   exit 1
+}
+
+# Liest ein Bestätigungszeichen (Y/N) für Update-Prompts.
+# Bevorzugt stdin, wenn es ein Terminal ist; sonst /dev/tty – wichtig für den
+# bash one-liner ('curl ... | bash'), wo stdin die Script-Pipe ist und ein
+# 'read' von stdin Script-Bytes verschlucken würde.
+# Liefert 1, wenn keine interaktive Eingabe möglich ist (kein TTY).
+ask_confirm() {
+  local prompt_text="$1"
+  local reply=""
+
+  if [[ -t 0 ]]; then
+    read -p "$prompt_text" -n 1 -r reply
+    echo
+    REPLY="$reply"
+    return 0
+  fi
+
+  if { exec 3</dev/tty; } 2>/dev/null; then
+    read -u 3 -p "$prompt_text" -n 1 -r reply
+    exec 3<&-
+    echo >&2
+    REPLY="$reply"
+    return 0
+  fi
+
+  return 1
 }
 
 # --- Dependency-Checking -------------------------------------------------------
@@ -817,15 +844,23 @@ check_existing_installation() {
     fi
     
     echo "Vorhandene Installation gefunden: $install_path"
-    read -p "Überschreiben? [y/N] " -n 1 -r
-    echo
+    
+    if ! ask_confirm "Überschreiben? [y/N] "; then
+      log_error "Vorhandene Installation gefunden, aber kein interaktives Terminal verfügbar (z.B. bei 'curl ... | bash' ohne Terminal)."
+      log_error "Zum Überschreiben --force anhängen oder das Script interaktiv in einem Terminal ausführen:"
+      log_error "  curl -sL https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/main/scripts/install.sh | bash -s -- --force"
+      exit 2
+    fi
     
     if [[ $REPLY =~ ^[Yy]$ ]]; then
       # Frage nach allowlist.txt
       if [[ -f "$install_path/proxy/allowlist.txt" ]]; then
         echo "Vorhandene proxy/allowlist.txt gefunden."
-        read -p "Proxy-Konfiguration erhalten? [Y/n] " -n 1 -r
-        echo
+        
+        if ! ask_confirm "Proxy-Konfiguration erhalten? [Y/n] "; then
+          log_error "Kein interaktives Terminal verfügbar – bitte --force verwenden."
+          exit 2
+        fi
         
         if [[ ! $REPLY =~ ^[Nn]$ ]]; then
           log_verbose "proxy/allowlist.txt wird erhalten"
@@ -945,6 +980,9 @@ main() {
   parse_arguments "$@"
   check_dependencies
   
+  # Erkenne Plattform ( PLATFORM_OS/PLATFORM_ARCH ), z.B. für Shortcut-Erstellung
+  detect_platform || exit_with_error "Plattform konnte nicht erkannt werden"
+  
   # Prüfe Disk-Space
   check_disk_space "$(dirname "$INSTALL_PATH")" "$MIN_DISK_SPACE_MB"
   
@@ -1045,6 +1083,8 @@ main() {
 }
 
 # --- Start ----------------------------------------------------------------------
-if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+# Start via Datei: BASH_SOURCE[0] == $0. Start via 'curl ... | bash': Script
+# kommt von stdin, BASH_SOURCE[0] ist leer (und $0 ist 'bash').
+if [[ "${BASH_SOURCE[0]:-}" == "$0" ]] || [[ -z "${BASH_SOURCE[0]:-}" ]]; then
   main "$@"
 fi
