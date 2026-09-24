@@ -133,3 +133,11 @@
 **squid allowlist scope** — The squid egress proxy governs outbound traffic from inside the container only. Host-browser access to published container ports (web UI, CBM UI) never traverses squid, so allowlist entries are never needed for ingress.
 
 **skipped files** — Files that could not be removed during uninstallation because of missing permissions; tracked during removal and reported at the end with a hint to clean them up manually (e.g. with sudo).
+
+**desktop shortcut** — OS menu launcher for the TUI created by the install script on request; exactly one platform-appropriate artifact per OS: a `.desktop` file named `oc-sandbox.desktop` with `Terminal=true` under `$HOME/.local/share/applications/` (Linux), a `.lnk` named `OC Sandbox.lnk` in the current Windows user's Start Menu written from inside WSL (Windows), or a minimal `.app` bundle named `OC Sandbox.app` in `~/Applications` (macOS). Display name is `OC Sandbox` on all platforms. Independent of symlinks.
+
+**shortcut flag** — Optional `--shortcut` parameter on the install script; creates the desktop shortcut for the detected platform and overwrites an existing artifact silently on re-install.
+
+**shortcut removal** — Uninstall path for desktop shortcuts, offered as a wizard checkbox mapped to an uninstall.sh flag; removes shortcut artifacts pointing into the installation folder.
+
+**shortcut icon** — Icon referenced by the desktop shortcut, provided under `dist/icons/` (platform-appropriate formats) and pointed at by absolute or translated path from the installed artifact.

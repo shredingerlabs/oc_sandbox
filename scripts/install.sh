@@ -18,6 +18,8 @@ INSTALL_PATH="$DEFAULT_INSTALL_PATH"
 VERSION=""
 FORCE=false
 SYMLINKS=false
+SHORTCUT=false
+SHORTCUT_CREATED=false
 VERBOSE=false
 DOWNLOADED_VERSION=""
 USER_AGENT="opencode-sandbox-install-script"
@@ -512,6 +514,264 @@ create_symlinks() {
   log_verbose "Erzeuge Symlink: $link_target -> $script"
 }
 
+# --- Desktop-Shortcut-Erstellung ------------------------------------------------
+SHORTCUT_COMMENT="Interaktive OpenCode-Sandbox TUI"
+
+# Erstellt die plattform-spezifische Desktop-Verknüpfung für die TUI.
+# Fehler werden nur gewarnt – die Installation selbst schlägt nie fehl.
+create_shortcut() {
+  local install_dir="$1"
+
+  log_verbose "Erstelle Desktop-Shortcut für $PLATFORM_OS"
+
+  local ok=false
+  case "$PLATFORM_OS" in
+    Linux)
+      if is_wsl; then
+        create_shortcut_wsl "$install_dir" && ok=true
+      else
+        create_shortcut_linux "$install_dir" && ok=true
+      fi
+      ;;
+    Darwin)
+      create_shortcut_macos "$install_dir" && ok=true
+      ;;
+  esac
+
+  if $ok; then
+    SHORTCUT_CREATED=true
+    log_verbose "Desktop-Shortcut erstellt."
+  fi
+  return 0
+}
+
+is_wsl() {
+  grep -qi microsoft /proc/version 2>/dev/null
+}
+
+create_shortcut_linux() {
+  local install_dir="$1"
+  local apps_dir="$HOME/.local/share/applications"
+  local desktop_file="${apps_dir}/oc-sandbox.desktop"
+  local script="${install_dir}/scripts/start-tui.sh"
+
+  if [[ ! -f "$script" ]]; then
+    log_warn "Desktop-Shortcut übersprungen: Skript nicht gefunden: $script"
+    return 1
+  fi
+
+  if ! mkdir -p "$apps_dir" 2>/dev/null; then
+    log_warn "Desktop-Shortcut übersprungen: Verzeichnis nicht beschreibbar: $apps_dir"
+    return 1
+  fi
+
+  local icon_line=""
+  local icon_file="${install_dir}/icons/opencode-sandbox.png"
+  if [[ -f "$icon_file" ]]; then
+    icon_line="Icon=${icon_file}"
+  else
+    log_verbose "Kein Icon gefunden (${icon_file}) – Shortcut wird ohne Icon erstellt."
+  fi
+
+  {
+    cat << EOF
+[Desktop Entry]
+Type=Application
+Name=OC Sandbox
+Comment=${SHORTCUT_COMMENT}
+Exec=${script}
+Terminal=true
+Categories=Development;
+EOF
+    [[ -z "$icon_line" ]] || echo "$icon_line"
+  } > "$desktop_file" 2>/dev/null || {
+    log_warn "Desktop-Shortcut übersprungen: Datei nicht beschreibbar: $desktop_file"
+    return 1
+  }
+
+  log_info "Desktop-Shortcut erstellt: $desktop_file"
+  return 0
+}
+
+create_shortcut_wsl() {
+  local install_dir="$1"
+  local script="${install_dir}/scripts/start-tui.sh"
+
+  if [[ ! -f "$script" ]]; then
+    log_warn "Desktop-Shortcut übersprungen: Skript nicht gefunden: $script"
+    return 1
+  fi
+
+  local mnt_c="${OC_SANDBOX_WIN_ROOT:-/mnt/c}"
+  if [[ ! -d "$mnt_c" ]]; then
+    log_warn "Desktop-Shortcut übersprungen: /mnt/c nicht gefunden – Windows-Laufwerke sind nicht gemountet."
+    echo "  Manuelle Lösung: Start-Menu-Verknüpfung von Hand anlegen, die folgendes aufruft:" >&2
+    echo "  wsl.exe -e bash ${script}" >&2
+    return 1
+  fi
+
+  if ! command -v powershell.exe &>/dev/null; then
+    log_warn "Desktop-Shortcut übersprungen: powershell.exe nicht verfügbar (WSL-Interop deaktiviert?)."
+    echo "  Manuelle Lösung: Start-Menu-Verknüpfung von Hand anlegen, die folgendes aufruft:" >&2
+    echo "  wsl.exe -e bash ${script}" >&2
+    return 1
+  fi
+
+  local win_user
+  win_user=$(powershell.exe -NoProfile -Command '$env:USERNAME' 2>/dev/null | tr -d '\r')
+  local start_menu_dir=""
+
+  if [[ -n "$win_user" && -d "$mnt_c/Users/$win_user" ]]; then
+    start_menu_dir=$(wslpath "$mnt_c/Users/$win_user/AppData/Roaming/Microsoft/Windows/Start Menu/Programs" 2>/dev/null || true)
+  fi
+
+  if [[ -z "${start_menu_dir:-}" || ! -d "$start_menu_dir" ]]; then
+    log_warn "Desktop-Shortcut übersprungen: Windows-Startmenu-Verzeichnis nicht gefunden."
+    echo "  Manuelle Lösung: Start-Menu-Verknüpfung von Hand anlegen, die folgendes aufruft:" >&2
+    echo "  wsl.exe -e bash ${script}" >&2
+    return 1
+  fi
+
+  local lnk_path="${start_menu_dir}/OC Sandbox.lnk"
+  local lnk_path_win
+  lnk_path_win=$(wslpath -w "$lnk_path")
+
+  local icon_block=""
+  local icon_file="${install_dir}/icons/opencode-sandbox.ico"
+  if [[ -f "$icon_file" ]]; then
+    local icon_path_win
+    icon_path_win=$(wslpath -w "$icon_file")
+    icon_block="\$sc.IconLocation = '${icon_path_win}'; "
+    log_verbose "Icon referenziert: $icon_path_win"
+  else
+    log_verbose "Kein Icon gefunden (${icon_file}) – Shortcut wird ohne Icon erstellt."
+  fi
+  local ps_block
+  ps_block='$sc = (New-Object -ComObject WScript.Shell).CreateShortcut('"'"''"${lnk_path_win}"''"'"'); $sc.TargetPath = '"'"'%SystemRoot%\System32\wsl.exe'"'"'; $sc.Arguments = '"'"'-e bash '"${script}"''"'"'; '"$icon_block"'$sc.Save()'
+
+  log_verbose "Erstelle .lnk über powershell.exe: $lnk_path"
+  if ! powershell.exe -NoProfile -Command "$ps_block" 2>/dev/null; then
+    log_warn "Desktop-Shortcut übersprungen: powershell.exe konnte die Verknüpfung nicht erstellen."
+    return 1
+  fi
+
+  log_info "Windows-Startmenu-Verknüpfung erstellt: OC Sandbox.lnk"
+  return 0
+}
+
+create_shortcut_macos() {
+  local install_dir="$1"
+  local script="${install_dir}/scripts/start-tui.sh"
+  local app_dir="$HOME/Applications/OC Sandbox.app"
+  local contents="${app_dir}/Contents"
+
+  if [[ ! -f "$script" ]]; then
+    log_warn "Desktop-Shortcut übersprungen: Skript nicht gefunden: $script"
+    return 1
+  fi
+
+  if ! mkdir -p "${contents}/MacOS" "${contents}/Resources" 2>/dev/null; then
+    log_warn "Desktop-Shortcut übersprungen: Verzeichnis nicht beschreibbar: $app_dir"
+    return 1
+  fi
+
+  if ! command -v osascript &>/dev/null; then
+    log_warn "Desktop-Shortcut übersprungen: osascript nicht gefunden."
+    echo "  Manuelle Lösung: App-Bundle unter ${app_dir} von Hand anlegen, das start-tui.sh in einem Terminal öffnet." >&2
+    return 1
+  fi
+
+  local stub="${contents}/MacOS/OC Sandbox"
+  {
+    cat << APPLESCRIPT
+#!/usr/bin/env bash
+exec /usr/bin/osascript -e 'tell application "Terminal" to do script "${script}"'
+APPLESCRIPT
+  } > "$stub" 2>/dev/null || {
+    log_warn "Desktop-Shortcut übersprungen: App-Bundle konnte nicht geschrieben werden: $app_dir"
+    return 1
+  }
+  chmod +x "$stub"
+
+  {
+    cat << PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleName</key>
+  <string>OC Sandbox</string>
+  <key>CFBundleDisplayName</key>
+  <string>OC Sandbox</string>
+  <key>CFBundleIdentifier</key>
+  <string>io.github.oc-sandbox.tui</string>
+  <key>CFBundleExecutable</key>
+  <string>OC Sandbox</string>
+  <key>CFBundlePackageType</key>
+  <string>APPL</string>
+</dict>
+PLIST
+  } > "${contents}/Info.plist" 2>/dev/null || {
+    log_warn "Desktop-Shortcut übersprungen: Info.plist konnte nicht geschrieben werden: $app_dir"
+    return 1
+  }
+
+  local icon_file="${install_dir}/icons/opencode-sandbox.icns"
+  if [[ -f "$icon_file" ]]; then
+    if cp "$icon_file" "${contents}/Resources/AppIcon.icns" 2>/dev/null; then
+      printf '  <key>CFBundleIconFile</key>\n  <string>AppIcon</string>\n' >> "${contents}/Info.plist"
+    else
+      log_verbose "Icon konnte nicht eingebettet werden – App wird ohne Icon erstellt."
+    fi
+  else
+    log_verbose "Kein Icon gefunden (${icon_file}) – Shortcut wird ohne Icon erstellt."
+  fi
+
+  log_info "App-Bundle erstellt: $app_dir"
+  return 0
+}
+
+remove_shortcut() {
+  local install_dir="$1"
+  log_verbose "Entferne Desktop-Shortcuts für $PLATFORM_OS"
+
+  local removed=0
+  case "$PLATFORM_OS" in
+    Linux)
+      if is_wsl; then
+        # WSL: .lnk-Datei im Windows-Startmenu versuchen zu entfernen
+        if command -v powershell.exe &>/dev/null && [[ -d /mnt/c ]]; then
+          local win_user
+          win_user=$(powershell.exe -NoProfile -Command '$env:USERNAME' 2>/dev/null | tr -d '\r')
+          local start_menu_dir
+          start_menu_dir=$(wslpath "/mnt/c/Users/$win_user/AppData/Roaming/Microsoft/Windows/Start Menu/Programs" 2>/dev/null || true)
+          if [[ -n "${start_menu_dir:-}" && -f "${start_menu_dir}/OC Sandbox.lnk" ]]; then
+            rm -f "${start_menu_dir}/OC Sandbox.lnk"
+            removed=$((removed + 1))
+          fi
+        fi
+      else
+        local desktop_file="$HOME/.local/share/applications/oc-sandbox.desktop"
+        if [[ -f "$desktop_file" ]]; then
+          rm -f "$desktop_file"
+          removed=$((removed + 1))
+        fi
+      fi
+      ;;
+    Darwin)
+      local app_dir="$HOME/Applications/OC Sandbox.app"
+      if [[ -d "$app_dir" ]]; then
+        rm -rf "$app_dir"
+        removed=$((removed + 1))
+      fi
+      ;;
+  esac
+
+  if [[ $removed -gt 0 ]]; then
+    log_info "Desktop-Shortcut(s) entfernt."
+  fi
+}
+
 validate_installation() {
   local install_dir="$1"
   
@@ -597,6 +857,8 @@ Optionen:
   --version <tag>        Spezifische Version installieren (default: latest)
   --force                Vorhandene Installation ohne Nachfrage überschreiben
   --symlinks             Symlinks in \$HOME/.local/bin erstellen
+  --shortcut             Desktop-Shortcut für die TUI erstellen (Linux: .desktop,
+                         WSL: Windows-Startmenu .lnk, macOS: .app in ~/Applications)
   --verbose              Detaillierte Ausgabe aktivieren
   --help                 Diese Hilfe anzeigen und beenden
 
@@ -615,6 +877,9 @@ Beispiele:
 
   # Mit Symlinks für einfacheren Zugriff
   $0 --symlinks
+
+  # Mit Desktop-Shortcut im Startmenu (unabhängig von --symlinks)
+  $0 --shortcut
 
   # Kombinierte Optionen
   $0 --install_path ~/sandbox --version v1.0.0 --symlinks --verbose
@@ -652,6 +917,10 @@ parse_arguments() {
         ;;
       --symlinks)
         SYMLINKS=true
+        shift
+        ;;
+      --shortcut)
+        SHORTCUT=true
         shift
         ;;
       --verbose)
@@ -715,6 +984,11 @@ main() {
     create_symlinks "$INSTALL_PATH"
   fi
 
+  # Erstelle Desktop-Shortcut wenn gewünscht (Fehler brechen die Installation nie ab)
+  if $SHORTCUT; then
+    create_shortcut "$INSTALL_PATH"
+  fi
+
   # Installiere gum für TUI-Unterstützung
   echo "Installiere gum für interaktive TUI..."
   if ! gum_available; then
@@ -759,7 +1033,18 @@ main() {
     echo "Sie können die Sandbox jetzt von überall starten:"
     echo "  oc-sandbox"
   fi
+
+  if $SHORTCUT_CREATED; then
+    echo ""
+    echo "Desktop-Shortcut erstellt – die TUI ist ab jetzt über Ihr Startmenu/Launcher"
+    echo "verfügbar (Eintrag \"OC Sandbox\")."
+  elif $SHORTCUT; then
+    echo ""
+    echo "Desktop-Shortcut konnte nicht erstellt werden – Details oben."
+  fi
 }
 
 # --- Start ----------------------------------------------------------------------
-main "$@"
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  main "$@"
+fi

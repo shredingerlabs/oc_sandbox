@@ -105,6 +105,11 @@ curl -sL https://raw.githubusercontent.com/shredingerlabs/oc_sandbox/main/script
 curl -sL https://raw.githubusercontent.com/shredingerlabs/oc_sandbox/main/scripts/install.sh | bash -s -- --force --symlinks
 ```
 
+```bash
+# Mit Desktop-Shortcut im Startmenu (unabhängig von --symlinks)
+curl -sL https://raw.githubusercontent.com/shredingerlabs/oc_sandbox/main/scripts/install.sh | bash -s -- --shortcut
+```
+
 Das Skript:
 
 - Ermittelt automatisch das neueste Release (oder eine feste Version per `--version`)
@@ -120,6 +125,11 @@ Das Skript:
 - `--force` – Vorhandene Installation ohne Nachfrage überschreiben
 - `--symlinks` – Symlink `oc-sandbox` → `start-tui.sh` in `~/.local/bin` erstellen
   (single entry point, keine weiteren Skript-Symlinks)
+- `--shortcut` – Desktop-Shortcut für die TUI erstellen (unabhängig von `--symlinks`);
+  Linux: `.desktop`-Datei im Anwendungs-Menü, WSL: `OC Sandbox.lnk` im
+  Windows-Startmenü, macOS: minimal `OC Sandbox.app` in `~/Applications`.
+  Fehler beim Erstellen warnen nur und brechen die Installation nie ab
+  (siehe [ADR-0015](docs/adr/0015-desktop-shortcuts-via-shortcut-flag.md))
 - `--verbose` – Detaillierte Ausgabe
 - `--help` – Hilfe anzeigen und beenden
 
@@ -546,6 +556,8 @@ dist/scripts/uninstall.sh --dry-run          # Nur anzeigen, nichts löschen
 - `--remove-config` – Config-Verzeichnis `~/.config/oc-sandbox/` entfernen (vorher automatisches Backup; Rotation behält die 5 neuesten)
 - `--no-backup` – Kein Config-Backup erstellen (nur mit `--remove-config` relevant)
 - `--no-symlinks` – Symlinks in `~/.local/bin` behalten
+- `--remove-shortcuts` – Desktop-Shortcuts (`.desktop`/`.lnk`/`.app`) entfernen;
+  ist das Flag nicht gesetzt, bleiben sie unberührt
 - `--force` – Keine Bestätigungen, sofort entfernen
 - `--dry-run` – Zeigt, was entfernt würde, ohne zu löschen
 - `--verbose` – Detaillierte Ausgabe

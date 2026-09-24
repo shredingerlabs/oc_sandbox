@@ -126,6 +126,8 @@ automatisch `sudo`.
 - `--force` – Vorhandene Installation ohne Nachfrage überschreiben
 - `--symlinks` – Symlink `oc-sandbox` → `scripts/start-tui.sh` in `~/.local/bin` erstellen
   (single entry point, keine weiteren Skript-Symlinks)
+- `--shortcut` – Desktop-Shortcut für die TUI erstellen (Linux: `.desktop`,
+  WSL: Windows-Startmenü `.lnk`, macOS: `.app` in `~/Applications`)
 - `--verbose` – Detaillierte Ausgabe
 
 Deinstallation siehe [unten](#deinstallation).
@@ -225,6 +227,7 @@ Direkt per Skript:
 - `--remove-config` – Config-Verzeichnis ebenfalls entfernen (mit Backup)
 - `--no-backup` – Kein Backup erstellen (auch für Config)
 - `--no-symlinks` – Symlinks nicht entfernen
+- `--remove-shortcuts` – Desktop-Shortcuts (`.desktop`/`.lnk`/`.app`) entfernen
 - `--force` – Keine Bestätigungen (für Skripte/CI)
 - `--dry-run` – Zeige was entfernt würde, ohne zu löschen
 - `--verbose` – Detaillierte Ausgabe

@@ -118,6 +118,19 @@ run_uninstall_capture() {
 
 # --- Tests ---------------------------------------------------------------------
 
+# Fixture: Desktop-Verknüpfung im isolierten HOME anlegen
+fixture_desktop_file() {
+  local home="$1"
+  mkdir -p "$home/.local/share/applications"
+  cat > "$home/.local/share/applications/oc-sandbox.desktop" << 'EOF'
+[Desktop Entry]
+Type=Application
+Name=OC Sandbox
+Exec=/fake/.oc-sandbox/scripts/start-tui.sh
+Terminal=true
+EOF
+}
+
 test_help_shows_new_flags() {
   local test_dir
   test_dir=$(setup_test_env "help")
@@ -139,6 +152,102 @@ test_help_shows_new_flags() {
   fi
   if [[ "$output" != *"--no-symlinks"* ]]; then
     echo "  --no-symlinks fehlt in Hilfe"
+    return 1
+  fi
+  if [[ "$output" != *"--remove-shortcuts"* ]]; then
+    echo "  --remove-shortcuts fehlt in Hilfe"
+    return 1
+  fi
+
+  cleanup_test_env "$test_dir"
+}
+
+test_default_keeps_shortcuts() {
+  local test_dir
+  test_dir=$(setup_test_env "default-shortcuts")
+  local home
+  home=$(setup_installed_home "$test_dir")
+
+  fixture_desktop_file "$home"
+
+  run_uninstall "$home"
+
+  assert_dir_not_exists "$home/.oc-sandbox" || return 1
+  assert_file_exists "$home/.local/share/applications/oc-sandbox.desktop" "Desktop-Verknüpfung soll ohne Flag unberührt bleiben" || return 1
+
+  cleanup_test_env "$test_dir"
+}
+
+test_remove_shortcuts_removes_desktop_file() {
+  local test_dir
+  test_dir=$(setup_test_env "remove-shortcuts")
+  local home
+  home=$(setup_installed_home "$test_dir")
+
+  fixture_desktop_file "$home"
+
+  local output
+  output=$(run_uninstall_capture "$home" --remove-shortcuts)
+
+  assert_dir_not_exists "$home/.oc-sandbox" || return 1
+  if [[ -f "$home/.local/share/applications/oc-sandbox.desktop" ]]; then
+    echo "  Desktop-Verknüpfung sollte entfernt sein"
+    return 1
+  fi
+  if [[ "$output" != *"Desktop-Verknüpfung entfernt"* ]]; then
+    echo "  Abschlussmeldung listet Desktop-Verknüpfung nicht"
+    return 1
+  fi
+
+  cleanup_test_env "$test_dir"
+}
+
+test_remove_shortcuts_dry_run_shows_artifact() {
+  local test_dir
+  test_dir=$(setup_test_env "dry-run-shortcuts")
+  local home
+  home=$(setup_installed_home "$test_dir")
+
+  fixture_desktop_file "$home"
+
+  local output
+  output=$(HOME="$home" bash "$UNINSTALL_SCRIPT" --dry-run --remove-shortcuts 2>&1)
+
+  if [[ "$output" != *"oc-sandbox.desktop"* ]]; then
+    echo "  Dry-Run zeigt Desktop-Verknüpfung nicht an"
+    return 1
+  fi
+  assert_file_exists "$home/.local/share/applications/oc-sandbox.desktop" "Dry-Run darf nichts löschen" || return 1
+
+  cleanup_test_env "$test_dir"
+}
+
+test_remove_shortcuts_reports_skipped_on_permission_error() {
+  if [[ $EUID -eq 0 ]]; then
+    return 0
+  fi
+  local test_dir
+  test_dir=$(setup_test_env "shortcuts-perm")
+  local home
+  home=$(setup_installed_home "$test_dir")
+
+  fixture_desktop_file "$home"
+  mkdir -p "$home/.local/share/applications"
+  cat > "$home/.local/share/applications/oc-sandbox.desktop" << 'EOF'
+[Desktop Entry]
+Type=Application
+Name=OC Sandbox
+EOF
+  chmod 444 "$home/.local/share/applications/oc-sandbox.desktop"
+  chmod 555 "$home/.local/share/applications"
+
+  local output
+  output=$(run_uninstall_capture "$home" --remove-shortcuts)
+  chmod -R u+w "$home" 2>/dev/null || true
+
+  if [[ "$output" != *"fehlender Berechtigungen"* ]]; then
+    echo "  Fehler beim Entfernen wurde nicht als Skip gemeldet"
+    echo "$output"
     return 1
   fi
 
@@ -427,6 +536,10 @@ test_running_container_detection_still_works() {
 
 run_test "Hilfe zeigt neue Flags" test_help_shows_new_flags
 run_test "Default: Config bleibt, Symlinks werden entfernt" test_default_keeps_config_and_removes_symlinks
+run_test "Default: Desktop-Shortcuts bleiben" test_default_keeps_shortcuts
+run_test "--remove-shortcuts: Desktop-Verknüpfung entfernt" test_remove_shortcuts_removes_desktop_file
+run_test "Dry-Run zeigt Desktop-Verknüpfung" test_remove_shortcuts_dry_run_shows_artifact
+run_test "Shortcut-Entfernung trackt Berechtigungsfehler" test_remove_shortcuts_reports_skipped_on_permission_error
 run_test "--remove-config: Config entfernt, Backup erstellt" test_remove_config_removes_dir_and_creates_backup
 run_test "--remove-config --no-backup: kein Backup" test_remove_config_with_no_backup_creates_no_backup
 run_test "Backup-Rotation behält 5 neueste" test_backup_rotation_keeps_five

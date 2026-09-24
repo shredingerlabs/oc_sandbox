@@ -1636,18 +1636,18 @@ restore_config() {
 deinstallation_wizard() {
   show_deinstallation_warning || return 0
 
-  local remove_symlinks=false remove_config=false create_backup=false
-  if ! select_deinstallation_options remove_symlinks remove_config create_backup; then
+  local remove_symlinks=false remove_config=false create_backup=false remove_shortcuts=false
+  if ! select_deinstallation_options remove_symlinks remove_config create_backup remove_shortcuts; then
     return 0
   fi
 
-  if ! show_deinstallation_summary "$remove_symlinks" "$remove_config" "$create_backup"; then
+  if ! show_deinstallation_summary "$remove_symlinks" "$remove_config" "$create_backup" "$remove_shortcuts"; then
     show_page "Uninstall cancelled" "Nothing was removed."
     wait_for_enter || true
     return 0
   fi
 
-  run_deinstallation "$remove_symlinks" "$remove_config" "$create_backup"
+  run_deinstallation "$remove_symlinks" "$remove_config" "$create_backup" "$remove_shortcuts"
 }
 
 show_deinstallation_warning() {
@@ -1677,9 +1677,11 @@ select_deinstallation_options() {
   local -n ref_symlinks=$1
   local -n ref_config=$2
   local -n ref_backup=$3
+  local -n ref_shortcuts=$4
   ref_symlinks=true
   ref_config=false
   ref_backup=false
+  ref_shortcuts=false
 
   if [[ "$TUI_MODE" != "gum" ]]; then
     local toggle_choice
@@ -1687,6 +1689,7 @@ select_deinstallation_options() {
       local labels=()
       labels+=("$([[ $ref_symlinks == true ]] && printf '[x]' || printf '[ ]') Remove symlinks (~/.local/bin)")
       labels+=("$([[ $ref_config == true ]] && printf '[x]' || printf '[ ]') Remove config (~/.config/oc-sandbox)")
+      labels+=("$([[ $ref_shortcuts == true ]] && printf '[x]' || printf '[ ]') Remove desktop shortcuts")
       if [[ $ref_config == true ]]; then
         labels+=("$([[ $ref_backup == true ]] && printf '[x]' || printf '[ ]') Create backup")
       fi
@@ -1695,6 +1698,7 @@ select_deinstallation_options() {
         "Done") break ;;
         *"Remove symlinks"*) [[ $ref_symlinks == true ]] && ref_symlinks=false || ref_symlinks=true ;;
         *"Remove config"*) [[ $ref_config == true ]] && ref_config=false || ref_config=true ;;
+        *"desktop shortcuts"*) [[ $ref_shortcuts == true ]] && ref_shortcuts=false || ref_shortcuts=true ;;
         *"Create backup"*) [[ $ref_backup == true ]] && ref_backup=false || ref_backup=true ;;
       esac
     done
@@ -1702,6 +1706,7 @@ select_deinstallation_options() {
 
   local symlinks_item="Remove symlinks (~/.local/bin)"
   local config_item="Remove config (~/.config/oc-sandbox)"
+  local shortcuts_item="Remove desktop shortcuts"
   local backup_item="Create backup"
   local raw
   local args
@@ -1710,15 +1715,17 @@ select_deinstallation_options() {
     args=()
     [[ $ref_symlinks == true ]] && args+=(--selected "$symlinks_item")
     [[ $ref_config == true ]] && args+=(--selected "$config_item")
+    [[ $ref_shortcuts == true ]] && args+=(--selected "$shortcuts_item")
     [[ $ref_backup == true ]] && args+=(--selected "$backup_item")
 
     raw=$("$GUM_BIN" choose --no-limit \
       --header="Uninstall options (space to toggle, enter to confirm)" \
-      --height=5 \
-      "${args[@]}" "$symlinks_item" "$config_item" "$backup_item") || return 1
+      --height=6 \
+      "${args[@]}" "$symlinks_item" "$config_item" "$shortcuts_item" "$backup_item") || return 1
 
     [[ "$raw" == *"$symlinks_item"* ]] && ref_symlinks=true || ref_symlinks=false
     [[ "$raw" == *"$config_item"* ]] && ref_config=true || ref_config=false
+    [[ "$raw" == *"$shortcuts_item"* ]] && ref_shortcuts=true || ref_shortcuts=false
     [[ "$raw" == *"$backup_item"* ]] && ref_backup=true || ref_backup=false
   fi
 
@@ -1731,12 +1738,15 @@ select_deinstallation_options() {
 }
 
 show_deinstallation_summary() {
-  local remove_symlinks="$1" remove_config="$2" create_backup="$3"
+  local remove_symlinks="$1" remove_config="$2" create_backup="$3" remove_shortcuts="${4:-false}"
 
   local lines=("The following will be removed:")
   lines+=("  - Installation: ${INSTALL_ROOT:-$HOME/.oc-sandbox}")
   if [[ $remove_symlinks == true ]]; then
     lines+=("  - Symlinks in ~/.local/bin")
+  fi
+  if [[ $remove_shortcuts == true ]]; then
+    lines+=("  - Desktop shortcuts (start menu entries)")
   fi
   if [[ $remove_config == true ]]; then
     lines+=("  - Config: ~/.config/oc-sandbox")
@@ -1758,10 +1768,11 @@ show_deinstallation_summary() {
 }
 
 run_deinstallation() {
-  local remove_symlinks="$1" remove_config="$2" create_backup="$3"
+  local remove_symlinks="$1" remove_config="$2" create_backup="$3" remove_shortcuts="${4:-false}"
 
   local args=("--force")
   [[ $remove_symlinks != true ]] && args+=("--no-symlinks")
+  [[ $remove_shortcuts == true ]] && args+=("--remove-shortcuts")
   if [[ $remove_config == true ]]; then
     args+=("--remove-config")
     [[ $create_backup != true ]] && args+=("--no-backup")
