@@ -140,4 +140,8 @@
 
 **shortcut removal** — Uninstall path for desktop shortcuts, offered as a wizard checkbox mapped to an uninstall.sh flag; removes shortcut artifacts pointing into the installation folder.
 
-**shortcut icon** — Icon referenced by the desktop shortcut, provided under `dist/icons/` (platform-appropriate formats) and pointed at by absolute or translated path from the installed artifact.
+**shortcut icon** — Icon material for the desktop shortcut, provided under `dist/icons/` in platform subfolders (`linux/`, `windows/`, `macos/`) and processed at shortcut creation time: Linux installs the bundled hicolor PNG set into `$HOME/.local/share/icons/hicolor/` and the `.desktop` file references it by bare theme name (`Icon=oc-sandbox`, no path); Windows points the `.lnk` at `icons/windows/oc-sandbox.ico` via absolute (translated) path; macOS generates the `.icns` from `icons/macos/oc-sandbox.iconset` with `iconutil` at install time and embeds it in the `.app` bundle. Missing icons never fail the shortcut — it is created without one.
+
+**hicolor icon install** — Linux shortcut step copying `icons/linux/share/icons/hicolor/` into `$HOME/.local/share/icons/hicolor/` so the desktop entry resolves `Icon=oc-sandbox` through the icon theme. Best-effort: failures fall back to an icon-less shortcut.
+
+**icns generation** — macOS shortcut step converting the bundled `.iconset` to `AppIcon.icns` using `iconutil` (ships with macOS); on failure the `.app` is created without an icon.

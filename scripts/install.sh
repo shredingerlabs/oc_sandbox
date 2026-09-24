@@ -576,6 +576,37 @@ is_wsl() {
   grep -qi microsoft /proc/version 2>/dev/null
 }
 
+# Installiert die gebündelten Hicolor-Icons nach $HOME/.local/share/icons/hicolor,
+# damit das .desktop-File per Theme-Namen (Icon=oc-sandbox) aufgelöst wird.
+install_hicolor_icons() {
+  local install_dir="$1"
+  local icon_source="${install_dir}/icons/linux/share/icons/hicolor"
+  local icon_target="$HOME/.local/share/icons/hicolor"
+
+  if [[ ! -d "$icon_source" ]]; then
+    log_verbose "Keine Hicolor-Icons gefunden (${icon_source}) – Shortcut wird ohne Icon erstellt."
+    return 1
+  fi
+
+  if ! mkdir -p "$icon_target" 2>/dev/null; then
+    log_verbose "Verzeichnis nicht beschreibbar: $icon_target"
+    return 1
+  fi
+
+  if ! cp -R "${icon_source}/." "$icon_target/" 2>/dev/null; then
+    log_verbose "Hicolor-Icons konnten nicht kopiert werden nach: $icon_target"
+    return 1
+  fi
+
+  # Best-Effort: Icon-Cache aktualisieren (nicht alle Umgebungen haben das Tool)
+  if command -v gtk-update-icon-cache &>/dev/null; then
+    gtk-update-icon-cache -f -t "$icon_target" >/dev/null 2>&1 || true
+  fi
+
+  log_verbose "Hicolor-Icons installiert: $icon_target"
+  return 0
+}
+
 create_shortcut_linux() {
   local install_dir="$1"
   local apps_dir="$HOME/.local/share/applications"
@@ -592,12 +623,10 @@ create_shortcut_linux() {
     return 1
   fi
 
-  local icon_line=""
-  local icon_file="${install_dir}/icons/opencode-sandbox.png"
-  if [[ -f "$icon_file" ]]; then
-    icon_line="Icon=${icon_file}"
-  else
-    log_verbose "Kein Icon gefunden (${icon_file}) – Shortcut wird ohne Icon erstellt."
+  local icon_line="Icon=oc-sandbox"
+  if ! install_hicolor_icons "$install_dir"; then
+    log_verbose "Hicolor-Icons konnten nicht installiert werden – Shortcut wird ohne Icon erstellt."
+    icon_line=""
   fi
 
   {
@@ -664,7 +693,7 @@ create_shortcut_wsl() {
   lnk_path_win=$(wslpath -w "$lnk_path")
 
   local icon_block=""
-  local icon_file="${install_dir}/icons/opencode-sandbox.ico"
+  local icon_file="${install_dir}/icons/windows/oc-sandbox.ico"
   if [[ -f "$icon_file" ]]; then
     local icon_path_win
     icon_path_win=$(wslpath -w "$icon_file")
@@ -743,15 +772,18 @@ PLIST
     return 1
   }
 
-  local icon_file="${install_dir}/icons/opencode-sandbox.icns"
-  if [[ -f "$icon_file" ]]; then
-    if cp "$icon_file" "${contents}/Resources/AppIcon.icns" 2>/dev/null; then
+  local iconset_dir="${install_dir}/icons/macos/oc-sandbox.iconset"
+  if [[ -d "$iconset_dir" ]]; then
+    local generated_icns="${TEMP_DIR}/oc-sandbox.icns"
+    if command -v iconutil &>/dev/null \
+      && iconutil -c icns "$iconset_dir" -o "$generated_icns" 2>/dev/null \
+      && cp "$generated_icns" "${contents}/Resources/AppIcon.icns" 2>/dev/null; then
       printf '  <key>CFBundleIconFile</key>\n  <string>AppIcon</string>\n' >> "${contents}/Info.plist"
     else
-      log_verbose "Icon konnte nicht eingebettet werden – App wird ohne Icon erstellt."
+      log_verbose "Icon konnte nicht aus dem Iconset erzeugt werden – App wird ohne Icon erstellt."
     fi
   else
-    log_verbose "Kein Icon gefunden (${icon_file}) – Shortcut wird ohne Icon erstellt."
+    log_verbose "Kein Iconset gefunden (${iconset_dir}) – Shortcut wird ohne Icon erstellt."
   fi
 
   log_info "App-Bundle erstellt: $app_dir"

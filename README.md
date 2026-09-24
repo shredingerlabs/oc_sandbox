@@ -556,7 +556,8 @@ dist/scripts/uninstall.sh --dry-run          # Nur anzeigen, nichts löschen
 - `--remove-config` – Config-Verzeichnis `~/.config/oc-sandbox/` entfernen (vorher automatisches Backup; Rotation behält die 5 neuesten)
 - `--no-backup` – Kein Config-Backup erstellen (nur mit `--remove-config` relevant)
 - `--no-symlinks` – Symlinks in `~/.local/bin` behalten
-- `--remove-shortcuts` – Desktop-Shortcuts (`.desktop`/`.lnk`/`.app`) entfernen;
+- `--remove-shortcuts` – Desktop-Shortcuts (`.desktop`/`.lnk`/`.app`) und die
+  installierten Hicolor-Icons entfernen;
   ist das Flag nicht gesetzt, bleiben sie unberührt
 - `--force` – Keine Bestätigungen, sofort entfernen
 - `--dry-run` – Zeigt, was entfernt würde, ohne zu löschen

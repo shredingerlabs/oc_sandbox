@@ -227,7 +227,8 @@ Direkt per Skript:
 - `--remove-config` – Config-Verzeichnis ebenfalls entfernen (mit Backup)
 - `--no-backup` – Kein Backup erstellen (auch für Config)
 - `--no-symlinks` – Symlinks nicht entfernen
-- `--remove-shortcuts` – Desktop-Shortcuts (`.desktop`/`.lnk`/`.app`) entfernen
+- `--remove-shortcuts` – Desktop-Shortcuts (`.desktop`/`.lnk`/`.app`) und die
+  installierten Hicolor-Icons entfernen
 - `--force` – Keine Bestätigungen (für Skripte/CI)
 - `--dry-run` – Zeige was entfernt würde, ohne zu löschen
 - `--verbose` – Detaillierte Ausgabe

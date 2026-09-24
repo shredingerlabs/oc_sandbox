@@ -353,8 +353,8 @@ test_linux_shortcut_with_icon() {
   local home
   home=$(setup_shortcut_env "shortcut-icon-2")
   local install_dir="$home/.oc-sandbox"
-  mkdir -p "$install_dir/icons"
-  echo "fake-png" > "$install_dir/icons/opencode-sandbox.png"
+  mkdir -p "$install_dir/icons/linux/share/icons/hicolor/48x48/apps"
+  echo "fake-png" > "$install_dir/icons/linux/share/icons/hicolor/48x48/apps/oc-sandbox.png"
 
   (source "$INSTALL_SCRIPT" --help >/dev/null 2>&1
    init_shortcut_functions "$home" "Linux"
@@ -363,9 +363,15 @@ test_linux_shortcut_with_icon() {
   local desktop_file="$home/.local/share/applications/oc-sandbox.desktop"
   assert_file_exists "$desktop_file" || { cleanup_test_env "$test_dir"; return 1; }
 
-  if ! grep -q "^Icon=${install_dir}/icons/opencode-sandbox.png$" "$desktop_file"; then
-    echo "Desktop-File referenziert Icon nicht korrekt"
+  if ! grep -q "^Icon=oc-sandbox$" "$desktop_file"; then
+    echo "Desktop-File referenziert Icon nicht per Theme-Namen"
     cat "$desktop_file"
+    cleanup_test_env "$test_dir"
+    return 1
+  fi
+
+  if [[ ! -f "$home/.local/share/icons/hicolor/48x48/apps/oc-sandbox.png" ]]; then
+    echo "Hicolor-Icon wurde nicht nach ~/.local/share/icons installiert"
     cleanup_test_env "$test_dir"
     return 1
   fi

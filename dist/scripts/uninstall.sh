@@ -388,6 +388,18 @@ remove_shortcuts() {
     fi
   fi
 
+  # Linux: installierte Hicolor-Icons (oc-sandbox.png unter */apps/)
+  if [[ -d "$HOME/.local/share/icons/hicolor" ]]; then
+    while IFS= read -r -d '' icon_file; do
+      if remove_path_safe "$icon_file"; then
+        log_verbose "Hicolor-Icon entfernt: $icon_file"
+        record_action "Hicolor-Icon entfernt: $icon_file"
+      else
+        removed_all=false
+      fi
+    done < <(find "$HOME/.local/share/icons/hicolor" -type f -path "*/apps/oc-sandbox.png" -print0 2>/dev/null)
+  fi
+
   # WSL: .lnk im Windows-Startmenu (nur wenn Interop verfügbar)
   # macOS: .app-Bundle in ~/Applications
   if [[ "$(uname -s)" == "Darwin" ]]; then
