@@ -47,6 +47,13 @@ mkdir -p \
   "${PROJECT_ROOT}/.git_local" \
   "${PROJECT_ROOT}/.cbm_cache"
 
+# OpenCode-Web braucht ein Git-Repo als Worktree: ohne .git in project/
+# faellt opencode auf das "global"-Projekt mit worktree "/" zurueck
+# (Weboberflaeche: "+" disabled, kein Projekt anlegbar).
+if [[ ! -e "${PROJECT_ROOT}/project/.git" ]]; then
+  git -C "${PROJECT_ROOT}/project" init -q
+fi
+
 chmod 700 "${PROJECT_ROOT}/.ssh_local"
 chmod 700 "${PROJECT_ROOT}/.git_local"
 

@@ -378,16 +378,37 @@ access_running_container() {
   # Build container name
   local container_name="opencode-sandbox-${project_name}"
 
-  # Access based on start option
-  if [[ "$start_option" == "opencode" ]]; then
-    # Direct opencode access
-    podman exec -it --user dev "$container_name" opencode
-  else
-    # Access bash first
-    podman exec -it --user dev "$container_name" bash
-  fi
+  # Access-time chooser: configured entry plus Console (bash), asked on every
+  # access; console-configured projects attach directly. Cancellation returns
+  # silently to the caller.
+  case "$start_option" in
+    opencode)
+      local choice
+      choice=$(show_menu "Select access for running container" \
+        "OpenCode (configured)" "Console (bash)")
+      case "$choice" in
+        "Console (bash)") podman exec -it --user dev "$container_name" bash ;;
+        "OpenCode (configured)") podman exec -it --user dev "$container_name" opencode ;;
+      esac
+      ;;
+    web)
+      local choice
+      choice=$(show_menu "Select access for running container" \
+        "Show Web URL" "Console (bash)")
+      case "$choice" in
+        "Console (bash)") podman exec -it --user dev "$container_name" bash ;;
+        "Show Web URL") print_web_url "$container_name" ;;
+      esac
+      ;;
+    *)
+      podman exec -it --user dev "$container_name" bash
+      ;;
+  esac
 }
 ```
+
+Where `print_web_url` is the inlined `podman port 4096/tcp` lookup plus the
+"not published" notice shown in the shipped script.
 
 ### First-Run Setup Handler
 
@@ -742,9 +763,9 @@ add_project_to_registry() {
 }
 ```
 
-### Deinstallation Wizard
+### Uninstall Wizard
 
-The Settings menu has a "Deinstallation" entry that starts a guided wizard:
+The Settings menu has an "Uninstall" entry that starts a guided wizard:
 
 ```bash
 deinstallation_wizard() {
@@ -762,7 +783,7 @@ deinstallation_wizard() {
   "Remove config" is selected — otherwise it is reset with a notice. gum mode
   uses `gum choose --no-limit`, bash mode uses a toggle-select loop.
 - **Summary screen**: shows what will be removed and requires typing
-  `DEINSTALL` to confirm (red `gum input` when available, plain `read`
+  `UNINSTALL` to confirm (red `gum input` when available, plain `read`
   fallback). Wrong input or cancellation aborts with "Nothing was removed".
 - **Run**: invokes `uninstall.sh --force` plus `--no-symlinks`,
   `--remove-config` and `--no-backup` according to the selected options, then

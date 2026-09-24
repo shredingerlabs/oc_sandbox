@@ -61,6 +61,13 @@ Project setup also selects a start option: `console` (shell), `opencode`
 `127.0.0.1` (port scan 4096-4196); the TUI prints the URL after start and when
 accessing the running project.
 
+When a project is opened while its container is already running, the TUI asks
+how to access it every time: with `opencode` the choice is `OpenCode
+(configured)` or `Console (bash)`; with `web` it is `Show Web URL` or `Console
+(bash)` (the URL entry prints a notice if no port is published); with `console`
+it attaches directly. A console session is an independent bash shell attached
+via `podman exec` and does not change the configured start option.
+
 If the selected container image is missing, the TUI offers `Build now`, `Build
 later`, or `Go back`. New projects run setup in a detached container and then
 attach to the selected console or OpenCode session (with the `web` start option,
@@ -78,10 +85,10 @@ at a time. Restore validates JSON and creates a safety backup before the atomic
 replacement. Credential files under `.git_local/` and `.opencode_data/` are
 never included in general configuration backups.
 
-The Settings menu also offers **Deinstallation**: a guided wizard with a warning
+The Settings menu also offers **Uninstall**: a guided wizard with a warning
 screen (running containers with their `podman stop` commands), option checkboxes
 for symlinks/config/backup ("Create backup" is only available when "Remove
-config" is selected), a summary with `DEINSTALL` text confirmation, and
+config" is selected), a summary with `UNINSTALL` text confirmation, and
 cancel/back navigation at every screen. Confirmation uses a red `gum input`
 prompt when gum is available and a plain `read` fallback otherwise.
 
@@ -117,24 +124,57 @@ automatisch `sudo`.
 - `--install_path <pfad>` – Installationspfad (default: `$HOME/.oc-sandbox`)
 - `--version <tag>` – Spezifische Version installieren (default: latest)
 - `--force` – Vorhandene Installation ohne Nachfrage überschreiben
-- `--symlinks` – Symlinks in `~/.local/bin` erstellen
+- `--symlinks` – Symlink `oc-sandbox` → `scripts/start-tui.sh` in `~/.local/bin` erstellen
+  (single entry point, keine weiteren Skript-Symlinks)
 - `--verbose` – Detaillierte Ausgabe
 
 Deinstallation siehe [unten](#deinstallation).
 
 ## Schnellstart
 
+Der bevorzugte Weg ist die TUI – sie führt durch Container-Bau, Projekt-
+einrichtung und Start, ohne dass Skripte von Hand aufgerufen werden müssen.
+Die direkte Skript-Nutzung bleibt als [Legacy-Weg](#direkte-skript-nutzung-legacy)
+erhalten.
+
 ### 1. Voraussetzungen
 
 ```bash
 sudo apt-get update
-sudo apt-get install -y podman pasta fuse-overlayfs
+sudo apt-get install -y podman pasta fuse-overlayfs git curl
 
 # Podman rootless prüfen
 podman info --format '{{.Host.Security.Rootless}}'   # sollte "true" liefern
 ```
 
-### 2. udev-Regeln installieren (für HIL-Tests)
+### 2. TUI starten
+
+Mit dem `--symlinks`-Flag der Installation aus jedem Verzeichnis:
+
+```bash
+oc-sandbox
+```
+
+Ohne Symlink direkt über den Installationspfad bzw. aus diesem Ordner:
+
+```bash
+~/.oc-sandbox/scripts/start-tui.sh
+./scripts/start-tui.sh
+```
+
+Die TUI nutzt `gum` (wird von `install.sh` automatisch installiert) und fällt
+ohne `gum` auf einen einfachen Textmodus zurück. Über das Hauptmenü
+(**Start last used project**, **Open Project**, **New Project**, **Build
+Container**, **Settings**) laufen alle weiteren Schritte: Edition bauen,
+Projekt-Root anlegen, VCS/Tokens verborgen abfragen, Start-Option wählen
+(`console`, `opencode` oder `web`) und die Sandbox starten. Laufende Container
+werden per `podman exec` wiederverwendet statt neu gestartet.
+
+## Direkte Skript-Nutzung (Legacy)
+
+Alle TUI-Schritte lassen sich auch direkt per Skript ausführen.
+
+### 1. udev-Regeln installieren (für HIL-Tests)
 
 ```bash
 sudo cp udev/99-hil.rules /etc/udev/rules.d/
@@ -142,19 +182,19 @@ sudo udevadm control --reload-rules
 sudo udevadm trigger
 ```
 
-### 3. Images bauen
+### 2. Images bauen
 
 ```bash
 ./scripts/build-container.sh full
 ```
 
-### 4. Projekt-Root einrichten
+### 3. Projekt-Root einrichten
 
 ```bash
 ./scripts/init-project.sh ~/projects/mein-projekt
 ```
 
-### 5. Sandbox starten
+### 4. Sandbox starten
 
 ```bash
 ./scripts/start.sh ~/projects/mein-projekt
@@ -170,6 +210,11 @@ sudo udevadm trigger
 - `--start_web` – OpenCode-Weboberfläche starten (`opencode web --port 4096`, veröffentlicht auf 127.0.0.1, Port-Scan 4096-4196; mit `--detach` läuft der Server als Container-Hauptprozess und die URL wird ausgegeben)
 
 ## Deinstallation
+
+Im TUI (Settings → **Uninstall**) läuft derselbe Ablauf als geführter
+Wizard mit Warnung, Options-Auswahl und `UNINSTALL`-Bestätigung.
+
+Direkt per Skript:
 
 ```bash
 ./scripts/uninstall.sh

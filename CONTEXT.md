@@ -58,7 +58,7 @@
 
 **symlinks** — Optional `--symlinks` flag creates a single symlink `oc-sandbox` → `scripts/start-tui.sh` in `$HOME/.local/bin` for easier command access.
 
-**color output** — Install script output uses plain text only for maximum compatibility. The TUI may use color through gum (e.g. the red `DEINSTALL` confirmation prompt), with plain-text fallback.
+**color output** — Install script output uses plain text only for maximum compatibility. The TUI may use color through gum (e.g. the red `UNINSTALL` confirmation prompt), with plain-text fallback.
 
 **exit codes** — Standard exit codes: 0 (success), 1 (general error), 2 (user abort), 3 (missing dependencies).
 
@@ -122,12 +122,14 @@
 
 **retry flow** — Error recovery pattern where users who choose "Retry" after a failure remain in the recovery loop even if intermediate steps (like settings adjustment) fail. Failures show context-aware error messages and return to the retry menu, except for explicit user aborts (exit code 2) which are respected throughout.
 
-**deinstallation wizard** — Guided TUI flow in Settings (warning screen with running containers and their stop commands, option checkboxes for symlinks/config/backup, summary screen). Every screen can be cancelled or navigated back; the choices are mapped to uninstall.sh flags and run with `--force`.
+**uninstall wizard** — Guided TUI flow in Settings (warning screen with running containers and their stop commands, option checkboxes for symlinks/config/backup, summary screen). Every screen can be cancelled or navigated back; the choices are mapped to uninstall.sh flags and run with `--force`.
 
-**DEINSTALL confirmation** — Typed text confirmation required on the deinstallation summary before anything is removed; rendered as a red gum input when gum is available, plain `read` fallback otherwise.
+**UNINSTALL confirmation** — Typed text confirmation required on the uninstall summary before anything is removed; rendered as a red gum input when gum is available, plain `read` fallback otherwise.
 
 **web start option** — Launch style that runs the project container as a web server (`opencode web --port 4096`). Selectable at project creation and in settings; the server runs from the first start (first-run setup executes alongside via exec). Following the detached+exec start architecture, the detached container runs the web server as its main process, the host port is auto-scanned upward from 4096 (like the CBM-UI range), and the actual URL is printed rather than opening a browser. The server is stopped via normal container stop. Direct CLI usage of start.sh with `--start_web` and without `--detach` runs the server foreground, where Ctrl+C stops and removes the container (`--rm`). Implemented via the `--start_web` flag on start.sh, mirroring `--start_opencode`.
 
+**console session** — Interactive bash shell attached to a running container via `podman exec -it --user dev <container> bash`, chosen by the TUI at access time. Independent of the configured start option (launch behavior) and of any other session already inside the container.
+
 **squid allowlist scope** — The squid egress proxy governs outbound traffic from inside the container only. Host-browser access to published container ports (web UI, CBM UI) never traverses squid, so allowlist entries are never needed for ingress.
 
-**skipped files** — Files that could not be removed during deinstallation because of missing permissions; tracked during removal and reported at the end with a hint to clean them up manually (e.g. with sudo).
+**skipped files** — Files that could not be removed during uninstallation because of missing permissions; tracked during removal and reported at the end with a hint to clean them up manually (e.g. with sudo).

@@ -62,7 +62,8 @@ USER root
 
 ENV GLAB_CONFIG_DIR=/home/dev/.git_local/glab-cli \
     GH_CONFIG_DIR=/home/dev/.git_local/gh-cli \
-    PLAYWRIGHT_BROWSERS_PATH=/usr/local/share/playwright-browsers
+    PLAYWRIGHT_BROWSERS_PATH=/usr/local/share/playwright-browsers \
+    PLAYWRIGHT_DOWNLOAD_CONNECTION_TIMEOUT=0
 
 # --- Node / TypeScript / Jest / Playwright -----------------------------------
 RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
@@ -74,7 +75,8 @@ RUN npm install -g npm@12.0.2 \
     && npm install -g typescript jest playwright pnpm corepack better-sqlite3 \
     && npm update -g \
     && npx playwright install-deps \
-    && npx playwright install chromium firefox
+    && npx playwright install chromium firefox \
+    || (sleep 10 && npx playwright install-deps && npx playwright install --force chromium firefox)
 
 USER dev
 

@@ -78,25 +78,25 @@ if python3 "$PTY_RUNNER" --input 'deinstall' --submit $'\r' -- bash -c '
   fail "summary accepted wrong confirmation text"
 fi
 
-# 5. Summary: DEINSTALL confirms; red prompt is requested in gum mode.
-confirm_result=$(python3 "$PTY_RUNNER" --input 'DEINSTALL' --submit $'\r' -- bash -c '
+# 5. Summary: UNINSTALL confirms; red prompt is requested in gum mode.
+confirm_result=$(python3 "$PTY_RUNNER" --input 'UNINSTALL' --submit $'\r' -- bash -c '
   source "$1/dist/scripts/start-tui.sh"
   TUI_MODE=gum
   GUM_BIN="$2"
   show_deinstallation_summary true true false
   printf "CONFIRMED=%s\n" "$?"
 ' _ "$PROJECT_ROOT" "$GUM_BIN")
-[[ "$confirm_result" == *'CONFIRMED=0'* ]] || fail "summary did not accept DEINSTALL"
-[[ "$confirm_result" == *"Type DEINSTALL to confirm"* ]] || fail "summary did not show confirmation prompt"
+[[ "$confirm_result" == *'CONFIRMED=0'* ]] || fail "summary did not accept UNINSTALL"
+[[ "$confirm_result" == *"Type UNINSTALL to confirm"* ]] || fail "summary did not show confirmation prompt"
 
 # 6. Bash fallback: summary reads via bash read.
-bash_confirm=$(python3 "$PTY_RUNNER" --input 'DEINSTALL' --submit $'\r' -- bash -c '
+bash_confirm=$(python3 "$PTY_RUNNER" --input 'UNINSTALL' --submit $'\r' -- bash -c '
   source "$1/dist/scripts/start-tui.sh"
   TUI_MODE=bash
   show_deinstallation_summary true true false
   printf "CONFIRMED=%s\n" "$?"
 ' _ "$PROJECT_ROOT")
-[[ "$bash_confirm" == *'CONFIRMED=0'* ]] || fail "bash fallback summary did not accept DEINSTALL"
+[[ "$bash_confirm" == *'CONFIRMED=0'* ]] || fail "bash fallback summary did not accept UNINSTALL"
 
 # 7. Bash fallback: options toggling.
 bash_opts=$(python3 "$PTY_RUNNER" --input $'2\n4\n' --submit '' -- bash -c '
@@ -129,9 +129,9 @@ if python3 "$PTY_RUNNER" --input $'\033' --submit '' -- bash -c '
   fail "summary screen Esc did not cancel"
 fi
 
-# 10. Settings menu offers Deinstallation entry.
+# 10. Settings menu offers Uninstall entry.
 menu_source="$(mktemp)"
 trap 'rm -rf "$STUB_BIN" "$STUB_HOME" "$menu_source"' EXIT
-grep -n "Deinstallation" "$PROJECT_ROOT/dist/scripts/start-tui.sh" | grep -q "options=(" || fail "settings menu missing Deinstallation option"
+grep -n "Uninstall" "$PROJECT_ROOT/dist/scripts/start-tui.sh" | grep -q "options=(" || fail "settings menu missing Uninstall option"
 
-printf 'deinstallation wizard tests passed\n'
+printf 'uninstall wizard tests passed\n'

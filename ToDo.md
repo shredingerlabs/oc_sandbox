@@ -2,18 +2,18 @@
 
 ### sandbox
 
-- add .config folder to allow list (at least read??) for code review skill
-- add connect to a running session
-- add "open new to console" on existing container
+- test if node.js and npm install can be changed to latest
+- add option to stop container
+
 - Add implementation to re-/build to Start Option (-> build-container.sh)
-
-- test new tui interface
-
 - copy templates/docs on init to project folder
 	
 - integrate start better into OS
   - symlink with oc_sandbox -> on mac?
   - desktop entry -> on WSL / MAC?
+
+## install script
+- Tarball method doesnt work (if no curl is installed)
 
 ### Docker image
 
@@ -28,20 +28,18 @@
   - add a short sleep time between iteration -> not accidentaly start when already done
   - change LoopPrompt after two or three failing attempts to one with bug fix approach.
   - give the stdout to next loop?
-  - give error-log to next loop (ater thee? failing attempts?)
+  - give error-log to next loop (ater three? failing attempts?)
 
 # Bugs	
-- create dist release creates only tag no release on --pre option
-- build web container hung
+- create dist release creates only tag no release 
+
 
 # in progress
 
 
 
-
-
-
 # Done
+- README: switched main workflow to TUI (`oc-sandbox` symlink / `start-tui.sh`), direct script usage kept as legacy section; reordered Voraussetzungen before Installation (root + dist README)
 - webui start option: `--start_web` flag on start.sh / start option "web" in TUI; detached container runs `opencode web --port 4096` as main process, host port scanned 4096-4196, URL printed; foreground variant via bash_profile (was: --oc_webui flag)
 - first-run skills setup runs as interactive OpenCode TUI session (`opencode --prompt "run skill setup-matt-pocock-skills" -m "$OPENCODE_MODEL"`) so skill questions reach the user (ADR-0014)
 - uninstall.sh: enhanced error handling & reporting (#29)
@@ -104,3 +102,10 @@ One common start and setup mechanism / script:
 - init matt skills accepts no input
 - wenn user input in opencode run nicht funktioniert, dann is bash init first start flag und opencode with model and prompt flagö
 - GWDG provider endpoint to the squid allowlist e.g. chat-ai.academiccloud.de
+- README:
+  - change to new tui workflow
+  - reorder so "Voraussetungen" are before "install" and so on
+- pasta couldnt be installed (maby already there?)
+- add connect to a running session (terminal only)
+- add "open new to console" on existing container
+- change Deinstallation to Uninstall
