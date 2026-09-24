@@ -16,6 +16,8 @@
 
 **concurrent containers** — Multiple project containers can run simultaneously using project-specific naming (opencode-sandbox-PROJECTNAME), with TUI using podman exec for accessing running containers instead of starting new ones.
 
+**stop container** — Graceful shutdown of a running project container via `podman stop` (SIGTERM, then SIGKILL after the default timeout), initiated from the TUI Settings menu for a single selected project. Because containers run with `--rm`, a stopped container is removed automatically; the registry's container_status is set to "stopped" only after the container is verified gone.
+
 **first-run setup** — Automated container initialization including CBM configuration and skills setup, tracked via setup-complete flag in sandbox_config.json, offering granular recovery for partial failures.
 
 **VCS integration** — Version Control System setup (GitHub, GitLab, or custom host) creating credentials/hosts.yml in `.git_local/` subdirectories, separate from AI provider configuration.

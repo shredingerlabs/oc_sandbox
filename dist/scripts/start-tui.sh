@@ -1532,7 +1532,7 @@ detect_available_editions() {
 
 settings_menu() {
   while true; do
-    local options=("Config Backup" "Config Restore" "Uninstall" "← Back to Main Menu")
+    local options=("Config Backup" "Config Restore" "Stop Container" "Uninstall" "← Back to Main Menu")
     local choice=$(show_menu "Settings" "${options[@]}")
 
     case "$choice" in
@@ -1542,6 +1542,9 @@ settings_menu() {
       "Config Restore")
         restore_config
         ;;
+      "Stop Container")
+        stop_container_menu
+        ;;
       "Uninstall")
         deinstallation_wizard
         ;;
@@ -1550,6 +1553,84 @@ settings_menu() {
         ;;
     esac
   done
+}
+
+stop_container_menu() {
+  local running_projects=()
+  mapfile -t running_projects < <(get_running_containers)
+
+  if [[ ${#running_projects[@]} -eq 0 ]]; then
+    show_page "No running containers" "Start a project first."
+    wait_for_enter || true
+    return
+  fi
+
+  local projects=()
+  mapfile -t projects < <(get_all_projects_ordered)
+
+  local menu_items=()
+  for project in "${projects[@]}"; do
+    local container_id=$(jq -r '.container_id' <<< "$project")
+    local container_name="opencode-sandbox-${container_id}"
+    for running in "${running_projects[@]}"; do
+      if [[ "$running" == "$container_name" ]]; then
+        local name=$(jq -r '.name' <<< "$project")
+        local path=$(jq -r '.path' <<< "$project")
+        menu_items+=("● ${name} | ${path}")
+        break
+      fi
+    done
+  done
+
+  if [[ ${#menu_items[@]} -eq 0 ]]; then
+    show_page "No running containers" "Start a project first."
+    wait_for_enter || true
+    return
+  fi
+
+  menu_items+=("← Go Back")
+
+  local choice=$(show_menu "Select container to stop" "${menu_items[@]}")
+  if [[ "$choice" == "← Go Back" ]]; then
+    return 0
+  fi
+
+  local selected_name=$(echo "$choice" | sed 's/^● //' | sed 's/ |.*//')
+  local project_data=$(get_project_by_name "$selected_name")
+  [[ -n "$project_data" ]] || return 0
+  local project_path=$(jq -r '.path' <<< "$project_data")
+  local container_name=$(container_name_for_project "$project_data")
+
+  local confirm
+  confirm=$(show_menu "Stop ${container_name}?" "Stop" "← Go Back") || return 0
+  [[ "$confirm" == "Stop" ]] || return 0
+
+  if ! podman stop "$container_name" >/dev/null 2>&1; then
+    show_page "Stop failed" "Could not stop ${container_name}."
+    wait_for_enter || true
+    return
+  fi
+
+  local still_running=false
+  local remaining=()
+  mapfile -t remaining < <(get_running_containers)
+  for running in "${remaining[@]}"; do
+    if [[ "$running" == "$container_name" ]]; then
+      still_running=true
+      break
+    fi
+  done
+
+  if [[ "$still_running" == "true" ]]; then
+    show_page "Stop failed" "${container_name} is still running."
+    wait_for_enter || true
+    return
+  fi
+
+  update_project_status "$project_path" "stopped"
+
+  show_page "Container stopped" "${container_name}"
+  wait_for_enter || true
 }
 
 backup_config_manually() {

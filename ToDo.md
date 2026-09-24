@@ -3,7 +3,6 @@
 ### sandbox
 
 - test if node.js and npm install can be changed to latest
-- add option to stop container
 
 - Add implementation to re-/build to Start Option (-> build-container.sh)
 - copy templates/docs on init to project folder
