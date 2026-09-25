@@ -10,6 +10,14 @@
 
 **sandbox_config.json** — Per-project configuration file stored in `<project_root>/.opencode_config/` containing container edition, modes, auto-start options, CBM settings, and setup completion status.
 
+**project source** — Where a new project's code comes from: "new empty project" (wizard-created scaffolding) or "clone existing repo via URL" (in-container clone during first-run setup). Avoid: import repo, repo migration, connect repo.
+
+**repo URL** — The git remote URL recorded at project creation for a `cloned` project; stored in sandbox_config.json and the project registry, and used to derive git tracking and re-check repo reachability. _Avoid_: repo link, clone URL (ambiguous with the act of cloning).
+
+**in-container clone** — Cloning the repo URL inside the project container during first-run setup, after container start and before CBM configuration, using the container-side VCS credentials; chosen so host machines need no git/SSH setup. _Avoid_: host clone, URL import.
+
+**git init heal** — Host-side `git init` performed at container start when `project/` has no `.git`, guaranteeing OpenCode-Web always finds a worktree; skipped for projects whose project source is `cloned`.
+
 **projects.json** — Global project registry stored in `$HOME/.config/oc-sandbox/` with project metadata including project names, paths, container states, and last-used timestamps for ordering.
 
 **global_config.json** — Global user preferences stored in `$HOME/.config/oc-sandbox/` containing default project paths and user-specific settings not tied to individual projects.
