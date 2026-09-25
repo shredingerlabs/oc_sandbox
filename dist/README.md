@@ -90,6 +90,13 @@ project registered and offers `Retry`, `Go back`, or `Exit`; retries only
 repeat the incomplete setup stage. "Retry setup" from the project menu also
 finishes a partial clone attempt. SIGINT and SIGTERM clean up and exit safely.
 
+Constraints for cloned projects: HTTPS URLs plus a wizard-captured VCS token
+work in all editions (the token is also written to `.git_local/credentials` as
+a host-scoped credential-store entry, so later HTTPS push from the container is
+authenticated with the same token, whether or not the project is cloned). SSH
+URLs require manually placed keys in the project's `.ssh_local/` directory
+(mounted read-only). There is no automatic submodule/LFS recursion.
+
 Settings can back up and restore `projects.json` or `global_config.json` one file
 at a time. Restore validates JSON and creates a safety backup before the atomic
 replacement. Credential files under `.git_local/` and `.opencode_data/` are

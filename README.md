@@ -178,8 +178,9 @@ ohne `gum` auf einen einfachen Textmodus zurück.
 1. **Build Container** – gewünschte Edition bauen (einmalig, oder später über
    **Build now**, wenn beim Projektstart ein Image fehlt).
 2. **New Project** – der Wizard fragt zuerst die **Projektquelle** ab
-   („New empty project“ oder „Clone existing repo via URL“; bei Klonen wird nur
-   die Repo-URL erfragt – Formprüfung ohne Netztest – und der Projektname aus
+   („New empty project“ oder „Clone existing repo via URL“; Details siehe
+   [unten](#projektquelle-clone-existing-repo-via-url) – bei Klonen wird nur
+   die Repo-URL erfragt (Formprüfung ohne Netztest) und der Projektname aus
    dem URL-Basisnamen vorbelegt). Danach legt er den Projekt-Root an (gleiche
    Struktur wie `init-project.sh`), fragt VCS-Host und Tokens verborgen ab,
    konfiguriert die Git-Identität und wählt eine Start-Option:
@@ -202,6 +203,47 @@ Projekte werden in `~/.config/oc-sandbox/projects.json` registriert (kanonischer
 Pfad + kurze SHA-256-Container-Identität). Settings-Backup/Restore und der
 Deinstallations-Wizard (TUI-Label „Uninstall“) finden sich unter **Settings** – Details siehe
 [Deinstallation](#deinstallation).
+
+### Projektquelle: „Clone existing repo via URL“ (New Project Wizard)
+
+Als erste Wahl im New-Project-Wizard lässt sich statt eines leeren Projekts
+eine **Repo-URL** angeben. Das Projekt wird als Quelle `cloned` registriert
+(kein Template-Seed, kein hostseitiges `git init`), und die Ersteinrichtung
+klont das Repo **im Container** (siehe
+[ADR-0016](docs/adr/0016-in-container-clone-via-first-run-setup.md)):
+
+1. Der Wizard prüft die URL nur auf Form (nicht leer, keine Leerzeichen) –
+   kein Netztest zu diesem Zeitpunkt. Der Projektname wird aus dem
+   URL-Basisnamen vorbelegt.
+2. Bei Start des Projekts läuft als erster Setup-Schritt der
+   In-Container-Probe (`git ls-remote` gegen die URL, mit den Container-seitigen
+   Credentials) und danach ein **vollständiger Clone** (kein `--depth`, keine
+   automatische submodule/LFS-Rekursion) nach `project/`.
+3. Schlägt Probe oder Clone fehl, bietet die TUI
+   `Retry` (gleiche URL, unvollständiger Clone-Zustand wird zuvor aufgeräumt),
+   `Change URL` (neue Abfrage, neue URL wird persistent gespeichert) oder
+   `Exit`. Erst nach Erfolg wird `setup_clone_complete` gesetzt; Setup-Order:
+   Clone → CBM → Skills.
+
+**Einschränkungen:**
+
+- **HTTPS + Wizard-Token** funktioniert in allen Editionen: erfragt die TUI
+  einen VCS-Token, wird ein host-spezifischer Eintrag
+  (`https://<user>:<token>@<host>`) in `.git_local/credentials` geschrieben
+  (siehe [ADR-0016](docs/adr/0016-in-container-clone-via-first-run-setup.md)).
+- **SSH-URLs** (`git@…`, `ssh://…`) funktionieren nur, wenn vorher von Hand
+  SSH-Keys in den projekt-lokalen `.ssh_local/`-Ordner gelegt wurden (beim
+  Containerstart **read-only** unter `/home/dev/.ssh` eingehängt). Kostenloser
+  SSH-Fallback ist nicht Teil des Wizards.
+- **Keine automatische submodule/LFS-Rekursion** – Submodule oder LFS
+  müssen nach dem Clone von Hand initialisiert werden.
+
+**Nebenwirkung Credential-Store (ADR-0016, Entscheidung 4b):** der Wizard
+schreibt den erfragten VCS-Token **immer** in `.git_local/credentials` –
+unabhängig von der Projektquelle. Damit authentifizieren spätere
+HTTPS-Pushs aus dem Container automatisch mit demselben Token; ohne erfragten
+Token bleibt die Datei leer und git verhält sich wie vorher.
+
 
 ## HIL: udev-Regeln installieren (optional)
 

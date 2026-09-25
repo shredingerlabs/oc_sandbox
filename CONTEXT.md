@@ -130,6 +130,8 @@
 
 **credential file** — Project-local VCS or AI secret configuration stored separately from global TUI metadata, with restrictive permissions and excluded from general configuration backups.
 
+**credential bridge** — Activated `[credential] helper = store` block in the gitconfig template plus `configure_vcs_credentials` writing a host-scoped `https://<user>:<token>@<host>` entry into `.git_local/credentials` whenever a VCS token is captured — regardless of project source — so HTTPS clone and later push work with the same token in all editions. _Avoid_: credential-store side effect, token persistence.
+
 **retry flow** — Error recovery pattern where users who choose "Retry" after a failure remain in the recovery loop even if intermediate steps (like settings adjustment) fail. Failures show context-aware error messages and return to the retry menu, except for explicit user aborts (exit code 2) which are respected throughout.
 
 **uninstall wizard** — Guided TUI flow in Settings (warning screen with running containers and their stop commands, option rows for symlinks/config/backup toggled via Enter, explicit "Confirm — start uninstall" row that must be selected to proceed, summary screen). Every screen can be cancelled or navigated back; toggling a flag row alone never advances the wizard. The choices are mapped to uninstall.sh flags and run with `--force`.
