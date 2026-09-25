@@ -807,6 +807,48 @@ validate_repo_url_shape 'git@github.com:user/repo.git'
 [[ "$(derive_project_name_from_repo_url 'git@github.com:app.git')" == app ]]
 [[ -z "$(derive_project_name_from_repo_url 'https://host//')" ]]
 
+# VCS tracking derivation from repo URL host (#41): github.com/gitlab.com are
+# derived literally from https, scp-like, and ssh forms; other hosts fail so
+# the wizard shows the manual picker.
+[[ "$(derive_vcs_tracking_from_repo_url 'https://github.com/user/repo.git')" == github.com ]]
+[[ "$(derive_vcs_tracking_from_repo_url 'git@github.com:user/repo.git')" == github.com ]]
+[[ "$(derive_vcs_tracking_from_repo_url 'ssh://git@github.com/user/repo.git')" == github.com ]]
+[[ "$(derive_vcs_tracking_from_repo_url 'https://gitlab.com/team/repo.git')" == gitlab.com ]]
+[[ "$(derive_vcs_tracking_from_repo_url 'git@gitlab.com:team/repo.git')" == gitlab.com ]]
+[[ "$(derive_vcs_tracking_from_repo_url 'ssh://git@gitlab.com/team/repo.git')" == gitlab.com ]]
+! derive_vcs_tracking_from_repo_url 'https://git.example.com/team/repo.git'
+! derive_vcs_tracking_from_repo_url 'git@git.example.com:team/repo.git'
+! derive_vcs_tracking_from_repo_url ''
+! derive_vcs_tracking_from_repo_url 'https://github.com.evil.com/user/repo.git'
+[[ "$(derive_vcs_tracking_from_repo_url 'git@GitHub.com:user/repo.git')" == github.com ]]
+
+# Derived tracking skips the VCS picker and reaches select_ai_provider directly.
+# re-source to restore the real wizard functions (an earlier stub replaced them).
+# shellcheck disable=SC1091
+source "$PROJECT_ROOT/dist/scripts/start-tui.sh"
+captured_vcs=""
+select_ai_provider() { captured_vcs="${*: -1}"; }
+select_vcs_tracking /tmp/project Test full 'https://github.com/user/repo.git' console console web
+[[ "$captured_vcs" == github.com ]]
+select_vcs_tracking /tmp/project Test full 'git@gitlab.com:team/repo.git' console console web
+[[ "$captured_vcs" == gitlab.com ]]
+
+# Unknown hosts and empty-source projects keep the manual picker.
+derive_vcs_tracking_from_repo_url() { return 1; }
+select_ai_provider() { :; }
+show_menu() { printf '%s\n' "$1" > "$menu_probe"; printf '%s\n' 'none'; }
+menu_probe="$source_home/menu-probe"
+: > "$menu_probe"
+select_vcs_tracking /tmp/project Test full 'https://git.example.com/team/repo.git' console console web
+grep -q 'Select VCS tracking' "$menu_probe"
+: > "$menu_probe"
+select_vcs_tracking /tmp/project Test full "" console console web
+grep -q 'Select VCS tracking' "$menu_probe"
+unset menu_probe
+# Restore the real wizard functions overridden by the stubs above.
+# shellcheck disable=SC1091
+source "$PROJECT_ROOT/dist/scripts/start-tui.sh"
+
 printf 'start-tui project source tests passed\n'
 
 # sandbox_config.json records empty/cloned source and repo_url.

@@ -526,6 +526,42 @@ derive_project_name_from_repo_url() {
   printf '%s\n' "$basename"
 }
 
+derive_vcs_tracking_from_repo_url() {
+  local repo_url="$1"
+  local host=""
+
+  case "$repo_url" in
+    https://*)
+      host="${repo_url#https://}"
+      host="${host%%/*}"
+      host="${host##*@}"
+      ;;
+    ssh://git@*)
+      host="${repo_url#ssh://git@}"
+      host="${host%%/*}"
+      ;;
+    git@*:*)
+      host="${repo_url#git@}"
+      host="${host%%:*}"
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+
+  case "${host,,}" in
+    github.com)
+      printf '%s\n' "github.com"
+      ;;
+    gitlab.com)
+      printf '%s\n' "gitlab.com"
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
 collect_new_project_details() {
   local repo_url="$1"
   local prefill=""
@@ -749,6 +785,12 @@ select_vcs_tracking() {
   local start_option="${modes[-1]}"
   unset 'modes[-1]'
 
+  local vcs_tracking
+  if vcs_tracking=$(derive_vcs_tracking_from_repo_url "$repo_url"); then
+    select_ai_provider "$project_path" "$project_name" "$edition" "$repo_url" "${modes[@]}" "$start_option" "$vcs_tracking"
+    return
+  fi
+
   local options=("none" "github.com" "gitlab.com" "own GitLab" "others" "← Go Back")
   local vcs_tracking=$(show_menu "Select VCS tracking" "${options[@]}")
 
@@ -776,7 +818,11 @@ select_ai_provider() {
   local ai_provider=$(show_menu "Select AI provider" "${options[@]}")
 
   if [[ "$ai_provider" == "← Go Back" ]]; then
-    select_vcs_tracking "$project_path" "$project_name" "$edition" "$repo_url" "${modes[@]}" "$start_option"
+    if [[ -n "$repo_url" ]] && derive_vcs_tracking_from_repo_url "$repo_url" > /dev/null; then
+      select_start_option "$project_path" "$project_name" "$edition" "$repo_url" "${modes[@]}"
+    else
+      select_vcs_tracking "$project_path" "$project_name" "$edition" "$repo_url" "${modes[@]}" "$start_option"
+    fi
     return
   fi
 

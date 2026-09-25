@@ -47,7 +47,10 @@ container identity in `~/.config/oc-sandbox/projects.json`. This keeps project
 names unique while allowing projects with identical directory basenames.
 
 During project setup, the TUI can configure no VCS, GitHub, public GitLab,
-self-hosted GitLab, or another VCS host. Tokens use hidden prompts and remain in project-local `gh-cli/hosts.yml`,
+self-hosted GitLab, or another VCS host. For cloned projects whose repo URL
+points at `github.com` or `gitlab.com` (https, SSH, or scp-like form), the VCS
+host is derived automatically without prompting; other hosts show the manual
+chooser. Tokens use hidden prompts and remain in project-local `gh-cli/hosts.yml`,
 `glab-cli/hosts.yml`, or `.git_local/vcs/hosts.yml`. The GWDG SAIA token is stored
 in `.opencode_data/auth.json`. Existing credentials are kept unless `Replace` is
 explicitly selected.
