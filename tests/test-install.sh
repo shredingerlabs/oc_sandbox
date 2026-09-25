@@ -560,6 +560,8 @@ test_wsl_shortcut_uses_powershell_shim() {
   mkdir -p "$install_dir/scripts"
   echo "#!/usr/bin/env bash" > "$install_dir/scripts/start-tui.sh"
   chmod +x "$install_dir/scripts/start-tui.sh"
+  mkdir -p "$install_dir/icons/windows"
+  touch "$install_dir/icons/windows/oc-sandbox.ico"
 
   local test_bin="$test_dir/bin"
   mkdir -p "$test_bin"
@@ -635,6 +637,13 @@ EOF
   fi
   if ! grep -q "CreateShortcut" "$test_dir/ps-commands"; then
     echo ".lnk-Aufruf nutzt CreateShortcut nicht"
+    cat "$test_dir/ps-commands"
+    cleanup_test_env "$test_dir"
+    return 1
+  fi
+  if ! grep -qF 'IconLocation = '"'"'\\wsl.localhost\' "$test_dir/ps-commands" \
+    || ! grep -qF 'oc-sandbox.ico' "$test_dir/ps-commands"; then
+    echo ".lnk referenziert das Icon nicht als UNC-Pfad (\\\\wsl.localhost\\...) - Startmenu-Icon bleibt unsichtbar"
     cat "$test_dir/ps-commands"
     cleanup_test_env "$test_dir"
     return 1

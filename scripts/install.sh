@@ -672,6 +672,39 @@ EOF
   return 0
 }
 
+# Übersetzt einen WSL-Pfad in einen UNC-Pfad (\\wsl$\<distro>\... bzw.
+# \\wsl.localhost\<distro>\...), über den Windows die Datei unabhängig vom
+# tmpfs-Mount-Laufwerksbuchstaben erreichen kann. `wslpath -w` gibt auf
+# tmpfs-Pfaden einen Laufwerks-Pfad (z.B. D:\...) aus, der im Startmenu-
+# Kontext ungültig ist — daher wird der UNC-Präfix hier von Hand gebildet.
+icon_wsl_unc_path() {
+  local path="$1"
+  local distro="${WSL_DISTRO_NAME:-}"
+  if [[ -z "$distro" && -r /etc/os-release ]]; then
+    # Kein grep/awk: PATH kann im Test/Minimal-Umfeld leer sein.
+    distro=${WSL_DISTRO_NAME:-}
+    if [[ -z "$distro" ]]; then
+      local line
+      while IFS= read -r line || [[ -n "$line" ]]; do
+        if [[ "$line" == NAME=* ]]; then
+          distro=${line#NAME=}
+          distro=${distro#\"}
+          distro=${distro%\"}
+          break
+        fi
+      done < /etc/os-release
+    fi
+  fi
+  if [[ -z "$distro" ]]; then
+    return 1
+  fi
+  # / -> \ per Parameter-Expansion (kein sed: PATH kann im Test/Minimal-
+  # Umfeld leer sein).
+  local win_rel="${path//\//\\}"
+  printf '\\\\wsl.localhost\\%s%s\n' "$distro" "$win_rel"
+  return 0
+}
+
 create_shortcut_wsl() {
   local install_dir="$1"
   local script="${install_dir}/scripts/start-tui.sh"
@@ -707,9 +740,21 @@ create_shortcut_wsl() {
   local icon_file="${install_dir}/icons/windows/oc-sandbox.ico"
   if [[ -f "$icon_file" ]]; then
     local icon_path_win
-    icon_path_win=$(wslpath -w "$icon_file")
-    icon_block="\$sc.IconLocation = '${icon_path_win}'; "
-    log_verbose "Icon referenziert: $icon_path_win"
+    # .lnk-Icons müssen aus Windows-Sicht erreichbar sein. Ein LW-Pfad (z.B.
+    # D:\...\oc-sandbox.ico) verweist auf das tmpfs-Mount des WSL-Distros und
+    # ist im Startmenu-Kontext nicht gültig -> Icon bleibt unsichtbar. Der
+    # UNC-Pfad über den automatischen wsl$-Server ist für Windows immer
+    # erreichbar.
+    icon_path_win=$(icon_wsl_unc_path "$icon_file")
+    if [[ -z "$icon_path_win" ]]; then
+      icon_path_win=$(wslpath -w "$icon_file" 2>/dev/null)
+    fi
+    if [[ -n "$icon_path_win" ]]; then
+      icon_block="\$sc.IconLocation = '${icon_path_win}'; "
+      log_verbose "Icon referenziert: $icon_path_win"
+    else
+      log_verbose "Icon-Pfad konnte nicht übersetzt werden – Shortcut wird ohne Icon erstellt."
+    fi
   else
     log_verbose "Kein Icon gefunden (${icon_file}) – Shortcut wird ohne Icon erstellt."
   fi
