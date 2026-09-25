@@ -1,15 +1,15 @@
 # ToDos
 
 ### sandbox
-
+- update readme with link on how to install / setup wsl under win11 
 - test if node.js and npm install can be changed to latest
 
 - Add implementation to re-/build to Start Option (-> build-container.sh)
 - copy templates/docs on init to project folder
 	
 - integrate start better into OS
-  - symlink with oc_sandbox -> on mac?
-  - desktop entry -> on WSL / MAC?
+  - symlink with oc_sandbox -> on mac? -> test
+  - desktop entry -> on WSL / MAC? -> test
 
 ## install script
 - Tarball method doesnt work (if no curl is installed)
@@ -24,13 +24,15 @@
   - add a tracker flag (gh or glab) 
   - add a issue number functionality (combined with tracker flag)
   - --verbose flag for output in terminal
-  - add a short sleep time between iteration -> not accidentaly start when already done
+  - add a short sleep time between iteration -> not accidentally start when already done
   - change LoopPrompt after two or three failing attempts to one with bug fix approach.
   - give the stdout to next loop?
   - give error-log to next loop (ater three? failing attempts?)
 
 # Bugs	
 - create dist release creates only tag no release 
+
+- WIN11 WSL:
 
 
 # in progress
@@ -108,3 +110,5 @@ One common start and setup mechanism / script:
 - add connect to a running session (terminal only)
 - add "open new to console" on existing container
 - change Deinstallation to Uninstall
+- uninstall flag selection starts process - unable to select more than one flag
+  - Default project path: (Ctrl+A to replace): /home/user/oc-sandbox  /home/user/.local/bin/oc-sandbox: line 127: jq: command not found
