@@ -569,6 +569,8 @@ test_wsl_shortcut_uses_powershell_shim() {
   # Fakes Windows-User-Profil unter einem simulierten /mnt/c
   local mnt_c="$test_dir/mnt-c"
   mkdir -p "$mnt_c/Users/testuser/AppData/Roaming/Microsoft/Windows/Start Menu/Programs"
+  # Fake %LOCALAPPDATA% (das Icon wird vom Install-Script hierher kopiert)
+  mkdir -p "$mnt_c/Users/testuser/AppData/Local"
 
   # Fake powershell.exe: liefert fake Windows-User und legt die .lnk an
   cat > "$test_bin/powershell.exe" << EOF
@@ -578,6 +580,12 @@ prev=""
 for arg in "\$@"; do
   if [[ "\$prev" == "-Command" ]]; then
     printf '%s\n' "\$arg" >> "$test_dir/ps-commands"
+    case "\$arg" in
+      *'LocalApplicationData'*)
+        echo 'C:\\Users\\testuser\\AppData\\Local'
+        exit 0
+        ;;
+    esac
   fi
   prev="\$arg"
 done
@@ -586,11 +594,14 @@ exit 0
 EOF
   chmod +x "$test_bin/powershell.exe"
 
-  # Fake wslpath shim: -w liefert Windows-Pfad, sonst Unix-Pfad
+  # Fake wslpath shim: -w liefert Windows-Pfad, -u übersetzt ins Sandbox-/mnt-c
   cat > "$test_bin/wslpath" << EOF
 #!/usr/bin/bash
 if [[ "\${1:-}" == "-w" ]]; then
   echo "C:\\\\Fake"
+elif [[ "\${1:-}" == "-u" ]]; then
+  p="\${2//\\\\//}"
+  echo "$test_dir/mnt-c\${p#C:}"
 else
   echo "\$1"
 fi
@@ -604,8 +615,20 @@ exec /usr/bin/tr "$@"
 EOF
   chmod +x "$test_bin/tr"
 
+  # Fake mkdir/cp shims (ebenfalls nicht im Test-PATH)
+  cat > "$test_bin/mkdir" << 'EOF'
+#!/usr/bin/bash
+exec /usr/bin/mkdir "$@"
+EOF
+  chmod +x "$test_bin/mkdir"
+  cat > "$test_bin/cp" << 'EOF'
+#!/usr/bin/bash
+exec /usr/bin/cp "$@"
+EOF
+  chmod +x "$test_bin/cp"
+
   # shims brauchen absolute Shebangs, weil PATH im Test auf test_bin begrenzt ist
-  sed -i "1s|.*|#!/usr/bin/bash|" "$test_bin/powershell.exe" "$test_bin/wslpath" "$test_bin/tr" 2>/dev/null || true
+  sed -i "1s|.*|#!/usr/bin/bash|" "$test_bin/powershell.exe" "$test_bin/wslpath" "$test_bin/tr" "$test_bin/mkdir" "$test_bin/cp" 2>/dev/null || true
 
   (source "$INSTALL_SCRIPT" --help >/dev/null 2>&1
    HOME="$home"
@@ -641,10 +664,14 @@ EOF
     cleanup_test_env "$test_dir"
     return 1
   fi
-  if ! grep -qF 'IconLocation = '"'"'\\wsl.localhost\' "$test_dir/ps-commands" \
-    || ! grep -qF 'oc-sandbox.ico' "$test_dir/ps-commands"; then
-    echo ".lnk referenziert das Icon nicht als UNC-Pfad (\\\\wsl.localhost\\...) - Startmenu-Icon bleibt unsichtbar"
+  if ! grep -qF "\$sc.IconLocation = 'C:\\Users\\testuser\\AppData\\Local\\oc-sandbox\\oc-sandbox.ico'" "$test_dir/ps-commands"; then
+    echo ".lnk referenziert das Icon nicht über den Windows-nativen Pfad (%LOCALAPPDATA%) - Startmenu kann UNC-Icons nicht rendern"
     cat "$test_dir/ps-commands"
+    cleanup_test_env "$test_dir"
+    return 1
+  fi
+  if [[ ! -f "$mnt_c/Users/testuser/AppData/Local/oc-sandbox/oc-sandbox.ico" ]]; then
+    echo ".ico wurde nicht nach %LOCALAPPDATA%\\oc-sandbox kopiert"
     cleanup_test_env "$test_dir"
     return 1
   fi

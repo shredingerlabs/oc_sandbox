@@ -428,6 +428,22 @@ remove_shortcuts() {
         removed_all=false
       fi
     fi
+    # WSL: Icon-Kopie im %LOCALAPPDATA% entfernen (vom Installer angelegt)
+    local win_localappdata=""
+    win_localappdata=$(powershell.exe -NoProfile -Command "[Environment]::GetFolderPath('LocalApplicationData')" 2>/dev/null | tr -d '\r' || true)
+    win_localappdata=${win_localappdata%%$'\n'*}
+    local icon_unix=""
+    if [[ -n "$win_localappdata" ]]; then
+      icon_unix=$(wslpath -u "${win_localappdata}\\oc-sandbox\\oc-sandbox.ico" 2>/dev/null || true)
+    fi
+    if [[ -n "$icon_unix" && -f "$icon_unix" ]]; then
+      if remove_path_safe "$icon_unix"; then
+        log_verbose "Icon-Kopie entfernt: $icon_unix"
+        record_action "Icon-Kopie entfernt: $icon_unix"
+      else
+        removed_all=false
+      fi
+    fi
   fi
 
   if ! $removed_all; then

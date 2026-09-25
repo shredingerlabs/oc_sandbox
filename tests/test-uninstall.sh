@@ -267,6 +267,9 @@ test_remove_shortcuts_wsl_resolves_startmenu_via_powershell() {
   local mnt_c="$test_dir/mnt-c"
   mkdir -p "$mnt_c/Users/realuser/AppData/Roaming/Microsoft/Windows/Start Menu/Programs"
   echo "lnk" > "$mnt_c/Users/realuser/AppData/Roaming/Microsoft/Windows/Start Menu/Programs/OC Sandbox.lnk"
+  # Fake Icon-Kopie im %LOCALAPPDATA% (vom Installer angelegt)
+  mkdir -p "$mnt_c/Users/realuser/AppData/Local/oc-sandbox"
+  echo "ico" > "$mnt_c/Users/realuser/AppData/Local/oc-sandbox/oc-sandbox.ico"
 
   cat > "$test_bin/powershell.exe" << EOF
 #!/bin/bash
@@ -274,6 +277,10 @@ for arg in "\$@"; do
   case "\$arg" in
     *'env:USERNAME'*)
       echo "testuser"
+      exit 0
+      ;;
+    *'LocalApplicationData'*)
+      echo 'C:\\Users\\realuser\\AppData\\Local'
       exit 0
       ;;
     *'GetFolderPath'*)
@@ -309,6 +316,18 @@ EOF
 
   if [[ -f "$mnt_c/Users/realuser/AppData/Roaming/Microsoft/Windows/Start Menu/Programs/OC Sandbox.lnk" ]]; then
     echo "  .lnk im (relozierten) Startmenu wurde nicht entfernt"
+    echo "$output"
+    cleanup_test_env "$test_dir"
+    return 1
+  fi
+  if [[ -f "$mnt_c/Users/realuser/AppData/Local/oc-sandbox/oc-sandbox.ico" ]]; then
+    echo "  Icon-Kopie im %LOCALAPPDATA% wurde nicht entfernt"
+    echo "$output"
+    cleanup_test_env "$test_dir"
+    return 1
+  fi
+  if [[ "$output" != *"Icon-Kopie entfernt"* ]]; then
+    echo "  Abschlussmeldung listet Icon-Kopie nicht"
     echo "$output"
     cleanup_test_env "$test_dir"
     return 1

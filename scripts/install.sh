@@ -705,6 +705,32 @@ icon_wsl_unc_path() {
   return 0
 }
 
+# Kopiert das Icon nach Windows (%LOCALAPPDATA%\oc-sandbox\oc-sandbox.ico).
+# Das Startmenu kann .lnk-Icons nicht aus UNC-Pfaden (\\wsl.localhost\...)
+# rendern — IconLocation braucht eine Windows-native Datei. Gibt den
+# Windows-Pfad der Kopie zurück, leer bei Fehlschlag.
+install_icon_windows_side() {
+  local icon_file="$1"
+  local win_localappdata localappdata_unix
+  win_localappdata=$(powershell.exe -NoProfile -Command "[Environment]::GetFolderPath('LocalApplicationData')" 2>/dev/null | tr -d '\r')
+  win_localappdata=${win_localappdata%%$'\n'*}
+  if [[ -z "$win_localappdata" ]]; then
+    return 1
+  fi
+  localappdata_unix=$(wslpath -u "$win_localappdata" 2>/dev/null)
+  if [[ -z "$localappdata_unix" || ! -d "$localappdata_unix" ]]; then
+    return 1
+  fi
+  if ! mkdir -p "${localappdata_unix}/oc-sandbox" 2>/dev/null; then
+    return 1
+  fi
+  if ! cp "$icon_file" "${localappdata_unix}/oc-sandbox/oc-sandbox.ico" 2>/dev/null; then
+    return 1
+  fi
+  printf '%s\\oc-sandbox\\oc-sandbox.ico\n' "$win_localappdata"
+  return 0
+}
+
 create_shortcut_wsl() {
   local install_dir="$1"
   local script="${install_dir}/scripts/start-tui.sh"
@@ -740,14 +766,20 @@ create_shortcut_wsl() {
   local icon_file="${install_dir}/icons/windows/oc-sandbox.ico"
   if [[ -f "$icon_file" ]]; then
     local icon_path_win
-    # .lnk-Icons müssen aus Windows-Sicht erreichbar sein. Ein LW-Pfad (z.B.
-    # D:\...\oc-sandbox.ico) verweist auf das tmpfs-Mount des WSL-Distros und
-    # ist im Startmenu-Kontext nicht gültig -> Icon bleibt unsichtbar. Der
-    # UNC-Pfad über den automatischen wsl$-Server ist für Windows immer
-    # erreichbar.
-    icon_path_win=$(icon_wsl_unc_path "$icon_file")
-    if [[ -z "$icon_path_win" ]]; then
-      icon_path_win=$(wslpath -w "$icon_file" 2>/dev/null)
+    # Das Startmenu kann Icons nicht aus UNC-Pfaden (\\wsl.localhost\...)
+    # rendern und tmpfs-Laufwerks-Pfaden (D:\...) ist im Startmenu-Kontext
+    # nicht gültig — IconLocation braucht eine Windows-native Datei. Daher
+    # wird das Icon nach %LOCALAPPDATA%\oc-sandbox\ kopiert; UNC-Pfad nur
+    # als Fallback.
+    icon_path_win=$(install_icon_windows_side "$icon_file")
+    if [[ -n "$icon_path_win" ]]; then
+      log_verbose "Icon nach Windows kopiert: $icon_path_win"
+    else
+      log_verbose "Icon-Kopie nach Windows fehlgeschlagen – versuche UNC-Pfad als Fallback."
+      icon_path_win=$(icon_wsl_unc_path "$icon_file")
+      if [[ -z "$icon_path_win" ]]; then
+        icon_path_win=$(wslpath -w "$icon_file" 2>/dev/null)
+      fi
     fi
     if [[ -n "$icon_path_win" ]]; then
       icon_block="\$sc.IconLocation = '${icon_path_win}'; "
