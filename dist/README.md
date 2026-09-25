@@ -143,7 +143,7 @@ erhalten.
 
 ```bash
 sudo apt-get update
-sudo apt-get install -y podman pasta fuse-overlayfs git curl
+sudo apt-get install -y podman pasta fuse-overlayfs git curl jq
 
 # Podman rootless prüfen
 podman info --format '{{.Host.Security.Rootless}}'   # sollte "true" liefern

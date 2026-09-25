@@ -63,7 +63,7 @@ unvollständigen Einrichtungsschritt.
 
 ```bash
 sudo apt-get update
-sudo apt-get install -y git curl podman passt fuse-overlayfs
+sudo apt-get install -y git curl podman passt fuse-overlayfs jq
 ```
 
 Podman rootless prüfen:

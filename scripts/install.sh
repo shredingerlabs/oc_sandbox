@@ -117,7 +117,7 @@ check_dependencies() {
   fi
   
   # Prüfe andere benötigte Tools
-  for cmd in tar grep awk sed; do
+  for cmd in tar grep awk sed jq; do
     if ! command -v "$cmd" &> /dev/null; then
       missing_deps+=("$cmd")
     fi
