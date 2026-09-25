@@ -23,14 +23,16 @@
 [init]
     defaultBranch = main
 
-# --- Optional: HTTPS + Personal Access Token statt/zusätzlich zu SSH -------
-# Falls ihr für GitHub/GitLab lieber HTTPS mit Token statt Deploy-Key nutzt,
-# folgende Zeilen einkommentieren. Das Token selbst gehört NICHT hier rein,
+# --- HTTPS + Personal Access Token statt/zusätzlich zu SSH -----------------
+# Für HTTPS-Clone/Push mit Token wird die Datei .git_local/credentials als
+# git credential store benutzt. Das Token selbst gehört NICHT hier rein,
 # sondern in die separate Datei .git_local/credentials (siehe
 # templates/git_local/credentials), die restriktiver behandelt wird.
-#
-# [credential]
-#     helper = store --file=/home/dev/.git_local/credentials
+# Existiert diese Datei nicht (kein Token erfasst), verhält sich git wie
+# bisher (nur öffentliche Repos).
+
+[credential]
+    helper = store --file=/home/dev/.git_local/credentials
 
 [core]
     editor = vi

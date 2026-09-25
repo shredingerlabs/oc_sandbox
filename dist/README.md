@@ -47,7 +47,10 @@ container identity in `~/.config/oc-sandbox/projects.json`. This keeps project
 names unique while allowing projects with identical directory basenames.
 
 During project setup, the TUI can configure no VCS, GitHub, public GitLab,
-self-hosted GitLab, or another VCS host. Tokens use hidden prompts and remain in project-local `gh-cli/hosts.yml`,
+self-hosted GitLab, or another VCS host. For cloned projects whose repo URL
+points at `github.com` or `gitlab.com` (https, SSH, or scp-like form), the VCS
+host is derived automatically without prompting; other hosts show the manual
+chooser. Tokens use hidden prompts and remain in project-local `gh-cli/hosts.yml`,
 `glab-cli/hosts.yml`, or `.git_local/vcs/hosts.yml`. The GWDG SAIA token is stored
 in `.opencode_data/auth.json`. Existing credentials are kept unless `Replace` is
 explicitly selected.
@@ -73,12 +76,26 @@ later`, or `Go back`. New projects run setup in a detached container and then
 attach to the selected console or OpenCode session (with the `web` start option,
 the web surface URL is printed instead).
 
-First-run setup records CBM and skills progress separately. CBM runs without a
-terminal; the skills command runs through an attached `podman exec -it`, so its
-interactive input and output stay connected to the user. A stage is marked
-complete only after success, and a failure keeps the project registered and
-offers `Retry`, `Go back`, or `Exit`; retries only repeat the incomplete setup
-stage. SIGINT and SIGTERM clean up and exit safely.
+First-run setup for projects created from a repo URL probes reachability with
+`git ls-remote` inside the container and then performs a full clone (no
+`--depth`, no submodule/LFS recursion) into the mounted `project/` directory
+before CBM and skills setup. A probe or clone failure shows the context and
+offers `Retry` (same URL, after cleaning partial clone state), `Change URL`
+(re-prompts and stores the new URL), or `Exit`; empty-source projects skip this
+stage. First-run setup records clone, CBM, and skills progress separately. CBM
+runs without a terminal; the skills command runs through an attached
+`podman exec -it`, so its interactive input and output stay connected to the
+user. A stage is marked complete only after success, and a failure keeps the
+project registered and offers `Retry`, `Go back`, or `Exit`; retries only
+repeat the incomplete setup stage. "Retry setup" from the project menu also
+finishes a partial clone attempt. SIGINT and SIGTERM clean up and exit safely.
+
+Constraints for cloned projects: HTTPS URLs plus a wizard-captured VCS token
+work in all editions (the token is also written to `.git_local/credentials` as
+a host-scoped credential-store entry, so later HTTPS push from the container is
+authenticated with the same token, whether or not the project is cloned). SSH
+URLs require manually placed keys in the project's `.ssh_local/` directory
+(mounted read-only). There is no automatic submodule/LFS recursion.
 
 Settings can back up and restore `projects.json` or `global_config.json` one file
 at a time. Restore validates JSON and creates a safety backup before the atomic
@@ -195,6 +212,10 @@ sudo udevadm trigger
 ```bash
 ./scripts/init-project.sh ~/projects/mein-projekt
 ```
+
+Optional: mit `--repo_url <url>` wird das Projekt als "cloned" angelegt —
+`project/` bleibt leer (kein Template-Seed, kein `git init`), das Repo wird
+später aus `<url>` geklont.
 
 ### 4. Sandbox starten
 

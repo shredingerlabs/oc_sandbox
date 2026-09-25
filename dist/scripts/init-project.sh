@@ -11,14 +11,39 @@
 #     .cbm_cache/           <- CBM-Graph-Datenbank (persistent)
 #
 # Nutzung:
-#   scripts/init-project.sh ~/projects/kunde-x
+#   scripts/init-project.sh ~/projects/kunde-x [--repo_url <url>]
 #
 set -euo pipefail
 
 PROJECT_ROOT="${1:-}"
+shift 2>/dev/null || true
+
+REPO_URL=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --repo_url)
+      [[ $# -ge 2 ]] || { echo "--repo_url benötigt einen Wert" >&2; exit 1; }
+      REPO_URL="$2"
+      shift 2
+      ;;
+    *)
+      echo "Unbekanntes Argument: $1" >&2
+      exit 1
+      ;;
+  esac
+done
+
 if [[ -z "$PROJECT_ROOT" ]]; then
-  echo "Nutzung: $0 <neuer-projekt-root>" >&2
+  echo "Nutzung: $0 <neuer-projekt-root> [--repo_url <url>]" >&2
   exit 1
+fi
+
+# Mit --repo_url wird das eigentliche Repo von aussen geklont: project/
+# bleibt leer (kein Template-Seed, kein git init - die Quelle ist die
+# geklonte Quelle, nicht ein leeres Repo).
+PROJECT_SOURCE="empty"
+if [[ -n "$REPO_URL" ]]; then
+  PROJECT_SOURCE="cloned"
 fi
 
 if [[ -e "$PROJECT_ROOT" ]]; then
@@ -31,7 +56,6 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TEMPLATE_SSH_CONFIG="${SCRIPT_DIR}/../templates/ssh_local/config"
 TEMPLATE_GIT_CONFIG="${SCRIPT_DIR}/../templates/git_local/gitconfig"
-TEMPLATE_GIT_CREDENTIALS="${SCRIPT_DIR}/../templates/git_local/credentials"
 TEMPLATE_GLAB_CONFIG="${SCRIPT_DIR}/../templates/git_local/glab-cli/config.yml"
 TEMPLATE_OPENCODE_CONFIG="${SCRIPT_DIR}/../templates/opencode/opencode-basic.json"
 TEMPLATE_OPENCODE_AGENTS="${SCRIPT_DIR}/../templates/opencode/AGENTS.md"
@@ -50,7 +74,7 @@ mkdir -p \
 # OpenCode-Web braucht ein Git-Repo als Worktree: ohne .git in project/
 # faellt opencode auf das "global"-Projekt mit worktree "/" zurueck
 # (Weboberflaeche: "+" disabled, kein Projekt anlegbar).
-if [[ ! -e "${PROJECT_ROOT}/project/.git" ]]; then
+if [[ "$PROJECT_SOURCE" != "cloned" && ! -e "${PROJECT_ROOT}/project/.git" ]]; then
   git -C "${PROJECT_ROOT}/project" init -q
 fi
 
@@ -65,11 +89,6 @@ fi
 if [[ -f "$TEMPLATE_GIT_CONFIG" ]]; then
   cp "$TEMPLATE_GIT_CONFIG" "${PROJECT_ROOT}/.git_local/gitconfig"
   chmod 600 "${PROJECT_ROOT}/.git_local/gitconfig"
-fi
-
-if [[ -f "$TEMPLATE_GIT_CREDENTIALS" ]]; then
-  cp "$TEMPLATE_GIT_CREDENTIALS" "${PROJECT_ROOT}/.git_local/credentials"
-  chmod 600 "${PROJECT_ROOT}/.git_local/credentials"
 fi
 
 if [[ -f "$TEMPLATE_GLAB_CONFIG" ]]; then
@@ -90,7 +109,7 @@ if [[ -d "$TEMPLATE_OPENCODE_SKILLS" ]]; then
   cp -r "$TEMPLATE_OPENCODE_SKILLS" "${PROJECT_ROOT}/.opencode_config/skills"
 fi
 
-if [[ -d "$TEMPLATE_SCRIPTS" ]]; then
+if [[ "$PROJECT_SOURCE" != "cloned" && -d "$TEMPLATE_SCRIPTS" ]]; then
   cp -r "$TEMPLATE_SCRIPTS" "${PROJECT_ROOT}/project/scripts"
 fi
 

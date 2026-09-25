@@ -89,3 +89,19 @@ fi
 [[ "$(git -C "$test_home/project" rev-parse HEAD)" == "$existing_head" ]]
 ! grep -q 'nachgeholt' "$heal_output"
 printf 'start git heal tests passed\n'
+
+# Cloned-Quelle (project_source == "cloned") -> kein git init in project/
+rm -rf "$test_home/project"
+mkdir -p "$test_home/project"
+bash "$PROJECT_ROOT/dist/scripts/start.sh" "$test_home" --detach > /dev/null 2>&1
+cloned_project="$test_home/cloned-root"
+mkdir -p "$cloned_project/project" "$cloned_project/.opencode_config"
+printf '%s' '{"project_source":"cloned"}' > "$cloned_project/.opencode_config/sandbox_config.json"
+
+: > "$PODMAN_LOG"
+if ! bash "$PROJECT_ROOT/dist/scripts/start.sh" "$cloned_project" --detach > /dev/null 2>&1; then
+  printf 'start script failed with mocked podman (cloned source)\n' >&2
+  exit 1
+fi
+[[ ! -e "$cloned_project/project/.git" ]]
+printf 'start cloned-source heal guard tests passed\n'

@@ -94,7 +94,8 @@ show_menu() {
   printf '%s\n' "$answer"
 }
 select_container_modes /tmp/project Test full
-[[ ${#captured_modes[@]} -eq 3 ]]
+[[ ${#captured_modes[@]} -eq 4 ]]
+[[ "${captured_modes[3]}" == "" ]]
 
 printf '%s\n' "● offline" "● cbm_ui" "Done" "← Go Back" > "$menu_sequence"
 captured_modes=()
@@ -163,23 +164,29 @@ setup_github_credentials "$credentials_project" >"$credential_output"
 [[ "$(stat -c '%a' "$credentials_project/.git_local")" == '700' ]]
 [[ "$(stat -c '%a' "$credentials_project/.git_local/gh-cli")" == '700' ]]
 [[ "$(stat -c '%a' "$credentials_project/.git_local/gh-cli/hosts.yml")" == '600' ]]
+[[ "$(stat -c '%a' "$credentials_project/.git_local/credentials")" == '600' ]]
+[[ "$(<"$credentials_project/.git_local/credentials")" == 'https://oauth2:test-secret@github.com' ]]
 ! grep -Fq 'test-secret' "$credential_output"
 
 setup_gitlab_credentials "$credentials_project" >/dev/null
 [[ "$(jq -r '.["gitlab.com"].token' "$credentials_project/.git_local/glab-cli/hosts.yml")" == 'test-secret' ]]
+[[ "$(<"$credentials_project/.git_local/credentials")" == 'https://token:test-secret@gitlab.com' ]]
 setup_custom_vcs_credentials "$credentials_project" >/dev/null
 [[ "$(jq -r '.["git.example.com"].token' "$credentials_project/.git_local/vcs/hosts.yml")" == 'test-secret' ]]
+[[ "$(<"$credentials_project/.git_local/credentials")" == 'https://token:test-secret@git.example.com' ]]
 
 prompt_for_text() { printf '%s\n' 'selfhosted.example.com'; }
 show_menu() { printf '%s\n' 'Replace'; }
 setup_self_hosted_gitlab_credentials "$credentials_project" >/dev/null
 [[ "$(jq -r --arg host selfhosted.example.com '.[$host].token' "$credentials_project/.git_local/glab-cli/hosts.yml")" == 'test-secret' ]]
+[[ "$(<"$credentials_project/.git_local/credentials")" == 'https://token:test-secret@selfhosted.example.com' ]]
 
 prompt_for_text() { printf '%s\n' 'https://invalid.example.com/path'; }
 if setup_self_hosted_gitlab_credentials "$credentials_project" >/dev/null; then
   printf 'invalid GitLab host was accepted\n' >&2
   exit 1
 fi
+[[ "$(<"$credentials_project/.git_local/credentials")" == 'https://token:test-secret@selfhosted.example.com' ]]
 
 printf '%s\n' '[user]' '    name = Existing Name' '    email = existing@example.com' '[core]' '    editor = vi' > "$credentials_project/.git_local/gitconfig"
 prompt_for_text() {
@@ -199,10 +206,12 @@ printf '%s\n' 'original' > "$credentials_project/.git_local/gh-cli/hosts.yml"
 show_menu() { printf '%s\n' 'Keep existing'; }
 setup_github_credentials "$credentials_project" >/dev/null
 [[ "$(<"$credentials_project/.git_local/gh-cli/hosts.yml")" == 'original' ]]
+[[ "$(<"$credentials_project/.git_local/credentials")" == 'https://token:test-secret@selfhosted.example.com' ]]
 
 show_menu() { printf '%s\n' 'Replace'; }
 setup_github_credentials "$credentials_project" >/dev/null
 [[ "$(jq -r '.["github.com"].oauth_token' "$credentials_project/.git_local/gh-cli/hosts.yml")" == 'test-secret' ]]
+[[ "$(<"$credentials_project/.git_local/credentials")" == 'https://oauth2:test-secret@github.com' ]]
 
 cancelled_project="$test_home/cancelled credentials"
 mkdir -p "$cancelled_project"
@@ -212,6 +221,7 @@ if setup_github_credentials "$cancelled_project" >/dev/null; then
   exit 1
 fi
 [[ ! -e "$cancelled_project/.git_local/gh-cli/hosts.yml" ]]
+[[ ! -e "$cancelled_project/.git_local/credentials" ]]
 
 prompt_for_secret() { printf '%s\n' 'ai-secret'; }
 show_menu() { printf '%s\n' 'Keep existing'; }
@@ -263,6 +273,42 @@ case "${1:-}" in
       [[ "$*" != *'bash -c'* ]] || exit 1
       printf '%s\n' "$*" > "$SKILLS_INPUT_LOG"
       printf 'interactive skills output\n'
+    fi
+    if [[ -n "${PODMAN_CLONE_DIR:-}" ]]; then
+      if [[ "$*" == *'remote.origin.url'* ]]; then
+        if [[ -d "$PODMAN_CLONE_DIR/.git" ]] &&
+          git -C "$PODMAN_CLONE_DIR" config --get remote.origin.url 2>/dev/null | grep -Fxq "$CLONE_URL" &&
+          git -C "$PODMAN_CLONE_DIR" rev-parse --verify -q HEAD >/dev/null 2>&1; then
+          exit 0
+        fi
+        exit 1
+      fi
+      if [[ "$*" == *'git ls-remote'* ]]; then
+        printf 'probe %s\n' "$*" >> "$CLONE_LOG"
+        if [[ -f "$PROBE_FAILS" && "$(cat "$PROBE_FAILS")" -gt 0 ]]; then
+          printf '%s' $(( $(cat "$PROBE_FAILS") - 1 )) > "$PROBE_FAILS"
+          printf 'fatal: could not read from remote repository\n'
+          exit 1
+        fi
+        exit 0
+      fi
+      if [[ "$*" == *'git clone'* ]]; then
+        printf 'clone %s\n' "$*" >> "$CLONE_LOG"
+        rm -rf "${PODMAN_CLONE_DIR:?}"/* "${PODMAN_CLONE_DIR:?}"/.[!.]* 2>/dev/null || true
+        if [[ -f "$CLONE_FAILS" && "$(cat "$CLONE_FAILS")" -gt 0 ]]; then
+          printf '%s' $(( $(cat "$CLONE_FAILS") - 1 )) > "$CLONE_FAILS"
+          mkdir -p "${PODMAN_CLONE_DIR:?}/.git"
+          printf 'leftover\n' > "${PODMAN_CLONE_DIR:?}/partial.marker"
+          printf 'fatal: early EOF\n'
+          exit 1
+        fi
+        rm -rf "${PODMAN_CLONE_DIR:?}"
+        mkdir -p "${PODMAN_CLONE_DIR:?}"
+        git init -q "${PODMAN_CLONE_DIR:?}"
+        git -C "${PODMAN_CLONE_DIR:?}" remote add origin "$CLONE_URL"
+        git -C "${PODMAN_CLONE_DIR:?}" -c user.name=t -c user.email=t@e commit --allow-empty -q -m init
+        exit 0
+      fi
     fi
     exit 0
     ;;
@@ -535,6 +581,170 @@ set -e
 
 printf 'start-tui setup recovery tests passed\n'
 
+# Clone setup tests (#42): probe (git ls-remote) and full clone run inside the
+# container before CBM, guarded by project_source/setup_clone_complete.
+create_clone_project() {
+  local path="$1"
+  mkdir -p "$path"
+  add_project_to_registry "$2" "$path" none "${3:-https://example.com/repo.git}"
+  create_sandbox_config "$path" full console none
+  update_sandbox_config_field "$path/.opencode_config/sandbox_config.json" project_source cloned
+  update_sandbox_config_field "$path/.opencode_config/sandbox_config.json" \
+    repo_url 'https://example.com/repo.git'
+  printf '%s\n' "$path/.opencode_config/sandbox_config.json"
+}
+
+PATH="$workflow_home/bin:$PATH"
+export PATH
+podman_log="$workflow_home/podman-args"
+export CLONE_LOG="$workflow_home/clone-counter-log"
+export PROBE_FAILS="$workflow_home/probe-fails"
+export CLONE_FAILS="$workflow_home/clone-fails"
+export CLONE_URL='https://example.com/repo.git'
+
+# Fully automated happy path: probe + clone (in this order) before CBM/skills.
+clone_project="$workflow_home/clone"
+clone_config="$(create_clone_project "$clone_project" CloneTest)"
+export PODMAN_CLONE_DIR="$clone_project/project"
+: > "$CLONE_LOG"; : > "$podman_log"; : > "$skills_input_log"
+printf '0\n' > "$PROBE_FAILS"; printf '0\n' > "$CLONE_FAILS"
+run_first_run_setup "$clone_project" >/dev/null
+[[ "$(jq -r '.setup_clone_complete' "$clone_config")" == true ]]
+[[ "$(jq -r '.setup_complete' "$clone_config")" == true ]]
+[[ "$(head -n1 "$CLONE_LOG")" == probe* ]]
+[[ "$(grep -c '^clone ' "$CLONE_LOG")" -eq 1 ]]
+clone_log_line=$(grep '^clone ' "$CLONE_LOG")
+[[ "$clone_log_line" == *'/home/dev/project'* ]]
+[[ "$clone_log_line" != *'--depth'* ]]
+[[ -x "$clone_project/project/.git" || -f "$clone_project/project/HEAD" || -d "$clone_project/project/.git" ]]
+# clone podman-exec happens before the CBM podman-exec
+[[ "$(grep -n '^exec' "$podman_log" | grep 'git clone' | cut -d: -f1)" -lt \
+   "$(grep -n '^exec' "$podman_log" | grep 'codebase-memory-mcp' | cut -d: -f1)" ]]
+
+# Probe failure: Retry re-probes with the same URL, nothing else re-runs.
+retry_probe_project="$workflow_home/retry-probe"
+retry_probe_config="$(create_clone_project "$retry_probe_project" CloneRetryProbe)"
+: > "$CLONE_LOG"
+printf '1\n' > "$PROBE_FAILS"; printf '0\n' > "$CLONE_FAILS"
+export PODMAN_CLONE_DIR="$retry_probe_project/project"
+show_menu() { printf '%s\n' 'Retry'; }
+prompt_for_repo_url() { printf 'unexpected URL prompt\n' >&2; exit 1; }
+run_first_run_clone "$retry_probe_project" "$retry_probe_config"
+grep -c '^probe ' "$CLONE_LOG" | grep -q '^2$'
+! grep -q '^clone ' "$CLONE_LOG"
+[[ "$(jq -r '.setup_clone_complete' "$retry_probe_config")" == true ]]
+
+# Probe failure: Change URL re-prompts, persists the new URL, and clones it.
+change_url_project="$workflow_home/change-url"
+change_url_config="$(create_clone_project "$change_url_project" CloneChangeUrl)"
+update_sandbox_config_field "$change_url_config" repo_url 'git@old.example.com:team/old.git'
+export PODMAN_CLONE_DIR="$change_url_project/project"
+: > "$CLONE_LOG"
+printf '1\n' > "$PROBE_FAILS"; printf '0\n' > "$CLONE_FAILS"
+prompt_for_repo_url() {
+  case "${PROMPT_COUNT:-0}" in
+    0) PROMPT_COUNT=1; printf '%s\n' 'https://example.com/new-url.git' ;;
+    *) printf 'unexpected extra prompt\n' >&2; exit 1 ;;
+  esac
+}
+show_menu() { printf '%s\n' 'Change URL'; }
+run_first_run_clone "$change_url_project" "$change_url_config"
+[[ "$(jq -r '.repo_url' "$change_url_config")" == 'https://example.com/new-url.git' ]]
+[[ "$(jq -r '.projects[] | select(.name == "CloneChangeUrl") | .repo_url' "$HOME/.config/oc-sandbox/projects.json")" == 'https://example.com/new-url.git' ]]
+grep -q 'probe .*git@old.example.com' "$CLONE_LOG"
+grep -q 'probe .*new-url.git' "$CLONE_LOG"
+[[ "$(jq -r '.setup_clone_complete' "$change_url_config")" == true ]]
+unset PROMPT_COUNT
+
+# Clone failure mid-flight: partial state is cleaned before the retry succeeds.
+partial_project="$workflow_home/partial"
+partial_config="$(create_clone_project "$partial_project" ClonePartial)"
+export PODMAN_CLONE_DIR="$partial_project/project"
+: > "$CLONE_LOG"
+printf '0\n' > "$PROBE_FAILS"
+printf '1\n' > "$CLONE_FAILS"
+show_menu() { printf '%s\n' 'Retry'; }
+run_first_run_clone "$partial_project" "$partial_config"
+[[ "$(grep -c '^clone ' "$CLONE_LOG")" -eq 2 ]]
+[[ ! -e "$PODMAN_CLONE_DIR/partial.marker" ]]
+[[ "$(jq -r '.setup_clone_complete' "$partial_config")" == true ]]
+
+# Clone failure with explicit Exit: user abort (exit 2) is respected.
+abort_project="$workflow_home/abort"
+abort_config="$(create_clone_project "$abort_project" CloneAbort)"
+export PODMAN_CLONE_DIR="$abort_project/project"
+printf '0\n' > "$PROBE_FAILS"
+printf '1\n' > "$CLONE_FAILS"
+if bash -c '
+  source "$1/dist/scripts/start-tui.sh"
+  set -euo pipefail
+  show_menu() { printf "%s\n" "Exit"; }
+  run_first_run_clone "$2" "$3"
+' _ "$PROJECT_ROOT" "$abort_project" "$abort_config" 2>/dev/null; then
+  printf 'clone abort unexpectedly succeeded\n' >&2
+  exit 1
+fi
+[[ "$(jq -r '.setup_clone_complete' "$abort_config")" == false ]]
+
+# Clone succeeded but the flag write failed: Retry setup (menu path "Retry")
+# completes the attempt without re-cloning.
+recall_project="$workflow_home/recall"
+recall_config="$(create_clone_project "$recall_project" CloneRecall)"
+export PODMAN_CLONE_DIR="$recall_project/project"
+rm -rf "$PODMAN_CLONE_DIR"
+mkdir -p "$PODMAN_CLONE_DIR"
+git init -q "$PODMAN_CLONE_DIR"
+git -C "$PODMAN_CLONE_DIR" remote add origin "$CLONE_URL"
+git -C "$PODMAN_CLONE_DIR" -c user.name=t -c user.email=t@e commit --allow-empty -q -m init
+: > "$CLONE_LOG"
+printf '0\n' > "$PROBE_FAILS"; printf '0\n' > "$CLONE_FAILS"
+show_menu() { printf '%s\n' 'Retry'; }
+update_sandbox_config_field "$recall_config" setup_clone_complete false
+run_first_run_clone "$recall_project" "$recall_config"
+[[ "$(jq -r '.setup_clone_complete' "$recall_config")" == true ]]
+[[ ! -s "$CLONE_LOG" ]]
+
+# "Retry setup" from the project menu runs the clone stage and then attaches.
+menu_project="$workflow_home/menu-clone"
+menu_config="$(create_clone_project "$menu_project" CloneMenuPath)"
+export PODMAN_CLONE_DIR="$menu_project/project"
+: > "$CLONE_LOG"
+printf '0\n' > "$PROBE_FAILS"; printf '0\n' > "$CLONE_FAILS"
+CONSOLE_NAME="opencode-sandbox-$(project_container_identity "$menu_project")"
+export PODMAN_RUNNING="$CONSOLE_NAME"
+show_menu() {
+  if [[ "$1" == "Setup incomplete" ]]; then
+    printf '%s\n' 'Retry setup'
+  else
+    printf '%s\n' 'Console (bash)'
+  fi
+}
+handle_project_action "$(get_project_by_path "$menu_project")"
+[[ "$(jq -r '.setup_clone_complete' "$menu_config")" == true ]]
+[[ "$(jq -r '.setup_complete' "$menu_config")" == true ]]
+[[ "$(grep -c '^clone ' "$CLONE_LOG")" -eq 1 ]]
+unset PODMAN_RUNNING
+
+# Empty-source projects skip probe/clone entirely.
+empty_setup_project="$workflow_home/empty-setup"
+mkdir -p "$empty_setup_project"
+add_project_to_registry EmptySetup "$empty_setup_project" none
+create_sandbox_config "$empty_setup_project" full console none
+export PODMAN_CLONE_DIR="$empty_setup_project/project"
+: > "$CLONE_LOG"; : > "$skills_input_log"
+run_first_run_setup "$empty_setup_project" >/dev/null
+[[ "$(jq -r '.setup_complete' "$empty_setup_project/.opencode_config/sandbox_config.json")" == true ]]
+[[ ! -s "$CLONE_LOG" ]]
+[[ "$(jq -r '.setup_clone_complete' "$empty_setup_project/.opencode_config/sandbox_config.json")" == false ]]
+
+# Cleanup of overrides so later sections see the real wizard functions again.
+unset CLONE_LOG PROBE_FAILS CLONE_FAILS CLONE_URL PODMAN_CLONE_DIR
+unset -f show_menu prompt_for_repo_url
+# shellcheck disable=SC1091
+source "$PROJECT_ROOT/dist/scripts/start-tui.sh"
+
+printf 'start-tui clone setup tests passed\n'
+
 # Configuration backup/restore tests cover malformed input, safety copies,
 # per-file scope, rapid writes, rotation, and secret exclusion.
 backup_project="$test_home/backup-project"
@@ -719,3 +929,179 @@ STOP_STUBBORN=false
 unset STOP_FAIL STOP_STUBBORN
 
 printf 'start-tui stop container tests passed\n'
+
+# Project source step: source selection, URL shape validation with re-prompt,
+# name prefill from URL basename, and cloned/empty persistence.
+source_home="$test_home/source-step"
+mkdir -p "$source_home"
+pages_log="$source_home/pages"
+: > "$pages_log"
+show_page() { printf 'PAGE: %s\n' "$*" >> "$pages_log"; }
+wait_for_enter() { :; }
+
+# Go Back from the first step leaves the wizard without further prompts.
+name_prompted=0
+prompt_for_name() { name_prompted=1; printf '%s\n' 'ShouldNotHappen'; }
+show_menu() { printf '%s\n' '← Go Back'; }
+init_project_wizard
+[[ "$name_prompted" -eq 0 ]]
+! grep -q 'PAGE: Invalid' "$pages_log"
+
+# Empty source: wizard proceeds without a prefill (identical to previous flow).
+show_menu() { printf '%s\n' 'New empty project'; }
+empty_wizard_root="$source_home/empty-root"
+mkdir -p "$empty_wizard_root"
+captured_prefill="$source_home/prefill-empty"
+printf '__unset__\n' > "$captured_prefill"
+prompt_for_name() { printf '%s\n' "${2:-}" > "$captured_prefill"; printf '%s\n' 'EmptyProj'; }
+prompt_for_path() { printf '%s\n' "$empty_wizard_root"; }
+select_container_edition() { captured_edition_args=("$@"); }
+init_project_wizard
+[[ "$(<"$captured_prefill")" == "" ]]
+[[ "${captured_edition_args[0]}" == "$empty_wizard_root" ]]
+[[ "${captured_edition_args[1]}" == EmptyProj ]]
+[[ "${captured_edition_args[2]}" == "" ]]
+
+# Cloned source: URL prompted, name prefilled from URL basename, editable.
+show_menu() { printf '%s\n' 'Clone existing repo via URL'; }
+url_answers="$source_home/url-answers"
+printf '%s\n' 'https://example.com/re po.git' 'https://example.com/repo.git' > "$url_answers"
+prompt_for_text() {
+  local head_line
+  local rest=()
+  IFS= read -r head_line < "$url_answers"
+  mapfile -t rest < <(tail -n +2 "$url_answers")
+  if [[ ${#rest[@]} -gt 0 ]]; then
+    printf '%s\n' "${rest[@]}" > "$url_answers"
+  else
+    : > "$url_answers"
+  fi
+  printf '%s\n' "$head_line"
+}
+cloned_wizard_root="$source_home/cloned-root"
+mkdir -p "$cloned_wizard_root"
+captured_prefill="$source_home/prefill-cloned"
+printf '__unset__\n' > "$captured_prefill"
+prompt_for_name() { printf '%s\n' "${2:-}" > "$captured_prefill"; printf '%s\n' 'some_repo'; }
+prompt_for_path() { printf '%s\n' "$cloned_wizard_root"; }
+init_project_wizard
+[[ "$(grep -c 'PAGE: Invalid repo URL' "$pages_log")" -eq 1 ]]
+[[ "$(<"$captured_prefill")" == repo ]]
+[[ "${captured_edition_args[0]}" == "$cloned_wizard_root" ]]
+[[ "${captured_edition_args[1]}" == some_repo ]]
+[[ "${captured_edition_args[2]}" == 'https://example.com/repo.git' ]]
+[[ ! -s "$url_answers" ]]
+
+# URL shape helper: light check only (non-empty, no spaces), no network probe.
+validate_repo_url_shape 'https://github.com/user/repo.git'
+validate_repo_url_shape 'git@github.com:user/repo.git'
+! validate_repo_url_shape ''
+! validate_repo_url_shape 'https://example.com/re po.git'
+
+# Name prefill derivation from URL basename.
+[[ "$(derive_project_name_from_repo_url 'https://github.com/user/repo.git')" == repo ]]
+[[ "$(derive_project_name_from_repo_url 'https://github.com/user/repo')" == repo ]]
+[[ "$(derive_project_name_from_repo_url 'https://gitlab.com/team/my_repo.git/')" == my_repo ]]
+[[ "$(derive_project_name_from_repo_url 'git@github.com:user/repo.git')" == repo ]]
+[[ "$(derive_project_name_from_repo_url 'ssh://git@host/team/app.git')" == app ]]
+[[ "$(derive_project_name_from_repo_url 'git@github.com:app.git')" == app ]]
+[[ -z "$(derive_project_name_from_repo_url 'https://host//')" ]]
+
+# VCS tracking derivation from repo URL host (#41): github.com/gitlab.com are
+# derived literally from https, scp-like, and ssh forms; other hosts fail so
+# the wizard shows the manual picker.
+[[ "$(derive_vcs_tracking_from_repo_url 'https://github.com/user/repo.git')" == github.com ]]
+[[ "$(derive_vcs_tracking_from_repo_url 'git@github.com:user/repo.git')" == github.com ]]
+[[ "$(derive_vcs_tracking_from_repo_url 'ssh://git@github.com/user/repo.git')" == github.com ]]
+[[ "$(derive_vcs_tracking_from_repo_url 'https://gitlab.com/team/repo.git')" == gitlab.com ]]
+[[ "$(derive_vcs_tracking_from_repo_url 'git@gitlab.com:team/repo.git')" == gitlab.com ]]
+[[ "$(derive_vcs_tracking_from_repo_url 'ssh://git@gitlab.com/team/repo.git')" == gitlab.com ]]
+! derive_vcs_tracking_from_repo_url 'https://git.example.com/team/repo.git'
+! derive_vcs_tracking_from_repo_url 'git@git.example.com:team/repo.git'
+! derive_vcs_tracking_from_repo_url ''
+! derive_vcs_tracking_from_repo_url 'https://github.com.evil.com/user/repo.git'
+[[ "$(derive_vcs_tracking_from_repo_url 'git@GitHub.com:user/repo.git')" == github.com ]]
+
+# Derived tracking skips the VCS picker and reaches select_ai_provider directly.
+# re-source to restore the real wizard functions (an earlier stub replaced them).
+# shellcheck disable=SC1091
+source "$PROJECT_ROOT/dist/scripts/start-tui.sh"
+captured_vcs=""
+select_ai_provider() { captured_vcs="${*: -1}"; }
+select_vcs_tracking /tmp/project Test full 'https://github.com/user/repo.git' console console web
+[[ "$captured_vcs" == github.com ]]
+select_vcs_tracking /tmp/project Test full 'git@gitlab.com:team/repo.git' console console web
+[[ "$captured_vcs" == gitlab.com ]]
+
+# Unknown hosts and empty-source projects keep the manual picker.
+derive_vcs_tracking_from_repo_url() { return 1; }
+select_ai_provider() { :; }
+show_menu() { printf '%s\n' "$1" > "$menu_probe"; printf '%s\n' 'none'; }
+menu_probe="$source_home/menu-probe"
+: > "$menu_probe"
+select_vcs_tracking /tmp/project Test full 'https://git.example.com/team/repo.git' console console web
+grep -q 'Select VCS tracking' "$menu_probe"
+: > "$menu_probe"
+select_vcs_tracking /tmp/project Test full "" console console web
+grep -q 'Select VCS tracking' "$menu_probe"
+unset menu_probe
+# Restore the real wizard functions overridden by the stubs above.
+# shellcheck disable=SC1091
+source "$PROJECT_ROOT/dist/scripts/start-tui.sh"
+
+printf 'start-tui project source tests passed\n'
+
+# sandbox_config.json records empty/cloned source and repo_url.
+source_config_project="$source_home/config-project"
+mkdir -p "$source_config_project"
+create_sandbox_config "$source_config_project" full console none
+source_config="$source_config_project/.opencode_config/sandbox_config.json"
+[[ "$(jq -r '.project_source' "$source_config")" == empty ]]
+[[ "$(jq -r '.repo_url' "$source_config")" == '' ]]
+update_sandbox_config_field "$source_config" "project_source" "cloned"
+update_sandbox_config_field "$source_config" "repo_url" 'https://example.com/repo.git'
+[[ "$(jq -r '.project_source' "$source_config")" == cloned ]]
+[[ "$(jq -r '.repo_url' "$source_config")" == 'https://example.com/repo.git' ]]
+
+# Registry entry carries repo_url; entries without one keep it empty.
+source_registry_project="$source_home/registry-project"
+mkdir -p "$source_registry_project"
+add_project_to_registry SourceRegistry "$source_registry_project" none 'https://example.com/repo.git'
+[[ "$(jq -r '.projects[] | select(.name == "SourceRegistry") | .repo_url' "$HOME/.config/oc-sandbox/projects.json")" == 'https://example.com/repo.git' ]]
+[[ "$(jq -r '.projects[] | select(.name == "First") | .repo_url' "$HOME/.config/oc-sandbox/projects.json")" == '' ]]
+
+# Cloned projects pass --repo_url to init-project.sh (skips seed + git init).
+init_stub_dir="$source_home/init-stub"
+mkdir -p "$init_stub_dir"
+init_args_log="$source_home/init-args"
+cat > "$init_stub_dir/init-project.sh" <<EOF
+#!/usr/bin/env bash
+printf '%s\n' "\$*" > "$init_args_log"
+EOF
+chmod +x "$init_stub_dir/init-project.sh"
+SCRIPT_DIR="$init_stub_dir"
+run_init_project "$source_config_project" --repo_url 'https://example.com/repo.git'
+[[ "$(<"$init_args_log")" == "$source_config_project --repo_url https://example.com/repo.git" ]]
+run_init_project "$source_config_project"
+[[ "$(<"$init_args_log")" == "$source_config_project" ]]
+SCRIPT_DIR="$PROJECT_ROOT/dist/scripts"
+
+# select_ai_provider persists source/URL into config and registry for cloned projects.
+flow_project="$source_home/flow-project"
+mkdir -p "$flow_project"
+run_init_project() { :; }
+check_and_build_containers() { return 2; }
+select_ai_provider "$flow_project" FlowApp full 'https://example.com/repo.git' console console none
+[[ "$(jq -r '.project_source' "$flow_project/.opencode_config/sandbox_config.json")" == cloned ]]
+[[ "$(jq -r '.repo_url' "$flow_project/.opencode_config/sandbox_config.json")" == 'https://example.com/repo.git' ]]
+[[ "$(jq -r '.projects[] | select(.name == "FlowApp") | .repo_url' "$HOME/.config/oc-sandbox/projects.json")" == 'https://example.com/repo.git' ]]
+
+# Empty-source flow records project_source "empty" and no repo_url.
+empty_flow_project="$source_home/empty-flow-project"
+mkdir -p "$empty_flow_project"
+select_ai_provider "$empty_flow_project" EmptyFlow full "" console console none
+[[ "$(jq -r '.project_source' "$empty_flow_project/.opencode_config/sandbox_config.json")" == empty ]]
+[[ "$(jq -r '.repo_url' "$empty_flow_project/.opencode_config/sandbox_config.json")" == '' ]]
+[[ "$(jq -r '.projects[] | select(.name == "EmptyFlow") | .repo_url' "$HOME/.config/oc-sandbox/projects.json")" == '' ]]
+
+printf 'start-tui cloned source persistence tests passed\n'

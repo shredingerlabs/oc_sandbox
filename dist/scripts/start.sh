@@ -130,7 +130,15 @@ chmod 700 "$SSH_DIR" "$GIT_DIR"
 # faellt opencode auf das "global"-Projekt mit worktree "/" zurueck
 # (Weboberflaeche: "+" disabled, kein Projekt anlegbar).
 # Bestehende Projekte werden beim Start nachgepflegt (Heal).
-if [[ ! -e "$PROJECT_DIR/.git" ]]; then
+# Ausnahme: Projekte, deren Quelle ein geklontes Repo ist (project_source
+# in sandbox_config.json). Dort ist ein leeres project/.git oft noch der
+# Zustand vor dem Clone - ein git init wuerde das Repo-Setup zerschieschen.
+# Fehlende Datei/Field -> Heal laeuft (Rueckwaertskompatibilitaet).
+PROJECT_SOURCE=""
+if [[ -f "${CONFIG_DIR}/sandbox_config.json" ]]; then
+  PROJECT_SOURCE="$(jq -r '.project_source // empty' "${CONFIG_DIR}/sandbox_config.json" 2>/dev/null || true)"
+fi
+if [[ ! -e "$PROJECT_DIR/.git" && "$PROJECT_SOURCE" != "cloned" ]]; then
   if git -C "$PROJECT_DIR" init -q 2>/dev/null; then
     echo "Hinweis: ${PROJECT_DIR} war kein Git-Repo; 'git init' nachgeholt." >&2
     echo "  (Noetig fuer OpenCode-Web, sonst worktree \"/\" und keine neuen Sessions.)" >&2

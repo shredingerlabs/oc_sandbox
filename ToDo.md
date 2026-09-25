@@ -4,6 +4,7 @@
 
 -add github / gitlab init section 
 Git setup checken und ggf. ergänzen
+- remove scripts (afkLoop) copiing as template.  Loop gets its own repo.
 
 ### sandbox
 - -> add repo path and init / checkout git repo
@@ -16,8 +17,8 @@ Git setup checken und ggf. ergänzen
 - copy templates/docs on init to project folder
 	
 - integrate start better into OS
-  - symlink with oc_sandbox -> on mac? -> test
-  - desktop entry -> on WSL / MAC? -> test
+  - symlink with oc-sandbox -> on mac? -> test
+  - desktop entry -> on MAC? -> test
 
 ## install script
 - Tarball method doesnt work (if no curl is installed)

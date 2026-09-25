@@ -309,6 +309,16 @@ handle_recoverable_failure() {
   esac
 }
 
+clone_failure_menu() {
+  local choice
+
+  case "$(show_menu "Clone setup failed" "Retry" "Change URL" "Exit")" in
+    Retry) return 0 ;;
+    "Change URL") return 1 ;;
+    *) return 2 ;;
+  esac
+}
+
 bash_select() {
   local title="$1"
   shift
@@ -476,10 +486,102 @@ project_selection_wizard() {
 }
 
 init_project_wizard() {
-  show_page "New Project Wizard" "Choose a name and path, then configure the sandbox."
+  select_project_source || return 0
+}
+
+select_project_source() {
+  show_page "New Project Wizard" "Choose where the project code comes from."
+
+  local source=$(show_menu "Select project source" "New empty project" "Clone existing repo via URL" "← Go Back")
+
+  case "$source" in
+    "New empty project")
+      collect_new_project_details ""
+      ;;
+    "Clone existing repo via URL")
+      local repo_url
+      repo_url=$(prompt_for_repo_url) || return 0
+      collect_new_project_details "$repo_url"
+      ;;
+    *)
+      return 0
+      ;;
+  esac
+}
+
+prompt_for_repo_url() {
+  local repo_url=""
+
+  while true; do
+    repo_url=$(prompt_for_text "Repo URL:") || return 1
+    if validate_repo_url_shape "$repo_url"; then
+      printf '%s\n' "$repo_url"
+      return 0
+    fi
+    show_page "Invalid repo URL" "The URL must not be empty and must not contain spaces."
+  done
+}
+
+validate_repo_url_shape() {
+  local repo_url="$1"
+  [[ -n "$repo_url" && "$repo_url" != *[[:space:]]* ]]
+}
+
+derive_project_name_from_repo_url() {
+  local repo_url="$1"
+  local basename="${repo_url%/}"
+  basename="${basename##*/}"
+  basename="${basename##*:}"
+  basename="${basename%.git}"
+  printf '%s\n' "$basename"
+}
+
+derive_vcs_tracking_from_repo_url() {
+  local repo_url="$1"
+  local host=""
+
+  case "$repo_url" in
+    https://*)
+      host="${repo_url#https://}"
+      host="${host%%/*}"
+      host="${host##*@}"
+      ;;
+    ssh://git@*)
+      host="${repo_url#ssh://git@}"
+      host="${host%%/*}"
+      ;;
+    git@*:*)
+      host="${repo_url#git@}"
+      host="${host%%:*}"
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+
+  case "${host,,}" in
+    github.com)
+      printf '%s\n' "github.com"
+      ;;
+    gitlab.com)
+      printf '%s\n' "gitlab.com"
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+collect_new_project_details() {
+  local repo_url="$1"
+  local prefill=""
+
+  if [[ -n "$repo_url" ]]; then
+    prefill=$(derive_project_name_from_repo_url "$repo_url")
+  fi
 
   local project_name
-  project_name=$(prompt_for_name "Project name:") || return 0
+  project_name=$(prompt_for_name "Project name:" "$prefill") || return 0
 
   local default_path="$DEFAULT_PROJECT_PATH/$project_name"
   local project_path
@@ -498,19 +600,21 @@ init_project_wizard() {
     return 0
   fi
 
-  select_container_edition "$project_path" "$project_name"
+  select_container_edition "$project_path" "$project_name" "$repo_url"
 }
 
 prompt_for_name() {
   local prompt="$1"
+  local default="${2:-}"
   local result=""
 
   while [[ ! "$result" =~ ^[a-zA-Z0-9_-]+$ ]]; do
     result=""
     if [[ "$TUI_MODE" == "gum" ]] && [[ -x "$GUM_BIN" ]]; then
-      result=$("$GUM_BIN" input --prompt="$prompt " --placeholder="project-name") || return 1
+      result=$("$GUM_BIN" input --prompt="$prompt " --placeholder="project-name" --value="$default") || return 1
     else
-      read -p "$prompt " result < /dev/tty || return 1
+      read -r -e -p "$prompt " -i "$default" result < /dev/tty || return 1
+      result="${result:-$default}"
     fi
     if [[ ! "$result" =~ ^[a-zA-Z0-9_-]+$ ]]; then
       echo "Invalid name. Use only letters, numbers, dashes, and underscores."
@@ -539,6 +643,7 @@ validate_project_path() {
 
 run_init_project() {
   local project_path="$1"
+  shift
   local init_script="${SCRIPT_DIR}/init-project.sh"
 
   if [[ ! -x "$init_script" ]]; then
@@ -546,12 +651,13 @@ run_init_project() {
     return 1
   fi
 
-  "$init_script" "$project_path"
+  "$init_script" "$project_path" "$@"
 }
 
 select_container_edition() {
   local project_path="$1"
   local project_name="$2"
+  local repo_url="${3:-}"
 
   if ! detect_available_editions; then
     show_page "Native option discovery failed" "Unable to read supported editions and modes from the native scripts."
@@ -565,13 +671,14 @@ select_container_edition() {
     return 1
   fi
 
-  select_container_modes "$project_path" "$project_name" "$edition"
+  select_container_modes "$project_path" "$project_name" "$edition" "$repo_url"
 }
 
 select_container_modes() {
   local project_path="$1"
   local project_name="$2"
   local edition="$3"
+  local repo_url="${4:-}"
 
   local selected_modes=()
 
@@ -601,12 +708,12 @@ select_container_modes() {
         if ! validate_container_modes "${modes[@]}"; then
           wait_for_enter || true
         else
-          select_start_option "$project_path" "$project_name" "$edition" "${modes[@]}"
+          select_start_option "$project_path" "$project_name" "$edition" "$repo_url" "${modes[@]}"
           return
         fi
         ;;
       "← Go Back")
-        select_container_edition "$project_path" "$project_name"
+        select_container_edition "$project_path" "$project_name" "$repo_url"
         return
         ;;
       *)
@@ -663,45 +770,54 @@ select_start_option() {
   local project_path="$1"
   local project_name="$2"
   local edition="$3"
-  shift 3
+  local repo_url="${4:-}"
+  [[ $# -ge 4 ]] && shift 4 || true
   local modes=("$@")
 
   local options=("console" "opencode" "web" "← Go Back")
   local start_option=$(show_menu "Select start option" "${options[@]}")
 
   if [[ "$start_option" == "← Go Back" ]]; then
-    select_container_modes "$project_path" "$project_name" "$edition"
+    select_container_modes "$project_path" "$project_name" "$edition" "$repo_url"
     return
   fi
 
-  select_vcs_tracking "$project_path" "$project_name" "$edition" "${modes[@]}" "$start_option"
+  select_vcs_tracking "$project_path" "$project_name" "$edition" "$repo_url" "${modes[@]}" "$start_option"
 }
 
 select_vcs_tracking() {
   local project_path="$1"
   local project_name="$2"
   local edition="$3"
-  shift 3
+  local repo_url="${4:-}"
+  [[ $# -ge 4 ]] && shift 4 || true
   local modes=("$@")
   local start_option="${modes[-1]}"
   unset 'modes[-1]'
+
+  local vcs_tracking
+  if vcs_tracking=$(derive_vcs_tracking_from_repo_url "$repo_url"); then
+    select_ai_provider "$project_path" "$project_name" "$edition" "$repo_url" "${modes[@]}" "$start_option" "$vcs_tracking"
+    return
+  fi
 
   local options=("none" "github.com" "gitlab.com" "own GitLab" "others" "← Go Back")
   local vcs_tracking=$(show_menu "Select VCS tracking" "${options[@]}")
 
   if [[ "$vcs_tracking" == "← Go Back" ]]; then
-    select_start_option "$project_path" "$project_name" "$edition" "${modes[@]}"
+    select_start_option "$project_path" "$project_name" "$edition" "$repo_url" "${modes[@]}"
     return
   fi
 
-  select_ai_provider "$project_path" "$project_name" "$edition" "${modes[@]}" "$start_option" "$vcs_tracking"
+  select_ai_provider "$project_path" "$project_name" "$edition" "$repo_url" "${modes[@]}" "$start_option" "$vcs_tracking"
 }
 
 select_ai_provider() {
   local project_path="$1"
   local project_name="$2"
   local edition="$3"
-  shift 3
+  local repo_url="${4:-}"
+  [[ $# -ge 4 ]] && shift 4 || true
   local modes=("$@")
   local vcs_tracking="${modes[-1]}"
   unset 'modes[-1]'
@@ -712,18 +828,39 @@ select_ai_provider() {
   local ai_provider=$(show_menu "Select AI provider" "${options[@]}")
 
   if [[ "$ai_provider" == "← Go Back" ]]; then
-    select_vcs_tracking "$project_path" "$project_name" "$edition" "${modes[@]}" "$start_option"
+    if [[ -n "$repo_url" ]] && derive_vcs_tracking_from_repo_url "$repo_url" > /dev/null; then
+      select_start_option "$project_path" "$project_name" "$edition" "$repo_url" "${modes[@]}"
+    else
+      select_vcs_tracking "$project_path" "$project_name" "$edition" "$repo_url" "${modes[@]}" "$start_option"
+    fi
     return
   fi
 
-  if ! run_init_project "$project_path"; then
+  local project_source="empty"
+  if [[ -n "$repo_url" ]]; then
+    project_source="cloned"
+  fi
+
+  local init_args=("$project_path")
+  if [[ "$project_source" == "cloned" ]]; then
+    init_args+=("--repo_url" "$repo_url")
+  fi
+
+  if ! run_init_project "${init_args[@]}"; then
     show_page "Project initialization failed" "No project state was registered."
     wait_for_enter || true
     return 0
   fi
 
+  local config_path="${project_path}/.opencode_config/sandbox_config.json"
+
   create_sandbox_config "$project_path" "$edition" "${modes[@]}" "$start_option" "$ai_provider"
-  update_sandbox_config_field "$project_path/.opencode_config/sandbox_config.json" "vcs_tracking" "$vcs_tracking"
+  update_sandbox_config_field "$config_path" "project_source" "$project_source"
+  if [[ "$project_source" == "cloned" ]]; then
+    update_sandbox_config_field "$config_path" "repo_url" "$repo_url"
+  fi
+
+  update_sandbox_config_field "$config_path" "vcs_tracking" "$vcs_tracking"
 
   if [[ "$vcs_tracking" == "github.com" ]]; then
     setup_github_credentials "$project_path" || return 0
@@ -744,7 +881,7 @@ select_ai_provider() {
   fi
 
   if check_and_build_containers "$project_path"; then
-    add_project_to_registry "$project_name" "$project_path" "$vcs_tracking" || return 0
+    add_project_to_registry "$project_name" "$project_path" "$vcs_tracking" "$repo_url" || return 0
     echo "Project created successfully!"
     start_container_with_setup "$project_path" || {
       local start_result=$?
@@ -753,9 +890,9 @@ select_ai_provider() {
     }
   else
     case "$?" in
-      2) add_project_to_registry "$project_name" "$project_path" "$vcs_tracking" || return 0
+      2) add_project_to_registry "$project_name" "$project_path" "$vcs_tracking" "$repo_url" || return 0
          show_page "Build deferred" "The project was registered stopped. Build its image before starting it." ;;
-      3) select_container_edition "$project_path" "$project_name" ;;
+      3) select_container_edition "$project_path" "$project_name" "$repo_url" ;;
       *) show_page "Project creation stopped" "The project was not registered because the container image is unavailable." ;;
     esac
     wait_for_enter || true
@@ -789,7 +926,8 @@ create_sandbox_config() {
     --arg ai_provider "$ai_provider" \
      '{container_edition: $edition, container_modes: $modes, start_option: $start_option,
        cbm_auto_index: true, cbm_auto_watch: true, ai_provider: $ai_provider,
-       setup_cbm_complete: false, setup_skills_complete: false,
+       project_source: "empty", repo_url: "",
+       setup_clone_complete: false, setup_cbm_complete: false, setup_skills_complete: false,
        setup_complete: false, version: "1.0"}')
 
   atomic_write "$config_path" "$config"
@@ -942,6 +1080,11 @@ configure_vcs_credentials() {
       '{($host): {token: $ENV.VCS_TOKEN}}') ;;
   esac
   write_secret_file "$credentials_file" "$config"
+
+  local git_credentials_file="${project_path}/.git_local/credentials"
+  local git_user="oauth2"
+  [[ "$provider" == "gitlab" || "$provider" == "custom" ]] && git_user="token"
+  write_secret_file "$git_credentials_file" "https://${git_user}:${token}@${host}"
 }
 
 setup_gwdg_provider() {
@@ -984,8 +1127,9 @@ configure_gwdg_opencode_config() {
   local config
   if [[ -f "$config_file" ]]; then
     config=$(jq --slurpfile gwdg "$template" \
-      '. + {provider: ((.provider // {}) * $gwdg[0].provider), model: $gwdg[0].model,
-        small_model: $gwdg[0].small_model, agent: $gwdg[0].agent}' "$config_file") || return 1
+      'reduce ($gwdg[0] | keys[]) as $key (.; if $key == "provider" then
+        .provider = ((.provider // {}) * $gwdg[0].provider) else .[$key] = $gwdg[0][$key] end)' \
+      "$config_file") || return 1
   else
     config=$(<"$template")
   fi
@@ -1012,6 +1156,7 @@ add_project_to_registry() {
   local name="$1"
   local path="$2"
   local vcs_tracking="$3"
+  local repo_url="${4:-}"
   local timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
   local projects_json="$HOME/.config/oc-sandbox/projects.json"
   if [[ ! "$name" =~ ^[a-zA-Z0-9_-]+$ ]]; then
@@ -1033,8 +1178,8 @@ add_project_to_registry() {
     return 1
   fi
 
-  jq --arg name "$name" --arg path "$path" --arg id "$container_id" --arg timestamp "$timestamp" --arg vcs "$vcs_tracking" \
-    '.projects += [{"name": $name, "path": $path, "container_id": $id, "last_used": $timestamp, "container_status": "stopped", "git_tracking": $vcs}]' \
+  jq --arg name "$name" --arg path "$path" --arg id "$container_id" --arg timestamp "$timestamp" --arg vcs "$vcs_tracking" --arg repo_url "$repo_url" \
+    '.projects += [{"name": $name, "path": $path, "container_id": $id, "last_used": $timestamp, "container_status": "stopped", "git_tracking": $vcs, "repo_url": $repo_url}]' \
     "$projects_json" | atomic_write "$projects_json"
 }
 
@@ -1264,6 +1409,72 @@ start_container() {
   fi
 }
 
+run_first_run_clone() {
+  local project_path="$1"
+  local config_path="$2"
+  local project_data container_name repo_url
+
+  project_data=$(get_project_by_path "$project_path") || return 1
+  container_name=$(container_name_for_project "$project_data")
+  repo_url=$(jq -r '.repo_url // empty' "$config_path")
+
+  [[ "$(jq -r '.setup_clone_complete // false' "$config_path")" == "true" ]] && return 0
+
+  while true; do
+    local failed=false
+    local probe_out
+
+    if [[ -n "$repo_url" ]] && podman exec --user dev "$container_name" bash -c '
+        [[ "$(git -C /home/dev/project config --get remote.origin.url 2>/dev/null)" == "$1" ]] &&
+        git -C /home/dev/project rev-parse --verify -q HEAD >/dev/null 2>&1' _ "$repo_url"; then
+      update_sandbox_config_field "$config_path" "setup_clone_complete" "true" || return 1
+      return 0
+    fi
+
+    if [[ -z "$repo_url" ]]; then
+      show_page "Clone failed" "No repo URL is recorded for this project."
+      failed=true
+    else
+      echo "Probing repo URL..."
+      if ! probe_out=$(podman exec --user dev "$container_name" \
+        git ls-remote "$repo_url" HEAD 2>&1); then
+        show_page "Repo probe failed" "git ls-remote failed for ${repo_url}:" \
+          "$(tail -n 5 <<<"$probe_out")"
+        failed=true
+      fi
+    fi
+
+    if [[ "$failed" == false ]]; then
+      echo "Cloning repository..."
+      if ! podman exec --user dev "$container_name" bash -c \
+        'rm -rf /home/dev/project/* /home/dev/project/.[!.]* 2>/dev/null || true; git clone -- "$1" /home/dev/project' _ "$repo_url"; then
+        show_page "Clone failed" "git clone failed for ${repo_url}. " \
+          "Partial clone state was cleaned; use Retry or Change URL."
+        failed=true
+      fi
+    fi
+
+    if [[ "$failed" == false ]]; then
+      update_sandbox_config_field "$config_path" "setup_clone_complete" "true" || return 1
+      return 0
+    fi
+
+    local menu_result=0
+    clone_failure_menu || menu_result=$?
+    case "$menu_result" in
+      0) continue ;;
+      1)
+        local new_url
+        new_url=$(prompt_for_repo_url) || return 2
+        update_sandbox_config_field "$config_path" "repo_url" "$new_url" || return 1
+        update_project_repo_url "$project_path" "$new_url" || return 1
+        repo_url="$new_url"
+        ;;
+      *) return 2 ;;
+    esac
+  done
+}
+
 run_first_run_setup() {
   local project_path="$1"
   local project_data=$(get_project_by_path "$project_path")
@@ -1271,10 +1482,33 @@ run_first_run_setup() {
   local config_path="${project_path}/.opencode_config/sandbox_config.json"
   local cbm_complete
   local skills_complete
+  local clone_result
 
   echo "Running first-run setup..."
 
   while true; do
+    local project_source
+    project_source=$(jq -r '.project_source // "empty"' "$config_path")
+
+    if [[ "$project_source" == "cloned" ]] &&
+      [[ "$(jq -r '.setup_clone_complete // false' "$config_path")" != "true" ]]; then
+      clone_result=0
+      run_first_run_clone "$project_path" "$config_path" || clone_result=$?
+      case "$clone_result" in
+        0) : ;;
+        2) exit 1 ;;
+        *)
+          local recovery_result=0
+          handle_recoverable_failure "Clone" || recovery_result=$?
+          case "$recovery_result" in
+            0) continue ;;
+            2) exit 1 ;;
+            *) return 1 ;;
+          esac
+          ;;
+      esac
+    fi
+
     cbm_complete=$(jq -r '.setup_cbm_complete // false' "$config_path")
     skills_complete=$(jq -r '.setup_skills_complete // false' "$config_path")
 
@@ -1370,6 +1604,19 @@ update_project_status() {
 
   jq --arg id "$container_id" --arg status "$status" \
     '.projects |= map(if .container_id == $id then .container_status = $status else . end)' \
+    "$projects_json" | atomic_write "$projects_json"
+}
+
+update_project_repo_url() {
+  local project_path="$1"
+  local repo_url="$2"
+  local projects_json="$HOME/.config/oc-sandbox/projects.json"
+
+  local container_id
+  container_id=$(project_container_identity "$project_path") || return 1
+
+  jq --arg id "$container_id" --arg url "$repo_url" \
+    '.projects |= map(if .container_id == $id then .repo_url = $url else . end)' \
     "$projects_json" | atomic_write "$projects_json"
 }
 

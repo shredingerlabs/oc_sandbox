@@ -10,6 +10,14 @@
 
 **sandbox_config.json** — Per-project configuration file stored in `<project_root>/.opencode_config/` containing container edition, modes, auto-start options, CBM settings, and setup completion status.
 
+**project source** — Where a new project's code comes from: "new empty project" (wizard-created scaffolding) or "clone existing repo via URL" (in-container clone during first-run setup). Avoid: import repo, repo migration, connect repo.
+
+**repo URL** — The git remote URL recorded at project creation for a `cloned` project; stored in sandbox_config.json and the project registry, and used to derive git tracking and re-check repo reachability. _Avoid_: repo link, clone URL (ambiguous with the act of cloning).
+
+**in-container clone** — Cloning the repo URL inside the project container during first-run setup, after container start and before CBM configuration, using the container-side VCS credentials; chosen so host machines need no git/SSH setup. _Avoid_: host clone, URL import.
+
+**git init heal** — Host-side `git init` performed at container start when `project/` has no `.git`, guaranteeing OpenCode-Web always finds a worktree; skipped for projects whose project source is `cloned`.
+
 **projects.json** — Global project registry stored in `$HOME/.config/oc-sandbox/` with project metadata including project names, paths, container states, and last-used timestamps for ordering.
 
 **global_config.json** — Global user preferences stored in `$HOME/.config/oc-sandbox/` containing default project paths and user-specific settings not tied to individual projects.
@@ -18,7 +26,7 @@
 
 **stop container** — Graceful shutdown of a running project container via `podman stop` (SIGTERM, then SIGKILL after the default timeout), initiated from the TUI Settings menu for a single selected project. Because containers run with `--rm`, a stopped container is removed automatically; the registry's container_status is set to "stopped" only after the container is verified gone.
 
-**first-run setup** — Automated container initialization including CBM configuration and skills setup, tracked via setup-complete flag in sandbox_config.json, offering granular recovery for partial failures.
+**first-run setup** — Automated container initialization including in-container probe (`git ls-remote`) and full clone for cloned projects, then CBM configuration and skills setup, tracked via `setup_clone_complete`, `setup_cbm_complete`, and `setup_skills_complete` flags in sandbox_config.json, offering granular recovery for partial failures including Retry / Change URL / Exit for clone issues.
 
 **VCS integration** — Version Control System setup (GitHub, GitLab, or custom host) creating credentials/hosts.yml in `.git_local/` subdirectories, separate from AI provider configuration.
 
@@ -121,6 +129,8 @@
 **setup recovery** — Explicit retry path for incomplete first-run setup while preserving setup-complete as false until CBM and skills setup both succeed.
 
 **credential file** — Project-local VCS or AI secret configuration stored separately from global TUI metadata, with restrictive permissions and excluded from general configuration backups.
+
+**credential bridge** — Activated `[credential] helper = store` block in the gitconfig template plus `configure_vcs_credentials` writing a host-scoped `https://<user>:<token>@<host>` entry into `.git_local/credentials` whenever a VCS token is captured — regardless of project source — so HTTPS clone and later push work with the same token in all editions. _Avoid_: credential-store side effect, token persistence.
 
 **retry flow** — Error recovery pattern where users who choose "Retry" after a failure remain in the recovery loop even if intermediate steps (like settings adjustment) fail. Failures show context-aware error messages and return to the retry menu, except for explicit user aborts (exit code 2) which are respected throughout.
 
