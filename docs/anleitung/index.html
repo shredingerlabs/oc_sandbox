@@ -316,13 +316,35 @@ wiederholen.</p>
 
 <table>
   <tr><th>Schritt</th><th>Was gefragt wird</th><th>Einsteiger-Antwort</th></tr>
-  <tr><td>1. Projektname</td><td>Anzeigename, z.B. <code>mein-erstes-projekt</code></td><td>kurzer, klarer Name</td></tr>
-  <tr><td>2. Pfad</td><td>Wohin? Standard: <code>~/oc-sandbox/&lt;name&gt;</code></td><td>Standard lassen, oder eigener Pfad z.B. <code>~/projects/kunde-x</code></td></tr>
-  <tr><td>3. VCS-Host</td><td><code>none</code>, GitHub, GitLab (öffentlich oder eigenes), eigener Host</td><td>kein Git nötig → <code>none</code>; sonst dein Host</td></tr>
-  <tr><td>4. Token</td><td>Persönlicher Zugriffstoken (z.B. GitHub PAT), wird <strong>verborgen</strong> abgefragt</td><td>nur bei VCS ≠ <code>none</code></td></tr>
-  <tr><td>5. Git-Identität</td><td><code>user.name</code>, <code>user.email</code></td><td>dein Name/E-Mail, nur bei VCS ≠ <code>none</code></td></tr>
-  <tr><td>6. Start-Option</td><td><code>console</code> / <code>opencode</code> / <code>web</code></td><td><code>opencode</code> (empfohlen, siehe Tipps)</td></tr>
+  <tr><td>1. Projektquelle</td><td>„New empty project“ oder „Clone existing repo via URL“ – woher der Code kommt</td><td>erstes Projekt → „New empty project“; liegt das Projekt schon in einem Git-Repo → clone (siehe unten)</td></tr>
+  <tr><td>2. Repo-URL</td><td>Git-URL zum Klonen (nur bei Clone gewählt); der Projektname wird daraus vorbelegt</td><td>HTTPS-URL, z.B. <code>https://github.com/you/repo.git</code></td></tr>
+  <tr><td>3. Projektname</td><td>Anzeigename, z.B. <code>mein-erstes-projekt</code></td><td>kurzer, klarer Name</td></tr>
+  <tr><td>4. Pfad</td><td>Wohin? Standard: <code>~/oc-sandbox/&lt;name&gt;</code></td><td>Standard lassen, oder eigener Pfad z.B. <code>~/projects/kunde-x</code></td></tr>
+  <tr><td>5. VCS-Host</td><td><code>none</code>, GitHub, GitLab (öffentlich oder eigenes), eigener Host</td><td>kein Git nötig → <code>none</code>; sonst dein Host (bei Clone wird GitHub/GitLab anhand der URL oft automatisch erkannt)</td></tr>
+  <tr><td>6. Token</td><td>Persönlicher Zugriffstoken (z.B. GitHub PAT), wird <strong>verborgen</strong> abgefragt</td><td>nur bei VCS ≠ <code>none</code></td></tr>
+  <tr><td>7. Git-Identität</td><td><code>user.name</code>, <code>user.email</code></td><td>dein Name/E-Mail, nur bei VCS ≠ <code>none</code></td></tr>
+  <tr><td>8. Start-Option</td><td><code>console</code> / <code>opencode</code> / <code>web</code></td><td><code>opencode</code> (empfohlen, siehe Tipps)</td></tr>
 </table>
+
+<h4>Projektquelle „Clone existing repo via URL“</h4>
+
+<p>Ist ein bestehendes Projekt schon in einem Git-Repo, gib statt „New empty
+project“ die Repo-URL an. Das Klonen passiert <strong>im Container</strong> –
+auf dem Host brauchst du kein git und keine SSH-Keys. Beim Start des Projekts
+prüft die TUI zuerst die Erreichbarkeit (<code>git ls-remote</code>) und klont
+dann das komplette Repo in den <code>project/</code>-Ordner, bevor die normale
+Einrichtung weiterläuft.</p>
+
+<ul>
+  <li><strong>HTTPS + Token</strong> funktioniert immer: gib im Wizard einen
+      VCS-Token an, wird er auch für spätere HTTPS-Push/Pull aus dem Container
+      verwendet.</li>
+  <li><strong>SSH-URLs</strong> (<code>git@…</code>) funktionieren nur, wenn
+      davor SSH-Keys von Hand in den Ordner <code>.ssh_local/</code> des
+      Projekts gelegt wurden – für den Einstieg HTTPS statt SSH verwenden.</li>
+  <li><strong>Submodule und LFS</strong> werden nicht automatisch geholt –
+      nach dem Clone einmalig von Hand initialisieren.</li>
+</ul>
 
 <div class="info">
   <strong>Was ist ein Token?</strong> Ein „persönlicher Zugriffstoken“ (PAT) ist ein
@@ -338,11 +360,14 @@ wiederholen.</p>
   bis die Session komplett durchgelaufen ist, und tippe dann <code>/exit</code>.
 </div>
 
-<p>Die Ersteinrichtung (Konfiguration des Knowledge-Graph-Indexers „CBM“, danach
-die interaktive Skills-Einrichtung über eine OpenCode-Session) läuft danach
+<p>Die Ersteinrichtung (Klonen bei „Clone existing repo via URL“, danach
+Konfiguration des Knowledge-Graph-Indexers „CBM“ und die interaktive
+Skills-Einrichtung über eine OpenCode-Session) läuft
 <strong>automatisch</strong>. Sollte ein Schritt scheitern, bietet die TUI
 <code>Retry</code>, <code>Go back</code> oder <code>Exit</code> – ein
-<code>Retry</code> wiederholt nur den fehlgeschlagenen Teil.</p>
+<code>Retry</code> wiederholt nur den fehlgeschlagenen Teil. Schlägt Probe oder
+Clone fehl, gibt es zusätzlich <code>Change URL</code>, um die Repo-URL zu
+korrigieren und erneut zu versuchen.</p>
 
 <h3>5.3 Erste Session mit OpenCode</h3>
 
@@ -503,8 +528,10 @@ Installation wiederholen (<code>--force</code>).</p>
 <h3>„Web-URL nicht erreichbar“</h3>
 <p>Die URL (z.B. <code>http://127.0.0.1:4096</code>) gilt <em>auf dem Rechner,
 auf dem der Container läuft</em>. Steht der genaue Port in der TUI-URL-Anzeige.
-Bei der Web-Option muss im Container ein Git-Repo im <code>project/</code>-Ordner
-vorliegen – der Wizard legt automatisch eines an, wenn keins existiert.</p>
+Für die Web-Option benötigt OpenCode ein Git-Repo im <code>project/</code>-Ordner:
+Bei leeren Projekten legt der Wizard automatisch eines an, falls keins
+existiert; bei geklonten Projekten ist das Repo durch den Clone ohnehin
+vorhanden.</p>
 
 <h3>„Setup ist abgebrochen / fehlgeschlagen“</h3>
 <p>Das Projekt bleibt registriert. TUI neu öffnen, <strong>Open Project</strong>
