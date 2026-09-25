@@ -196,6 +196,10 @@ sudo udevadm trigger
 ./scripts/init-project.sh ~/projects/mein-projekt
 ```
 
+Optional: mit `--repo_url <url>` wird das Projekt als "cloned" angelegt —
+`project/` bleibt leer (kein Template-Seed, kein `git init`), das Repo wird
+später aus `<url>` geklont.
+
 ### 4. Sandbox starten
 
 ```bash

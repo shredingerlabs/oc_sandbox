@@ -95,3 +95,17 @@ fi
 [[ ! -e "$root3/project" ]]
 
 printf 'init-project non-empty-dir tests passed\n'
+
+# --- cloned-Quelle (--repo_url): project/ bleibt leer, kein git init ---------------
+root4="$test_home/kunde-d"
+
+if ! bash "$INIT_SCRIPT" "$root4" --repo_url https://example.com/repo.git > /dev/null 2>&1; then
+  printf 'init-project.sh failed with --repo_url\n' >&2
+  exit 1
+fi
+[[ ! -e "$root4/project/.git" ]]
+[[ ! -e "$root4/project/scripts" ]]
+[[ -f "$root4/.opencode_config/opencode.json" ]]
+[[ -f "$root4/.git_local/gitconfig" ]]
+
+printf 'init-project cloned-repo tests passed\n'

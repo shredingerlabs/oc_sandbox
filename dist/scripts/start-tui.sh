@@ -789,6 +789,7 @@ create_sandbox_config() {
     --arg ai_provider "$ai_provider" \
      '{container_edition: $edition, container_modes: $modes, start_option: $start_option,
        cbm_auto_index: true, cbm_auto_watch: true, ai_provider: $ai_provider,
+       project_source: "empty", repo_url: "",
        setup_cbm_complete: false, setup_skills_complete: false,
        setup_complete: false, version: "1.0"}')
 
@@ -1017,6 +1018,7 @@ add_project_to_registry() {
   local name="$1"
   local path="$2"
   local vcs_tracking="$3"
+  local repo_url="${4:-}"
   local timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
   local projects_json="$HOME/.config/oc-sandbox/projects.json"
   if [[ ! "$name" =~ ^[a-zA-Z0-9_-]+$ ]]; then
@@ -1038,8 +1040,8 @@ add_project_to_registry() {
     return 1
   fi
 
-  jq --arg name "$name" --arg path "$path" --arg id "$container_id" --arg timestamp "$timestamp" --arg vcs "$vcs_tracking" \
-    '.projects += [{"name": $name, "path": $path, "container_id": $id, "last_used": $timestamp, "container_status": "stopped", "git_tracking": $vcs}]' \
+  jq --arg name "$name" --arg path "$path" --arg id "$container_id" --arg timestamp "$timestamp" --arg vcs "$vcs_tracking" --arg repo_url "$repo_url" \
+    '.projects += [{"name": $name, "path": $path, "container_id": $id, "last_used": $timestamp, "container_status": "stopped", "git_tracking": $vcs, "repo_url": $repo_url}]' \
     "$projects_json" | atomic_write "$projects_json"
 }
 
