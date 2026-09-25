@@ -163,23 +163,29 @@ setup_github_credentials "$credentials_project" >"$credential_output"
 [[ "$(stat -c '%a' "$credentials_project/.git_local")" == '700' ]]
 [[ "$(stat -c '%a' "$credentials_project/.git_local/gh-cli")" == '700' ]]
 [[ "$(stat -c '%a' "$credentials_project/.git_local/gh-cli/hosts.yml")" == '600' ]]
+[[ "$(stat -c '%a' "$credentials_project/.git_local/credentials")" == '600' ]]
+[[ "$(<"$credentials_project/.git_local/credentials")" == 'https://oauth2:test-secret@github.com' ]]
 ! grep -Fq 'test-secret' "$credential_output"
 
 setup_gitlab_credentials "$credentials_project" >/dev/null
 [[ "$(jq -r '.["gitlab.com"].token' "$credentials_project/.git_local/glab-cli/hosts.yml")" == 'test-secret' ]]
+[[ "$(<"$credentials_project/.git_local/credentials")" == 'https://token:test-secret@gitlab.com' ]]
 setup_custom_vcs_credentials "$credentials_project" >/dev/null
 [[ "$(jq -r '.["git.example.com"].token' "$credentials_project/.git_local/vcs/hosts.yml")" == 'test-secret' ]]
+[[ "$(<"$credentials_project/.git_local/credentials")" == 'https://token:test-secret@git.example.com' ]]
 
 prompt_for_text() { printf '%s\n' 'selfhosted.example.com'; }
 show_menu() { printf '%s\n' 'Replace'; }
 setup_self_hosted_gitlab_credentials "$credentials_project" >/dev/null
 [[ "$(jq -r --arg host selfhosted.example.com '.[$host].token' "$credentials_project/.git_local/glab-cli/hosts.yml")" == 'test-secret' ]]
+[[ "$(<"$credentials_project/.git_local/credentials")" == 'https://token:test-secret@selfhosted.example.com' ]]
 
 prompt_for_text() { printf '%s\n' 'https://invalid.example.com/path'; }
 if setup_self_hosted_gitlab_credentials "$credentials_project" >/dev/null; then
   printf 'invalid GitLab host was accepted\n' >&2
   exit 1
 fi
+[[ "$(<"$credentials_project/.git_local/credentials")" == 'https://token:test-secret@selfhosted.example.com' ]]
 
 printf '%s\n' '[user]' '    name = Existing Name' '    email = existing@example.com' '[core]' '    editor = vi' > "$credentials_project/.git_local/gitconfig"
 prompt_for_text() {
@@ -199,10 +205,12 @@ printf '%s\n' 'original' > "$credentials_project/.git_local/gh-cli/hosts.yml"
 show_menu() { printf '%s\n' 'Keep existing'; }
 setup_github_credentials "$credentials_project" >/dev/null
 [[ "$(<"$credentials_project/.git_local/gh-cli/hosts.yml")" == 'original' ]]
+[[ "$(<"$credentials_project/.git_local/credentials")" == 'https://token:test-secret@selfhosted.example.com' ]]
 
 show_menu() { printf '%s\n' 'Replace'; }
 setup_github_credentials "$credentials_project" >/dev/null
 [[ "$(jq -r '.["github.com"].oauth_token' "$credentials_project/.git_local/gh-cli/hosts.yml")" == 'test-secret' ]]
+[[ "$(<"$credentials_project/.git_local/credentials")" == 'https://oauth2:test-secret@github.com' ]]
 
 cancelled_project="$test_home/cancelled credentials"
 mkdir -p "$cancelled_project"
@@ -212,6 +220,7 @@ if setup_github_credentials "$cancelled_project" >/dev/null; then
   exit 1
 fi
 [[ ! -e "$cancelled_project/.git_local/gh-cli/hosts.yml" ]]
+[[ ! -e "$cancelled_project/.git_local/credentials" ]]
 
 prompt_for_secret() { printf '%s\n' 'ai-secret'; }
 show_menu() { printf '%s\n' 'Keep existing'; }

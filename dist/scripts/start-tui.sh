@@ -942,6 +942,11 @@ configure_vcs_credentials() {
       '{($host): {token: $ENV.VCS_TOKEN}}') ;;
   esac
   write_secret_file "$credentials_file" "$config"
+
+  local git_credentials_file="${project_path}/.git_local/credentials"
+  local git_user="oauth2"
+  [[ "$provider" == "gitlab" || "$provider" == "custom" ]] && git_user="token"
+  write_secret_file "$git_credentials_file" "https://${git_user}:${token}@${host}"
 }
 
 setup_gwdg_provider() {
