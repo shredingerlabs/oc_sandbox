@@ -254,6 +254,75 @@ EOF
   cleanup_test_env "$test_dir"
 }
 
+test_remove_shortcuts_wsl_resolves_startmenu_via_powershell() {
+  local test_dir
+  test_dir=$(setup_test_env "remove-shortcuts-wsl")
+  local home
+  home=$(setup_installed_home "$test_dir")
+
+  local test_bin="$test_dir/bin"
+  mkdir -p "$test_bin"
+
+  # .lnk liegt unter einem Profilordner, der NICHT zum USERNAME passt
+  local mnt_c="$test_dir/mnt-c"
+  mkdir -p "$mnt_c/Users/realuser/AppData/Roaming/Microsoft/Windows/Start Menu/Programs"
+  echo "lnk" > "$mnt_c/Users/realuser/AppData/Roaming/Microsoft/Windows/Start Menu/Programs/OC Sandbox.lnk"
+
+  cat > "$test_bin/powershell.exe" << EOF
+#!/bin/bash
+for arg in "\$@"; do
+  case "\$arg" in
+    *'env:USERNAME'*)
+      echo "testuser"
+      exit 0
+      ;;
+    *'GetFolderPath'*)
+      echo 'C:\\Users\\realuser\\AppData\\Roaming\\Microsoft\\Windows\\Start Menu'
+      exit 0
+      ;;
+  esac
+done
+exit 0
+EOF
+  chmod +x "$test_bin/powershell.exe"
+
+  cat > "$test_bin/wslpath" << EOF
+#!/bin/bash
+case "\${1:-}" in
+  -u)
+    local_win="\$2"
+    drive="\${local_win%%:*}"
+    rest="\${local_win#*:}"
+    rest="\${rest//\\\\//}"
+    echo "$mnt_c/\$rest"
+    ;;
+  *)
+    echo "\$1"
+    ;;
+esac
+EOF
+  chmod +x "$test_bin/wslpath"
+  sed -i "1s|.*|#!/usr/bin/bash|" "$test_bin/powershell.exe" "$test_bin/wslpath" 2>/dev/null || true
+
+  local output
+  output=$(PATH="$test_bin:/usr/bin" run_uninstall_capture "$home" --remove-shortcuts)
+
+  if [[ -f "$mnt_c/Users/realuser/AppData/Roaming/Microsoft/Windows/Start Menu/Programs/OC Sandbox.lnk" ]]; then
+    echo "  .lnk im (relozierten) Startmenu wurde nicht entfernt"
+    echo "$output"
+    cleanup_test_env "$test_dir"
+    return 1
+  fi
+  if [[ "$output" != *"Windows-Verknüpfung entfernt"* ]]; then
+    echo "  Abschlussmeldung listet Windows-Verknüpfung nicht"
+    echo "$output"
+    cleanup_test_env "$test_dir"
+    return 1
+  fi
+
+  cleanup_test_env "$test_dir"
+}
+
 test_default_keeps_config_and_removes_symlinks() {
   local test_dir
   test_dir=$(setup_test_env "default")
@@ -538,7 +607,8 @@ run_test "Hilfe zeigt neue Flags" test_help_shows_new_flags
 run_test "Default: Config bleibt, Symlinks werden entfernt" test_default_keeps_config_and_removes_symlinks
 run_test "Default: Desktop-Shortcuts bleiben" test_default_keeps_shortcuts
 run_test "--remove-shortcuts: Desktop-Verknüpfung entfernt" test_remove_shortcuts_removes_desktop_file
-run_test "Dry-Run zeigt Desktop-Verknüpfung" test_remove_shortcuts_dry_run_shows_artifact
+  run_test "Dry-Run zeigt Desktop-Verknüpfung" test_remove_shortcuts_dry_run_shows_artifact
+  run_test "WSL: .lnk-Entfernung löst Startmenu via PowerShell auf" test_remove_shortcuts_wsl_resolves_startmenu_via_powershell
 run_test "Shortcut-Entfernung trackt Berechtigungsfehler" test_remove_shortcuts_reports_skipped_on_permission_error
 run_test "--remove-config: Config entfernt, Backup erstellt" test_remove_config_removes_dir_and_creates_backup
 run_test "--remove-config --no-backup: kein Backup" test_remove_config_with_no_backup_creates_no_backup

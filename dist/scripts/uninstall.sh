@@ -412,17 +412,18 @@ remove_shortcuts() {
         removed_all=false
       fi
     fi
-  elif command -v powershell.exe &>/dev/null && [[ -d /mnt/c ]]; then
-    local win_user
-    win_user=$(powershell.exe -NoProfile -Command '$env:USERNAME' 2>/dev/null | tr -d '\r' || true)
-    local start_menu_dir=""
-    if [[ -n "$win_user" ]]; then
-      start_menu_dir=$(wslpath "/mnt/c/Users/$win_user/AppData/Roaming/Microsoft/Windows/Start Menu/Programs" 2>/dev/null || true)
+  elif command -v powershell.exe &>/dev/null; then
+    local win_start_menu=""
+    win_start_menu=$(powershell.exe -NoProfile -Command "[Environment]::GetFolderPath('StartMenu')" 2>/dev/null | tr -d '\r' || true)
+    win_start_menu=${win_start_menu%%$'\n'*}
+    local lnk_unix=""
+    if [[ -n "$win_start_menu" ]]; then
+      lnk_unix=$(wslpath -u "${win_start_menu}\\Programs\\OC Sandbox.lnk" 2>/dev/null || true)
     fi
-    if [[ -n "$start_menu_dir" && -f "$start_menu_dir/OC Sandbox.lnk" ]]; then
-      if remove_path_safe "$start_menu_dir/OC Sandbox.lnk"; then
-        log_verbose "Windows-Verknüpfung entfernt: $start_menu_dir/OC Sandbox.lnk"
-        record_action "Windows-Verknüpfung entfernt: $start_menu_dir/OC Sandbox.lnk"
+    if [[ -n "$lnk_unix" && -f "$lnk_unix" ]]; then
+      if remove_path_safe "$lnk_unix"; then
+        log_verbose "Windows-Verknüpfung entfernt: $lnk_unix"
+        record_action "Windows-Verknüpfung entfernt: $lnk_unix"
       else
         removed_all=false
       fi

@@ -681,14 +681,6 @@ create_shortcut_wsl() {
     return 1
   fi
 
-  local mnt_c="${OC_SANDBOX_WIN_ROOT:-/mnt/c}"
-  if [[ ! -d "$mnt_c" ]]; then
-    log_warn "Desktop-Shortcut übersprungen: /mnt/c nicht gefunden – Windows-Laufwerke sind nicht gemountet."
-    echo "  Manuelle Lösung: Start-Menu-Verknüpfung von Hand anlegen, die folgendes aufruft:" >&2
-    echo "  wsl.exe -e bash ${script}" >&2
-    return 1
-  fi
-
   if ! command -v powershell.exe &>/dev/null; then
     log_warn "Desktop-Shortcut übersprungen: powershell.exe nicht verfügbar (WSL-Interop deaktiviert?)."
     echo "  Manuelle Lösung: Start-Menu-Verknüpfung von Hand anlegen, die folgendes aufruft:" >&2
@@ -696,24 +688,20 @@ create_shortcut_wsl() {
     return 1
   fi
 
-  local win_user
-  win_user=$(powershell.exe -NoProfile -Command '$env:USERNAME' 2>/dev/null | tr -d '\r')
-  local start_menu_dir=""
+  # Windows löst das Startmenu-Verzeichnis selbst auf (locale-, Profilpfad- und
+  # USERNAME-unabhängig). Nicht über /mnt/c/Users/<user> raten.
+  local win_start_menu
+  win_start_menu=$(powershell.exe -NoProfile -Command "[Environment]::GetFolderPath('StartMenu')" 2>/dev/null | tr -d '\r')
+  win_start_menu=${win_start_menu%%$'\n'*}
 
-  if [[ -n "$win_user" && -d "$mnt_c/Users/$win_user" ]]; then
-    start_menu_dir=$(wslpath "$mnt_c/Users/$win_user/AppData/Roaming/Microsoft/Windows/Start Menu/Programs" 2>/dev/null || true)
-  fi
-
-  if [[ -z "${start_menu_dir:-}" || ! -d "$start_menu_dir" ]]; then
+  if [[ -z "$win_start_menu" ]]; then
     log_warn "Desktop-Shortcut übersprungen: Windows-Startmenu-Verzeichnis nicht gefunden."
     echo "  Manuelle Lösung: Start-Menu-Verknüpfung von Hand anlegen, die folgendes aufruft:" >&2
     echo "  wsl.exe -e bash ${script}" >&2
     return 1
   fi
 
-  local lnk_path="${start_menu_dir}/OC Sandbox.lnk"
-  local lnk_path_win
-  lnk_path_win=$(wslpath -w "$lnk_path")
+  local lnk_path_win="${win_start_menu}\\Programs\\OC Sandbox.lnk"
 
   local icon_block=""
   local icon_file="${install_dir}/icons/windows/oc-sandbox.ico"
@@ -728,7 +716,7 @@ create_shortcut_wsl() {
   local ps_block
   ps_block='$sc = (New-Object -ComObject WScript.Shell).CreateShortcut('"'"''"${lnk_path_win}"''"'"'); $sc.TargetPath = '"'"'%SystemRoot%\System32\wsl.exe'"'"'; $sc.Arguments = '"'"'-e bash '"${script}"''"'"'; '"$icon_block"'$sc.Save()'
 
-  log_verbose "Erstelle .lnk über powershell.exe: $lnk_path"
+  log_verbose "Erstelle .lnk über powershell.exe: $lnk_path_win"
   if ! powershell.exe -NoProfile -Command "$ps_block" 2>/dev/null; then
     log_warn "Desktop-Shortcut übersprungen: powershell.exe konnte die Verknüpfung nicht erstellen."
     return 1
@@ -822,14 +810,17 @@ remove_shortcut() {
     Linux)
       if is_wsl; then
         # WSL: .lnk-Datei im Windows-Startmenu versuchen zu entfernen
-        if command -v powershell.exe &>/dev/null && [[ -d /mnt/c ]]; then
-          local win_user
-          win_user=$(powershell.exe -NoProfile -Command '$env:USERNAME' 2>/dev/null | tr -d '\r')
-          local start_menu_dir
-          start_menu_dir=$(wslpath "/mnt/c/Users/$win_user/AppData/Roaming/Microsoft/Windows/Start Menu/Programs" 2>/dev/null || true)
-          if [[ -n "${start_menu_dir:-}" && -f "${start_menu_dir}/OC Sandbox.lnk" ]]; then
-            rm -f "${start_menu_dir}/OC Sandbox.lnk"
-            removed=$((removed + 1))
+        if command -v powershell.exe &>/dev/null; then
+          local win_start_menu
+          win_start_menu=$(powershell.exe -NoProfile -Command "[Environment]::GetFolderPath('StartMenu')" 2>/dev/null | tr -d '\r')
+          win_start_menu=${win_start_menu%%$'\n'*}
+          if [[ -n "$win_start_menu" ]]; then
+            local lnk_unix
+            lnk_unix=$(wslpath -u "${win_start_menu}\\Programs\\OC Sandbox.lnk" 2>/dev/null || true)
+            if [[ -n "$lnk_unix" && -f "$lnk_unix" ]]; then
+              rm -f "$lnk_unix"
+              removed=$((removed + 1))
+            fi
           fi
         fi
       else

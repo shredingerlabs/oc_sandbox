@@ -643,6 +643,104 @@ EOF
   cleanup_test_env "$test_dir"
 }
 
+test_wsl_shortcut_resolves_startmenu_via_powershell() {
+  local test_dir
+  test_dir=$(setup_test_env "shortcut-wsl-relocated")
+  local home="$test_dir/home"
+  local install_dir="$home/.oc-sandbox"
+  mkdir -p "$install_dir/scripts"
+  echo "#!/usr/bin/env bash" > "$install_dir/scripts/start-tui.sh"
+  chmod +x "$install_dir/scripts/start-tui.sh"
+
+  local test_bin="$test_dir/bin"
+  mkdir -p "$test_bin"
+
+  # Fake powershell.exe: USERNAME passt NICHT zum Profilordner (reloziert/umbenannt),
+  # das echte Startmenu-Verzeichnis liefert GetFolderPath
+  cat > "$test_bin/powershell.exe" << EOF
+#!/bin/bash
+for arg in "\$@"; do
+  case "\$arg" in
+    *'env:USERNAME'*)
+      echo "testuser"
+      exit 0
+      ;;
+    *'GetFolderPath'*)
+      echo 'C:\\Users\\realuser\\AppData\\Roaming\\Microsoft\\Windows\\Start Menu'
+      exit 0
+      ;;
+  esac
+done
+prev=""
+for arg in "\$@"; do
+  if [[ "\$prev" == "-Command" ]]; then
+    printf '%s\n' "\$arg" >> "$test_dir/ps-commands"
+  fi
+  prev="\$arg"
+done
+exit 0
+EOF
+  chmod +x "$test_bin/powershell.exe"
+
+  cat > "$test_bin/wslpath" << EOF
+#!/bin/bash
+if [[ "\${1:-}" == "-w" ]]; then
+  echo "C:\\\\Fake"
+else
+  echo "\$1"
+fi
+EOF
+  chmod +x "$test_bin/wslpath"
+
+  cat > "$test_bin/tr" << 'EOF'
+#!/usr/bin/bash
+exec /usr/bin/tr "$@"
+EOF
+  chmod +x "$test_bin/tr"
+  sed -i "1s|.*|#!/usr/bin/bash|" "$test_bin/powershell.exe" "$test_bin/wslpath" "$test_bin/tr" 2>/dev/null || true
+
+  # Startmenu existiert nur unter realuser, nicht unter testuser
+  local mnt_c="$test_dir/mnt-c"
+  mkdir -p "$mnt_c/Users/realuser/AppData/Roaming/Microsoft/Windows/Start Menu/Programs"
+
+  local rc=0
+  local output
+  output=$((source "$INSTALL_SCRIPT" --help >/dev/null 2>&1
+   HOME="$home"
+   INSTALL_PATH="$install_dir"
+   PLATFORM_OS="Linux"
+   OC_SANDBOX_WIN_ROOT="$mnt_c"
+   is_wsl() { return 0; }
+   PATH="$test_bin:/nonexistent-oc-sandbox-test"
+   create_shortcut "$install_dir") 2>&1) || rc=$?
+
+  assert_equals "0" "$rc" "create_shortcut liefert immer 0" || { cleanup_test_env "$test_dir"; return 1; }
+
+  if [[ "$output" == *"übersprungen"* ]]; then
+    echo "Shortcut wurde trotz reloziertem Profil übersprungen"
+    echo "$output"
+    cleanup_test_env "$test_dir"
+    return 1
+  fi
+
+  # .lnk wurde via powershell.exe/WScript.Shell erstellt
+  assert_file_exists "$test_dir/ps-commands" || { cleanup_test_env "$test_dir"; return 1; }
+  if ! grep -q "CreateShortcut" "$test_dir/ps-commands"; then
+    echo "Kein CreateShortcut-Aufruf: Startmenu-Pfad kommt nicht aus PowerShell"
+    cat "$test_dir/ps-commands"
+    cleanup_test_env "$test_dir"
+    return 1
+  fi
+  if ! grep -q "start-tui.sh" "$test_dir/ps-commands"; then
+    echo ".lnk-Aufruf referenziert start-tui.sh nicht"
+    cat "$test_dir/ps-commands"
+    cleanup_test_env "$test_dir"
+    return 1
+  fi
+
+  cleanup_test_env "$test_dir"
+}
+
 test_wsl_missing_mnt_c_leaves_install_exit_0() {
   local test_dir
   test_dir=$(setup_test_env "shortcut-wsl-nointero")
@@ -925,6 +1023,7 @@ main() {
   run_test "Vorhandene Installation im TTY: 'y' bestätigt + allowlist erhalten" test_existing_install_tty_confirm_proceeds
   run_test "Vorhandene Installation im TTY: 'n' bricht ab" test_existing_install_tty_decline_aborts
   run_test "WSL: .lnk via powershell.exe (Shim)" test_wsl_shortcut_uses_powershell_shim
+  run_test "WSL: Startmenu-Pfad via PowerShell aufgelöst" test_wsl_shortcut_resolves_startmenu_via_powershell
   run_test "WSL: fehlende Interop warnt nur" test_wsl_missing_mnt_c_leaves_install_exit_0
   run_test "macOS: .app-Bundle erstellt (Shim)" test_macos_shortcut_shim
   run_test "macOS: fehlendes osascript warnt nur" test_macos_shortcut_without_osascript_warns
