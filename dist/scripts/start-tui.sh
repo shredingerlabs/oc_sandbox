@@ -309,6 +309,16 @@ handle_recoverable_failure() {
   esac
 }
 
+clone_failure_menu() {
+  local choice
+
+  case "$(show_menu "Clone setup failed" "Retry" "Change URL" "Exit")" in
+    Retry) return 0 ;;
+    "Change URL") return 1 ;;
+    *) return 2 ;;
+  esac
+}
+
 bash_select() {
   local title="$1"
   shift
@@ -917,7 +927,7 @@ create_sandbox_config() {
      '{container_edition: $edition, container_modes: $modes, start_option: $start_option,
        cbm_auto_index: true, cbm_auto_watch: true, ai_provider: $ai_provider,
        project_source: "empty", repo_url: "",
-       setup_cbm_complete: false, setup_skills_complete: false,
+       setup_clone_complete: false, setup_cbm_complete: false, setup_skills_complete: false,
        setup_complete: false, version: "1.0"}')
 
   atomic_write "$config_path" "$config"
@@ -1398,6 +1408,72 @@ start_container() {
   fi
 }
 
+run_first_run_clone() {
+  local project_path="$1"
+  local config_path="$2"
+  local project_data container_name repo_url
+
+  project_data=$(get_project_by_path "$project_path") || return 1
+  container_name=$(container_name_for_project "$project_data")
+  repo_url=$(jq -r '.repo_url // empty' "$config_path")
+
+  [[ "$(jq -r '.setup_clone_complete // false' "$config_path")" == "true" ]] && return 0
+
+  while true; do
+    local failed=false
+    local probe_out
+
+    if [[ -n "$repo_url" ]] && podman exec --user dev "$container_name" bash -c '
+        [[ "$(git -C /home/dev/project config --get remote.origin.url 2>/dev/null)" == "$1" ]] &&
+        git -C /home/dev/project rev-parse --verify -q HEAD >/dev/null 2>&1' _ "$repo_url"; then
+      update_sandbox_config_field "$config_path" "setup_clone_complete" "true" || return 1
+      return 0
+    fi
+
+    if [[ -z "$repo_url" ]]; then
+      show_page "Clone failed" "No repo URL is recorded for this project."
+      failed=true
+    else
+      echo "Probing repo URL..."
+      if ! probe_out=$(podman exec --user dev "$container_name" \
+        git ls-remote "$repo_url" HEAD 2>&1); then
+        show_page "Repo probe failed" "git ls-remote failed for ${repo_url}:" \
+          "$(tail -n 5 <<<"$probe_out")"
+        failed=true
+      fi
+    fi
+
+    if [[ "$failed" == false ]]; then
+      echo "Cloning repository..."
+      if ! podman exec --user dev "$container_name" bash -c \
+        'rm -rf /home/dev/project/* /home/dev/project/.[!.]* 2>/dev/null || true; git clone -- "$1" /home/dev/project' _ "$repo_url"; then
+        show_page "Clone failed" "git clone failed for ${repo_url}. " \
+          "Partial clone state was cleaned; use Retry or Change URL."
+        failed=true
+      fi
+    fi
+
+    if [[ "$failed" == false ]]; then
+      update_sandbox_config_field "$config_path" "setup_clone_complete" "true" || return 1
+      return 0
+    fi
+
+    local menu_result=0
+    clone_failure_menu || menu_result=$?
+    case "$menu_result" in
+      0) continue ;;
+      1)
+        local new_url
+        new_url=$(prompt_for_repo_url) || return 2
+        update_sandbox_config_field "$config_path" "repo_url" "$new_url" || return 1
+        update_project_repo_url "$project_path" "$new_url" || return 1
+        repo_url="$new_url"
+        ;;
+      *) return 2 ;;
+    esac
+  done
+}
+
 run_first_run_setup() {
   local project_path="$1"
   local project_data=$(get_project_by_path "$project_path")
@@ -1405,10 +1481,33 @@ run_first_run_setup() {
   local config_path="${project_path}/.opencode_config/sandbox_config.json"
   local cbm_complete
   local skills_complete
+  local clone_result
 
   echo "Running first-run setup..."
 
   while true; do
+    local project_source
+    project_source=$(jq -r '.project_source // "empty"' "$config_path")
+
+    if [[ "$project_source" == "cloned" ]] &&
+      [[ "$(jq -r '.setup_clone_complete // false' "$config_path")" != "true" ]]; then
+      clone_result=0
+      run_first_run_clone "$project_path" "$config_path" || clone_result=$?
+      case "$clone_result" in
+        0) : ;;
+        2) exit 1 ;;
+        *)
+          local recovery_result=0
+          handle_recoverable_failure "Clone" || recovery_result=$?
+          case "$recovery_result" in
+            0) continue ;;
+            2) exit 1 ;;
+            *) return 1 ;;
+          esac
+          ;;
+      esac
+    fi
+
     cbm_complete=$(jq -r '.setup_cbm_complete // false' "$config_path")
     skills_complete=$(jq -r '.setup_skills_complete // false' "$config_path")
 
@@ -1504,6 +1603,19 @@ update_project_status() {
 
   jq --arg id "$container_id" --arg status "$status" \
     '.projects |= map(if .container_id == $id then .container_status = $status else . end)' \
+    "$projects_json" | atomic_write "$projects_json"
+}
+
+update_project_repo_url() {
+  local project_path="$1"
+  local repo_url="$2"
+  local projects_json="$HOME/.config/oc-sandbox/projects.json"
+
+  local container_id
+  container_id=$(project_container_identity "$project_path") || return 1
+
+  jq --arg id "$container_id" --arg url "$repo_url" \
+    '.projects |= map(if .container_id == $id then .repo_url = $url else . end)' \
     "$projects_json" | atomic_write "$projects_json"
 }
 

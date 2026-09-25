@@ -26,7 +26,7 @@
 
 **stop container** — Graceful shutdown of a running project container via `podman stop` (SIGTERM, then SIGKILL after the default timeout), initiated from the TUI Settings menu for a single selected project. Because containers run with `--rm`, a stopped container is removed automatically; the registry's container_status is set to "stopped" only after the container is verified gone.
 
-**first-run setup** — Automated container initialization including CBM configuration and skills setup, tracked via setup-complete flag in sandbox_config.json, offering granular recovery for partial failures.
+**first-run setup** — Automated container initialization including in-container probe (`git ls-remote`) and full clone for cloned projects, then CBM configuration and skills setup, tracked via `setup_clone_complete`, `setup_cbm_complete`, and `setup_skills_complete` flags in sandbox_config.json, offering granular recovery for partial failures including Retry / Change URL / Exit for clone issues.
 
 **VCS integration** — Version Control System setup (GitHub, GitLab, or custom host) creating credentials/hosts.yml in `.git_local/` subdirectories, separate from AI provider configuration.
 

@@ -274,6 +274,42 @@ case "${1:-}" in
       printf '%s\n' "$*" > "$SKILLS_INPUT_LOG"
       printf 'interactive skills output\n'
     fi
+    if [[ -n "${PODMAN_CLONE_DIR:-}" ]]; then
+      if [[ "$*" == *'remote.origin.url'* ]]; then
+        if [[ -d "$PODMAN_CLONE_DIR/.git" ]] &&
+          git -C "$PODMAN_CLONE_DIR" config --get remote.origin.url 2>/dev/null | grep -Fxq "$CLONE_URL" &&
+          git -C "$PODMAN_CLONE_DIR" rev-parse --verify -q HEAD >/dev/null 2>&1; then
+          exit 0
+        fi
+        exit 1
+      fi
+      if [[ "$*" == *'git ls-remote'* ]]; then
+        printf 'probe %s\n' "$*" >> "$CLONE_LOG"
+        if [[ -f "$PROBE_FAILS" && "$(cat "$PROBE_FAILS")" -gt 0 ]]; then
+          printf '%s' $(( $(cat "$PROBE_FAILS") - 1 )) > "$PROBE_FAILS"
+          printf 'fatal: could not read from remote repository\n'
+          exit 1
+        fi
+        exit 0
+      fi
+      if [[ "$*" == *'git clone'* ]]; then
+        printf 'clone %s\n' "$*" >> "$CLONE_LOG"
+        rm -rf "${PODMAN_CLONE_DIR:?}"/* "${PODMAN_CLONE_DIR:?}"/.[!.]* 2>/dev/null || true
+        if [[ -f "$CLONE_FAILS" && "$(cat "$CLONE_FAILS")" -gt 0 ]]; then
+          printf '%s' $(( $(cat "$CLONE_FAILS") - 1 )) > "$CLONE_FAILS"
+          mkdir -p "${PODMAN_CLONE_DIR:?}/.git"
+          printf 'leftover\n' > "${PODMAN_CLONE_DIR:?}/partial.marker"
+          printf 'fatal: early EOF\n'
+          exit 1
+        fi
+        rm -rf "${PODMAN_CLONE_DIR:?}"
+        mkdir -p "${PODMAN_CLONE_DIR:?}"
+        git init -q "${PODMAN_CLONE_DIR:?}"
+        git -C "${PODMAN_CLONE_DIR:?}" remote add origin "$CLONE_URL"
+        git -C "${PODMAN_CLONE_DIR:?}" -c user.name=t -c user.email=t@e commit --allow-empty -q -m init
+        exit 0
+      fi
+    fi
     exit 0
     ;;
   *) exit 0 ;;
@@ -544,6 +580,170 @@ set -e
 [[ "$recovery_result" -eq 2 ]]
 
 printf 'start-tui setup recovery tests passed\n'
+
+# Clone setup tests (#42): probe (git ls-remote) and full clone run inside the
+# container before CBM, guarded by project_source/setup_clone_complete.
+create_clone_project() {
+  local path="$1"
+  mkdir -p "$path"
+  add_project_to_registry "$2" "$path" none "${3:-https://example.com/repo.git}"
+  create_sandbox_config "$path" full console none
+  update_sandbox_config_field "$path/.opencode_config/sandbox_config.json" project_source cloned
+  update_sandbox_config_field "$path/.opencode_config/sandbox_config.json" \
+    repo_url 'https://example.com/repo.git'
+  printf '%s\n' "$path/.opencode_config/sandbox_config.json"
+}
+
+PATH="$workflow_home/bin:$PATH"
+export PATH
+podman_log="$workflow_home/podman-args"
+export CLONE_LOG="$workflow_home/clone-counter-log"
+export PROBE_FAILS="$workflow_home/probe-fails"
+export CLONE_FAILS="$workflow_home/clone-fails"
+export CLONE_URL='https://example.com/repo.git'
+
+# Fully automated happy path: probe + clone (in this order) before CBM/skills.
+clone_project="$workflow_home/clone"
+clone_config="$(create_clone_project "$clone_project" CloneTest)"
+export PODMAN_CLONE_DIR="$clone_project/project"
+: > "$CLONE_LOG"; : > "$podman_log"; : > "$skills_input_log"
+printf '0\n' > "$PROBE_FAILS"; printf '0\n' > "$CLONE_FAILS"
+run_first_run_setup "$clone_project" >/dev/null
+[[ "$(jq -r '.setup_clone_complete' "$clone_config")" == true ]]
+[[ "$(jq -r '.setup_complete' "$clone_config")" == true ]]
+[[ "$(head -n1 "$CLONE_LOG")" == probe* ]]
+[[ "$(grep -c '^clone ' "$CLONE_LOG")" -eq 1 ]]
+clone_log_line=$(grep '^clone ' "$CLONE_LOG")
+[[ "$clone_log_line" == *'/home/dev/project'* ]]
+[[ "$clone_log_line" != *'--depth'* ]]
+[[ -x "$clone_project/project/.git" || -f "$clone_project/project/HEAD" || -d "$clone_project/project/.git" ]]
+# clone podman-exec happens before the CBM podman-exec
+[[ "$(grep -n '^exec' "$podman_log" | grep 'git clone' | cut -d: -f1)" -lt \
+   "$(grep -n '^exec' "$podman_log" | grep 'codebase-memory-mcp' | cut -d: -f1)" ]]
+
+# Probe failure: Retry re-probes with the same URL, nothing else re-runs.
+retry_probe_project="$workflow_home/retry-probe"
+retry_probe_config="$(create_clone_project "$retry_probe_project" CloneRetryProbe)"
+: > "$CLONE_LOG"
+printf '1\n' > "$PROBE_FAILS"; printf '0\n' > "$CLONE_FAILS"
+export PODMAN_CLONE_DIR="$retry_probe_project/project"
+show_menu() { printf '%s\n' 'Retry'; }
+prompt_for_repo_url() { printf 'unexpected URL prompt\n' >&2; exit 1; }
+run_first_run_clone "$retry_probe_project" "$retry_probe_config"
+grep -c '^probe ' "$CLONE_LOG" | grep -q '^2$'
+! grep -q '^clone ' "$CLONE_LOG"
+[[ "$(jq -r '.setup_clone_complete' "$retry_probe_config")" == true ]]
+
+# Probe failure: Change URL re-prompts, persists the new URL, and clones it.
+change_url_project="$workflow_home/change-url"
+change_url_config="$(create_clone_project "$change_url_project" CloneChangeUrl)"
+update_sandbox_config_field "$change_url_config" repo_url 'git@old.example.com:team/old.git'
+export PODMAN_CLONE_DIR="$change_url_project/project"
+: > "$CLONE_LOG"
+printf '1\n' > "$PROBE_FAILS"; printf '0\n' > "$CLONE_FAILS"
+prompt_for_repo_url() {
+  case "${PROMPT_COUNT:-0}" in
+    0) PROMPT_COUNT=1; printf '%s\n' 'https://example.com/new-url.git' ;;
+    *) printf 'unexpected extra prompt\n' >&2; exit 1 ;;
+  esac
+}
+show_menu() { printf '%s\n' 'Change URL'; }
+run_first_run_clone "$change_url_project" "$change_url_config"
+[[ "$(jq -r '.repo_url' "$change_url_config")" == 'https://example.com/new-url.git' ]]
+[[ "$(jq -r '.projects[] | select(.name == "CloneChangeUrl") | .repo_url' "$HOME/.config/oc-sandbox/projects.json")" == 'https://example.com/new-url.git' ]]
+grep -q 'probe .*git@old.example.com' "$CLONE_LOG"
+grep -q 'probe .*new-url.git' "$CLONE_LOG"
+[[ "$(jq -r '.setup_clone_complete' "$change_url_config")" == true ]]
+unset PROMPT_COUNT
+
+# Clone failure mid-flight: partial state is cleaned before the retry succeeds.
+partial_project="$workflow_home/partial"
+partial_config="$(create_clone_project "$partial_project" ClonePartial)"
+export PODMAN_CLONE_DIR="$partial_project/project"
+: > "$CLONE_LOG"
+printf '0\n' > "$PROBE_FAILS"
+printf '1\n' > "$CLONE_FAILS"
+show_menu() { printf '%s\n' 'Retry'; }
+run_first_run_clone "$partial_project" "$partial_config"
+[[ "$(grep -c '^clone ' "$CLONE_LOG")" -eq 2 ]]
+[[ ! -e "$PODMAN_CLONE_DIR/partial.marker" ]]
+[[ "$(jq -r '.setup_clone_complete' "$partial_config")" == true ]]
+
+# Clone failure with explicit Exit: user abort (exit 2) is respected.
+abort_project="$workflow_home/abort"
+abort_config="$(create_clone_project "$abort_project" CloneAbort)"
+export PODMAN_CLONE_DIR="$abort_project/project"
+printf '0\n' > "$PROBE_FAILS"
+printf '1\n' > "$CLONE_FAILS"
+if bash -c '
+  source "$1/dist/scripts/start-tui.sh"
+  set -euo pipefail
+  show_menu() { printf "%s\n" "Exit"; }
+  run_first_run_clone "$2" "$3"
+' _ "$PROJECT_ROOT" "$abort_project" "$abort_config" 2>/dev/null; then
+  printf 'clone abort unexpectedly succeeded\n' >&2
+  exit 1
+fi
+[[ "$(jq -r '.setup_clone_complete' "$abort_config")" == false ]]
+
+# Clone succeeded but the flag write failed: Retry setup (menu path "Retry")
+# completes the attempt without re-cloning.
+recall_project="$workflow_home/recall"
+recall_config="$(create_clone_project "$recall_project" CloneRecall)"
+export PODMAN_CLONE_DIR="$recall_project/project"
+rm -rf "$PODMAN_CLONE_DIR"
+mkdir -p "$PODMAN_CLONE_DIR"
+git init -q "$PODMAN_CLONE_DIR"
+git -C "$PODMAN_CLONE_DIR" remote add origin "$CLONE_URL"
+git -C "$PODMAN_CLONE_DIR" -c user.name=t -c user.email=t@e commit --allow-empty -q -m init
+: > "$CLONE_LOG"
+printf '0\n' > "$PROBE_FAILS"; printf '0\n' > "$CLONE_FAILS"
+show_menu() { printf '%s\n' 'Retry'; }
+update_sandbox_config_field "$recall_config" setup_clone_complete false
+run_first_run_clone "$recall_project" "$recall_config"
+[[ "$(jq -r '.setup_clone_complete' "$recall_config")" == true ]]
+[[ ! -s "$CLONE_LOG" ]]
+
+# "Retry setup" from the project menu runs the clone stage and then attaches.
+menu_project="$workflow_home/menu-clone"
+menu_config="$(create_clone_project "$menu_project" CloneMenuPath)"
+export PODMAN_CLONE_DIR="$menu_project/project"
+: > "$CLONE_LOG"
+printf '0\n' > "$PROBE_FAILS"; printf '0\n' > "$CLONE_FAILS"
+CONSOLE_NAME="opencode-sandbox-$(project_container_identity "$menu_project")"
+export PODMAN_RUNNING="$CONSOLE_NAME"
+show_menu() {
+  if [[ "$1" == "Setup incomplete" ]]; then
+    printf '%s\n' 'Retry setup'
+  else
+    printf '%s\n' 'Console (bash)'
+  fi
+}
+handle_project_action "$(get_project_by_path "$menu_project")"
+[[ "$(jq -r '.setup_clone_complete' "$menu_config")" == true ]]
+[[ "$(jq -r '.setup_complete' "$menu_config")" == true ]]
+[[ "$(grep -c '^clone ' "$CLONE_LOG")" -eq 1 ]]
+unset PODMAN_RUNNING
+
+# Empty-source projects skip probe/clone entirely.
+empty_setup_project="$workflow_home/empty-setup"
+mkdir -p "$empty_setup_project"
+add_project_to_registry EmptySetup "$empty_setup_project" none
+create_sandbox_config "$empty_setup_project" full console none
+export PODMAN_CLONE_DIR="$empty_setup_project/project"
+: > "$CLONE_LOG"; : > "$skills_input_log"
+run_first_run_setup "$empty_setup_project" >/dev/null
+[[ "$(jq -r '.setup_complete' "$empty_setup_project/.opencode_config/sandbox_config.json")" == true ]]
+[[ ! -s "$CLONE_LOG" ]]
+[[ "$(jq -r '.setup_clone_complete' "$empty_setup_project/.opencode_config/sandbox_config.json")" == false ]]
+
+# Cleanup of overrides so later sections see the real wizard functions again.
+unset CLONE_LOG PROBE_FAILS CLONE_FAILS CLONE_URL PODMAN_CLONE_DIR
+unset -f show_menu prompt_for_repo_url
+# shellcheck disable=SC1091
+source "$PROJECT_ROOT/dist/scripts/start-tui.sh"
+
+printf 'start-tui clone setup tests passed\n'
 
 # Configuration backup/restore tests cover malformed input, safety copies,
 # per-file scope, rapid writes, rotation, and secret exclusion.
