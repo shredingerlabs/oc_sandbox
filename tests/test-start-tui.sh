@@ -597,3 +597,125 @@ done
 [[ ! -e "$HOME/.config/oc-sandbox/backups/auth.json" ]]
 
 printf 'start-tui configuration backup and restore tests passed\n'
+
+# Stop Container flow: info page when nothing runs, confirmation gate,
+# verified stop with registry update, and failure paths.
+stop_home="$test_home/stop-flow"
+mkdir -p "$stop_home/bin" "$stop_home/project"
+stop_podman_log="$stop_home/podman-args"
+stop_state="$stop_home/running"
+cat > "$stop_home/bin/podman" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\n' "$*" >> "$STOP_PODMAN_LOG"
+case "$1" in
+  ps)
+    [[ -f "$STOP_STATE" ]] && cat "$STOP_STATE"
+    ;;
+  stop)
+    [[ "${STOP_FAIL:-false}" == true ]] && exit 1
+    [[ "${STOP_STUBBORN:-false}" == true ]] && exit 0
+    grep -Fvx -- "$2" "$STOP_STATE" > "$STOP_STATE.tmp" 2>/dev/null || : > "$STOP_STATE.tmp"
+    mv "$STOP_STATE.tmp" "$STOP_STATE"
+    ;;
+  *) exit 0 ;;
+esac
+EOF
+chmod +x "$stop_home/bin/podman"
+export STOP_PODMAN_LOG="$stop_podman_log" STOP_STATE="$stop_state"
+PATH="$stop_home/bin:$PATH"
+pages_log="$stop_home/pages"
+: > "$pages_log"
+show_page() { printf 'PAGE: %s\n' "$*" >> "$pages_log"; }
+wait_for_enter() { :; }
+
+stop_project="$stop_home/project"
+idle_project="$stop_home/idle"
+mkdir -p "$idle_project"
+add_project_to_registry StopTest "$stop_project" none
+add_project_to_registry IdleProject "$idle_project" none
+update_project_status "$stop_project" running
+update_project_status "$idle_project" stopped
+stop_container_name=$(container_name_for_project "$(get_project_by_name StopTest)")
+
+# Nothing running: info page, no podman stop attempted, registry untouched.
+: > "$pages_log"; : > "$stop_podman_log"; rm -f "$stop_state"
+show_menu() { printf '%s\n' 'Stop'; }
+stop_container_menu
+grep -q 'PAGE: No running containers' "$pages_log"
+! grep -q '^stop ' "$stop_podman_log"
+[[ "$(jq -r '.projects[] | select(.name == "StopTest") | .container_status' "$HOME/.config/oc-sandbox/projects.json")" == running ]]
+
+# Only the live-running project is offered; the stopped one is filtered out.
+selection_menu_log="$stop_home/selection-menu"
+: > "$pages_log"; : > "$stop_podman_log"; : > "$selection_menu_log"
+printf '%s\n' "$stop_container_name" > "$stop_state"
+show_menu() {
+  printf '%s\n' "$*" >> "$selection_menu_log"
+  if [[ "$1" == "Select container to stop" ]]; then
+    printf '%s\n' "● StopTest | $stop_project"
+  else
+    printf '%s\n' '← Go Back'
+  fi
+}
+stop_container_menu
+grep -Fq '● StopTest |' "$selection_menu_log"
+! grep -q 'IdleProject' "$selection_menu_log"
+
+# Declining the confirmation leaves the container running.
+: > "$pages_log"; : > "$stop_podman_log"
+printf '%s\n' "$stop_container_name" > "$stop_state"
+show_menu() {
+  if [[ "$1" == "Select container to stop" ]]; then
+    printf '%s\n' "● StopTest | $stop_project"
+  else
+    printf '%s\n' '← Go Back'
+  fi
+}
+stop_container_menu
+[[ "$(<"$stop_state")" == "$stop_container_name" ]]
+! grep -q '^stop ' "$stop_podman_log"
+[[ "$(jq -r '.projects[] | select(.name == "StopTest") | .container_status' "$HOME/.config/oc-sandbox/projects.json")" == running ]]
+
+# Successful stop: container removed, registry marked stopped, success page.
+: > "$pages_log"; : > "$stop_podman_log"
+printf '%s\n' "$stop_container_name" > "$stop_state"
+show_menu() {
+  if [[ "$1" == "Select container to stop" ]]; then
+    printf '%s\n' "● StopTest | $stop_project"
+  else
+    printf '%s\n' 'Stop'
+  fi
+}
+stop_container_menu
+[[ ! -s "$stop_state" ]]
+grep -Fq "stop $stop_container_name" "$stop_podman_log"
+grep -q 'PAGE: Container stopped' "$pages_log"
+[[ "$(jq -r '.projects[] | select(.name == "StopTest") | .container_status' "$HOME/.config/oc-sandbox/projects.json")" == stopped ]]
+
+# Failed podman stop: error page, registry status unchanged.
+: > "$pages_log"; : > "$stop_podman_log"
+printf '%s\n' "$stop_container_name" > "$stop_state"
+update_project_status "$stop_project" running
+STOP_FAIL=true
+export STOP_FAIL
+stop_container_menu
+grep -q 'PAGE: Stop failed' "$pages_log"
+[[ "$(<"$stop_state")" == "$stop_container_name" ]]
+[[ "$(jq -r '.projects[] | select(.name == "StopTest") | .container_status' "$HOME/.config/oc-sandbox/projects.json")" == running ]]
+STOP_FAIL=false
+
+# Container survives stop (stubs exit 0 but stays in ps): error page, no status change.
+: > "$pages_log"; : > "$stop_podman_log"
+printf '%s\n' "$stop_container_name" > "$stop_state"
+update_project_status "$stop_project" running
+STOP_STUBBORN=true
+export STOP_FAIL STOP_STUBBORN
+stop_container_menu
+grep -q 'PAGE: Stop failed' "$pages_log"
+[[ "$(<"$stop_state")" == "$stop_container_name" ]]
+[[ "$(jq -r '.projects[] | select(.name == "StopTest") | .container_status' "$HOME/.config/oc-sandbox/projects.json")" == running ]]
+STOP_STUBBORN=false
+unset STOP_FAIL STOP_STUBBORN
+
+printf 'start-tui stop container tests passed\n'

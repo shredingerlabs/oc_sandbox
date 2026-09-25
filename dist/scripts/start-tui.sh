@@ -1532,7 +1532,7 @@ detect_available_editions() {
 
 settings_menu() {
   while true; do
-    local options=("Config Backup" "Config Restore" "Uninstall" "← Back to Main Menu")
+    local options=("Config Backup" "Config Restore" "Stop Container" "Uninstall" "← Back to Main Menu")
     local choice=$(show_menu "Settings" "${options[@]}")
 
     case "$choice" in
@@ -1542,6 +1542,9 @@ settings_menu() {
       "Config Restore")
         restore_config
         ;;
+      "Stop Container")
+        stop_container_menu
+        ;;
       "Uninstall")
         deinstallation_wizard
         ;;
@@ -1550,6 +1553,84 @@ settings_menu() {
         ;;
     esac
   done
+}
+
+stop_container_menu() {
+  local running_projects=()
+  mapfile -t running_projects < <(get_running_containers)
+
+  if [[ ${#running_projects[@]} -eq 0 ]]; then
+    show_page "No running containers" "Start a project first."
+    wait_for_enter || true
+    return
+  fi
+
+  local projects=()
+  mapfile -t projects < <(get_all_projects_ordered)
+
+  local menu_items=()
+  for project in "${projects[@]}"; do
+    local container_id=$(jq -r '.container_id' <<< "$project")
+    local container_name="opencode-sandbox-${container_id}"
+    for running in "${running_projects[@]}"; do
+      if [[ "$running" == "$container_name" ]]; then
+        local name=$(jq -r '.name' <<< "$project")
+        local path=$(jq -r '.path' <<< "$project")
+        menu_items+=("● ${name} | ${path}")
+        break
+      fi
+    done
+  done
+
+  if [[ ${#menu_items[@]} -eq 0 ]]; then
+    show_page "No running containers" "Start a project first."
+    wait_for_enter || true
+    return
+  fi
+
+  menu_items+=("← Go Back")
+
+  local choice=$(show_menu "Select container to stop" "${menu_items[@]}")
+  if [[ "$choice" == "← Go Back" ]]; then
+    return 0
+  fi
+
+  local selected_name=$(echo "$choice" | sed 's/^● //' | sed 's/ |.*//')
+  local project_data=$(get_project_by_name "$selected_name")
+  [[ -n "$project_data" ]] || return 0
+  local project_path=$(jq -r '.path' <<< "$project_data")
+  local container_name=$(container_name_for_project "$project_data")
+
+  local confirm
+  confirm=$(show_menu "Stop ${container_name}?" "Stop" "← Go Back") || return 0
+  [[ "$confirm" == "Stop" ]] || return 0
+
+  if ! podman stop "$container_name" >/dev/null 2>&1; then
+    show_page "Stop failed" "Could not stop ${container_name}."
+    wait_for_enter || true
+    return
+  fi
+
+  local still_running=false
+  local remaining=()
+  mapfile -t remaining < <(get_running_containers)
+  for running in "${remaining[@]}"; do
+    if [[ "$running" == "$container_name" ]]; then
+      still_running=true
+      break
+    fi
+  done
+
+  if [[ "$still_running" == "true" ]]; then
+    show_page "Stop failed" "${container_name} is still running."
+    wait_for_enter || true
+    return
+  fi
+
+  update_project_status "$project_path" "stopped"
+
+  show_page "Container stopped" "${container_name}"
+  wait_for_enter || true
 }
 
 backup_config_manually() {
@@ -1636,18 +1717,18 @@ restore_config() {
 deinstallation_wizard() {
   show_deinstallation_warning || return 0
 
-  local remove_symlinks=false remove_config=false create_backup=false
-  if ! select_deinstallation_options remove_symlinks remove_config create_backup; then
+  local remove_symlinks=false remove_config=false create_backup=false remove_shortcuts=false
+  if ! select_deinstallation_options remove_symlinks remove_config create_backup remove_shortcuts; then
     return 0
   fi
 
-  if ! show_deinstallation_summary "$remove_symlinks" "$remove_config" "$create_backup"; then
+  if ! show_deinstallation_summary "$remove_symlinks" "$remove_config" "$create_backup" "$remove_shortcuts"; then
     show_page "Uninstall cancelled" "Nothing was removed."
     wait_for_enter || true
     return 0
   fi
 
-  run_deinstallation "$remove_symlinks" "$remove_config" "$create_backup"
+  run_deinstallation "$remove_symlinks" "$remove_config" "$create_backup" "$remove_shortcuts"
 }
 
 show_deinstallation_warning() {
@@ -1677,50 +1758,41 @@ select_deinstallation_options() {
   local -n ref_symlinks=$1
   local -n ref_config=$2
   local -n ref_backup=$3
+  local -n ref_shortcuts=$4
   ref_symlinks=true
   ref_config=false
   ref_backup=false
+  ref_shortcuts=false
 
-  if [[ "$TUI_MODE" != "gum" ]]; then
+  while true; do
+    local labels=()
+    labels+=("$([[ $ref_symlinks == true ]] && printf '[x]' || printf '[ ]') Remove symlinks (~/.local/bin)")
+    labels+=("$([[ $ref_config == true ]] && printf '[x]' || printf '[ ]') Remove config (~/.config/oc-sandbox)")
+    labels+=("$([[ $ref_shortcuts == true ]] && printf '[x]' || printf '[ ]') Remove desktop shortcuts")
+    if [[ $ref_config == true ]]; then
+      labels+=("$([[ $ref_backup == true ]] && printf '[x]' || printf '[ ]') Create backup")
+    fi
+    labels+=("Confirm — start uninstall")
+
     local toggle_choice
-    while true; do
-      local labels=()
-      labels+=("$([[ $ref_symlinks == true ]] && printf '[x]' || printf '[ ]') Remove symlinks (~/.local/bin)")
-      labels+=("$([[ $ref_config == true ]] && printf '[x]' || printf '[ ]') Remove config (~/.config/oc-sandbox)")
-      if [[ $ref_config == true ]]; then
-        labels+=("$([[ $ref_backup == true ]] && printf '[x]' || printf '[ ]') Create backup")
-      fi
-      toggle_choice=$(bash_select "Toggle options (select an item to toggle)" "${labels[@]}" "Done") || return 1
-      case "$toggle_choice" in
-        "Done") break ;;
-        *"Remove symlinks"*) [[ $ref_symlinks == true ]] && ref_symlinks=false || ref_symlinks=true ;;
-        *"Remove config"*) [[ $ref_config == true ]] && ref_config=false || ref_config=true ;;
-        *"Create backup"*) [[ $ref_backup == true ]] && ref_backup=false || ref_backup=true ;;
-      esac
-    done
-  fi
+    if [[ "$TUI_MODE" == "gum" ]]; then
+      toggle_choice=$("$GUM_BIN" choose \
+        --header="Uninstall options (select an item to toggle)" \
+        --height=6 \
+        "${labels[@]}" "← Go Back") || return 1
+    else
+      toggle_choice=$(bash_select "Uninstall options (select an item to toggle)" "${labels[@]}" "← Go Back") || return 1
+    fi
 
-  local symlinks_item="Remove symlinks (~/.local/bin)"
-  local config_item="Remove config (~/.config/oc-sandbox)"
-  local backup_item="Create backup"
-  local raw
-  local args
-
-  if [[ "$TUI_MODE" == "gum" ]]; then
-    args=()
-    [[ $ref_symlinks == true ]] && args+=(--selected "$symlinks_item")
-    [[ $ref_config == true ]] && args+=(--selected "$config_item")
-    [[ $ref_backup == true ]] && args+=(--selected "$backup_item")
-
-    raw=$("$GUM_BIN" choose --no-limit \
-      --header="Uninstall options (space to toggle, enter to confirm)" \
-      --height=5 \
-      "${args[@]}" "$symlinks_item" "$config_item" "$backup_item") || return 1
-
-    [[ "$raw" == *"$symlinks_item"* ]] && ref_symlinks=true || ref_symlinks=false
-    [[ "$raw" == *"$config_item"* ]] && ref_config=true || ref_config=false
-    [[ "$raw" == *"$backup_item"* ]] && ref_backup=true || ref_backup=false
-  fi
+    case "$toggle_choice" in
+      "← Go Back") return 1 ;;
+      "Confirm — start uninstall") break ;;
+      *"Remove symlinks"*) [[ $ref_symlinks == true ]] && ref_symlinks=false || ref_symlinks=true ;;
+      *"Remove config"*) [[ $ref_config == true ]] && ref_config=false || ref_config=true ;;
+      *"desktop shortcuts"*) [[ $ref_shortcuts == true ]] && ref_shortcuts=false || ref_shortcuts=true ;;
+      *"Create backup"*) [[ $ref_backup == true ]] && ref_backup=false || ref_backup=true ;;
+    esac
+  done
 
   if [[ $ref_backup == true && $ref_config != true ]]; then
     ref_backup=false
@@ -1731,12 +1803,15 @@ select_deinstallation_options() {
 }
 
 show_deinstallation_summary() {
-  local remove_symlinks="$1" remove_config="$2" create_backup="$3"
+  local remove_symlinks="$1" remove_config="$2" create_backup="$3" remove_shortcuts="${4:-false}"
 
   local lines=("The following will be removed:")
   lines+=("  - Installation: ${INSTALL_ROOT:-$HOME/.oc-sandbox}")
   if [[ $remove_symlinks == true ]]; then
     lines+=("  - Symlinks in ~/.local/bin")
+  fi
+  if [[ $remove_shortcuts == true ]]; then
+    lines+=("  - Desktop shortcuts (start menu entries)")
   fi
   if [[ $remove_config == true ]]; then
     lines+=("  - Config: ~/.config/oc-sandbox")
@@ -1758,10 +1833,11 @@ show_deinstallation_summary() {
 }
 
 run_deinstallation() {
-  local remove_symlinks="$1" remove_config="$2" create_backup="$3"
+  local remove_symlinks="$1" remove_config="$2" create_backup="$3" remove_shortcuts="${4:-false}"
 
   local args=("--force")
   [[ $remove_symlinks != true ]] && args+=("--no-symlinks")
+  [[ $remove_shortcuts == true ]] && args+=("--remove-shortcuts")
   if [[ $remove_config == true ]]; then
     args+=("--remove-config")
     [[ $create_backup != true ]] && args+=("--no-backup")

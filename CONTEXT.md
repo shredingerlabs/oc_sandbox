@@ -16,6 +16,8 @@
 
 **concurrent containers** — Multiple project containers can run simultaneously using project-specific naming (opencode-sandbox-PROJECTNAME), with TUI using podman exec for accessing running containers instead of starting new ones.
 
+**stop container** — Graceful shutdown of a running project container via `podman stop` (SIGTERM, then SIGKILL after the default timeout), initiated from the TUI Settings menu for a single selected project. Because containers run with `--rm`, a stopped container is removed automatically; the registry's container_status is set to "stopped" only after the container is verified gone.
+
 **first-run setup** — Automated container initialization including CBM configuration and skills setup, tracked via setup-complete flag in sandbox_config.json, offering granular recovery for partial failures.
 
 **VCS integration** — Version Control System setup (GitHub, GitLab, or custom host) creating credentials/hosts.yml in `.git_local/` subdirectories, separate from AI provider configuration.
@@ -122,7 +124,7 @@
 
 **retry flow** — Error recovery pattern where users who choose "Retry" after a failure remain in the recovery loop even if intermediate steps (like settings adjustment) fail. Failures show context-aware error messages and return to the retry menu, except for explicit user aborts (exit code 2) which are respected throughout.
 
-**uninstall wizard** — Guided TUI flow in Settings (warning screen with running containers and their stop commands, option checkboxes for symlinks/config/backup, summary screen). Every screen can be cancelled or navigated back; the choices are mapped to uninstall.sh flags and run with `--force`.
+**uninstall wizard** — Guided TUI flow in Settings (warning screen with running containers and their stop commands, option rows for symlinks/config/backup toggled via Enter, explicit "Confirm — start uninstall" row that must be selected to proceed, summary screen). Every screen can be cancelled or navigated back; toggling a flag row alone never advances the wizard. The choices are mapped to uninstall.sh flags and run with `--force`.
 
 **UNINSTALL confirmation** — Typed text confirmation required on the uninstall summary before anything is removed; rendered as a red gum input when gum is available, plain `read` fallback otherwise.
 
@@ -133,3 +135,15 @@
 **squid allowlist scope** — The squid egress proxy governs outbound traffic from inside the container only. Host-browser access to published container ports (web UI, CBM UI) never traverses squid, so allowlist entries are never needed for ingress.
 
 **skipped files** — Files that could not be removed during uninstallation because of missing permissions; tracked during removal and reported at the end with a hint to clean them up manually (e.g. with sudo).
+
+**desktop shortcut** — OS menu launcher for the TUI created by the install script on request; exactly one platform-appropriate artifact per OS: a `.desktop` file named `oc-sandbox.desktop` with `Terminal=true` under `$HOME/.local/share/applications/` (Linux), a `.lnk` named `OC Sandbox.lnk` in the current Windows user's Start Menu written from inside WSL (Windows), or a minimal `.app` bundle named `OC Sandbox.app` in `~/Applications` (macOS). Display name is `OC Sandbox` on all platforms. Independent of symlinks.
+
+**shortcut flag** — Optional `--shortcut` parameter on the install script; creates the desktop shortcut for the detected platform and overwrites an existing artifact silently on re-install.
+
+**shortcut removal** — Uninstall path for desktop shortcuts, offered as a wizard checkbox mapped to an uninstall.sh flag; removes shortcut artifacts pointing into the installation folder.
+
+**shortcut icon** — Icon material for the desktop shortcut, provided under `dist/icons/` in platform subfolders (`linux/`, `windows/`, `macos/`) and processed at shortcut creation time: Linux installs the bundled hicolor PNG set into `$HOME/.local/share/icons/hicolor/` and the `.desktop` file references it by bare theme name (`Icon=oc-sandbox`, no path); Windows copies `icons/windows/oc-sandbox.ico` to `%LOCALAPPDATA%\oc-sandbox\oc-sandbox.ico` and points the `.lnk`'s `IconLocation` there (the Start Menu shell cannot render icons from `\\wsl.localhost\...` UNC paths; UNC is only a fallback); macOS generates the `.icns` from `icons/macos/oc-sandbox.iconset` with `iconutil` at install time and embeds it in the `.app` bundle. Missing icons never fail the shortcut — it is created without one.
+
+**hicolor icon install** — Linux shortcut step copying `icons/linux/share/icons/hicolor/` into `$HOME/.local/share/icons/hicolor/` so the desktop entry resolves `Icon=oc-sandbox` through the icon theme. Best-effort: failures fall back to an icon-less shortcut.
+
+**icns generation** — macOS shortcut step converting the bundled `.iconset` to `AppIcon.icns` using `iconutil` (ships with macOS); on failure the `.app` is created without an icon.

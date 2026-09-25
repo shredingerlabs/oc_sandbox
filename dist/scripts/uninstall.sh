@@ -20,6 +20,7 @@ TEMP_BACKUP_DIR=""
 VERBOSE=false
 REMOVE_CONFIG=false
 REMOVE_SYMLINKS=true
+REMOVE_SHORTCUTS=false
 CONFIG_DIR="$HOME/.config/oc-sandbox"
 SKIPPED_FILES=()
 ACTIONS_TAKEN=()
@@ -367,6 +368,89 @@ remove_gum() {
   fi
 }
 
+remove_shortcuts() {
+  if ! $REMOVE_SHORTCUTS; then
+    return 0
+  fi
+
+  log_info "Prüfe auf Desktop-Shortcuts..."
+
+  local removed_all=true
+
+  # Linux: .desktop-Datei im Anwendungs-Menü
+  local desktop_file="$HOME/.local/share/applications/oc-sandbox.desktop"
+  if [[ -f "$desktop_file" ]]; then
+    if remove_path_safe "$desktop_file"; then
+      log_verbose ".desktop-Verknüpfung entfernt: $desktop_file"
+      record_action "Desktop-Verknüpfung entfernt: $desktop_file"
+    else
+      removed_all=false
+    fi
+  fi
+
+  # Linux: installierte Hicolor-Icons (oc-sandbox.png unter */apps/)
+  if [[ -d "$HOME/.local/share/icons/hicolor" ]]; then
+    while IFS= read -r -d '' icon_file; do
+      if remove_path_safe "$icon_file"; then
+        log_verbose "Hicolor-Icon entfernt: $icon_file"
+        record_action "Hicolor-Icon entfernt: $icon_file"
+      else
+        removed_all=false
+      fi
+    done < <(find "$HOME/.local/share/icons/hicolor" -type f -path "*/apps/oc-sandbox.png" -print0 2>/dev/null)
+  fi
+
+  # WSL: .lnk im Windows-Startmenu (nur wenn Interop verfügbar)
+  # macOS: .app-Bundle in ~/Applications
+  if [[ "$(uname -s)" == "Darwin" ]]; then
+    local app_dir="$HOME/Applications/OC Sandbox.app"
+    if [[ -d "$app_dir" ]]; then
+      if remove_path_safe "$app_dir"; then
+        log_verbose "App-Bundle entfernt: $app_dir"
+        record_action "App-Bundle entfernt: $app_dir"
+      else
+        removed_all=false
+      fi
+    fi
+  elif command -v powershell.exe &>/dev/null; then
+    local win_start_menu=""
+    win_start_menu=$(powershell.exe -NoProfile -Command "[Environment]::GetFolderPath('StartMenu')" 2>/dev/null | tr -d '\r' || true)
+    win_start_menu=${win_start_menu%%$'\n'*}
+    local lnk_unix=""
+    if [[ -n "$win_start_menu" ]]; then
+      lnk_unix=$(wslpath -u "${win_start_menu}\\Programs\\OC Sandbox.lnk" 2>/dev/null || true)
+    fi
+    if [[ -n "$lnk_unix" && -f "$lnk_unix" ]]; then
+      if remove_path_safe "$lnk_unix"; then
+        log_verbose "Windows-Verknüpfung entfernt: $lnk_unix"
+        record_action "Windows-Verknüpfung entfernt: $lnk_unix"
+      else
+        removed_all=false
+      fi
+    fi
+    # WSL: Icon-Kopie im %LOCALAPPDATA% entfernen (vom Installer angelegt)
+    local win_localappdata=""
+    win_localappdata=$(powershell.exe -NoProfile -Command "[Environment]::GetFolderPath('LocalApplicationData')" 2>/dev/null | tr -d '\r' || true)
+    win_localappdata=${win_localappdata%%$'\n'*}
+    local icon_unix=""
+    if [[ -n "$win_localappdata" ]]; then
+      icon_unix=$(wslpath -u "${win_localappdata}\\oc-sandbox\\oc-sandbox.ico" 2>/dev/null || true)
+    fi
+    if [[ -n "$icon_unix" && -f "$icon_unix" ]]; then
+      if remove_path_safe "$icon_unix"; then
+        log_verbose "Icon-Kopie entfernt: $icon_unix"
+        record_action "Icon-Kopie entfernt: $icon_unix"
+      else
+        removed_all=false
+      fi
+    fi
+  fi
+
+  if ! $removed_all; then
+    log_warn "Einige Desktop-Shortcuts konnten nicht entfernt werden (siehe oben)."
+  fi
+}
+
 # --- Interactive Prompts -------------------------------------------------------
 confirm_removal() {
   echo ""
@@ -409,6 +493,7 @@ Optionen:
   --remove-config        Config-Verzeichnis ebenfalls entfernen
   --no-backup            Kein Backup erstellen (auch für Config)
   --no-symlinks          Symlinks nicht entfernen
+  --remove-shortcuts     Desktop-Shortcuts (.desktop/.lnk/.app) entfernen
   --force                Keine Bestätigungen, sofort entfernen
   --dry-run              Zeige was entfernt würde, ohne zu löschen
   --verbose              Detaillierte Ausgabe
@@ -426,6 +511,9 @@ Beispiele:
 
   # Deinstallation ohne Symlinks zu entfernen
   $0 --no-symlinks
+
+  # Deinstallation inkl. Desktop-Shortcuts
+  $0 --remove-shortcuts
 
   # Nicht-interaktiv (für Skripte/CI)
   $0 --force
@@ -461,6 +549,10 @@ parse_arguments() {
         ;;
       --no-symlinks)
         REMOVE_SYMLINKS=false
+        shift
+        ;;
+      --remove-shortcuts)
+        REMOVE_SHORTCUTS=true
         shift
         ;;
       --force)
@@ -518,6 +610,21 @@ perform_removal() {
       echo "  (nicht gefunden)"
     fi
     echo ""
+    echo "Desktop-Shortcuts:"
+    if $REMOVE_SHORTCUTS; then
+      local desktop_file="$HOME/.local/share/applications/oc-sandbox.desktop"
+      if [[ -f "$desktop_file" ]]; then
+        echo "  $desktop_file"
+        echo "  (wäre entfernt)"
+      fi
+      if [[ "$(uname -s)" == "Darwin" ]] && [[ -d "$HOME/Applications/OC Sandbox.app" ]]; then
+        echo "  $HOME/Applications/OC Sandbox.app"
+        echo "  (wäre entfernt)"
+      fi
+    else
+      echo "  (bleiben unberührt – --remove-shortcuts nicht gesetzt)"
+    fi
+    echo ""
     if $REMOVE_CONFIG; then
       echo "Config-Verzeichnis: $CONFIG_DIR"
       if [[ -d "$CONFIG_DIR" ]]; then
@@ -569,6 +676,9 @@ perform_removal() {
 
   # Cleanup symlinks
   remove_symlinks
+
+  # Cleanup desktop shortcuts if requested
+  remove_shortcuts
 
   # Cleanup gum
   remove_gum

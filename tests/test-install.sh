@@ -260,7 +260,769 @@ test_dependency_check() {
   fi
 }
 
-# --- Main Test Runner ----------------------------------------------------------
+# --- Desktop-Shortcut-Tests ------------------------------------------------------
+
+# Fixture: Installationsverzeichnis mit start-tui.sh im isolierten HOME
+setup_shortcut_env() {
+  local test_name="$1"
+  local test_dir
+  test_dir=$(setup_test_env "$test_name")
+  local home="$test_dir/home"
+  local install_dir="$home/.oc-sandbox"
+  mkdir -p "$install_dir/scripts"
+  echo "#!/usr/bin/env bash" > "$install_dir/scripts/start-tui.sh"
+  chmod +x "$install_dir/scripts/start-tui.sh"
+  echo "$home"
+}
+
+# Lädt install.sh, ohne main() auszuführen (quittiert mit --help-Exit).
+# PLATFORM_OS/is_wsl werden anschließend vom Aufrufer gesetzt.
+init_shortcut_functions() {
+  local fake_home="$1"
+  local platform="$2"
+
+  HOME="$fake_home"
+  INSTALL_PATH="${fake_home}/.oc-sandbox"
+  PLATFORM_OS="$platform"
+}
+
+test_help_shows_shortcut_flag() {
+  local output
+  output=$("$INSTALL_SCRIPT" --help 2>&1)
+
+  if [[ "$output" != *"--shortcut"* ]]; then
+    echo "Help output missing --shortcut option"
+    return 1
+  fi
+
+  return 0
+}
+
+test_shortcut_flag_accepted() {
+  # Führe flag parsing direkt aus (source without running main)
+  local test_dir
+  test_dir=$(setup_test_env "shortcut-flag")
+  local home="$test_dir/home"
+  mkdir -p "$home"
+
+  if ! (HOME="$home" bash -c "source '$INSTALL_SCRIPT' --help" >/dev/null 2>&1); then
+    echo "Source aufgerufen mit --help sollte 0 liefern"
+    return 1
+  fi
+  cleanup_test_env "$test_dir"
+}
+
+test_linux_shortcut_creation() {
+  local test_dir
+  test_dir=$(setup_test_env "shortcut-linux")
+  local home
+  home=$(setup_shortcut_env "shortcut-linux-2")
+  local install_dir="$home/.oc-sandbox"
+
+  (source "$INSTALL_SCRIPT" --help >/dev/null 2>&1
+   init_shortcut_functions "$home" "Linux"
+   create_shortcut "$install_dir")
+
+  local desktop_file="$home/.local/share/applications/oc-sandbox.desktop"
+  assert_file_exists "$desktop_file" || { cleanup_test_env "$test_dir"; return 1; }
+
+  local content
+  content=$(cat "$desktop_file")
+  if [[ "$content" != *"Exec=${install_dir}/scripts/start-tui.sh"* ]]; then
+    echo "Desktop-File Exec zeigt nicht auf start-tui.sh"
+    cleanup_test_env "$test_dir"
+    return 1
+  fi
+  if [[ "$content" != *"Terminal=true"* ]]; then
+    echo "Desktop-File hat Terminal=true nicht gesetzt"
+    cleanup_test_env "$test_dir"
+    return 1
+  fi
+  if [[ "$content" != *"Name=OC Sandbox"* ]]; then
+    echo "Desktop-File hat Name=OC Sandbox nicht"
+    cleanup_test_env "$test_dir"
+    return 1
+  fi
+
+  cleanup_test_env "$test_dir"
+}
+
+test_linux_shortcut_with_icon() {
+  local test_dir
+  test_dir=$(setup_test_env "shortcut-icon")
+  local home
+  home=$(setup_shortcut_env "shortcut-icon-2")
+  local install_dir="$home/.oc-sandbox"
+  mkdir -p "$install_dir/icons/linux/share/icons/hicolor/48x48/apps"
+  echo "fake-png" > "$install_dir/icons/linux/share/icons/hicolor/48x48/apps/oc-sandbox.png"
+
+  (source "$INSTALL_SCRIPT" --help >/dev/null 2>&1
+   init_shortcut_functions "$home" "Linux"
+   create_shortcut "$install_dir")
+
+  local desktop_file="$home/.local/share/applications/oc-sandbox.desktop"
+  assert_file_exists "$desktop_file" || { cleanup_test_env "$test_dir"; return 1; }
+
+  if ! grep -q "^Icon=oc-sandbox$" "$desktop_file"; then
+    echo "Desktop-File referenziert Icon nicht per Theme-Namen"
+    cat "$desktop_file"
+    cleanup_test_env "$test_dir"
+    return 1
+  fi
+
+  if [[ ! -f "$home/.local/share/icons/hicolor/48x48/apps/oc-sandbox.png" ]]; then
+    echo "Hicolor-Icon wurde nicht nach ~/.local/share/icons installiert"
+    cleanup_test_env "$test_dir"
+    return 1
+  fi
+
+  cleanup_test_env "$test_dir"
+}
+
+test_linux_shortcut_failure_warns_but_install_succeeds() {
+  local test_dir
+  test_dir=$(setup_test_env "shortcut-fail")
+  local home="$test_dir/home"
+  mkdir -p "$home/.local/share/applications"
+
+  # Fehlendes start-tui.sh -> Shortcut schlägt fehl, aber create_shortcut
+  # liefert trotzdem Exit 0 (warn-and-continue Nemessis: Installation Exit-Code 0)
+  local rc=0
+  (source "$INSTALL_SCRIPT" --help >/dev/null 2>&1
+   init_shortcut_functions "$home" "Linux"
+   create_shortcut "$home/.oc-sandbox-no-script") || rc=$?
+
+  assert_equals "0" "$rc" "create_shortcut liefert immer 0 (warn-and-continue)" || { cleanup_test_env "$test_dir"; return 1; }
+
+  cleanup_test_env "$test_dir"
+}
+
+test_main_wires_detect_platform_before_shortcut() {
+  # Regression: main() rief detect_platform nie auf – PLATFORM_OS blieb leer,
+  # create_shortcut matchte in keinem case-Zweig und schlug stumm fehl
+  # ("Desktop-Shortcut konnte nicht erstellt werden" ohne Details).
+  local test_dir
+  test_dir=$(setup_test_env "shortcut-main-wiring")
+  local home
+  home=$(setup_shortcut_env "shortcut-main-wiring-2")
+  local install_dir="$home/.oc-sandbox"
+
+  local rc=0
+  (source "$INSTALL_SCRIPT" --help >/dev/null 2>&1
+   HOME="$home"
+   INSTALL_PATH="$install_dir"
+   VERBOSE=false
+   check_dependencies() { return 0; }
+   check_disk_space() { return 0; }
+   get_latest_release() { echo "v0.0.34"; }
+   check_existing_installation() { return 0; }
+   install_files() { return 0; }
+   set_executable_permissions() { return 0; }
+   validate_installation() { return 0; }
+   install_gum() { return 0; }
+   gum_available() { return 1; }
+   main --shortcut >/dev/null 2>&1) || rc=$?
+
+  assert_equals "0" "$rc" "main --shortcut liefert 0" || { cleanup_test_env "$test_dir"; return 1; }
+
+  assert_file_exists "$home/.local/share/applications/oc-sandbox.desktop" || {
+    echo "main hat keinen Desktop-Shortcut erstellt (PLATFORM_OS-Verdrahtung fehlt)"
+    cleanup_test_env "$test_dir"
+    return 1
+  }
+
+  cleanup_test_env "$test_dir"
+}
+
+test_existing_install_non_tty_fails_clearly() {
+  # Regression: ohne TTY (z.B. 'curl ... | bash' ohne Terminal) schlug der
+  # read-Prompt still fehl (set -e, Exit 1 ohne Meldung). Jetzt: klare Fehler-
+  # meldung mit --force-Hinweis, Exit 2.
+  local test_dir
+  test_dir=$(setup_test_env "existing-nontty")
+  local home="$test_dir/home"
+  mkdir -p "$home/.oc-sandbox"
+
+  local output rc=0
+  output=$( (source "$INSTALL_SCRIPT" --help >/dev/null 2>&1
+             HOME="$home"
+             INSTALL_PATH="$home/.oc-sandbox"
+             FORCE=false
+             VERBOSE=false
+             check_existing_installation "$INSTALL_PATH") </dev/null 2>&1 ) || rc=$?
+
+  assert_equals "2" "$rc" "Exit 2 ohne TTY bei vorhandener Installation" || { cleanup_test_env "$test_dir"; return 1; }
+
+  if [[ "$output" != *"--force"* ]]; then
+    echo "Fehlermeldung ohne --force-Hinweis"
+    echo "$output"
+    cleanup_test_env "$test_dir"
+    return 1
+  fi
+
+  cleanup_test_env "$test_dir"
+}
+
+test_existing_install_non_tty_with_force_proceeds() {
+  # --force umgeht den Prompt auch ohne TTY (Update-Pfad für CI/curl|bash)
+  local test_dir
+  test_dir=$(setup_test_env "existing-force")
+  local home="$test_dir/home"
+  mkdir -p "$home/.oc-sandbox"
+
+  local rc=0
+  (source "$INSTALL_SCRIPT" --help >/dev/null 2>&1
+   HOME="$home"
+   INSTALL_PATH="$home/.oc-sandbox"
+   FORCE=true
+   VERBOSE=false
+   PRESERVE_ALLOWLIST=false
+   check_existing_installation "$INSTALL_PATH") </dev/null 2>&1 || rc=$?
+
+  assert_equals "0" "$rc" "--force überschreibt ohne Nachfrage" || { cleanup_test_env "$test_dir"; return 1; }
+
+  cleanup_test_env "$test_dir"
+}
+
+test_existing_install_tty_confirm_proceeds() {
+  # PTY: Bestätigung mit 'y' + allowlist-Erhalt → PRESERVE_ALLOWLIST=true
+  if ! command -v python3 >/dev/null 2>&1; then
+    echo "SKIP (python3 fehlt)"
+    return 0
+  fi
+  local test_dir
+  test_dir=$(setup_test_env "existing-tty")
+  local home="$test_dir/home"
+  mkdir -p "$home/.oc-sandbox/proxy"
+  echo "*" > "$home/.oc-sandbox/proxy/allowlist.txt"
+
+  local result rc=0
+  result=$(python3 "$PROJECT_ROOT/tests/run-pty.py" --input 'yy' --submit '' --timeout 10 -- bash -c '
+    source "$1" --help >/dev/null 2>&1
+    HOME="$2"
+    INSTALL_PATH="$2/.oc-sandbox"
+    FORCE=false
+    VERBOSE=false
+    PRESERVE_ALLOWLIST=false
+    check_existing_installation "$INSTALL_PATH"
+    echo "PRESERVE=$PRESERVE_ALLOWLIST"
+  ' _ "$INSTALL_SCRIPT" "$home" 2>&1) || rc=$?
+
+  assert_equals "0" "$rc" "Bestätigung mit 'y' läuft weiter" || { echo "$result"; cleanup_test_env "$test_dir"; return 1; }
+  if [[ "$result" != *"PRESERVE=true"* ]]; then
+    echo "allowlist-Prompt hat PRESERVE_ALLOWLIST nicht auf true gesetzt"
+    echo "$result"
+    cleanup_test_env "$test_dir"
+    return 1
+  fi
+
+  cleanup_test_env "$test_dir"
+}
+
+test_existing_install_tty_decline_aborts() {
+  # PTY: 'n' bricht ab (Exit 2, "Installation abgebrochen.")
+  if ! command -v python3 >/dev/null 2>&1; then
+    echo "SKIP (python3 fehlt)"
+    return 0
+  fi
+  local test_dir
+  test_dir=$(setup_test_env "existing-tty-decline")
+  local home="$test_dir/home"
+  mkdir -p "$home/.oc-sandbox"
+
+  local result rc=0
+  result=$(python3 "$PROJECT_ROOT/tests/run-pty.py" --input 'n' --submit '' --timeout 10 -- bash -c '
+    source "$1" --help >/dev/null 2>&1
+    HOME="$2"
+    INSTALL_PATH="$2/.oc-sandbox"
+    FORCE=false
+    VERBOSE=false
+    check_existing_installation "$INSTALL_PATH"
+    echo "KEIN-ABBRUCH"
+  ' _ "$INSTALL_SCRIPT" "$home" 2>&1) || rc=$?
+
+  assert_equals "2" "$rc" "'n' bricht Installation mit Exit 2 ab" || { echo "$result"; cleanup_test_env "$test_dir"; return 1; }
+  if [[ "$result" == *"KEIN-ABBRUCH"* ]]; then
+    echo "'n' hat die Installation nicht abgebrochen"
+    echo "$result"
+    cleanup_test_env "$test_dir"
+    return 1
+  fi
+
+  cleanup_test_env "$test_dir"
+}
+
+test_wsl_shortcut_uses_powershell_shim() {
+  local test_dir
+  test_dir=$(setup_test_env "shortcut-wsl")
+  local home="$test_dir/home"
+  local install_dir="$home/.oc-sandbox"
+  mkdir -p "$install_dir/scripts"
+  echo "#!/usr/bin/env bash" > "$install_dir/scripts/start-tui.sh"
+  chmod +x "$install_dir/scripts/start-tui.sh"
+  mkdir -p "$install_dir/icons/windows"
+  touch "$install_dir/icons/windows/oc-sandbox.ico"
+
+  local test_bin="$test_dir/bin"
+  mkdir -p "$test_bin"
+
+  # Fakes Windows-User-Profil unter einem simulierten /mnt/c
+  local mnt_c="$test_dir/mnt-c"
+  mkdir -p "$mnt_c/Users/testuser/AppData/Roaming/Microsoft/Windows/Start Menu/Programs"
+  # Fake %LOCALAPPDATA% (das Icon wird vom Install-Script hierher kopiert)
+  mkdir -p "$mnt_c/Users/testuser/AppData/Local"
+
+  # Fake powershell.exe: liefert fake Windows-User und legt die .lnk an
+  cat > "$test_bin/powershell.exe" << EOF
+#!/usr/bin/bash
+echo "POWERSHELL_CALL: \$*" >> "$test_dir/ps-calls"
+prev=""
+for arg in "\$@"; do
+  if [[ "\$prev" == "-Command" ]]; then
+    printf '%s\n' "\$arg" >> "$test_dir/ps-commands"
+    case "\$arg" in
+      *'LocalApplicationData'*)
+        echo 'C:\\Users\\testuser\\AppData\\Local'
+        exit 0
+        ;;
+    esac
+  fi
+  prev="\$arg"
+done
+echo "testuser"
+exit 0
+EOF
+  chmod +x "$test_bin/powershell.exe"
+
+  # Fake wslpath shim: -w liefert Windows-Pfad, -u übersetzt ins Sandbox-/mnt-c
+  cat > "$test_bin/wslpath" << EOF
+#!/usr/bin/bash
+if [[ "\${1:-}" == "-w" ]]; then
+  echo "C:\\\\Fake"
+elif [[ "\${1:-}" == "-u" ]]; then
+  p="\${2//\\\\//}"
+  echo "$test_dir/mnt-c\${p#C:}"
+else
+  echo "\$1"
+fi
+EOF
+  chmod +x "$test_bin/wslpath"
+
+  # Fake tr shim (test_bin ist der einzige PATH-Eintrag im Test)
+  cat > "$test_bin/tr" << 'EOF'
+#!/usr/bin/bash
+exec /usr/bin/tr "$@"
+EOF
+  chmod +x "$test_bin/tr"
+
+  # Fake mkdir/cp shims (ebenfalls nicht im Test-PATH)
+  cat > "$test_bin/mkdir" << 'EOF'
+#!/usr/bin/bash
+exec /usr/bin/mkdir "$@"
+EOF
+  chmod +x "$test_bin/mkdir"
+  cat > "$test_bin/cp" << 'EOF'
+#!/usr/bin/bash
+exec /usr/bin/cp "$@"
+EOF
+  chmod +x "$test_bin/cp"
+
+  # shims brauchen absolute Shebangs, weil PATH im Test auf test_bin begrenzt ist
+  sed -i "1s|.*|#!/usr/bin/bash|" "$test_bin/powershell.exe" "$test_bin/wslpath" "$test_bin/tr" "$test_bin/mkdir" "$test_bin/cp" 2>/dev/null || true
+
+  (source "$INSTALL_SCRIPT" --help >/dev/null 2>&1
+   HOME="$home"
+   INSTALL_PATH="$install_dir"
+   PLATFORM_OS="Linux"
+   OC_SANDBOX_WIN_ROOT="$mnt_c"
+   is_wsl() { return 0; }
+   PATH="$test_bin:/nonexistent-oc-sandbox-test"
+   create_shortcut "$install_dir")
+  local rc=$?
+
+  assert_equals "0" "$rc" "create_shortcut liefert immer 0" || { cleanup_test_env "$test_dir"; return 1; }
+
+  # Der powershell.exe-Shim wurde aufgerufen und hat die .lnk-Kommandos empfangen
+  assert_file_exists "$test_dir/ps-commands" || { cleanup_test_env "$test_dir"; return 1; }
+  assert_file_exists "$test_dir/ps-calls" || { cleanup_test_env "$test_dir"; return 1; }
+
+  if ! grep -q "start-tui.sh" "$test_dir/ps-commands"; then
+    echo ".lnk-Aufruf referenziert start-tui.sh nicht"
+    cat "$test_dir/ps-commands"
+    cleanup_test_env "$test_dir"
+    return 1
+  fi
+  if ! grep -q "WScript.Shell" "$test_dir/ps-commands"; then
+    echo ".lnk-Aufruf nutzt WScript.Shell COM nicht"
+    cat "$test_dir/ps-commands"
+    cleanup_test_env "$test_dir"
+    return 1
+  fi
+  if ! grep -q "CreateShortcut" "$test_dir/ps-commands"; then
+    echo ".lnk-Aufruf nutzt CreateShortcut nicht"
+    cat "$test_dir/ps-commands"
+    cleanup_test_env "$test_dir"
+    return 1
+  fi
+  if ! grep -qF "\$sc.IconLocation = 'C:\\Users\\testuser\\AppData\\Local\\oc-sandbox\\oc-sandbox.ico'" "$test_dir/ps-commands"; then
+    echo ".lnk referenziert das Icon nicht über den Windows-nativen Pfad (%LOCALAPPDATA%) - Startmenu kann UNC-Icons nicht rendern"
+    cat "$test_dir/ps-commands"
+    cleanup_test_env "$test_dir"
+    return 1
+  fi
+  if [[ ! -f "$mnt_c/Users/testuser/AppData/Local/oc-sandbox/oc-sandbox.ico" ]]; then
+    echo ".ico wurde nicht nach %LOCALAPPDATA%\\oc-sandbox kopiert"
+    cleanup_test_env "$test_dir"
+    return 1
+  fi
+
+  cleanup_test_env "$test_dir"
+}
+
+test_wsl_shortcut_resolves_startmenu_via_powershell() {
+  local test_dir
+  test_dir=$(setup_test_env "shortcut-wsl-relocated")
+  local home="$test_dir/home"
+  local install_dir="$home/.oc-sandbox"
+  mkdir -p "$install_dir/scripts"
+  echo "#!/usr/bin/env bash" > "$install_dir/scripts/start-tui.sh"
+  chmod +x "$install_dir/scripts/start-tui.sh"
+
+  local test_bin="$test_dir/bin"
+  mkdir -p "$test_bin"
+
+  # Fake powershell.exe: USERNAME passt NICHT zum Profilordner (reloziert/umbenannt),
+  # das echte Startmenu-Verzeichnis liefert GetFolderPath
+  cat > "$test_bin/powershell.exe" << EOF
+#!/bin/bash
+for arg in "\$@"; do
+  case "\$arg" in
+    *'env:USERNAME'*)
+      echo "testuser"
+      exit 0
+      ;;
+    *'GetFolderPath'*)
+      echo 'C:\\Users\\realuser\\AppData\\Roaming\\Microsoft\\Windows\\Start Menu'
+      exit 0
+      ;;
+  esac
+done
+prev=""
+for arg in "\$@"; do
+  if [[ "\$prev" == "-Command" ]]; then
+    printf '%s\n' "\$arg" >> "$test_dir/ps-commands"
+  fi
+  prev="\$arg"
+done
+exit 0
+EOF
+  chmod +x "$test_bin/powershell.exe"
+
+  cat > "$test_bin/wslpath" << EOF
+#!/bin/bash
+if [[ "\${1:-}" == "-w" ]]; then
+  echo "C:\\\\Fake"
+else
+  echo "\$1"
+fi
+EOF
+  chmod +x "$test_bin/wslpath"
+
+  cat > "$test_bin/tr" << 'EOF'
+#!/usr/bin/bash
+exec /usr/bin/tr "$@"
+EOF
+  chmod +x "$test_bin/tr"
+  sed -i "1s|.*|#!/usr/bin/bash|" "$test_bin/powershell.exe" "$test_bin/wslpath" "$test_bin/tr" 2>/dev/null || true
+
+  # Startmenu existiert nur unter realuser, nicht unter testuser
+  local mnt_c="$test_dir/mnt-c"
+  mkdir -p "$mnt_c/Users/realuser/AppData/Roaming/Microsoft/Windows/Start Menu/Programs"
+
+  local rc=0
+  local output
+  output=$((source "$INSTALL_SCRIPT" --help >/dev/null 2>&1
+   HOME="$home"
+   INSTALL_PATH="$install_dir"
+   PLATFORM_OS="Linux"
+   OC_SANDBOX_WIN_ROOT="$mnt_c"
+   is_wsl() { return 0; }
+   PATH="$test_bin:/nonexistent-oc-sandbox-test"
+   create_shortcut "$install_dir") 2>&1) || rc=$?
+
+  assert_equals "0" "$rc" "create_shortcut liefert immer 0" || { cleanup_test_env "$test_dir"; return 1; }
+
+  if [[ "$output" == *"übersprungen"* ]]; then
+    echo "Shortcut wurde trotz reloziertem Profil übersprungen"
+    echo "$output"
+    cleanup_test_env "$test_dir"
+    return 1
+  fi
+
+  # .lnk wurde via powershell.exe/WScript.Shell erstellt
+  assert_file_exists "$test_dir/ps-commands" || { cleanup_test_env "$test_dir"; return 1; }
+  if ! grep -q "CreateShortcut" "$test_dir/ps-commands"; then
+    echo "Kein CreateShortcut-Aufruf: Startmenu-Pfad kommt nicht aus PowerShell"
+    cat "$test_dir/ps-commands"
+    cleanup_test_env "$test_dir"
+    return 1
+  fi
+  if ! grep -q "start-tui.sh" "$test_dir/ps-commands"; then
+    echo ".lnk-Aufruf referenziert start-tui.sh nicht"
+    cat "$test_dir/ps-commands"
+    cleanup_test_env "$test_dir"
+    return 1
+  fi
+
+  cleanup_test_env "$test_dir"
+}
+
+test_wsl_missing_mnt_c_leaves_install_exit_0() {
+  local test_dir
+  test_dir=$(setup_test_env "shortcut-wsl-nointero")
+  local home="$test_dir/home"
+  local install_dir="$home/.oc-sandbox"
+  mkdir -p "$install_dir/scripts"
+  echo "#!/usr/bin/env bash" > "$install_dir/scripts/start-tui.sh"
+  chmod +x "$install_dir/scripts/start-tui.sh"
+
+  # Kein /mnt/c vorhanden und kein powershell.exe -> nur Warnung, Exit 0
+  local rc=0
+  local output
+  output=$((source "$INSTALL_SCRIPT" --help >/dev/null 2>&1
+   HOME="$home"
+   INSTALL_PATH="$install_dir"
+   PLATFORM_OS="Linux"
+   is_wsl() { return 0; }
+   PATH="/nonexistent-oc-sandbox-test"
+   create_shortcut "$install_dir") 2>&1) || rc=$?
+
+  assert_equals "0" "$rc" "fehlende WSL-Interop bricht Installation nicht" || { cleanup_test_env "$test_dir"; return 1; }
+  if [[ "$output" != *"/mnt/c"* && "$output" != *"powershell.exe"* ]]; then
+    echo "Fehlermeldung nennt Ursache nicht"
+    echo "$output"
+    cleanup_test_env "$test_dir"
+    return 1
+  fi
+
+  cleanup_test_env "$test_dir"
+}
+
+test_macos_shortcut_shim() {
+  local test_dir
+  test_dir=$(setup_test_env "shortcut-macos")
+  local home="$test_dir/home"
+  local install_dir="$home/.oc-sandbox"
+  mkdir -p "$install_dir/scripts"
+  echo "#!/usr/bin/env bash" > "$install_dir/scripts/start-tui.sh"
+  chmod +x "$install_dir/scripts/start-tui.sh"
+
+  local test_bin="$test_dir/bin"
+  mkdir -p "$test_bin"
+
+  # Fake osascript: emuliert App-Bundle-Erstellung (wie echtes macOS)
+  cat > "$test_bin/osascript" << EOF
+#!/usr/bin/env bash
+echo "OSASCRIPT_CALL: \$*" >> "$test_dir/osascript-calls"
+exit 0
+EOF
+  chmod +x "$test_bin/osascript"
+
+  (source "$INSTALL_SCRIPT" --help >/dev/null 2>&1
+   HOME="$home"
+   INSTALL_PATH="$install_dir"
+   PLATFORM_OS="Darwin"
+   PATH="$test_bin:$PATH"
+   create_shortcut "$install_dir")
+  local rc=$?
+
+  assert_equals "0" "$rc" "create_shortcut liefert immer 0" || { cleanup_test_env "$test_dir"; return 1; }
+
+  # App-Bundle-Struktur vorhanden?
+  assert_dir_exists "$home/Applications/OC Sandbox.app/Contents/MacOS" || { cleanup_test_env "$test_dir"; return 1; }
+  assert_file_exists "$home/Applications/OC Sandbox.app/Contents/Info.plist" || { cleanup_test_env "$test_dir"; return 1; }
+  assert_file_exists "$home/Applications/OC Sandbox.app/Contents/MacOS/OC Sandbox" || { cleanup_test_env "$test_dir"; return 1; }
+
+  if ! grep -q "start-tui.sh" "$home/Applications/OC Sandbox.app/Contents/MacOS/OC Sandbox"; then
+    echo "App-Stub referenziert start-tui.sh nicht"
+    cleanup_test_env "$test_dir"
+    return 1
+  fi
+  if ! grep -q "io.github.oc-sandbox.tui" "$home/Applications/OC Sandbox.app/Contents/Info.plist"; then
+    echo "Info.plist hat CFBundleIdentifier nicht"
+    cleanup_test_env "$test_dir"
+    return 1
+  fi
+
+  cleanup_test_env "$test_dir"
+}
+
+test_macos_shortcut_without_osascript_warns() {
+  local test_dir
+  test_dir=$(setup_test_env "shortcut-macos-nosc")
+  local home="$test_dir/home"
+  local install_dir="$home/.oc-sandbox"
+  mkdir -p "$install_dir/scripts"
+  echo "#!/usr/bin/env bash" > "$install_dir/scripts/start-tui.sh"
+  chmod +x "$install_dir/scripts/start-tui.sh"
+
+  local rc=0
+  (source "$INSTALL_SCRIPT" --help >/dev/null 2>&1
+   HOME="$home"
+   INSTALL_PATH="$install_dir"
+   PLATFORM_OS="Darwin"
+   PATH="/nonexistent-oc-sandbox-test"
+   create_shortcut "$install_dir") >/dev/null 2>&1 || rc=$?
+
+  assert_equals "0" "$rc" "fehlendes osascript bricht Installation nicht" || { cleanup_test_env "$test_dir"; return 1; }
+
+  cleanup_test_env "$test_dir"
+}
+
+test_gum_tmpdir_parent_skips_windows_mounts() {
+  # Regression (Win11 WSL): TMPDIR/TEMP/TMP können über WSLENV auf ein Windows-
+  # Laufwerk (/mnt/c/...) zeigen. Auf drvfs/9p schlägt das tar-Entpacken mit
+  # "Function not implemented" fehl. select_gum_tmpdir_parent muss solche
+  # Pfade überspringen und auf /tmp oder $HOME ausweichen.
+  local test_dir
+  test_dir=$(setup_test_env "gum-tmpdir-wsl")
+
+  local parent
+  parent=$( (source "$INSTALL_SCRIPT" --help >/dev/null 2>&1
+             is_wsl() { return 0; }
+             TMPDIR="/mnt/c/Users/test/AppData/Local/Temp"
+             TEMP="/mnt/c/Users/test/Temp"
+             TMP="/mnt/c/Users/test/tmp"
+             select_gum_tmpdir_parent) )
+
+  assert_equals "/tmp" "$parent" "Windows-Mounts dürfen nicht als gum-Temp-Basis dienen" || {
+    cleanup_test_env "$test_dir"; return 1; }
+
+  cleanup_test_env "$test_dir"
+}
+
+test_gum_tmpdir_parent_prefers_existing_tmpdir() {
+  local test_dir
+  test_dir=$(setup_test_env "gum-tmpdir-native")
+  local home="$test_dir/home"
+  mkdir -p "$home"
+
+  local parent
+  parent=$( (source "$INSTALL_SCRIPT" --help >/dev/null 2>&1
+             HOME="$home"
+             TMPDIR="$home/tmp"
+             mkdir -p "$home/tmp"
+             select_gum_tmpdir_parent) )
+
+  assert_equals "$home/tmp" "$parent" "existierendes TMPDIR auf Linux-FS wird bevorzugt" || {
+    cleanup_test_env "$test_dir"; return 1; }
+
+  cleanup_test_env "$test_dir"
+}
+
+setup_gum_fixture() {
+  # Baut ein gum-Release-ähnliches Archiv + passendes checksums.txt im Testverzeichnis.
+  local test_dir="$1"
+  mkdir -p "$test_dir/src/gum_0.17.0_Linux_x86_64/completions"
+  mkdir -p "$test_dir/src/gum_0.17.0_Linux_x86_64/manpages"
+  printf '#!/usr/bin/env bash\necho gum-fake "$@"\n' > "$test_dir/src/gum_0.17.0_Linux_x86_64/gum"
+  chmod +x "$test_dir/src/gum_0.17.0_Linux_x86_64/gum"
+  touch "$test_dir/src/gum_0.17.0_Linux_x86_64/LICENSE" \
+        "$test_dir/src/gum_0.17.0_Linux_x86_64/README.md" \
+        "$test_dir/src/gum_0.17.0_Linux_x86_64/completions/gum.bash" \
+        "$test_dir/src/gum_0.17.0_Linux_x86_64/manpages/gum.1.gz"
+  tar -czf "$test_dir/gum.tar.gz" -C "$test_dir/src" gum_0.17.0_Linux_x86_64
+  local sha
+  sha=$(sha256sum "$test_dir/gum.tar.gz" | awk '{print $1}')
+  printf '%s  gum_0.17.0_Linux_x86_64.tar.gz\n' "$sha" > "$test_dir/checksums.txt"
+}
+
+setup_gum_curl_shim() {
+  local test_dir="$1"
+  local test_bin="$test_dir/bin"
+  mkdir -p "$test_bin"
+  cat > "$test_bin/curl" << EOF
+#!/usr/bin/env bash
+out_file=""
+prev=""
+for arg in "\$@"; do
+  if [[ "\$prev" == "-o" ]]; then out_file="\$arg"; fi
+  prev="\$arg"
+done
+if [[ "\$*" == *"checksums.txt"* ]]; then
+  src="$test_dir/checksums.txt"
+else
+  src="$test_dir/gum.tar.gz"
+fi
+if [[ -n "\$out_file" ]]; then
+  cat "\$src" > "\$out_file"
+else
+  cat "\$src"
+fi
+EOF
+  chmod +x "$test_bin/curl"
+}
+
+test_gum_install_success() {
+  local test_dir
+  test_dir=$(setup_test_env "gum-install-ok")
+  local home="$test_dir/home"
+  mkdir -p "$home"
+  setup_gum_fixture "$test_dir"
+  setup_gum_curl_shim "$test_dir"
+
+  local output rc=0
+  output=$( (source "$INSTALL_SCRIPT" --help >/dev/null 2>&1
+             HOME="$home"
+             INSTALL_PATH="$home/.oc-sandbox"
+             GUM_BIN="$home/.oc-sandbox/gum/gum"
+             VERBOSE=false
+             PATH="$test_dir/bin:$PATH"
+             install_gum >/dev/null 2>"$test_dir/ig-stderr") ) || rc=$?
+  output=$(cat "$test_dir/ig-stderr" 2>/dev/null || true)
+
+  assert_equals "0" "$rc" "install_gum mit gültigem Archiv liefert 0" || { echo "$output"; cleanup_test_env "$test_dir"; return 1; }
+
+  assert_file_exists "$home/.oc-sandbox/gum/gum" || { echo "$output"; cleanup_test_env "$test_dir"; return 1; }
+  assert_file_executable "$home/.oc-sandbox/gum/gum" || { echo "$output"; cleanup_test_env "$test_dir"; return 1; }
+
+  cleanup_test_env "$test_dir"
+}
+
+test_gum_install_tar_failure_reports_error() {
+  # Regression (Win11 WSL): tar schlug beim Entpacken fehl ("Function not
+  # implemented" auf drvfs) – vorher lief der Code still weiter und meldete
+  # irreführend "Binary 'gum' im Archiv nicht gefunden". Jetzt: klare Fehlermeldung.
+  local test_dir
+  test_dir=$(setup_test_env "gum-install-tarfail")
+  local home="$test_dir/home"
+  mkdir -p "$home"
+  printf 'kein-gzip-kein-tarball' > "$test_dir/gum.tar.gz"
+  : > "$test_dir/checksums.txt"
+  setup_gum_curl_shim "$test_dir"
+
+  local output rc=0
+  output=$( (source "$INSTALL_SCRIPT" --help >/dev/null 2>&1
+             HOME="$home"
+             INSTALL_PATH="$home/.oc-sandbox"
+             GUM_BIN="$home/.oc-sandbox/gum/gum"
+             VERBOSE=false
+             PATH="$test_dir/bin:$PATH"
+             install_gum) 2>&1 ) || rc=$?
+
+  assert_equals "1" "$rc" "kaputtes Archiv liefert 1" || { echo "$output"; cleanup_test_env "$test_dir"; return 1; }
+
+  if [[ "$output" != *"Entpacken des gum-Archivs fehlgeschlagen"* ]]; then
+    echo "tar-Fehlermeldung fehlt"
+    echo "$output"
+    cleanup_test_env "$test_dir"
+    return 1
+  fi
+
+  cleanup_test_env "$test_dir"
+}
+
+
 
 main() {
   echo "========================================="
@@ -283,6 +1045,33 @@ main() {
   echo ""
   echo "Running dependency tests..."
   run_test "Dependency check passes" test_dependency_check
+  
+  # Desktop-Shortcut-Tests
+  echo ""
+  echo "Running desktop shortcut tests..."
+  run_test "Help shows --shortcut" test_help_shows_shortcut_flag
+  run_test "Linux: .desktop-Datei erstellt" test_linux_shortcut_creation
+  run_test "Linux: .desktop-Datei mit Icon" test_linux_shortcut_with_icon
+  run_test "Linux: fehlgeschlagener Shortcut bricht Installation nicht ab" test_linux_shortcut_failure_warns_but_install_succeeds
+  run_test "main verdrahtet detect_platform vor create_shortcut" test_main_wires_detect_platform_before_shortcut
+  run_test "Vorhandene Installation ohne TTY: klare Fehlermeldung" test_existing_install_non_tty_fails_clearly
+  run_test "Vorhandene Installation mit --force ohne TTY: läuft weiter" test_existing_install_non_tty_with_force_proceeds
+  run_test "Vorhandene Installation im TTY: 'y' bestätigt + allowlist erhalten" test_existing_install_tty_confirm_proceeds
+  run_test "Vorhandene Installation im TTY: 'n' bricht ab" test_existing_install_tty_decline_aborts
+  run_test "WSL: .lnk via powershell.exe (Shim)" test_wsl_shortcut_uses_powershell_shim
+  run_test "WSL: Startmenu-Pfad via PowerShell aufgelöst" test_wsl_shortcut_resolves_startmenu_via_powershell
+  run_test "WSL: fehlende Interop warnt nur" test_wsl_missing_mnt_c_leaves_install_exit_0
+  run_test "macOS: .app-Bundle erstellt (Shim)" test_macos_shortcut_shim
+  run_test "macOS: fehlendes osascript warnt nur" test_macos_shortcut_without_osascript_warns
+
+  # Gum-Installation-Tests
+  echo ""
+  echo "Running gum installation tests..."
+  run_test "gum: Temp-Basis überspringt Windows-Mounts (WSL)" test_gum_tmpdir_parent_skips_windows_mounts
+  run_test "gum: Temp-Basis nutzt existierendes TMPDIR" test_gum_tmpdir_parent_prefers_existing_tmpdir
+  run_test "gum: Installation aus Release-Archiv" test_gum_install_success
+  run_test "gum: kaputtes Archiv liefert klare Fehlermeldung" test_gum_install_tar_failure_reports_error
+
   
   # Zusammenfassung
   echo ""

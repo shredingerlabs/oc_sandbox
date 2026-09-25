@@ -18,6 +18,8 @@ INSTALL_PATH="$DEFAULT_INSTALL_PATH"
 VERSION=""
 FORCE=false
 SYMLINKS=false
+SHORTCUT=false
+SHORTCUT_CREATED=false
 VERBOSE=false
 DOWNLOADED_VERSION=""
 USER_AGENT="opencode-sandbox-install-script"
@@ -28,6 +30,9 @@ GUM_VERSION="${GUM_VERSION:-0.17.0}"
 GUM_BIN="${DEFAULT_INSTALL_PATH}/gum/gum"
 PLATFORM_OS=""
 PLATFORM_ARCH=""
+# Temp-Verzeichnis der gum-Installation – global, damit der EXIT-Trap cleanup_gum
+# nach Funktionsende noch darauf zugreifen kann (set -u).
+tmpdir=""
 
 # --- Signal-Handling -----------------------------------------------------------
 cleanup() {
@@ -37,6 +42,10 @@ cleanup() {
     fi
     rm -rf "$TEMP_DIR"
   fi
+  if [[ -n "$tmpdir" && -d "$tmpdir" ]]; then
+    rm -rf "$tmpdir"
+    tmpdir=""
+  fi
 }
 
 trap cleanup EXIT INT TERM
@@ -44,7 +53,7 @@ trap cleanup EXIT INT TERM
 # --- Hilfsfunktionen -----------------------------------------------------------
 log_verbose() {
   if $VERBOSE; then
-    echo "$1"
+    echo "$1" >&2
   fi
 }
 
@@ -71,6 +80,33 @@ exit_with_usage_error() {
   exit 1
 }
 
+# Liest ein Bestätigungszeichen (Y/N) für Update-Prompts.
+# Bevorzugt stdin, wenn es ein Terminal ist; sonst /dev/tty – wichtig für den
+# bash one-liner ('curl ... | bash'), wo stdin die Script-Pipe ist und ein
+# 'read' von stdin Script-Bytes verschlucken würde.
+# Liefert 1, wenn keine interaktive Eingabe möglich ist (kein TTY).
+ask_confirm() {
+  local prompt_text="$1"
+  local reply=""
+
+  if [[ -t 0 ]]; then
+    read -p "$prompt_text" -n 1 -r reply
+    echo
+    REPLY="$reply"
+    return 0
+  fi
+
+  if { exec 3</dev/tty; } 2>/dev/null; then
+    read -u 3 -p "$prompt_text" -n 1 -r reply
+    exec 3<&-
+    echo >&2
+    REPLY="$reply"
+    return 0
+  fi
+
+  return 1
+}
+
 # --- Dependency-Checking -------------------------------------------------------
 check_dependencies() {
   local missing_deps=()
@@ -81,7 +117,7 @@ check_dependencies() {
   fi
   
   # Prüfe andere benötigte Tools
-  for cmd in tar grep awk sed; do
+  for cmd in tar grep awk sed jq; do
     if ! command -v "$cmd" &> /dev/null; then
       missing_deps+=("$cmd")
     fi
@@ -135,8 +171,24 @@ gum_available() {
   return 1
 }
 
+# --- Gum Installation ----------------------------------------------------------
+# Wählt die Basis für das gum-Install-Temp-Verzeichnis. In WSL können TMPDIR/
+# TEMP/TMP über WSLENV auf ein Windows-Laufwerk (/mnt/c/...) zeigen; auf drvfs/
+# 9p schlägt das Entpacken mit "Function not implemented" fehl. Daher nur
+# Verzeichnisse auf Linux-Dateisystemen zulassen.
+select_gum_tmpdir_parent() {
+  local candidate
+  for candidate in "${TMPDIR:-}" "${TEMP:-}" "${TMP:-}" /tmp "$HOME"; do
+    if [[ -n "$candidate" && -d "$candidate" && ! "$candidate" =~ ^/mnt/[a-z]($|/) ]]; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done
+  printf '/tmp\n'
+}
+
 install_gum() {
-  local tmpdir tarball_name url checksums_url sha_cmd expected actual
+  local tarball_name url checksums_url sha_cmd expected actual
 
   detect_platform || return 1
 
@@ -158,12 +210,9 @@ install_gum() {
     sha_cmd=""
   fi
 
-  tmpdir=$(mktemp -d)
-
-  cleanup_gum() {
-    rm -rf "$tmpdir"
-  }
-  trap cleanup_gum EXIT
+  # Temp-Verzeichnis nur auf Linux-Dateisystemen extrahieren (siehe
+  # select_gum_tmpdir_parent). Das Aufräumen übernimmt der globale cleanup-Trap.
+  tmpdir=$(mktemp -d "$(select_gum_tmpdir_parent)/gum-install.XXXXXX")
 
   log_info "Lade gum v${GUM_VERSION} für ${PLATFORM_OS}/${PLATFORM_ARCH} herunter ..."
   if ! curl -fsSL "$url" -o "$tmpdir/$tarball_name"; then
@@ -191,7 +240,10 @@ install_gum() {
   fi
 
   log_info "Entpacke und installiere nach ${INSTALL_PATH} ..."
-  tar -xzf "$tmpdir/$tarball_name" -C "$tmpdir"
+  if ! tar -xzf "$tmpdir/$tarball_name" -C "$tmpdir"; then
+    log_error "Entpacken des gum-Archivs fehlgeschlagen (tmpdir: ${tmpdir})."
+    return 1
+  fi
 
   local extracted_bin
   extracted_bin=$(find "$tmpdir" -type f -name gum | head -n1)
@@ -206,7 +258,7 @@ install_gum() {
   chmod +x "$GUM_BIN"
 
   log_info "gum erfolgreich installiert: $GUM_BIN"
-  trap - EXIT
+  tmpdir=""
 }
 
 # --- Disk-Space-Checking ------------------------------------------------------
@@ -512,6 +564,364 @@ create_symlinks() {
   log_verbose "Erzeuge Symlink: $link_target -> $script"
 }
 
+# --- Desktop-Shortcut-Erstellung ------------------------------------------------
+SHORTCUT_COMMENT="Interaktive OpenCode-Sandbox TUI"
+
+# Erstellt die plattform-spezifische Desktop-Verknüpfung für die TUI.
+# Fehler werden nur gewarnt – die Installation selbst schlägt nie fehl.
+create_shortcut() {
+  local install_dir="$1"
+
+  log_verbose "Erstelle Desktop-Shortcut für $PLATFORM_OS"
+
+  local ok=false
+  case "$PLATFORM_OS" in
+    Linux)
+      if is_wsl; then
+        create_shortcut_wsl "$install_dir" && ok=true
+      else
+        create_shortcut_linux "$install_dir" && ok=true
+      fi
+      ;;
+    Darwin)
+      create_shortcut_macos "$install_dir" && ok=true
+      ;;
+  esac
+
+  if $ok; then
+    SHORTCUT_CREATED=true
+    log_verbose "Desktop-Shortcut erstellt."
+  fi
+  return 0
+}
+
+is_wsl() {
+  grep -qi microsoft /proc/version 2>/dev/null
+}
+
+# Installiert die gebündelten Hicolor-Icons nach $HOME/.local/share/icons/hicolor,
+# damit das .desktop-File per Theme-Namen (Icon=oc-sandbox) aufgelöst wird.
+install_hicolor_icons() {
+  local install_dir="$1"
+  local icon_source="${install_dir}/icons/linux/share/icons/hicolor"
+  local icon_target="$HOME/.local/share/icons/hicolor"
+
+  if [[ ! -d "$icon_source" ]]; then
+    log_verbose "Keine Hicolor-Icons gefunden (${icon_source}) – Shortcut wird ohne Icon erstellt."
+    return 1
+  fi
+
+  if ! mkdir -p "$icon_target" 2>/dev/null; then
+    log_verbose "Verzeichnis nicht beschreibbar: $icon_target"
+    return 1
+  fi
+
+  if ! cp -R "${icon_source}/." "$icon_target/" 2>/dev/null; then
+    log_verbose "Hicolor-Icons konnten nicht kopiert werden nach: $icon_target"
+    return 1
+  fi
+
+  # Best-Effort: Icon-Cache aktualisieren (nicht alle Umgebungen haben das Tool)
+  if command -v gtk-update-icon-cache &>/dev/null; then
+    gtk-update-icon-cache -f -t "$icon_target" >/dev/null 2>&1 || true
+  fi
+
+  log_verbose "Hicolor-Icons installiert: $icon_target"
+  return 0
+}
+
+create_shortcut_linux() {
+  local install_dir="$1"
+  local apps_dir="$HOME/.local/share/applications"
+  local desktop_file="${apps_dir}/oc-sandbox.desktop"
+  local script="${install_dir}/scripts/start-tui.sh"
+
+  if [[ ! -f "$script" ]]; then
+    log_warn "Desktop-Shortcut übersprungen: Skript nicht gefunden: $script"
+    return 1
+  fi
+
+  if ! mkdir -p "$apps_dir" 2>/dev/null; then
+    log_warn "Desktop-Shortcut übersprungen: Verzeichnis nicht beschreibbar: $apps_dir"
+    return 1
+  fi
+
+  local icon_line="Icon=oc-sandbox"
+  if ! install_hicolor_icons "$install_dir"; then
+    log_verbose "Hicolor-Icons konnten nicht installiert werden – Shortcut wird ohne Icon erstellt."
+    icon_line=""
+  fi
+
+  {
+    cat << EOF
+[Desktop Entry]
+Type=Application
+Name=OC Sandbox
+Comment=${SHORTCUT_COMMENT}
+Exec=${script}
+Terminal=true
+Categories=Development;
+EOF
+    [[ -z "$icon_line" ]] || echo "$icon_line"
+  } > "$desktop_file" 2>/dev/null || {
+    log_warn "Desktop-Shortcut übersprungen: Datei nicht beschreibbar: $desktop_file"
+    return 1
+  }
+
+  log_info "Desktop-Shortcut erstellt: $desktop_file"
+  return 0
+}
+
+# Übersetzt einen WSL-Pfad in einen UNC-Pfad (\\wsl$\<distro>\... bzw.
+# \\wsl.localhost\<distro>\...), über den Windows die Datei unabhängig vom
+# tmpfs-Mount-Laufwerksbuchstaben erreichen kann. `wslpath -w` gibt auf
+# tmpfs-Pfaden einen Laufwerks-Pfad (z.B. D:\...) aus, der im Startmenu-
+# Kontext ungültig ist — daher wird der UNC-Präfix hier von Hand gebildet.
+icon_wsl_unc_path() {
+  local path="$1"
+  local distro="${WSL_DISTRO_NAME:-}"
+  if [[ -z "$distro" && -r /etc/os-release ]]; then
+    # Kein grep/awk: PATH kann im Test/Minimal-Umfeld leer sein.
+    distro=${WSL_DISTRO_NAME:-}
+    if [[ -z "$distro" ]]; then
+      local line
+      while IFS= read -r line || [[ -n "$line" ]]; do
+        if [[ "$line" == NAME=* ]]; then
+          distro=${line#NAME=}
+          distro=${distro#\"}
+          distro=${distro%\"}
+          break
+        fi
+      done < /etc/os-release
+    fi
+  fi
+  if [[ -z "$distro" ]]; then
+    return 1
+  fi
+  # / -> \ per Parameter-Expansion (kein sed: PATH kann im Test/Minimal-
+  # Umfeld leer sein).
+  local win_rel="${path//\//\\}"
+  printf '\\\\wsl.localhost\\%s%s\n' "$distro" "$win_rel"
+  return 0
+}
+
+# Kopiert das Icon nach Windows (%LOCALAPPDATA%\oc-sandbox\oc-sandbox.ico).
+# Das Startmenu kann .lnk-Icons nicht aus UNC-Pfaden (\\wsl.localhost\...)
+# rendern — IconLocation braucht eine Windows-native Datei. Gibt den
+# Windows-Pfad der Kopie zurück, leer bei Fehlschlag.
+install_icon_windows_side() {
+  local icon_file="$1"
+  local win_localappdata localappdata_unix
+  win_localappdata=$(powershell.exe -NoProfile -Command "[Environment]::GetFolderPath('LocalApplicationData')" 2>/dev/null | tr -d '\r')
+  win_localappdata=${win_localappdata%%$'\n'*}
+  if [[ -z "$win_localappdata" ]]; then
+    return 1
+  fi
+  localappdata_unix=$(wslpath -u "$win_localappdata" 2>/dev/null)
+  if [[ -z "$localappdata_unix" || ! -d "$localappdata_unix" ]]; then
+    return 1
+  fi
+  if ! mkdir -p "${localappdata_unix}/oc-sandbox" 2>/dev/null; then
+    return 1
+  fi
+  if ! cp "$icon_file" "${localappdata_unix}/oc-sandbox/oc-sandbox.ico" 2>/dev/null; then
+    return 1
+  fi
+  printf '%s\\oc-sandbox\\oc-sandbox.ico\n' "$win_localappdata"
+  return 0
+}
+
+create_shortcut_wsl() {
+  local install_dir="$1"
+  local script="${install_dir}/scripts/start-tui.sh"
+
+  if [[ ! -f "$script" ]]; then
+    log_warn "Desktop-Shortcut übersprungen: Skript nicht gefunden: $script"
+    return 1
+  fi
+
+  if ! command -v powershell.exe &>/dev/null; then
+    log_warn "Desktop-Shortcut übersprungen: powershell.exe nicht verfügbar (WSL-Interop deaktiviert?)."
+    echo "  Manuelle Lösung: Start-Menu-Verknüpfung von Hand anlegen, die folgendes aufruft:" >&2
+    echo "  wsl.exe -e bash ${script}" >&2
+    return 1
+  fi
+
+  # Windows löst das Startmenu-Verzeichnis selbst auf (locale-, Profilpfad- und
+  # USERNAME-unabhängig). Nicht über /mnt/c/Users/<user> raten.
+  local win_start_menu
+  win_start_menu=$(powershell.exe -NoProfile -Command "[Environment]::GetFolderPath('StartMenu')" 2>/dev/null | tr -d '\r')
+  win_start_menu=${win_start_menu%%$'\n'*}
+
+  if [[ -z "$win_start_menu" ]]; then
+    log_warn "Desktop-Shortcut übersprungen: Windows-Startmenu-Verzeichnis nicht gefunden."
+    echo "  Manuelle Lösung: Start-Menu-Verknüpfung von Hand anlegen, die folgendes aufruft:" >&2
+    echo "  wsl.exe -e bash ${script}" >&2
+    return 1
+  fi
+
+  local lnk_path_win="${win_start_menu}\\Programs\\OC Sandbox.lnk"
+
+  local icon_block=""
+  local icon_file="${install_dir}/icons/windows/oc-sandbox.ico"
+  if [[ -f "$icon_file" ]]; then
+    local icon_path_win
+    # Das Startmenu kann Icons nicht aus UNC-Pfaden (\\wsl.localhost\...)
+    # rendern und tmpfs-Laufwerks-Pfaden (D:\...) ist im Startmenu-Kontext
+    # nicht gültig — IconLocation braucht eine Windows-native Datei. Daher
+    # wird das Icon nach %LOCALAPPDATA%\oc-sandbox\ kopiert; UNC-Pfad nur
+    # als Fallback.
+    icon_path_win=$(install_icon_windows_side "$icon_file")
+    if [[ -n "$icon_path_win" ]]; then
+      log_verbose "Icon nach Windows kopiert: $icon_path_win"
+    else
+      log_verbose "Icon-Kopie nach Windows fehlgeschlagen – versuche UNC-Pfad als Fallback."
+      icon_path_win=$(icon_wsl_unc_path "$icon_file")
+      if [[ -z "$icon_path_win" ]]; then
+        icon_path_win=$(wslpath -w "$icon_file" 2>/dev/null)
+      fi
+    fi
+    if [[ -n "$icon_path_win" ]]; then
+      icon_block="\$sc.IconLocation = '${icon_path_win}'; "
+      log_verbose "Icon referenziert: $icon_path_win"
+    else
+      log_verbose "Icon-Pfad konnte nicht übersetzt werden – Shortcut wird ohne Icon erstellt."
+    fi
+  else
+    log_verbose "Kein Icon gefunden (${icon_file}) – Shortcut wird ohne Icon erstellt."
+  fi
+  local ps_block
+  ps_block='$sc = (New-Object -ComObject WScript.Shell).CreateShortcut('"'"''"${lnk_path_win}"''"'"'); $sc.TargetPath = '"'"'%SystemRoot%\System32\wsl.exe'"'"'; $sc.Arguments = '"'"'-e bash '"${script}"''"'"'; '"$icon_block"'$sc.Save()'
+
+  log_verbose "Erstelle .lnk über powershell.exe: $lnk_path_win"
+  if ! powershell.exe -NoProfile -Command "$ps_block" 2>/dev/null; then
+    log_warn "Desktop-Shortcut übersprungen: powershell.exe konnte die Verknüpfung nicht erstellen."
+    return 1
+  fi
+
+  log_info "Windows-Startmenu-Verknüpfung erstellt: OC Sandbox.lnk"
+  return 0
+}
+
+create_shortcut_macos() {
+  local install_dir="$1"
+  local script="${install_dir}/scripts/start-tui.sh"
+  local app_dir="$HOME/Applications/OC Sandbox.app"
+  local contents="${app_dir}/Contents"
+
+  if [[ ! -f "$script" ]]; then
+    log_warn "Desktop-Shortcut übersprungen: Skript nicht gefunden: $script"
+    return 1
+  fi
+
+  if ! mkdir -p "${contents}/MacOS" "${contents}/Resources" 2>/dev/null; then
+    log_warn "Desktop-Shortcut übersprungen: Verzeichnis nicht beschreibbar: $app_dir"
+    return 1
+  fi
+
+  if ! command -v osascript &>/dev/null; then
+    log_warn "Desktop-Shortcut übersprungen: osascript nicht gefunden."
+    echo "  Manuelle Lösung: App-Bundle unter ${app_dir} von Hand anlegen, das start-tui.sh in einem Terminal öffnet." >&2
+    return 1
+  fi
+
+  local stub="${contents}/MacOS/OC Sandbox"
+  {
+    cat << APPLESCRIPT
+#!/usr/bin/env bash
+exec /usr/bin/osascript -e 'tell application "Terminal" to do script "${script}"'
+APPLESCRIPT
+  } > "$stub" 2>/dev/null || {
+    log_warn "Desktop-Shortcut übersprungen: App-Bundle konnte nicht geschrieben werden: $app_dir"
+    return 1
+  }
+  chmod +x "$stub"
+
+  {
+    cat << PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleName</key>
+  <string>OC Sandbox</string>
+  <key>CFBundleDisplayName</key>
+  <string>OC Sandbox</string>
+  <key>CFBundleIdentifier</key>
+  <string>io.github.oc-sandbox.tui</string>
+  <key>CFBundleExecutable</key>
+  <string>OC Sandbox</string>
+  <key>CFBundlePackageType</key>
+  <string>APPL</string>
+</dict>
+PLIST
+  } > "${contents}/Info.plist" 2>/dev/null || {
+    log_warn "Desktop-Shortcut übersprungen: Info.plist konnte nicht geschrieben werden: $app_dir"
+    return 1
+  }
+
+  local iconset_dir="${install_dir}/icons/macos/oc-sandbox.iconset"
+  if [[ -d "$iconset_dir" ]]; then
+    local generated_icns="${TEMP_DIR}/oc-sandbox.icns"
+    if command -v iconutil &>/dev/null \
+      && iconutil -c icns "$iconset_dir" -o "$generated_icns" 2>/dev/null \
+      && cp "$generated_icns" "${contents}/Resources/AppIcon.icns" 2>/dev/null; then
+      printf '  <key>CFBundleIconFile</key>\n  <string>AppIcon</string>\n' >> "${contents}/Info.plist"
+    else
+      log_verbose "Icon konnte nicht aus dem Iconset erzeugt werden – App wird ohne Icon erstellt."
+    fi
+  else
+    log_verbose "Kein Iconset gefunden (${iconset_dir}) – Shortcut wird ohne Icon erstellt."
+  fi
+
+  log_info "App-Bundle erstellt: $app_dir"
+  return 0
+}
+
+remove_shortcut() {
+  local install_dir="$1"
+  log_verbose "Entferne Desktop-Shortcuts für $PLATFORM_OS"
+
+  local removed=0
+  case "$PLATFORM_OS" in
+    Linux)
+      if is_wsl; then
+        # WSL: .lnk-Datei im Windows-Startmenu versuchen zu entfernen
+        if command -v powershell.exe &>/dev/null; then
+          local win_start_menu
+          win_start_menu=$(powershell.exe -NoProfile -Command "[Environment]::GetFolderPath('StartMenu')" 2>/dev/null | tr -d '\r')
+          win_start_menu=${win_start_menu%%$'\n'*}
+          if [[ -n "$win_start_menu" ]]; then
+            local lnk_unix
+            lnk_unix=$(wslpath -u "${win_start_menu}\\Programs\\OC Sandbox.lnk" 2>/dev/null || true)
+            if [[ -n "$lnk_unix" && -f "$lnk_unix" ]]; then
+              rm -f "$lnk_unix"
+              removed=$((removed + 1))
+            fi
+          fi
+        fi
+      else
+        local desktop_file="$HOME/.local/share/applications/oc-sandbox.desktop"
+        if [[ -f "$desktop_file" ]]; then
+          rm -f "$desktop_file"
+          removed=$((removed + 1))
+        fi
+      fi
+      ;;
+    Darwin)
+      local app_dir="$HOME/Applications/OC Sandbox.app"
+      if [[ -d "$app_dir" ]]; then
+        rm -rf "$app_dir"
+        removed=$((removed + 1))
+      fi
+      ;;
+  esac
+
+  if [[ $removed -gt 0 ]]; then
+    log_info "Desktop-Shortcut(s) entfernt."
+  fi
+}
+
 validate_installation() {
   local install_dir="$1"
   
@@ -557,15 +967,23 @@ check_existing_installation() {
     fi
     
     echo "Vorhandene Installation gefunden: $install_path"
-    read -p "Überschreiben? [y/N] " -n 1 -r
-    echo
+    
+    if ! ask_confirm "Überschreiben? [y/N] "; then
+      log_error "Vorhandene Installation gefunden, aber kein interaktives Terminal verfügbar (z.B. bei 'curl ... | bash' ohne Terminal)."
+      log_error "Zum Überschreiben --force anhängen oder das Script interaktiv in einem Terminal ausführen:"
+      log_error "  curl -sL https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/main/scripts/install.sh | bash -s -- --force"
+      exit 2
+    fi
     
     if [[ $REPLY =~ ^[Yy]$ ]]; then
       # Frage nach allowlist.txt
       if [[ -f "$install_path/proxy/allowlist.txt" ]]; then
         echo "Vorhandene proxy/allowlist.txt gefunden."
-        read -p "Proxy-Konfiguration erhalten? [Y/n] " -n 1 -r
-        echo
+        
+        if ! ask_confirm "Proxy-Konfiguration erhalten? [Y/n] "; then
+          log_error "Kein interaktives Terminal verfügbar – bitte --force verwenden."
+          exit 2
+        fi
         
         if [[ ! $REPLY =~ ^[Nn]$ ]]; then
           log_verbose "proxy/allowlist.txt wird erhalten"
@@ -597,6 +1015,8 @@ Optionen:
   --version <tag>        Spezifische Version installieren (default: latest)
   --force                Vorhandene Installation ohne Nachfrage überschreiben
   --symlinks             Symlinks in \$HOME/.local/bin erstellen
+  --shortcut             Desktop-Shortcut für die TUI erstellen (Linux: .desktop,
+                         WSL: Windows-Startmenu .lnk, macOS: .app in ~/Applications)
   --verbose              Detaillierte Ausgabe aktivieren
   --help                 Diese Hilfe anzeigen und beenden
 
@@ -615,6 +1035,9 @@ Beispiele:
 
   # Mit Symlinks für einfacheren Zugriff
   $0 --symlinks
+
+  # Mit Desktop-Shortcut im Startmenu (unabhängig von --symlinks)
+  $0 --shortcut
 
   # Kombinierte Optionen
   $0 --install_path ~/sandbox --version v1.0.0 --symlinks --verbose
@@ -654,6 +1077,10 @@ parse_arguments() {
         SYMLINKS=true
         shift
         ;;
+      --shortcut)
+        SHORTCUT=true
+        shift
+        ;;
       --verbose)
         VERBOSE=true
         shift
@@ -675,6 +1102,9 @@ main() {
   
   parse_arguments "$@"
   check_dependencies
+  
+  # Erkenne Plattform ( PLATFORM_OS/PLATFORM_ARCH ), z.B. für Shortcut-Erstellung
+  detect_platform || exit_with_error "Plattform konnte nicht erkannt werden"
   
   # Prüfe Disk-Space
   check_disk_space "$(dirname "$INSTALL_PATH")" "$MIN_DISK_SPACE_MB"
@@ -713,6 +1143,11 @@ main() {
   # Erstelle Symlinks wenn gewünscht
   if $SYMLINKS; then
     create_symlinks "$INSTALL_PATH"
+  fi
+
+  # Erstelle Desktop-Shortcut wenn gewünscht (Fehler brechen die Installation nie ab)
+  if $SHORTCUT; then
+    create_shortcut "$INSTALL_PATH"
   fi
 
   # Installiere gum für TUI-Unterstützung
@@ -759,7 +1194,20 @@ main() {
     echo "Sie können die Sandbox jetzt von überall starten:"
     echo "  oc-sandbox"
   fi
+
+  if $SHORTCUT_CREATED; then
+    echo ""
+    echo "Desktop-Shortcut erstellt – die TUI ist ab jetzt über Ihr Startmenu/Launcher"
+    echo "verfügbar (Eintrag \"OC Sandbox\")."
+  elif $SHORTCUT; then
+    echo ""
+    echo "Desktop-Shortcut konnte nicht erstellt werden – Details oben."
+  fi
 }
 
 # --- Start ----------------------------------------------------------------------
-main "$@"
+# Start via Datei: BASH_SOURCE[0] == $0. Start via 'curl ... | bash': Script
+# kommt von stdin, BASH_SOURCE[0] ist leer (und $0 ist 'bash').
+if [[ "${BASH_SOURCE[0]:-}" == "$0" ]] || [[ -z "${BASH_SOURCE[0]:-}" ]]; then
+  main "$@"
+fi
