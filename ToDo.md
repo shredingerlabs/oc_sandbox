@@ -1,7 +1,15 @@
 # ToDos
 
+## Anleitung
+
+-add github / gitlab init section 
+Git setup checken und ggf. ergänzen
+
 ### sandbox
-- update readme with link on how to install / setup wsl under win11 
+- -> add repo path and init / checkout git repo
+
+- add existing project to oc-sandbox option
+
 - test if node.js and npm install can be changed to latest
 
 - Add implementation to re-/build to Start Option (-> build-container.sh)
@@ -31,7 +39,7 @@
 
 # Bugs	
 - create dist release creates only tag no release 
-
+- gwdg saia opecode.json seems to have an issue
 - WIN11 WSL:
 
 
