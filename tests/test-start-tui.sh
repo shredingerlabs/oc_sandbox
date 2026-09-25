@@ -94,7 +94,8 @@ show_menu() {
   printf '%s\n' "$answer"
 }
 select_container_modes /tmp/project Test full
-[[ ${#captured_modes[@]} -eq 3 ]]
+[[ ${#captured_modes[@]} -eq 4 ]]
+[[ "${captured_modes[3]}" == "" ]]
 
 printf '%s\n' "● offline" "● cbm_ui" "Done" "← Go Back" > "$menu_sequence"
 captured_modes=()
@@ -728,3 +729,137 @@ STOP_STUBBORN=false
 unset STOP_FAIL STOP_STUBBORN
 
 printf 'start-tui stop container tests passed\n'
+
+# Project source step: source selection, URL shape validation with re-prompt,
+# name prefill from URL basename, and cloned/empty persistence.
+source_home="$test_home/source-step"
+mkdir -p "$source_home"
+pages_log="$source_home/pages"
+: > "$pages_log"
+show_page() { printf 'PAGE: %s\n' "$*" >> "$pages_log"; }
+wait_for_enter() { :; }
+
+# Go Back from the first step leaves the wizard without further prompts.
+name_prompted=0
+prompt_for_name() { name_prompted=1; printf '%s\n' 'ShouldNotHappen'; }
+show_menu() { printf '%s\n' '← Go Back'; }
+init_project_wizard
+[[ "$name_prompted" -eq 0 ]]
+! grep -q 'PAGE: Invalid' "$pages_log"
+
+# Empty source: wizard proceeds without a prefill (identical to previous flow).
+show_menu() { printf '%s\n' 'New empty project'; }
+empty_wizard_root="$source_home/empty-root"
+mkdir -p "$empty_wizard_root"
+captured_prefill="$source_home/prefill-empty"
+printf '__unset__\n' > "$captured_prefill"
+prompt_for_name() { printf '%s\n' "${2:-}" > "$captured_prefill"; printf '%s\n' 'EmptyProj'; }
+prompt_for_path() { printf '%s\n' "$empty_wizard_root"; }
+select_container_edition() { captured_edition_args=("$@"); }
+init_project_wizard
+[[ "$(<"$captured_prefill")" == "" ]]
+[[ "${captured_edition_args[0]}" == "$empty_wizard_root" ]]
+[[ "${captured_edition_args[1]}" == EmptyProj ]]
+[[ "${captured_edition_args[2]}" == "" ]]
+
+# Cloned source: URL prompted, name prefilled from URL basename, editable.
+show_menu() { printf '%s\n' 'Clone existing repo via URL'; }
+url_answers="$source_home/url-answers"
+printf '%s\n' 'https://example.com/re po.git' 'https://example.com/repo.git' > "$url_answers"
+prompt_for_text() {
+  local head_line
+  local rest=()
+  IFS= read -r head_line < "$url_answers"
+  mapfile -t rest < <(tail -n +2 "$url_answers")
+  if [[ ${#rest[@]} -gt 0 ]]; then
+    printf '%s\n' "${rest[@]}" > "$url_answers"
+  else
+    : > "$url_answers"
+  fi
+  printf '%s\n' "$head_line"
+}
+cloned_wizard_root="$source_home/cloned-root"
+mkdir -p "$cloned_wizard_root"
+captured_prefill="$source_home/prefill-cloned"
+printf '__unset__\n' > "$captured_prefill"
+prompt_for_name() { printf '%s\n' "${2:-}" > "$captured_prefill"; printf '%s\n' 'some_repo'; }
+prompt_for_path() { printf '%s\n' "$cloned_wizard_root"; }
+init_project_wizard
+[[ "$(grep -c 'PAGE: Invalid repo URL' "$pages_log")" -eq 1 ]]
+[[ "$(<"$captured_prefill")" == repo ]]
+[[ "${captured_edition_args[0]}" == "$cloned_wizard_root" ]]
+[[ "${captured_edition_args[1]}" == some_repo ]]
+[[ "${captured_edition_args[2]}" == 'https://example.com/repo.git' ]]
+[[ ! -s "$url_answers" ]]
+
+# URL shape helper: light check only (non-empty, no spaces), no network probe.
+validate_repo_url_shape 'https://github.com/user/repo.git'
+validate_repo_url_shape 'git@github.com:user/repo.git'
+! validate_repo_url_shape ''
+! validate_repo_url_shape 'https://example.com/re po.git'
+
+# Name prefill derivation from URL basename.
+[[ "$(derive_project_name_from_repo_url 'https://github.com/user/repo.git')" == repo ]]
+[[ "$(derive_project_name_from_repo_url 'https://github.com/user/repo')" == repo ]]
+[[ "$(derive_project_name_from_repo_url 'https://gitlab.com/team/my_repo.git/')" == my_repo ]]
+[[ "$(derive_project_name_from_repo_url 'git@github.com:user/repo.git')" == repo ]]
+[[ "$(derive_project_name_from_repo_url 'ssh://git@host/team/app.git')" == app ]]
+[[ "$(derive_project_name_from_repo_url 'git@github.com:app.git')" == app ]]
+[[ -z "$(derive_project_name_from_repo_url 'https://host//')" ]]
+
+printf 'start-tui project source tests passed\n'
+
+# sandbox_config.json records empty/cloned source and repo_url.
+source_config_project="$source_home/config-project"
+mkdir -p "$source_config_project"
+create_sandbox_config "$source_config_project" full console none
+source_config="$source_config_project/.opencode_config/sandbox_config.json"
+[[ "$(jq -r '.project_source' "$source_config")" == empty ]]
+[[ "$(jq -r '.repo_url' "$source_config")" == '' ]]
+update_sandbox_config_field "$source_config" "project_source" "cloned"
+update_sandbox_config_field "$source_config" "repo_url" 'https://example.com/repo.git'
+[[ "$(jq -r '.project_source' "$source_config")" == cloned ]]
+[[ "$(jq -r '.repo_url' "$source_config")" == 'https://example.com/repo.git' ]]
+
+# Registry entry carries repo_url; entries without one keep it empty.
+source_registry_project="$source_home/registry-project"
+mkdir -p "$source_registry_project"
+add_project_to_registry SourceRegistry "$source_registry_project" none 'https://example.com/repo.git'
+[[ "$(jq -r '.projects[] | select(.name == "SourceRegistry") | .repo_url' "$HOME/.config/oc-sandbox/projects.json")" == 'https://example.com/repo.git' ]]
+[[ "$(jq -r '.projects[] | select(.name == "First") | .repo_url' "$HOME/.config/oc-sandbox/projects.json")" == '' ]]
+
+# Cloned projects pass --repo_url to init-project.sh (skips seed + git init).
+init_stub_dir="$source_home/init-stub"
+mkdir -p "$init_stub_dir"
+init_args_log="$source_home/init-args"
+cat > "$init_stub_dir/init-project.sh" <<EOF
+#!/usr/bin/env bash
+printf '%s\n' "\$*" > "$init_args_log"
+EOF
+chmod +x "$init_stub_dir/init-project.sh"
+SCRIPT_DIR="$init_stub_dir"
+run_init_project "$source_config_project" --repo_url 'https://example.com/repo.git'
+[[ "$(<"$init_args_log")" == "$source_config_project --repo_url https://example.com/repo.git" ]]
+run_init_project "$source_config_project"
+[[ "$(<"$init_args_log")" == "$source_config_project" ]]
+SCRIPT_DIR="$PROJECT_ROOT/dist/scripts"
+
+# select_ai_provider persists source/URL into config and registry for cloned projects.
+flow_project="$source_home/flow-project"
+mkdir -p "$flow_project"
+run_init_project() { :; }
+check_and_build_containers() { return 2; }
+select_ai_provider "$flow_project" FlowApp full 'https://example.com/repo.git' console console none
+[[ "$(jq -r '.project_source' "$flow_project/.opencode_config/sandbox_config.json")" == cloned ]]
+[[ "$(jq -r '.repo_url' "$flow_project/.opencode_config/sandbox_config.json")" == 'https://example.com/repo.git' ]]
+[[ "$(jq -r '.projects[] | select(.name == "FlowApp") | .repo_url' "$HOME/.config/oc-sandbox/projects.json")" == 'https://example.com/repo.git' ]]
+
+# Empty-source flow records project_source "empty" and no repo_url.
+empty_flow_project="$source_home/empty-flow-project"
+mkdir -p "$empty_flow_project"
+select_ai_provider "$empty_flow_project" EmptyFlow full "" console console none
+[[ "$(jq -r '.project_source' "$empty_flow_project/.opencode_config/sandbox_config.json")" == empty ]]
+[[ "$(jq -r '.repo_url' "$empty_flow_project/.opencode_config/sandbox_config.json")" == '' ]]
+[[ "$(jq -r '.projects[] | select(.name == "EmptyFlow") | .repo_url' "$HOME/.config/oc-sandbox/projects.json")" == '' ]]
+
+printf 'start-tui cloned source persistence tests passed\n'

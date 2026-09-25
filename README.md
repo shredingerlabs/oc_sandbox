@@ -177,9 +177,12 @@ ohne `gum` auf einen einfachen Textmodus zurück.
 
 1. **Build Container** – gewünschte Edition bauen (einmalig, oder später über
    **Build now**, wenn beim Projektstart ein Image fehlt).
-2. **New Project** – der Wizard legt den Projekt-Root an (gleiche Struktur wie
-   `init-project.sh`), fragt VCS-Host und Tokens verborgen ab, konfiguriert die
-   Git-Identität und wählt eine Start-Option:
+2. **New Project** – der Wizard fragt zuerst die **Projektquelle** ab
+   („New empty project“ oder „Clone existing repo via URL“; bei Klonen wird nur
+   die Repo-URL erfragt – Formprüfung ohne Netztest – und der Projektname aus
+   dem URL-Basisnamen vorbelegt). Danach legt er den Projekt-Root an (gleiche
+   Struktur wie `init-project.sh`), fragt VCS-Host und Tokens verborgen ab,
+   konfiguriert die Git-Identität und wählt eine Start-Option:
    
    - `console` – interaktive Shell im Container
    
