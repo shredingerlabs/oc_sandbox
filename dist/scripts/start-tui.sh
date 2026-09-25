@@ -1127,8 +1127,9 @@ configure_gwdg_opencode_config() {
   local config
   if [[ -f "$config_file" ]]; then
     config=$(jq --slurpfile gwdg "$template" \
-      '. + {provider: ((.provider // {}) * $gwdg[0].provider), model: $gwdg[0].model,
-        small_model: $gwdg[0].small_model, agent: $gwdg[0].agent}' "$config_file") || return 1
+      'reduce ($gwdg[0] | keys[]) as $key (.; if $key == "provider" then
+        .provider = ((.provider // {}) * $gwdg[0].provider) else .[$key] = $gwdg[0][$key] end)' \
+      "$config_file") || return 1
   else
     config=$(<"$template")
   fi
