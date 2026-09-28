@@ -1779,10 +1779,13 @@ detect_available_editions() {
 
 settings_menu() {
   while true; do
-    local options=("Config Backup" "Config Restore" "Stop Container" "Uninstall" "← Back to Main Menu")
+    local options=("Import existing project" "Config Backup" "Config Restore" "Stop Container" "Uninstall" "← Back to Main Menu")
     local choice=$(show_menu "Settings" "${options[@]}")
 
     case "$choice" in
+      "Import existing project")
+        project_import_wizard
+        ;;
       "Config Backup")
         backup_config_manually
         ;;
@@ -1959,6 +1962,161 @@ restore_config() {
 
   echo "Restored ${selected_config} from ${selected_backup}"
   wait_for_enter
+}
+
+project_import_wizard() {
+  while true; do
+    local picked_dir
+    picked_dir=$(pick_import_folder) || return 0
+    [[ -n "$picked_dir" ]] || return 0
+    validate_import_candidate "$picked_dir" || continue
+    register_imported_project "$picked_dir" && return 0
+  done
+}
+
+pick_import_folder() {
+  local start_dir="$DEFAULT_PROJECT_PATH"
+  [[ -d "$start_dir" ]] || start_dir="$HOME"
+  start_dir=$(canonicalize_project_path "$start_dir") || return 1
+
+  local current_dir="$start_dir"
+  while true; do
+    local subdirs=()
+    local item
+    for item in "$current_dir"/*/; do
+      [[ -d "$item" ]] && subdirs+=("$(basename "$item")")
+    done
+
+    local options=("📁 .. (up one level)" "${subdirs[@]}" "Select this folder" "← Go Back")
+    local choice
+    choice=$(show_menu "Folder picker — ${current_dir}" "${options[@]}") || { printf '%s\n' ""; return 1; }
+
+    case "$choice" in
+      "📁 .. (up one level)")
+        current_dir=$(dirname "$current_dir")
+        ;;
+      "Select this folder")
+        printf '%s\n' "$current_dir"
+        return 0
+        ;;
+      "← Go Back")
+        printf '%s\n' ""
+        return 1
+        ;;
+      *)
+        local candidate="${current_dir%/}/$choice"
+        if [[ -d "$candidate" ]] && [[ -x "$candidate" ]]; then
+          current_dir=$(canonicalize_project_path "$candidate") || return 1
+        else
+          show_page "Not accessible" "Cannot enter ${choice}."
+          wait_for_enter || true
+        fi
+        ;;
+    esac
+  done
+}
+
+validate_import_candidate() {
+  local project_path="$1"
+  local config_path="${project_path}/.opencode_config/sandbox_config.json"
+
+  if [[ -f "$config_path" ]] && ! jq empty "$config_path" >/dev/null 2>&1; then
+    show_page "Config is broken" "sandbox_config.json is not valid JSON. Repair it before importing."
+    wait_for_enter || true
+    return 1
+  fi
+
+  if ! folder_matches_project_structure "$project_path"; then
+    show_page "Import isn't possible here" \
+      "This folder does not match the opencode-sandbox project structure." \
+      "Use the New Project workflow instead and import via git URL (Clone existing repo via URL)."
+    local jump
+    jump=$(show_menu "Open New Project wizard?" "Open New Project wizard" "← Go Back") || return 1
+    if [[ "$jump" == "Open New Project wizard" ]]; then
+      init_project_wizard
+    fi
+    return 1
+  fi
+
+  return 0
+}
+
+folder_matches_project_structure() {
+  local project_path="$1"
+  local dir
+  for dir in project .opencode_config .opencode_data .ssh_local .git_local .cbm_cache; do
+    [[ -d "${project_path}/${dir}" ]] || return 1
+  done
+
+  [[ -f "${project_path}/.opencode_config/sandbox_config.json" ]] &&
+    [[ -e "${project_path}/project/.git" ]]
+}
+
+register_imported_project() {
+  local project_path="$1"
+  local config_path="${project_path}/.opencode_config/sandbox_config.json"
+
+  local config_content
+  config_content=$(cat "$config_path")
+
+  local folder_name slug_name
+  folder_name=$(basename "$project_path")
+  slug_name=$(derive_import_project_name "$folder_name")
+
+  local prefill_name="$slug_name"
+  if [[ -f "${HOME}/.config/oc-sandbox/projects.json" ]]; then
+    local registered_path
+    registered_path=$(get_project_by_path "$project_path" 2>/dev/null || true)
+    if [[ -n "$registered_path" ]]; then
+      show_page "Already imported" "This path is already registered as project: $(jq -r '.name' <<< "$registered_path")"
+      wait_for_enter || true
+      return 1
+    fi
+  fi
+
+  local project_name
+  project_name=$(prompt_for_name "Project name:" "$prefill_name") || return 1
+
+  if [[ -n "$(get_project_by_name "$project_name")" ]]; then
+    show_page "Duplicate project name" "Choose a unique display name."
+    wait_for_enter || true
+    return 1
+  fi
+
+  local edition modes start_option vcs_tracking repo_url
+  edition=$(jq -r '.container_edition // ""' <<< "$config_content")
+  modes=$(jq -rc '.container_modes // []' <<< "$config_content")
+  start_option=$(jq -r '.start_option // ""' <<< "$config_content")
+  vcs_tracking=$(jq -r '.vcs_tracking // "none"' <<< "$config_content")
+  repo_url=$(jq -r '.repo_url // ""' <<< "$config_content")
+
+  show_page "Import summary" \
+    "Name: ${project_name}" \
+    "Path: ${project_path}" \
+    "Edition: ${edition}" \
+    "Modes: ${modes}" \
+    "Start option: ${start_option}" \
+    "Status: stopped (starts on demand via Open Project)"
+
+  local confirm
+  confirm=$(show_menu "Register this project?" "Register" "← Go Back") || return 1
+  [[ "$confirm" == "Register" ]] || return 1
+
+  if ! add_project_to_registry "$project_name" "$project_path" "$vcs_tracking" "$repo_url"; then
+    show_page "Import failed" "Could not write project registry."
+    wait_for_enter || true
+    return 1
+  fi
+
+  show_page "Project imported" "${project_name} registered."
+  wait_for_enter || true
+}
+
+derive_import_project_name() {
+  local folder_name="$1"
+  local slug
+  slug=$(printf '%s' "$folder_name" | tr ' ' '_' | tr -cd 'a-zA-Z0-9_-')
+  printf '%s\n' "${slug:-imported_project}"
 }
 
 deinstallation_wizard() {

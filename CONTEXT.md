@@ -16,6 +16,8 @@
 
 **in-container clone** — Cloning the repo URL inside the project container during first-run setup, after container start and before CBM configuration, using the container-side VCS credentials; chosen so host machines need no git/SSH setup. _Avoid_: host clone, URL import.
 
+**project import** — TUI flow (Settings → Import existing project) that registers an existing folder as a project *only when it already is a complete sandbox project root* (strict structure check incl. valid `sandbox_config.json`); a summary screen confirms it and only the registry changes. Non-matching or broken-config folders are never migrated/copied — the flow shows an informational prompt and offers a jump into the New Project wizard, where code comes in via the ordinary new-project sources. There is no "import" project source; `project/` content of a matching root is left untouched. _Avoid_: folder migration, import repo.
+
 **git init heal** — Host-side `git init` performed at container start when `project/` has no `.git`, guaranteeing OpenCode-Web always finds a worktree; skipped for projects whose project source is `cloned`.
 
 **projects.json** — Global project registry stored in `$HOME/.config/oc-sandbox/` with project metadata including project names, paths, container states, and last-used timestamps for ordering.

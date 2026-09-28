@@ -170,7 +170,7 @@ ohne `gum` auf einen einfachen Textmodus zurück.
 | **Open Project**            | Registriertes Projekt auswählen und starten                          |
 | **New Project**             | Projekt-Root neu anlegen (Wizard)                                    |
 | **Build Container**         | Container-Images bauen (Editionen wie `build-container.sh`)          |
-| **Settings**                | Config-Backup/-Restore, Uninstall                                    |
+| **Settings**                | Projekt-Import, Config-Backup/-Restore, Uninstall                    |
 | **Exit**                    | TUI beenden                                                          |
 
 ### Typischer Ablauf
@@ -203,6 +203,23 @@ Projekte werden in `~/.config/oc-sandbox/projects.json` registriert (kanonischer
 Pfad + kurze SHA-256-Container-Identität). Settings-Backup/Restore und der
 Deinstallations-Wizard (TUI-Label „Uninstall“) finden sich unter **Settings** – Details siehe
 [Deinstallation](#deinstallation).
+
+### Import: „Import existing project“ (Settings)
+
+Bestehende Sandbox-Projekt-Roots lassen sich über **Settings → Import existing
+project** erneut registrieren (z. B. nach Umzug oder Registry-Verlust; siehe
+[ADR-0017](docs/adr/0017-project-import-of-existing-sandbox-roots.md)):
+
+- Ein Ordner-Browser startet im Default-Projektpfad (Fallback: `$HOME`);
+  Unterverzeichnisse wählt man an, per **Select this folder** wird der Ordner
+  übernommen.
+- Der Import gelingt nur bei **vollständiger Projektstruktur** (`project/`,
+  `.opencode_config/` inkl. gültigem `sandbox_config.json`, `.opencode_data/`,
+  `.ssh_local/`, `.git_local/`, `.cbm_cache/`). Zusammenfassung prüfen →
+  **Register** – es ändert sich nur die Registry, nichts am Ordner.
+- Nicht passende Ordner oder defektes `sandbox_config.json` werden nicht
+  migriert; die TUI weist auf den New-Project-Wizard mit Git-Import hin.
+- Bereits registrierte Pfade oder doppelte Namen werden abgelehnt.
 
 ### Projektquelle: „Clone existing repo via URL“ (New Project Wizard)
 
