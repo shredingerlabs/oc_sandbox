@@ -1291,6 +1291,7 @@ revisit_project_settings() {
   current_start=$(jq -r '.start_option' "$config_path")
   current_ai=$(jq -r '.ai_provider' "$config_path")
   current_vcs=$(jq -r '.vcs_tracking // "none"' "$config_path")
+  local current_proxy=$(jq -r '.use_proxy // false' "$config_path")
 
   detect_available_editions || return 1
   local edition_choice
@@ -1338,6 +1339,14 @@ revisit_project_settings() {
   ai_choice=$(show_menu_prefilled "Select AI provider" "$current_ai" gwdg-saia none "← Go Back")
   [[ "$ai_choice" != "← Go Back" ]] || return 1
 
+  local proxy_label="no"
+  [[ "$current_proxy" == "true" ]] && proxy_label="yes"
+  local proxy_choice
+  proxy_choice=$(show_menu_prefilled "Use Squid egress proxy" "$proxy_label" "no" "yes" "← Go Back")
+  [[ "$proxy_choice" != "← Go Back" ]] || return 1
+  local proxy_choice_bool=false
+  [[ "$proxy_choice" == "yes" ]] && proxy_choice_bool=true
+
   local vcs_credentials_file=""
   case "$vcs_choice" in
     github.com) vcs_credentials_file="${project_path}/.git_local/gh-cli/hosts.yml" ;;
@@ -1365,8 +1374,9 @@ revisit_project_settings() {
   fi
   jq --arg edition "$edition" --argjson modes "$modes_json" \
     --arg start "$start_choice" --arg vcs "$vcs_choice" --arg ai "$ai_choice" \
+    --argjson proxy "$proxy_choice_bool" \
     '.container_edition=$edition | .container_modes=$modes | .start_option=$start |
-     .vcs_tracking=$vcs | .ai_provider=$ai' "$config_path" | atomic_write "$config_path"
+     .vcs_tracking=$vcs | .ai_provider=$ai | .use_proxy=$proxy' "$config_path" | atomic_write "$config_path"
 }
 
 start_container() {
@@ -1378,6 +1388,7 @@ start_container() {
   local modes=()
   mapfile -t modes < <(jq -r '.container_modes[]' "$config_path")
   local start_option=$(jq -r '.start_option' "$config_path")
+  local use_proxy=$(jq -r '.use_proxy // false' "$config_path")
 
   if ! validate_container_modes "${modes[@]}"; then
     echo "Container start aborted due to incompatible modes." >&2
@@ -1391,6 +1402,7 @@ start_container() {
   for mode in "${modes[@]}"; do
     start_args+=("--${mode}")
   done
+  [[ "$use_proxy" == "true" ]] && start_args+=("--use_proxy")
 
   if [[ "$start_option" == "opencode" && "$detached" != "true" ]]; then
     start_args+=("--start_opencode")
@@ -1770,7 +1782,7 @@ detect_available_editions() {
   AVAILABLE_MODES=()
   while read -r mode; do
     [[ -n "$mode" ]] && AVAILABLE_MODES+=("$mode")
-  done < <(grep -oE -- '(^|[[:space:]])--[a-zA-Z0-9_-]+' <<< "$start_help" | sed -E 's/^[[:space:]]*--//' | grep -Ev '^(start_opencode|start_web|edition|detach|container-id|help)$' | awk '!seen[$0]++')
+  done < <(grep -oE -- '(^|[[:space:]])--[a-zA-Z0-9_-]+' <<< "$start_help" | sed -E 's/^[[:space:]]*--//' | grep -Ev '^(start_opencode|start_web|edition|detach|container-id|help|use_proxy)$' | awk '!seen[$0]++')
   if [[ ${#AVAILABLE_MODES[@]} -eq 0 ]]; then
     echo "Error: start.sh help did not list any supported modes." >&2
     return 1
@@ -1779,10 +1791,13 @@ detect_available_editions() {
 
 settings_menu() {
   while true; do
-    local options=("Import existing project" "Config Backup" "Config Restore" "Stop Container" "Uninstall" "← Back to Main Menu")
+    local options=("Change Project Settings" "Import existing project" "Config Backup" "Config Restore" "Stop Container" "Uninstall" "← Back to Main Menu")
     local choice=$(show_menu "Settings" "${options[@]}")
 
     case "$choice" in
+      "Change Project Settings")
+        change_project_settings_wizard
+        ;;
       "Import existing project")
         project_import_wizard
         ;;
@@ -1962,6 +1977,62 @@ restore_config() {
 
   echo "Restored ${selected_config} from ${selected_backup}"
   wait_for_enter
+}
+
+change_project_settings_wizard() {
+  local projects=()
+  mapfile -t projects < <(get_all_projects_ordered) || true
+
+  if [[ ${#projects[@]} -eq 0 ]]; then
+    show_page "No registered projects" "Create a project first."
+    wait_for_enter || true
+    return
+  fi
+
+  local menu_items=()
+  local item project path
+  for project in "${projects[@]}"; do
+    path=$(jq -r '.path' <<< "$project")
+    item="${project}"
+    if [[ ! -f "${path}/.opencode_config/sandbox_config.json" ]] ||
+      ! jq empty "${path}/.opencode_config/sandbox_config.json" >/dev/null 2>&1; then
+      item+=" [broken config]"
+    fi
+    menu_items+=("$item")
+  done
+  menu_items+=("← Go Back")
+
+  local choice=$(show_menu "Select project to change settings" "${menu_items[@]}")
+  [[ "$choice" != "← Go Back" ]] || return 0
+
+  local selected_json="${choice% \[broken config\]}"
+  local project_data=$(get_project_by_name "$(jq -r '.name' <<< "$selected_json")")
+  [[ -n "$project_data" ]] || return 0
+  local project_path=$(jq -r '.path' <<< "$project_data")
+  local config_path="${project_path}/.opencode_config/sandbox_config.json"
+
+  if [[ ! -f "$config_path" ]] || ! jq empty "$config_path" >/dev/null 2>&1; then
+    show_page "Config is broken" \
+      "sandbox_config.json is missing or not valid JSON for this project." \
+      "Repair it or use the start/recovery path before changing settings."
+    wait_for_enter || true
+    return 1
+  fi
+
+  if [[ "$(jq -r '.setup_complete' "$config_path")" != "true" ]]; then
+    show_page "Setup incomplete" \
+      "First-run setup has not completed for this project." \
+      "You can still change settings; start the project afterwards to continue setup."
+    wait_for_enter || true
+  fi
+
+  if ! revisit_project_settings "$project_path"; then
+    return 1
+  fi
+
+  show_page "Project settings updated" \
+    "Settings were saved. They take effect on the next container start."
+  wait_for_enter || true
 }
 
 project_import_wizard() {

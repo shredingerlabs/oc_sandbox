@@ -509,6 +509,7 @@ show_menu() {
     'Select start option'*) printf '%s\n' console ;;
     'Select VCS tracking'*) printf '%s\n' github.com ;;
     'Select AI provider'*) printf '%s\n' none ;;
+    'Use Squid egress proxy'*) printf '%s\n' no ;;
     *) return 1 ;;
   esac
 }
@@ -517,6 +518,108 @@ revisit_project_settings "$retry_project"
 [[ "$(jq -r '.container_modes | join(",")' "$retry_project/.opencode_config/sandbox_config.json")" == offline ]]
 [[ "$(jq -r '.vcs_tracking' "$retry_project/.opencode_config/sandbox_config.json")" == github.com ]]
 [[ "$(<"$retry_project/.git_local/gh-cli/hosts.yml")" == 'existing credentials' ]]
+
+SCRIPT_DIR="$PROJECT_ROOT/dist/scripts"
+detect_available_editions
+printf '%s\n' "${AVAILABLE_MODES[@]}" > "$workflow_home/modes-list"
+! grep -Fxq use_proxy "$workflow_home/modes-list"
+grep -Fxq offline "$workflow_home/modes-list"
+
+# The proxy toggle persists into sandbox_config.json and start.sh receives
+# --use_proxy on the next start only when the toggle is on.
+show_menu() {
+  case "$1" in
+    'Select container edition'*) printf '%s\n' full ;;
+    'Select container modes'*) printf '%s\n' Done ;;
+    'Select start option'*) printf '%s\n' console ;;
+    'Select VCS tracking'*) printf '%s\n' github.com ;;
+    'Select AI provider'*) printf '%s\n' none ;;
+    'Use Squid egress proxy'*) printf '%s\n' yes ;;
+    *) return 1 ;;
+  esac
+}
+revisit_project_settings "$retry_project"
+[[ "$(jq -r '.use_proxy' "$retry_project/.opencode_config/sandbox_config.json")" == true ]]
+
+SCRIPT_DIR="$workflow_home/native"
+create_sandbox_config "$retry_project" full console github.com
+update_sandbox_config_field "$retry_project/.opencode_config/sandbox_config.json" vcs_tracking github.com
+update_sandbox_config_field "$retry_project/.opencode_config/sandbox_config.json" use_proxy true
+rm -f "$workflow_home/native-start-args"
+start_container "$retry_project" "$retry_project/.opencode_config/sandbox_config.json" true
+grep -F -- '--use_proxy' "$workflow_home/native-start-args"
+update_sandbox_config_field "$retry_project/.opencode_config/sandbox_config.json" use_proxy false
+rm -f "$workflow_home/native-start-args"
+start_container "$retry_project" "$retry_project/.opencode_config/sandbox_config.json" true
+! grep -F -- '--use_proxy' "$workflow_home/native-start-args"
+SCRIPT_DIR="$PROJECT_ROOT/dist/scripts"
+
+# Change Project Settings lists every registered project and reopened settings
+# are saved with a next-start-apply summary; incomplete setup only warns.
+settings_project="$workflow_home/change-settings"
+mkdir -p "$settings_project"
+add_project_to_registry ChangeSettings "$settings_project" none
+create_sandbox_config "$settings_project" full console none
+[[ "$(jq -r '.setup_complete' "$settings_project/.opencode_config/sandbox_config.json")" == false ]]
+
+show_menu() {
+  case "$1" in
+    'Select project to change settings'*) printf '%s\n' "$(get_project_by_name ChangeSettings)" ;;
+    'Select container edition'*) printf '%s\n' base ;;
+    'Select container modes'*) printf '%s\n' Done ;;
+    'Select start option'*) printf '%s\n' web ;;
+    'Select VCS tracking'*) printf '%s\n' none ;;
+    'Select AI provider'*) printf '%s\n' none ;;
+    'Use Squid egress proxy'*) printf '%s\n' yes ;;
+    *) return 1 ;;
+  esac
+}
+change_project_settings_wizard
+changed_config="$settings_project/.opencode_config/sandbox_config.json"
+[[ "$(jq -r '.container_edition' "$changed_config")" == base ]]
+[[ "$(jq -r '.start_option' "$changed_config")" == web ]]
+[[ "$(jq -r '.use_proxy' "$changed_config")" == true ]]
+
+# Going back from the project list changes nothing and returns cleanly.
+show_menu() { printf '%s\n' '← Go Back'; }
+change_project_settings_wizard
+[[ "$(jq -r '.container_edition' "$changed_config")" == base ]]
+
+# Going back at the first revisited prompt aborts without touching the config.
+show_menu() {
+  case "$1" in
+    'Select project to change settings'*) printf '%s\n' "$(get_project_by_name ChangeSettings)" ;;
+    'Select container edition'*) printf '%s\n' '← Go Back' ;;
+    *) printf '%s\n' '← Go Back' ;;
+  esac
+}
+if change_project_settings_wizard; then
+  printf 'aborted wizard reported success\n' >&2
+  exit 1
+fi
+[[ "$(jq -r '.container_edition' "$changed_config")" == base ]]
+[[ "$(jq -r '.use_proxy' "$changed_config")" == true ]]
+
+# A broken sandbox_config.json is listed with a marker and refused; no settings
+# menu is opened.
+broken_project="$workflow_home/broken-settings"
+mkdir -p "$broken_project/.opencode_config"
+add_project_to_registry BrokenSettings "$broken_project" none
+printf 'not-json\n' > "$broken_project/.opencode_config/sandbox_config.json"
+capture_menu() { printf '%s\n' "$*" >> "$workflow_home/menu-capture"; printf '%s\n' "$(get_project_by_name BrokenSettings) [broken config]"; }
+: > "$workflow_home/menu-capture"
+show_menu() {
+  case "$1" in
+    'Select project to change settings'*) capture_menu "$@" ;;
+    *) printf '%s\n' '← Go Back' ;;
+  esac
+}
+if change_project_settings_wizard; then
+  printf 'broken config was accepted\n' >&2
+  exit 1
+fi
+grep -Fq ' [broken config]' "$workflow_home/menu-capture"
+[[ "$(cat "$broken_project/.opencode_config/sandbox_config.json")" == 'not-json' ]]
 
 reconcile_project="$workflow_home/reconcile"
 mkdir -p "$reconcile_project"

@@ -159,3 +159,11 @@
 **hicolor icon install** — Linux shortcut step copying `icons/linux/share/icons/hicolor/` into `$HOME/.local/share/icons/hicolor/` so the desktop entry resolves `Icon=oc-sandbox` through the icon theme. Best-effort: failures fall back to an icon-less shortcut.
 
 **icns generation** — macOS shortcut step converting the bundled `.iconset` to `AppIcon.icns` using `iconutil` (ships with macOS); on failure the `.app` is created without an icon.
+
+**change project settings** — TUI flow (Settings → Change Project Settings → project list) re-running the full prefilled settings sequence (edition, modes, start option, VCS, AI provider, proxy toggle) for any registered project, including running containers and projects with incomplete first-run setup. Changes are persisted to sandbox_config.json immediately and take effect on next container start; no live-apply. _Avoid_: edit settings, live settings.
+
+**revisit sequence** — The shared prefilled settings chain (edition → modes → start option → VCS → AI provider, plus proxy) used by both the change-project-settings flow and the failure-recovery retry path; one implementation, reachable from either entry point. _Avoid_: settings redo, reconfigure loop.
+
+**proxy toggle** — Per-project yes/no setting recorded as `use_proxy` in sandbox_config.json, passed to start.sh as `--use_proxy` on next start. Governs container-level proxy use only; the global `oc-proxy` container's lifecycle and the allowlist remain start.sh/start.sh-built-image concerns, never edited here. _Avoid_: allowlist editor, proxy settings.
+
+**next-start apply** — Contract that any settings change (including edition switch) is only recorded and never reconfigures a running container; applying requires a later stop/start, where a missing edition image gets the existing Build now / Build later / Go back prompt at start time. _Avoid_: live apply, hot reload.
