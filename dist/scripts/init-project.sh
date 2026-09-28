@@ -156,6 +156,7 @@ cat > "${PROJECT_ROOT}/.gitignore" <<'EOF'
 .ssh_local/
 .git_local/
 .cbm_cache/
+.bash_local/
 EOF
 
 echo "Projekt-Root angelegt: ${PROJECT_ROOT}"

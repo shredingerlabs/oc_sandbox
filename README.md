@@ -170,7 +170,7 @@ ohne `gum` auf einen einfachen Textmodus zurück.
 | **Open Project**            | Registriertes Projekt auswählen und starten                          |
 | **New Project**             | Projekt-Root neu anlegen (Wizard)                                    |
 | **Build Container**         | Container-Images bauen (Editionen wie `build-container.sh`)          |
-| **Settings**                | Projekt-Import, Config-Backup/-Restore, Uninstall                    |
+| **Settings**                | Change Project Settings, Projekt-Import, Config-Backup/-Restore, Stop Container, Uninstall |
 | **Exit**                    | TUI beenden                                                          |
 
 ### Typischer Ablauf
@@ -327,18 +327,20 @@ folgenden Unterordnern.
   .opencode_data/        <- OpenCode-Daten inkl. Sessions & Auth/Credentials
   .ssh_local/            <- SSH-Keys + eigene ssh-Config für dieses Projekt
   .git_local/            <- Git-Identität/-Settings + optionale HTTPS-Credentials
-    gitconfig             <- user.name/user.email, safe.directory
+    gitconfig             <- user.name/user.email, safe.directory, credential-store
     credentials           <- git credential-store (optional)
-    gh-cli/config.yml     <- GitHub CLI Token (Alternative zu SSH Deploy Keys)
-    glab-cli/config.yml   <- GitLab CLI Token
+    gh-cli/hosts.yml      <- GitHub CLI Token (Alternative zu SSH Deploy Keys)
+    glab-cli/hosts.yml    <- GitLab CLI Token
   .cbm_cache/            <- CBM Knowledge-Graph-Datenbank (persistent)
+  .bash_local/           <- bash_profile für den Container (persistente Prompt-/Env-Anpassungen)
 ```
 
 Damit könnt ihr für jedes Projekt/jeden Kunden einen eigenen Projekt-Root anlegen,
 mit eigenen Git-Credentials und eigenem OpenCode-Login – ohne die Skripte
-anzufassen. Da `.opencode_config/`, `.opencode_data/`, `.ssh_local/`, `.git_local/`
-und `.cbm_cache/` **Geschwister** von `project/` sind, sieht das Git-Repo in
-`project/` diese sensiblen Daten nie, auch nicht versehentlich per `git add .`.
+anzufassen. Da `.opencode_config/`, `.opencode_data/`, `.ssh_local/`, `.git_local/`,
+`.cbm_cache/` und `.bash_local/` **Geschwister** von `project/` sind, sieht das
+Git-Repo in `project/` diese sensiblen Daten nie, auch nicht versehentlich per
+`git add .`.
 
 Neuen Projekt-Root mit korrekter Struktur/Rechten anlegen:
 
@@ -373,9 +375,9 @@ CLI-Tools (Issues, PRs etc.):
 **GitHub (`gh`):**
 
 ```bash
-cp templates/git_local/gh-cli/config.yml ~/projects/kunde-x/.git_local/gh-cli/config.yml
-$EDITOR ~/projects/kunde-x/.git_local/gh-cli/config.yml   # token eintragen
-chmod 600 ~/projects/kunde-x/.git_local/gh-cli/config.yml
+cp templates/git_local/gh-cli/hosts.yml ~/projects/kunde-x/.git_local/gh-cli/hosts.yml
+$EDITOR ~/projects/kunde-x/.git_local/gh-cli/hosts.yml   # oauth_token eintragen
+chmod 600 ~/projects/kunde-x/.git_local/gh-cli/hosts.yml
 ```
 
 Token erzeugen: GitHub → Settings → Developer settings → Personal access tokens
@@ -384,26 +386,24 @@ Token erzeugen: GitHub → Settings → Developer settings → Personal access t
 **GitLab (`glab`):**
 
 ```bash
-cp templates/git_local/glab-cli/config.yml ~/projects/kunde-x/.git_local/glab-cli/config.yml
-$EDITOR ~/projects/kunde-x/.git_local/glab-cli/config.yml   # token eintragen
-chmod 600 ~/projects/kunde-x/.git_local/glab-cli/config.yml
+cp templates/git_local/glab-cli/hosts.yml ~/projects/kunde-x/.git_local/glab-cli/hosts.yml
+$EDITOR ~/projects/kunde-x/.git_local/glab-cli/hosts.yml   # token eintragen
+chmod 600 ~/projects/kunde-x/.git_local/glab-cli/hosts.yml
 ```
 
 Token erzeugen: GitLab → Preferences → Access Tokens. Benötigte Scopes: `api`, `read_repository`, `write_repository`.
 
-Für **git push/pull via HTTPS** zusätzlich den Credential-Helper aktivieren:
-
-```bash
-# In .git_local/gitconfig einkommentieren:
-[credential]
-    helper = store --file=/home/dev/.git_local/credentials
-```
-
-Dann das Token in `.git_local/credentials` ablegen:
+Der **Credential-Helper für git push/pull via HTTPS** ist in der
+gitconfig-Vorlage bereits aktiv (`[credential] helper = store --file=
+/home/dev/.git_local/credentials`). Es genügt, das Token als Host-Eintrag in
+`.git_local/credentials` abzulegen:
 
 ```
-https://dein-token:ghp_xxxxx@github.com
+https://<user>:ghp_xxxxx@github.com
 ```
+
+Der geführte TUI-VCS-Flow schreibt diesen Eintrag automatisch, sobald ein
+VCS-Token erfasst wird (GitHub: `https://oauth2:<token>@github.com`).
 
 ### 3. Sandbox starten
 
@@ -430,6 +430,12 @@ dist/scripts/start.sh ~/projects/kunde-x --edition full      # Web + Embedded (d
 | `--cbm_ui`               | pasta    | nein            | –                         | CBM Knowledge-Graph-UI (Port 9749) |
 | `--use_proxy --cbm_ui`   | pasta    | Squid-Allowlist | –                         | Proxy + Graph-UI                   |
 | `--start_web --detach`   | pasta    | nein            | –                         | OpenCode-Weboberfläche (Port 4096) |
+
+Weitere Einzelflags (nicht in der Tabelle): `--start_opencode` öffnet direkt
+eine OpenCode-TUI-Sitzung im Container; `--detach` startet den Container im
+Hintergrund (ohne `--start_web` mit `sleep infinity` als Hauptprozess);
+`--container-id <id>` setzt die persistierte Container-Identität aus der
+Projekt-Registry (Standard sonst: Basisname des Projekt-Roots).
 
 Beispiele:
 
@@ -521,6 +527,7 @@ rm -rf ~/projects/kunde-x/.opencode_config/* ~/projects/kunde-x/.opencode_data/*
 │   │   └── allowlist.txt
 │   ├── udev/
 │   │   └── 99-hil.rules          <- udev-Regeln für HIL-Geräte (Oszi + MCU)
+│   ├── icons/                    <- Icon-Material für Desktop-Shortcuts (linux/windows/macos)
 │   └── templates/
 │       ├── ssh_local/config
 │       ├── git_local/
@@ -528,12 +535,13 @@ rm -rf ~/projects/kunde-x/.opencode_config/* ~/projects/kunde-x/.opencode_data/*
 │       │   ├── credentials
 │       │   ├── gh-cli/
 │       │   └── glab-cli/
+│       ├── bash/
+│       │   └── bash_profile      <- Vorlage für .bash_local/bash_profile
 │       ├── opencode/
 │       │   ├── opencode-gwdg.json    <- GWDG-spezifische Config
 │       │   ├── opencode-basic.json   <- Minimale Config
 │       │   ├── AGENTS.md             <- Agent-Config (wird kopiert)
-│       │   └── skills/               <- Skill-Vorlagen
-│       └── docs/
+│       │   └── skills/               <- Skill-Vorlagen (wird von init-project.sh befüllt)
 ├── docs/
 │   ├── adr/                      <- Architecture Decision Records
 │   ├── agents/                   <- Agent-Dokumentation
@@ -584,7 +592,8 @@ Hinweise:
 - HIL-Mode mit Bus-Level-Passthrough (nur der USB-Bus des Oszi, nicht `/dev/bus/usb` komplett)
 - `--offline` für Läufe ohne Netzwerkbedarf
 - Container-Name pro Projekt-Root, damit mehrere Sandboxes parallel laufen können
-- Nur die sechs definierten Projekt-Root-Unterordner werden gemountet – nicht `$HOME`
+- Nur die definierten Projekt-Root-Unterordner plus `.bash_local/bash_profile`
+  werden gemountet – nicht `$HOME`
 - Allgemeine Konfigurations-Backups enthalten keine VCS- oder AI-Credentials; Restore validiert JSON und ersetzt jeweils nur eine Datei atomar
 
 ## Deinstallation
@@ -656,10 +665,10 @@ echo "$(id -un):$(id -u):1" | sudo tee -a /etc/subuid
 echo "$(id -un):$(id -g):1" | sudo tee -a /etc/subgid
 ```
 
-Danach `dist/scripts/start.sh` nochmal starten — `start.sh` selbst prüft den
-Self-Eintrag per `getsubids` und bricht vorher mit der genauen Anweisung
-ab, falls er fehlt. Dasselbe gilt für `devcontainer.json`-Workflows
- (`.devcontainer/devcontainer.json` → `devcontainer up`).
+Danach `dist/scripts/start.sh` nochmal starten. Die Prüfung, ob der
+Self-Eintrag vorhanden ist, bleibt euch überlassen (z.B. per `getsubids $USER`);
+dasselbe gilt für `devcontainer.json`-Workflows
+(`.devcontainer/devcontainer.json` → `devcontainer up`).
 
 ### HIL: USB-Gerät hat keine Rechte im Container (nobody:nogroup)
 
@@ -698,9 +707,8 @@ echo "$(id -un):20:1" | sudo tee -a /etc/subgid
 # Danach ab- und wieder anmelden, Podman-Userns wird neu initialisiert.
 ```
 
-`dist/scripts/start.sh --hil_mode` versucht automatisch Option (a) bzw. (b), wenn
-`sudo` mit `NOPASSWD` konfiguriert ist. Schlägt der Auto-Fix fehlt, erscheint
-eine Meldung mit den manuellen Schritten.
+`dist/scripts/start.sh --hil_mode` führt keine automatischen Rechte-Fixes auf
+Host-Geräten durch – eine der Optionen oben muss von Hand ausgeführt werden.
 
 ## Releases
 

@@ -21,6 +21,7 @@ dist/
 │   └── allowlist.txt
 ├── udev/
 │   └── 99-hil.rules              <- udev-Regeln für HIL-Geräte
+├── icons/                        <- Icon-Material für Desktop-Shortcuts
 └── templates/
     ├── ssh_local/config
     ├── git_local/
@@ -28,12 +29,13 @@ dist/
     │   ├── credentials
     │   ├── gh-cli/
     │   └── glab-cli/
-    ├── opencode/
-    │   ├── opencode-gwdg.json
-    │   ├── opencode-basic.json
-    │   ├── AGENTS.md
-    │   └── skills/
-    └── docs/
+    ├── bash/
+    │   └── bash_profile
+    └── opencode/
+        ├── opencode-gwdg.json
+        ├── opencode-basic.json
+        ├── AGENTS.md
+        └── skills/
 ```
 
 The TUI stores each registered project's canonical root and a short SHA-256
