@@ -16,6 +16,8 @@
 
 **in-container clone** — Cloning the repo URL inside the project container during first-run setup, after container start and before CBM configuration, using the container-side VCS credentials; chosen so host machines need no git/SSH setup. _Avoid_: host clone, URL import.
 
+**project import** — TUI flow (Settings → Import existing project) that registers an existing folder as a project *only when it already is a complete sandbox project root* (strict structure check incl. valid `sandbox_config.json`); a summary screen confirms it and only the registry changes. Non-matching or broken-config folders are never migrated/copied — the flow shows an informational prompt and offers a jump into the New Project wizard, where code comes in via the ordinary new-project sources. There is no "import" project source; `project/` content of a matching root is left untouched. _Avoid_: folder migration, import repo.
+
 **git init heal** — Host-side `git init` performed at container start when `project/` has no `.git`, guaranteeing OpenCode-Web always finds a worktree; skipped for projects whose project source is `cloned`.
 
 **projects.json** — Global project registry stored in `$HOME/.config/oc-sandbox/` with project metadata including project names, paths, container states, and last-used timestamps for ordering.
@@ -28,7 +30,7 @@
 
 **first-run setup** — Automated container initialization including in-container probe (`git ls-remote`) and full clone for cloned projects, then CBM configuration and skills setup, tracked via `setup_clone_complete`, `setup_cbm_complete`, and `setup_skills_complete` flags in sandbox_config.json, offering granular recovery for partial failures including Retry / Change URL / Exit for clone issues.
 
-**VCS integration** — Version Control System setup (GitHub, GitLab, or custom host) creating credentials/hosts.yml in `.git_local/` subdirectories, separate from AI provider configuration.
+**VCS integration** — Version Control System setup (GitHub, GitLab, or custom host) creating host token files (`gh-cli/hosts.yml`, `glab-cli/hosts.yml`, or `vcs/hosts.yml`) in `.git_local/` subdirectories, separate from AI provider configuration.
 
 **AI provider** — LLM API service configuration like GWDG, stored in auth.json within `.opencode_data/` with provider sections for OpenCode integration.
 
@@ -157,3 +159,11 @@
 **hicolor icon install** — Linux shortcut step copying `icons/linux/share/icons/hicolor/` into `$HOME/.local/share/icons/hicolor/` so the desktop entry resolves `Icon=oc-sandbox` through the icon theme. Best-effort: failures fall back to an icon-less shortcut.
 
 **icns generation** — macOS shortcut step converting the bundled `.iconset` to `AppIcon.icns` using `iconutil` (ships with macOS); on failure the `.app` is created without an icon.
+
+**change project settings** — TUI flow (Settings → Change Project Settings → project list) re-running the full prefilled settings sequence (edition, modes, start option, VCS, AI provider, proxy toggle) for any registered project, including running containers and projects with incomplete first-run setup. Changes are persisted to sandbox_config.json immediately and take effect on next container start; no live-apply. _Avoid_: edit settings, live settings.
+
+**revisit sequence** — The shared prefilled settings chain (edition → modes → start option → VCS → AI provider, plus proxy) used by both the change-project-settings flow and the failure-recovery retry path; one implementation, reachable from either entry point. _Avoid_: settings redo, reconfigure loop.
+
+**proxy toggle** — Per-project yes/no setting recorded as `use_proxy` in sandbox_config.json, passed to start.sh as `--use_proxy` on next start. Governs container-level proxy use only; the global `oc-proxy` container's lifecycle and the allowlist remain start.sh/start.sh-built-image concerns, never edited here. _Avoid_: allowlist editor, proxy settings.
+
+**next-start apply** — Contract that any settings change (including edition switch) is only recorded and never reconfigures a running container; applying requires a later stop/start, where a missing edition image gets the existing Build now / Build later / Go back prompt at start time. _Avoid_: live apply, hot reload.

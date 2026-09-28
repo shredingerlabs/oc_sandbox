@@ -1291,6 +1291,7 @@ revisit_project_settings() {
   current_start=$(jq -r '.start_option' "$config_path")
   current_ai=$(jq -r '.ai_provider' "$config_path")
   current_vcs=$(jq -r '.vcs_tracking // "none"' "$config_path")
+  local current_proxy=$(jq -r '.use_proxy // false' "$config_path")
 
   detect_available_editions || return 1
   local edition_choice
@@ -1338,6 +1339,14 @@ revisit_project_settings() {
   ai_choice=$(show_menu_prefilled "Select AI provider" "$current_ai" gwdg-saia none "← Go Back")
   [[ "$ai_choice" != "← Go Back" ]] || return 1
 
+  local proxy_label="no"
+  [[ "$current_proxy" == "true" ]] && proxy_label="yes"
+  local proxy_choice
+  proxy_choice=$(show_menu_prefilled "Use Squid egress proxy" "$proxy_label" "no" "yes" "← Go Back")
+  [[ "$proxy_choice" != "← Go Back" ]] || return 1
+  local proxy_choice_bool=false
+  [[ "$proxy_choice" == "yes" ]] && proxy_choice_bool=true
+
   local vcs_credentials_file=""
   case "$vcs_choice" in
     github.com) vcs_credentials_file="${project_path}/.git_local/gh-cli/hosts.yml" ;;
@@ -1365,8 +1374,9 @@ revisit_project_settings() {
   fi
   jq --arg edition "$edition" --argjson modes "$modes_json" \
     --arg start "$start_choice" --arg vcs "$vcs_choice" --arg ai "$ai_choice" \
+    --argjson proxy "$proxy_choice_bool" \
     '.container_edition=$edition | .container_modes=$modes | .start_option=$start |
-     .vcs_tracking=$vcs | .ai_provider=$ai' "$config_path" | atomic_write "$config_path"
+     .vcs_tracking=$vcs | .ai_provider=$ai | .use_proxy=$proxy' "$config_path" | atomic_write "$config_path"
 }
 
 start_container() {
@@ -1378,6 +1388,7 @@ start_container() {
   local modes=()
   mapfile -t modes < <(jq -r '.container_modes[]' "$config_path")
   local start_option=$(jq -r '.start_option' "$config_path")
+  local use_proxy=$(jq -r '.use_proxy // false' "$config_path")
 
   if ! validate_container_modes "${modes[@]}"; then
     echo "Container start aborted due to incompatible modes." >&2
@@ -1391,6 +1402,7 @@ start_container() {
   for mode in "${modes[@]}"; do
     start_args+=("--${mode}")
   done
+  [[ "$use_proxy" == "true" ]] && start_args+=("--use_proxy")
 
   if [[ "$start_option" == "opencode" && "$detached" != "true" ]]; then
     start_args+=("--start_opencode")
@@ -1770,7 +1782,7 @@ detect_available_editions() {
   AVAILABLE_MODES=()
   while read -r mode; do
     [[ -n "$mode" ]] && AVAILABLE_MODES+=("$mode")
-  done < <(grep -oE -- '(^|[[:space:]])--[a-zA-Z0-9_-]+' <<< "$start_help" | sed -E 's/^[[:space:]]*--//' | grep -Ev '^(start_opencode|start_web|edition|detach|container-id|help)$' | awk '!seen[$0]++')
+  done < <(grep -oE -- '(^|[[:space:]])--[a-zA-Z0-9_-]+' <<< "$start_help" | sed -E 's/^[[:space:]]*--//' | grep -Ev '^(start_opencode|start_web|edition|detach|container-id|help|use_proxy)$' | awk '!seen[$0]++')
   if [[ ${#AVAILABLE_MODES[@]} -eq 0 ]]; then
     echo "Error: start.sh help did not list any supported modes." >&2
     return 1
@@ -1779,10 +1791,16 @@ detect_available_editions() {
 
 settings_menu() {
   while true; do
-    local options=("Config Backup" "Config Restore" "Stop Container" "Uninstall" "← Back to Main Menu")
+    local options=("Change Project Settings" "Import existing project" "Config Backup" "Config Restore" "Stop Container" "Uninstall" "← Back to Main Menu")
     local choice=$(show_menu "Settings" "${options[@]}")
 
     case "$choice" in
+      "Change Project Settings")
+        change_project_settings_wizard
+        ;;
+      "Import existing project")
+        project_import_wizard
+        ;;
       "Config Backup")
         backup_config_manually
         ;;
@@ -1959,6 +1977,217 @@ restore_config() {
 
   echo "Restored ${selected_config} from ${selected_backup}"
   wait_for_enter
+}
+
+change_project_settings_wizard() {
+  local projects=()
+  mapfile -t projects < <(get_all_projects_ordered) || true
+
+  if [[ ${#projects[@]} -eq 0 ]]; then
+    show_page "No registered projects" "Create a project first."
+    wait_for_enter || true
+    return
+  fi
+
+  local menu_items=()
+  local item project path
+  for project in "${projects[@]}"; do
+    path=$(jq -r '.path' <<< "$project")
+    item="${project}"
+    if [[ ! -f "${path}/.opencode_config/sandbox_config.json" ]] ||
+      ! jq empty "${path}/.opencode_config/sandbox_config.json" >/dev/null 2>&1; then
+      item+=" [broken config]"
+    fi
+    menu_items+=("$item")
+  done
+  menu_items+=("← Go Back")
+
+  local choice=$(show_menu "Select project to change settings" "${menu_items[@]}")
+  [[ "$choice" != "← Go Back" ]] || return 0
+
+  local selected_json="${choice% \[broken config\]}"
+  local project_data=$(get_project_by_name "$(jq -r '.name' <<< "$selected_json")")
+  [[ -n "$project_data" ]] || return 0
+  local project_path=$(jq -r '.path' <<< "$project_data")
+  local config_path="${project_path}/.opencode_config/sandbox_config.json"
+
+  if [[ ! -f "$config_path" ]] || ! jq empty "$config_path" >/dev/null 2>&1; then
+    show_page "Config is broken" \
+      "sandbox_config.json is missing or not valid JSON for this project." \
+      "Repair it or use the start/recovery path before changing settings."
+    wait_for_enter || true
+    return 1
+  fi
+
+  if [[ "$(jq -r '.setup_complete' "$config_path")" != "true" ]]; then
+    show_page "Setup incomplete" \
+      "First-run setup has not completed for this project." \
+      "You can still change settings; start the project afterwards to continue setup."
+    wait_for_enter || true
+  fi
+
+  if ! revisit_project_settings "$project_path"; then
+    return 1
+  fi
+
+  show_page "Project settings updated" \
+    "Settings were saved. They take effect on the next container start."
+  wait_for_enter || true
+}
+
+project_import_wizard() {
+  while true; do
+    local picked_dir
+    picked_dir=$(pick_import_folder) || return 0
+    [[ -n "$picked_dir" ]] || return 0
+    validate_import_candidate "$picked_dir" || continue
+    register_imported_project "$picked_dir" && return 0
+  done
+}
+
+pick_import_folder() {
+  local start_dir="$DEFAULT_PROJECT_PATH"
+  [[ -d "$start_dir" ]] || start_dir="$HOME"
+  start_dir=$(canonicalize_project_path "$start_dir") || return 1
+
+  local current_dir="$start_dir"
+  while true; do
+    local subdirs=()
+    local item
+    for item in "$current_dir"/*/; do
+      [[ -d "$item" ]] && subdirs+=("$(basename "$item")")
+    done
+
+    local options=("📁 .. (up one level)" "${subdirs[@]}" "Select this folder" "← Go Back")
+    local choice
+    choice=$(show_menu "Folder picker — ${current_dir}" "${options[@]}") || { printf '%s\n' ""; return 1; }
+
+    case "$choice" in
+      "📁 .. (up one level)")
+        current_dir=$(dirname "$current_dir")
+        ;;
+      "Select this folder")
+        printf '%s\n' "$current_dir"
+        return 0
+        ;;
+      "← Go Back")
+        printf '%s\n' ""
+        return 1
+        ;;
+      *)
+        local candidate="${current_dir%/}/$choice"
+        if [[ -d "$candidate" ]] && [[ -x "$candidate" ]]; then
+          current_dir=$(canonicalize_project_path "$candidate") || return 1
+        else
+          show_page "Not accessible" "Cannot enter ${choice}."
+          wait_for_enter || true
+        fi
+        ;;
+    esac
+  done
+}
+
+validate_import_candidate() {
+  local project_path="$1"
+  local config_path="${project_path}/.opencode_config/sandbox_config.json"
+
+  if [[ -f "$config_path" ]] && ! jq empty "$config_path" >/dev/null 2>&1; then
+    show_page "Config is broken" "sandbox_config.json is not valid JSON. Repair it before importing."
+    wait_for_enter || true
+    return 1
+  fi
+
+  if ! folder_matches_project_structure "$project_path"; then
+    show_page "Import isn't possible here" \
+      "This folder does not match the opencode-sandbox project structure." \
+      "Use the New Project workflow instead and import via git URL (Clone existing repo via URL)."
+    local jump
+    jump=$(show_menu "Open New Project wizard?" "Open New Project wizard" "← Go Back") || return 1
+    if [[ "$jump" == "Open New Project wizard" ]]; then
+      init_project_wizard
+    fi
+    return 1
+  fi
+
+  return 0
+}
+
+folder_matches_project_structure() {
+  local project_path="$1"
+  local dir
+  for dir in project .opencode_config .opencode_data .ssh_local .git_local .cbm_cache; do
+    [[ -d "${project_path}/${dir}" ]] || return 1
+  done
+
+  [[ -f "${project_path}/.opencode_config/sandbox_config.json" ]] &&
+    [[ -e "${project_path}/project/.git" ]]
+}
+
+register_imported_project() {
+  local project_path="$1"
+  local config_path="${project_path}/.opencode_config/sandbox_config.json"
+
+  local config_content
+  config_content=$(cat "$config_path")
+
+  local folder_name slug_name
+  folder_name=$(basename "$project_path")
+  slug_name=$(derive_import_project_name "$folder_name")
+
+  local prefill_name="$slug_name"
+  if [[ -f "${HOME}/.config/oc-sandbox/projects.json" ]]; then
+    local registered_path
+    registered_path=$(get_project_by_path "$project_path" 2>/dev/null || true)
+    if [[ -n "$registered_path" ]]; then
+      show_page "Already imported" "This path is already registered as project: $(jq -r '.name' <<< "$registered_path")"
+      wait_for_enter || true
+      return 1
+    fi
+  fi
+
+  local project_name
+  project_name=$(prompt_for_name "Project name:" "$prefill_name") || return 1
+
+  if [[ -n "$(get_project_by_name "$project_name")" ]]; then
+    show_page "Duplicate project name" "Choose a unique display name."
+    wait_for_enter || true
+    return 1
+  fi
+
+  local edition modes start_option vcs_tracking repo_url
+  edition=$(jq -r '.container_edition // ""' <<< "$config_content")
+  modes=$(jq -rc '.container_modes // []' <<< "$config_content")
+  start_option=$(jq -r '.start_option // ""' <<< "$config_content")
+  vcs_tracking=$(jq -r '.vcs_tracking // "none"' <<< "$config_content")
+  repo_url=$(jq -r '.repo_url // ""' <<< "$config_content")
+
+  show_page "Import summary" \
+    "Name: ${project_name}" \
+    "Path: ${project_path}" \
+    "Edition: ${edition}" \
+    "Modes: ${modes}" \
+    "Start option: ${start_option}" \
+    "Status: stopped (starts on demand via Open Project)"
+
+  local confirm
+  confirm=$(show_menu "Register this project?" "Register" "← Go Back") || return 1
+  [[ "$confirm" == "Register" ]] || return 1
+
+  if ! add_project_to_registry "$project_name" "$project_path" "$vcs_tracking" "$repo_url"; then
+    show_page "Import failed" "Could not write project registry."
+    wait_for_enter || true
+    return 1
+  fi
+
+  show_page "Project imported" "${project_name} registered."
+  wait_for_enter || true
+}
+
+derive_import_project_name() {
+  local folder_name="$1"
+  local slug
+  slug=$(printf '%s' "$folder_name" | tr ' ' '_' | tr -cd 'a-zA-Z0-9_-')
+  printf '%s\n' "${slug:-imported_project}"
 }
 
 deinstallation_wizard() {

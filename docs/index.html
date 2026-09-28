@@ -310,13 +310,62 @@ scheitern, läuft die TUI in einem einfachen Textmodus weiter) und benutzt
 bauen (<code>all</code> baut alle). Danach ist der Bau abgeschlossen – nur bei Versions-Updates
 wiederholen.</p>
 
-<h3>5.2 Erstes Projekt anlegen (New Project)</h3>
+<h3>5.2 Vorher vorbereiten: eigenes Repo anlegen (GitHub / GitLab / eigener Server)</h3>
 
-<p>Menüpunkt <strong>New Project</strong>. Der Wizard fragt Schritt für Schritt:</p>
+<p>Soll das neue Projekt von einem VCS getrackt werden, lege das Repo
+<strong>vor dem Anlegen des Projekts</strong> an und halte die Zugangsdaten
+bereit: die <strong>Repo-URL</strong> und einen <strong>persönlichen
+Zugriffstoken (PAT)</strong>. Der Wizard fragt beide ab – hast du sie schon
+griffbereit, läuft die Projekteinrichtung in einem Rutsch durch.</p>
+
+<h4>1. Repo anlegen</h4>
+
+<table>
+  <tr><th>Host</th><th>Klickpfad</th></tr>
+  <tr><td>GitHub</td><td>New repository → Name wählen → <strong>Create repository</strong></td></tr>
+  <tr><td>GitLab (öffentlich oder eigenes)</td><td>New project → Create blank project → <strong>Create project</strong></td></tr>
+  <tr><td>Eigener Server</td><td><code>git init --bare &lt;pfad&gt;.git</code> auf dem Server (oder bestehende Instanz nutzen)</td></tr>
+</table>
+
+<p><strong>Empfohlen:</strong> lege das Repo <em>nicht leer</em> an, sondern
+erzeuge direkt einen ersten Commit (z.B. eine README). Dann kannst du im
+Wizard <strong>„Clone existing repo via URL“</strong> wählen und das Projekt
+wird automatisch geklont und getrackt – siehe Abschnitt 5.3.</p>
+
+<h4>2. PAT erzeugen</h4>
+
+<table>
+  <tr><th>Host</th><th>Klickpfad</th><th>Scopes</th></tr>
+  <tr><td>GitHub</td><td>Settings → Developer settings → Personal access tokens (classic)</td><td><code>repo</code>, <code>read:org</code>, <code>workflow</code></td></tr>
+  <tr><td>GitLab</td><td>Preferences → Access Tokens</td><td><code>api</code>, <code>read_repository</code>, <code>write_repository</code></td></tr>
+  <tr><td>Eigener Server</td><td>je nach Instanz (z.B. Gitea/GitLab/Self-hosted) – Token analog zu dessen Doku erzeugen</td><td>entsprechend der Instanz</td></tr>
+</table>
+
+<div class="info">
+  <strong>Was ist ein Token?</strong> Ein „persönlicher Zugriffstoken“ (PAT) ist ein
+  langes Passwort, das du in den Einstellungen deines Git-Hosts (GitHub/GitLab)
+  erzeugst und hier einmal einfügst. Es bleibt projekt-lokal gespeichert und
+  wird nie angezeigt.
+</div>
+
+<div class="info">
+  <strong>Leeres Repo (Alternative):</strong> Falls das Repo wirklich leer sein
+  soll, wähle im Wizard „New empty project“ und gib Host + Token an. Die
+  Remote-URL fügst du danach einmalig im Container hinzu (im
+  <code>project/</code>-Ordner): <code>git remote add origin &lt;repo-url&gt;</code>.
+  Spätere HTTPS-Push/Pull authentifizieren sich dann automatisch mit dem
+  Wizard-Token.
+</div>
+
+<h3>5.3 Erstes Projekt anlegen (New Project)</h3>
+
+<p>Menüpunkt <strong>New Project</strong>. Soll das Projekt von einem VCS
+getrackt werden, sind Repo-URL und PAT laut Abschnitt 5.2 vorbereitet – der
+Wizard fragt Schritt für Schritt:</p>
 
 <table>
   <tr><th>Schritt</th><th>Was gefragt wird</th><th>Antwort</th></tr>
-  <tr><td>1. Projektquelle</td><td>„New empty project“ oder „Clone existing repo via URL“ – bereits existierende Repo</td><td>erstes Projekt → „New empty project“; liegt das Projekt schon in einem Git-Repo → clone (siehe unten)</td></tr>
+  <tr><td>1. Projektquelle</td><td>„New empty project“ oder „Clone existing repo via URL“ – bereits existierende Repo</td><td>VCS-tracked → „Clone existing repo via URL“ (Repo laut 5.2 vorbereitet); nur lokales Projekt ohne Tracking → „New empty project“ (VCS-Host dann <code>none</code> oder Host+Token, siehe 5.2)</td></tr>
   <tr><td>2. Repo-URL</td><td>Git-URL zum Klonen (nur bei Clone gewählt); der Projektname wird daraus vorbelegt</td><td>HTTPS-URL, z.B. <code>https://github.com/you/repo.git</code></td></tr>
   <tr><td>3. Projektname</td><td>Anzeigename, z.B. <code>mein-erstes-projekt</code></td><td>kurzer, klarer Name</td></tr>
   <tr><td>4. Pfad</td><td>Wohin? Standard: <code>~/oc-sandbox/&lt;name&gt;</code></td><td>Standard lassen, oder eigener Pfad z.B. <code>~/projects/kunde-x</code></td></tr>
@@ -346,13 +395,6 @@ Einrichtung weiterläuft.</p>
       nach dem Clone einmalig von Hand initialisieren.</li>
 </ul>
 
-<div class="info">
-  <strong>Was ist ein Token?</strong> Ein „persönlicher Zugriffstoken“ (PAT) ist ein
-  langes Passwort, das du in den Einstellungen deines Git-Hosts (GitHub/GitLab)
-  erzeugst und hier einmal einfügst. Es bleibt projekt-lokal gespeichert und
-  wird nie angezeigt.
-</div>
-
 <div class="warn">
   <strong>Erste OpenCode-Session: unbedingt mit <code>/exit</code> beenden.</strong>
   In der ersten Session richtet OpenCode die Skills ein – schließt du sie mit
@@ -369,7 +411,7 @@ Skills-Einrichtung über eine OpenCode-Session) läuft
 Clone fehl, gibt es zusätzlich <code>Change URL</code>, um die Repo-URL zu
 korrigieren und erneut zu versuchen.</p>
 
-<h3>5.3 Erste Session mit OpenCode</h3>
+<h3>5.4 Erste Session mit OpenCode</h3>
 
 <p>Menüpunkt <strong>Start last used project</strong> oder <strong>Open Project</strong>.
 Je nach gewählter Start-Option:</p>
@@ -435,7 +477,7 @@ nichts – sie bleiben auf dem Host und werden als interne Verbindungen benutzt.
   <tr><th>Menüpunkt</th><th>Funktion</th></tr>
   <tr><td><strong>Start last used project</strong></td><td>Zuletzt genutztes Projekt mit gespeicherten Einstellungen starten.</td></tr>
   <tr><td><strong>Open Project</strong></td><td>Registriertes Projekt auswählen und starten.</td></tr>
-  <tr><td><strong>New Project</strong></td><td>Projekt neu anlegen (Wizard aus Abschnitt 5.2).</td></tr>
+  <tr><td><strong>New Project</strong></td><td>Projekt neu anlegen (Wizard aus Abschnitt 5.3).</td></tr>
   <tr><td><strong>Build Container</strong></td><td>Container-Images bauen (nur einmal nötig).</td></tr>
   <tr><td><strong>Settings</strong></td><td>Config-Backup/-Restore, Container stoppen, Deinstallation.</td></tr>
   <tr><td><strong>Exit</strong></td><td>TUI beenden.</td></tr>
@@ -503,7 +545,7 @@ Aufruf im OpenCode-TUI:</p>
 <p>Das <strong>First-Setup</strong> installiert automatisch bereits die ersten Skills
 über den Befehl <code>setup-matt-pocock-skills</code> (Modell
 <code>opencode/big-pickle</code>) – deshalb ist die erste Session so wichtig
-(siehe Warnung in 5.2). Danach kannst du über <code>/skills</code> weitere
+(siehe Warnung in 5.3). Danach kannst du über <code>/skills</code> weitere
 hinzufügen oder aktivieren.</p>
 
 <h2 id="troubleshooting">9. Troubleshooting</h2>
