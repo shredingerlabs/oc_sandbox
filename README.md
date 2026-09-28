@@ -59,6 +59,10 @@ Schlägt die Ersteinrichtung fehl, bleibt das Projekt registriert und bietet
 `Retry`, `Go back` oder `Exit`; ein erneuter Versuch wiederholt nur den
 unvollständigen Einrichtungsschritt.
 
+## Starting Guide
+[https://shredingerlabs.github.io/oc_sandbox/](https://shredingerlabs.github.io/oc_sandbox/)
+
+
 ## Voraussetzungen
 
 ```bash
