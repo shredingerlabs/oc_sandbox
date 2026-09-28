@@ -33,13 +33,7 @@ dist/
     │   ├── opencode-basic.json
     │   ├── AGENTS.md
     │   └── skills/
-    ├── scripts/
-    │   ├── afkLoop.sh
-    │   ├── LoopPrompt.md
-    │   └── README.md
-    └── docs/humans/
-        ├── GWDG_MODEL_GUIDE.md
-        └── HOWTO_WAYFINDER_SKILL.md
+    └── docs/
 ```
 
 The TUI stores each registered project's canonical root and a short SHA-256
@@ -272,7 +266,6 @@ opencode
 
 - **Vollständige Anleitung**: Siehe README.md im Repository-Root
 - **Templates**: `templates/` enthält Vorlagen für Git, SSH, OpenCode Config
-- **Skripte**: `templates/scripts/README.md` für afkLoop-Dokumentation
 
 ## Lizenz & Herkunft
 

@@ -533,13 +533,7 @@ rm -rf ~/projects/kunde-x/.opencode_config/* ~/projects/kunde-x/.opencode_data/*
 │       │   ├── opencode-basic.json   <- Minimale Config
 │       │   ├── AGENTS.md             <- Agent-Config (wird kopiert)
 │       │   └── skills/               <- Skill-Vorlagen
-│       ├── scripts/
-│       │   ├── afkLoop.sh        <- Agent-Loop-Skript (Ticket-Queue)
-│       │   ├── LoopPrompt.md     <- Prompt-Vorlage für afkLoop
-│       │   └── README.md
-│       └── docs/humans/
-│           ├── GWDG_MODEL_GUIDE.md
-│           └── HOWTO_WAYFINDER_SKILL.md
+│       └── docs/
 ├── docs/
 │   ├── adr/                      <- Architecture Decision Records
 │   ├── agents/                   <- Agent-Dokumentation

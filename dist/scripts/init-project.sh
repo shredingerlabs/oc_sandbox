@@ -60,7 +60,6 @@ TEMPLATE_GLAB_CONFIG="${SCRIPT_DIR}/../templates/git_local/glab-cli/config.yml"
 TEMPLATE_OPENCODE_CONFIG="${SCRIPT_DIR}/../templates/opencode/opencode-basic.json"
 TEMPLATE_OPENCODE_AGENTS="${SCRIPT_DIR}/../templates/opencode/AGENTS.md"
 TEMPLATE_OPENCODE_SKILLS="${SCRIPT_DIR}/../templates/opencode/skills"
-TEMPLATE_SCRIPTS="${SCRIPT_DIR}/../templates/scripts"
 TEMPLATE_BASH_PROFILE="${SCRIPT_DIR}/../templates/bash/bash_profile"
 
 mkdir -p \
@@ -107,10 +106,6 @@ fi
 
 if [[ -d "$TEMPLATE_OPENCODE_SKILLS" ]]; then
   cp -r "$TEMPLATE_OPENCODE_SKILLS" "${PROJECT_ROOT}/.opencode_config/skills"
-fi
-
-if [[ "$PROJECT_SOURCE" != "cloned" && -d "$TEMPLATE_SCRIPTS" ]]; then
-  cp -r "$TEMPLATE_SCRIPTS" "${PROJECT_ROOT}/project/scripts"
 fi
 
 if [[ -f "$TEMPLATE_BASH_PROFILE" ]]; then

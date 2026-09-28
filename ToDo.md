@@ -3,18 +3,17 @@
 ## Anleitung
 
 -add github / gitlab init section 
-Git setup checken und ggf. ergänzen
-- remove scripts (afkLoop) copiing as template.  Loop gets its own repo.
+Git setup checken und ggf. ergänzen -> workflow Repo zuerst erstellen: empfohlen.
+
+
 
 ### sandbox
-- -> add repo path and init / checkout git repo
 
-- add existing project to oc-sandbox option
 
 - test if node.js and npm install can be changed to latest
 
 - Add implementation to re-/build to Start Option (-> build-container.sh)
-- copy templates/docs on init to project folder
+
 	
 - integrate start better into OS
   - symlink with oc-sandbox -> on mac? -> test
@@ -40,14 +39,14 @@ Git setup checken und ggf. ergänzen
 
 # Bugs	
 - create dist release creates only tag no release 
-- gwdg saia opecode.json seems to have an issue
+
 - WIN11 WSL:
 
 
 # in progress
 
-
-
+- add option to change project settings
+  Settings -> Change Project Settings -> project list -> Change settings (VCS, GWDG, Proxy, edition, mode) 
 # Done
 - README: switched main workflow to TUI (`oc-sandbox` symlink / `start-tui.sh`), direct script usage kept as legacy section; reordered Voraussetzungen before Installation (root + dist README)
 - webui start option: `--start_web` flag on start.sh / start option "web" in TUI; detached container runs `opencode web --port 4096` as main process, host port scanned 4096-4196, URL printed; foreground variant via bash_profile (was: --oc_webui flag)
@@ -121,3 +120,8 @@ One common start and setup mechanism / script:
 - change Deinstallation to Uninstall
 - uninstall flag selection starts process - unable to select more than one flag
   - Default project path: (Ctrl+A to replace): /home/user/oc-sandbox  /home/user/.local/bin/oc-sandbox: line 127: jq: command not found
+- copy templates/docs on init to project folder
+- gwdg saia opecode.json seems to have an issue
+- add option to import existing projects (only if project stucture matches -> otherwise via new project with git import)
+  Settings -> Import existing project -> folder picker
+
