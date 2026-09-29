@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Matt Pococks Skills im Entwickler-Workflow</title>
+<style>
+  :root {
+    --accent: #1a5276;
+    --accent-light: #eaf2f8;
+    --warn-bg: #fdf3d7;
+    --warn-border: #e1a920;
+    --code-bg: #f4f4f4;
+    --border: #d5d8dc;
+    --text: #212529;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+    color: var(--text);
+    line-height: 1.55;
+    max-width: 860px;
+    margin: 0 auto;
+    padding: 2rem 1.5rem;
+    font-size: 15px;
+  }
+  h1 {
+    font-size: 1.9rem;
+    color: var(--accent);
+    border-bottom: 3px solid var(--accent);
+    padding-bottom: .4rem;
+    margin-top: 0;
+  }
+  h2 {
+    font-size: 1.35rem;
+    color: var(--accent);
+    margin-top: 2.2rem;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: .2rem;
+    page-break-after: avoid;
+  }
+  h3 {
+    font-size: 1.08rem;
+    margin-top: 1.5rem;
+    page-break-after: avoid;
+  }
+  code {
+    font-family: "Cascadia Code", Consolas, "DejaVu Sans Mono", monospace;
+    background: var(--code-bg);
+    padding: .1em .35em;
+    border-radius: 3px;
+    font-size: .88em;
+  }
+  pre {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: .7rem 1rem;
+    overflow-x: auto;
+    page-break-inside: avoid;
+  }
+  pre code { background: none; padding: 0; font-size: .85em; }
+  .warn {
+    background: var(--warn-bg);
+    border-left: 5px solid var(--warn-border);
+    padding: .6rem 1rem;
+    margin: 1rem 0;
+    border-radius: 0 6px 6px 0;
+    page-break-inside: avoid;
+  }
+  .warn::before {
+    content: "⚠ ";
+    font-weight: bold;
+  }
+  .info {
+    background: var(--accent-light);
+    border-left: 5px solid var(--accent);
+    padding: .6rem 1rem;
+    margin: 1rem 0;
+    border-radius: 0 6px 6px 0;
+    page-break-inside: avoid;
+  }
+  .note {
+    font-style: italic;
+    color: #5d6d7e;
+  }
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    margin: 1rem 0;
+    font-size: .92em;
+    page-break-inside: avoid;
+  }
+  th, td {
+    border: 1px solid var(--border);
+    padding: .45rem .7rem;
+    text-align: left;
+    vertical-align: top;
+  }
+  th { background: var(--accent-light); }
+  .toc {
+    background: var(--accent-light);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1rem 1.5rem;
+  }
+  .toc ol { margin: .3rem 0; padding-left: 1.4rem; }
+  .toc a { color: var(--accent); text-decoration: none; }
+  footer {
+    margin-top: 3rem;
+    border-top: 1px solid var(--border);
+    padding-top: .6rem;
+    font-size: .85em;
+    color: #5d6d7e;
+  }
+  @media print {
+    body { font-size: 11pt; max-width: none; padding: 0; }
+    h2 { page-break-after: avoid; }
+    pre, table, .warn, .info { page-break-inside: avoid; }
+    pre { white-space: pre-wrap; overflow-x: visible; }
+    a { color: inherit; text-decoration: none; }
+    footer { position: fixed; bottom: 0; }
+  }
+</style>
+</head>
+<body>
+
+<h1>Matt Pococks Skills im Entwickler-Workflow</h1>
+
+<p>Die <strong>Skills</strong> (25 Stück, MIT-lizenziert, Repo:
+<a href="https://github.com/mattpocock/skills/"><code>mattpocock/skills</code></a>) sind
+schlanke Instruktionsdateien, die einem Coding-Agenten einen wiederholbaren,
+zuverlässigen Prozess geben, statt ihn raten zu lassen.</p>
+
+<nav class="toc">
+  <strong>Inhalt</strong>
+  <ol>
+    <li><a href="#installation">Installation</a></li>
+    <li><a href="#setup">Setup</a></li>
+    <li><a href="#tipps">Allgemeine Tipps</a></li>
+    <li><a href="#reihenfolge">Skill-Reihenfolge</a></li>
+    <li><a href="#grilling-im-vergleich">wayfinder vs. grill-with-docs vs. grill-me</a></li>
+    <li><a href="#prompt-beispiele">Prompt Beispiele</a></li>
+    <li><a href="#detailierte-infos">Detailierte Infos zum Workflow und den Skills</a></li>
+  </ol>
+</nav>
+
+<h2 id="installation">1. Installation (oc-sandbox: bereits enthalten)</h2>
+
+<pre><code>npx skills@latest add mattpocock/skills
+npx skills update
+</code></pre>
+
+<p>oder manuell downloaden: <a href="https://github.com/mattpocock/skills/">github.com/mattpocock/skills</a></p>
+
+<h2 id="setup">2. Setup (oc-sandbox: bereits beim container init)</h2>
+
+<p>Einmalig pro Repo vom CodingAgent <code>/setup-matt-pocock-skills</code> ausführen
+lassen. Konfiguriert Issue-Tracker, Triage-Labels, Doku-Ablage.</p>
+
+<h2 id="tipps">3. Allgemeine Tipps & Erfahrungswerte</h2>
+
+<p>Für <strong>jede neue Aufgabe jeweils eine neue Session</strong> starten. Bereits
+nach relativ wenigen Token verlassen die Modelle die „SmartZone“. Dabei „verdummen“ diese langsam und
+halluzinieren immer stärker. Bei Frontier-Modellen mit 1&nbsp;Mio. Kontext startet das
+ungefähr bei 150k Token, bei kleineren entsprechend früher. Das Kompaktieren des
+Tokenfensters (wenn Kontext voll) führt ebenfalls zu Informationsverlusten und
+unvorhersehbaren Verhalten.</p>
+
+<ul>
+  <li><strong>Eine Session pro Anliegen</strong></li>
+  <li>Ergebnisse, wichtige <strong>Infos</strong>, usw. <strong>extern speichern und
+      verfügbar machen</strong> (GitHub/GitLab issues oder .md files sind gut geeignet)</li>
+  <li><strong>Compaction besser vermeiden</strong> Rangfolge bei
+      voll werdendem Kontext: weiterarbeiten, solange SmartZone übrig → per
+      <code>/handoff</code> Zusammenfassung an weitere Session übergeben (Auch sinnvoll mit /teach wenn etwas unklar ist) </li>
+  <li>Englische Prompts funktionieren meist besser </li>
+  <li><strong>Große Prompts</strong> kann man in .md Files <strong>auslagern</strong>, sauber
+      strukturieren und im Prompt darauf referenzieren</li>
+  <li>Für <strong>Planungsaufgaben</strong> (wayfinder, grilling, …) und <strong>hartnäckige Bugs</strong> möglichst gute Modelle
+      und <strong>hohes Reasoning</strong> einstellen (/variants)</li>
+  <li>Für <strong>Implementierungsaufgaben</strong> gehen meist auch einfachere Modelle und
+      <strong>niedriges</strong> oder kein <strong>Reasoning</strong></li>
+  <li><strong>Alle</strong> unten genannten <strong>Skills im Build-Mode</strong> ausführen
+      (Umschalten über Tab)</li>
+  <li>Plan-Mode nur für marginale Änderungen.</li>
+</ul>
+
+<div class="info">
+  <strong>Phasengrenzen überbrücken:</strong> Am Ende einer Phase kann
+  <code>/handoff</code> die Session kompakt für die nächste übergeben — besser als
+  Kontext einfach volllaufen lassen.
+</div>
+<div class="info">
+  <strong>Frage unbekannt / Entscheidung nicht möglich ohne Zusatzinfos:</strong> Mit
+  <code>/handoff</code> Session-Zusammenfassung übergeben und Sachverhalt mit <code>/teach</code> in neuer Session erklären lassen.
+</div>
+
+<h2 id="reihenfolge">4. Skill-Reihenfolge</h2>
+
+<table>
+  <tr><th style="width:45%">Szenario</th><th>Skills (Reihenfolge)</th></tr>
+  <tr>
+    <td>Viele Unklarheit bei neuem Projekt oder großen Änderungen —
+        <strong>Klärung</strong> braucht <strong>mehr als eine Session</strong> (&gt; 100–150k Token)</td>
+    <td><code>/wayfinder</code> auf Idee anwenden →<br>
+        <code>/wayfinder</code> auf jedes <code>wayfinder:xy</code> gelabelte Ticket anwenden →<br>
+        <code>/to-spec</code> auf fertige wayfinder map →<br>
+        <code>/to-tickets</code> auf spec →<br>
+        <code>/implement</code> auf jedes <code>ready-for-agent</code> Ticket</td>
+  </tr>
+  <tr>
+    <td>Wenig Unklarheit bei kleinerer oder gut definierter Projektidee oder
+        kleineren Änderungen — <strong>Klärung</strong> passt in <strong>eine Session</strong>
+        (&lt; 100–150k Token)</td>
+    <td><code>/grill-with-docs</code> auf Konzept anwenden → <code>/to-spec</code> am Ende
+        der Session anwenden → <code>/to-tickets</code> auf Spec anwenden →
+        <code>/implement</code> auf jedes Ticket anwenden</td>
+  </tr>
+  <tr>
+    <td>Klar definierte, kleine Änderungen — <strong>Klärung und Umsetzung</strong>
+        passt in <strong>eine Session</strong> (&lt; 100–150k Token)</td>
+    <td><code>/grill-with-docs</code> → <code>/implement</code></td>
+  </tr>
+  <tr>
+    <td>Pflege der Codebase (regelmäßig, alle paar Tage; auch vor größeren Builds)</td>
+    <td><code>/improve-codebase-architecture</code> — bei großen/pre-KI-Repos als Audit<br>
+        → gibt Optimierungsvorschläge für KI-optimierte Code-Struktur</td>
+  </tr>
+  <tr>
+    <td>Kleines Skript/Programm oder Klärung ohne Codebase</td>
+    <td>ggf. <code>/grill-me</code> → <code>/implement</code></td>
+  </tr>
+  <tr>
+    <td>Hartnäckiger Bug</td>
+    <td><code>/diagnosing-bugs</code> mit Fehlerbeschreibung ausführen</td>
+  </tr>
+  <tr>
+    <td>Incoming Issues von außen (Bug-Reports, externe PRs)</td>
+    <td><code>/triage</code> — kategorisieren, verifizieren, ggf. grillen, als
+        <code>ready-for-agent</code>-Brief aufbereiten</td>
+  </tr>
+</table>
+
+<p>Unsicher welcher Skill passt? <code>/ask-matt</code> fragen — Router über den
+ganzen Flow.</p>
+
+<div class="info">
+  <strong>Hinweis:</strong> <code>/implement</code> lädt am Ende automatisch
+  <code>/code-review</code> nach — deshalb taucht es in den Ketten oben nicht
+  explizit auf. <code>/implement</code> schließt das Ticket <strong>nicht</strong> selbst:
+  Kriterien prüfen und Ticket selbst abschließen (Commits macht
+  <code>/implement</code> selbst, auf dem aktuellen Branch). Eine Session pro
+  Ticket; unabhängige Tickets können auch parallel laufen.
+</div>
+
+<h2 id="grilling-im-vergleich">5. wayfinder vs. grill-with-docs vs. grill-me</h2>
+
+<p>Alle sind Grilling-Sessions (Interview zur Klärung). Der Unterschied liegt
+darin, ob die Klärung dokumentiert wird und ob sie in eine Agenten-Session
+(= ein Kontextfenster &lt; 100–150k Token) Platz hat.</p>
+
+<h3><code>/grill-me</code> — Alles, auch ohne Codebase (sogar ohne Working-Directory)</h3>
+<ul>
+  <li>Interview läuft direkt, keine Dokumentation der Ergebnisse</li>
+  <li>Ergebnis direkt nutzbar für <code>/to-spec</code> oder <code>/implement</code></li>
+  <li>Gibt es ein Repo (auch für eine kleine Änderung), ist <code>/grill-with-docs</code> die erste Wahl</li>
+</ul>
+
+<h3><code>/grill-with-docs</code> — Codebase, Aufgabe passt in eine Session</h3>
+<ul>
+  <li>Interview läuft direkt, aktualisiert <code>CONTEXT.md</code>/ADRs inline</li>
+  <li>Ergebnis direkt nutzbar für <code>/to-spec</code> oder bei kleinen Änderungen <code>/implement</code></li>
+</ul>
+
+<h3><code>/wayfinder</code> — Codebase, Aufgabe zu groß für eine Session (Kontext würde volllaufen, bevor Klarheit da ist)</h3>
+<ul>
+  <li>Baut eine <strong>Map</strong> zur Klärung: ein Tracker-Issue
+      (<code>wayfinder:map</code>), darunter Child-Tickets — jedes Ticket ist eine
+      <strong>Entscheidung</strong> (<code>wayfinder:grilling</code>), ein
+      <strong>Prototyp</strong> (<code>wayfinder:prototype</code>), eine
+      <strong>Recherche</strong> (<code>wayfinder:research</code>) oder eine
+      <strong>manuelle Aufgabe</strong> (<code>wayfinder:task</code>, die eine
+      Entscheidung freischaltet — laut Doku der Typ, der am häufigsten übersehen
+      wird), keine Bau-Slice</li>
+  <li>Tickets werden nacheinander, in separaten Sessions, mit dem
+      <code>/wayfinder</code> Skill abgearbeitet („resolve“) bis die Map
+      vollständig ist („Route ist klar“)</li>
+  <li>Fallen laut Doku: <strong>keinen Production-Code in der Map</strong> schreiben;
+      die Map <strong>klein</strong> halten — „prototypemaxxing not planmaxxing“;
+      eine Map-Session nach der anderen (nicht parallel)</li>
+  <li>Danach: Map → <code>/to-spec</code> (kollabiert die verlinkten Entscheidungen
+      zu einem baubaren Plan) → <code>/to-tickets</code> → <code>/implement</code> auf
+      die einzelnen Tickets.</li>
+  <li>Braucht Tracker-Anbindung aus <code>/setup-matt-pocock-skills</code> (GitHub,
+      GitLab, Linear, Jira, Azure DevOps u. a. über „Other“; lokales Tracking über
+      .md-Files ist eine first-class-Option, kein Fallback)</li>
+</ul>
+
+<h2 id="prompt-beispiele">6. Prompt Beispiele</h2>
+
+<p>Repo auf GitHub über <code>gh</code> CLI, geht ident. mit <code>glab</code> auf GitLab.</p>
+<p>Issue-Nummern sind in der Repo ersichtlich.</p>
+<p>Bei lokalem Tracking über .md Files den Namen des Files angeben, statt
+issues. Lokales Tracking ermöglicht keine Blocking-Abhängigkeiten.</p>
+
+<div class="info">
+  <strong>TIPP:</strong> Mit einem <strong>Leerzeichen vor /skillname</strong> wird der
+  Skill über das Skill-Tool geöffnet und nicht komplett im Terminal ausgegeben.
+</div>
+
+<h3>Wayfinder</h3>
+
+<p>Starten einer Wayfinder Session:</p>
+
+<pre><code> /wayfinder Hier die Idee beschreiben. Lose Idee oder umfangreiche, detailierte Anwendungsbeschreibung möglich.
+</code></pre>
+
+<p>Einzelne Wayfinder Tickets abarbeiten (Skill lädt weitere nötige Skills selbst):</p>
+
+<pre><code> /wayfinder gh issue #2.
+</code></pre>
+
+<p>Wayfinder Map in Spec wandeln:</p>
+
+<pre><code> /to-spec on wayfinder map gh issue #1.
+</code></pre>
+
+<p>Wayfinder Spec in Tickets wandeln:</p>
+
+<pre><code> /to-tickets on wayfinder spec gh issue #42.
+</code></pre>
+
+<p>Umsetzen eines <code>ready-for-agent</code> Ticket zur Implementierung:</p>
+
+<pre><code> /implement gh issue #3</code></pre>
+
+<p><code>/implement</code> schließt das Ticket <strong>nicht</strong> selbst — Kriterien
+prüfen und Ticket selbst schließen (Commits macht <code>/implement</code> selbst,
+auf dem aktuellen Branch). Am Ende lädt der Agent aus <code>/implement</code>
+automatisch <code>/code-review</code> nach.</p>
+
+<h3>Grill-With-Docs</h3>
+
+<p>Starten einer grill-with-docs Session:</p>
+
+<pre><code>/grill-with-docs Hier die Idee beschreiben. Lose Idee oder umfangreiche, detailierte Anwendungsbeschreibung möglich.
+</code></pre>
+
+<ol>
+  <li>Am Ende der Session (wenn Ergebnis mehr als eine Implementierungs-Session benötigt):
+      <pre><code>/to-spec
+</code></pre>
+      dann:
+      <pre><code>/to-tickets gh issue #4.
+</code></pre>
+      (Nummer des Tickets anpassen)<br>
+      dann Umsetzen eines <code>ready-for-agent</code> Tickets zur Implementierung:
+      <pre><code> /implement gh issue #3.
+</code></pre>
+      (siehe Hinweis oben: Ticket schließt du selbst, <code>/code-review</code> lädt automatisch nach)</li>
+  <li>Am Ende einer kurzen Session mit wenigen Änderungen:
+      <pre><code> /implement
+</code></pre></li>
+</ol>
+
+<h2 id="detailierte-infos">7. Detailierte Infos zum Workflow und den Skills</h2>
+
+<p>Die offizielle Doku von Matt Pocock:
+<a href="https://www.aihero.dev/skills">www.aihero.dev/skills</a> — dort listet er
+alle 25 Skills, den Main Flow (Idee → Ship) und den Changelog.
+Installiert/aktualisiert wird über:</p>
+
+
+<footer>
+  Matt Pococks Skills im Entwickler-Workflow · Stand: September 2026 ·
+  Erzeugt aus <code>HOWTO_SKILL_WORKFLOW.md</code>
+</footer>
+
+</body>
+</html>
