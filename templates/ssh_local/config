@@ -1,0 +1,27 @@
+# Beispiel-SSH-Config für .ssh_local/config in einem Projekt-Root.
+#
+# Diese Datei wird zusammen mit den Keys nach /home/dev/.ssh (Zone 1) bzw.
+# /home/hil/.ssh (Zone 2) gemountet. Passt Hostnamen/Keyfiles pro Projekt an –
+# ihr müsst dafür KEIN Start-Skript ändern.
+#
+# Keys müssen im selben .ssh_local/ Ordner liegen und auf dem HOST folgende
+# Rechte haben:
+#   chmod 700 .ssh_local
+#   chmod 600 .ssh_local/id_ed25519_github .ssh_local/id_ed25519_gitlab
+
+Host github.com
+    IdentityFile ~/.ssh/id_ed25519_github
+    IdentitiesOnly yes
+    User git
+
+Host gitlab.example.internal
+    IdentityFile ~/.ssh/id_ed25519_gitlab
+    IdentitiesOnly yes
+    User git
+    # Falls euer GitLab-Server einen abweichenden Port nutzt:
+    # Port 2222
+
+# Bei selbst-signierten/internen Hosts ggf. StrictHostKeyChecking beim ersten
+# Verbinden bewusst prüfen und danach in known_hosts (liegt ebenfalls in
+# .ssh_local/) übernehmen lassen, statt dauerhaft "no" zu setzen:
+#     StrictHostKeyChecking accept-new
