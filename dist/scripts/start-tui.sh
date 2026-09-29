@@ -1990,23 +1990,30 @@ change_project_settings_wizard() {
   fi
 
   local menu_items=()
-  local item project path
+  local project path name
+  local names=()
   for project in "${projects[@]}"; do
     path=$(jq -r '.path' <<< "$project")
-    item="${project}"
+    name=$(jq -r '.name' <<< "$project")
     if [[ ! -f "${path}/.opencode_config/sandbox_config.json" ]] ||
       ! jq empty "${path}/.opencode_config/sandbox_config.json" >/dev/null 2>&1; then
-      item+=" [broken config]"
+      menu_items+=("${name} [broken config]")
+    else
+      menu_items+=("${name}")
     fi
-    menu_items+=("$item")
+    names+=("$name")
   done
   menu_items+=("← Go Back")
 
   local choice=$(show_menu "Select project to change settings" "${menu_items[@]}")
   [[ "$choice" != "← Go Back" ]] || return 0
 
-  local selected_json="${choice% \[broken config\]}"
-  local project_data=$(get_project_by_name "$(jq -r '.name' <<< "$selected_json")")
+  local index=-1 i
+  for i in "${!menu_items[@]}"; do
+    [[ "${menu_items[$i]}" == "$choice" ]] && index=$i && break
+  done
+  [[ "$index" -ge 0 ]] || return 0
+  local project_data=$(get_project_by_name "${names[$index]}")
   [[ -n "$project_data" ]] || return 0
   local project_path=$(jq -r '.path' <<< "$project_data")
   local config_path="${project_path}/.opencode_config/sandbox_config.json"

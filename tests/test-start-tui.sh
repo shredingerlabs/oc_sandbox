@@ -564,7 +564,7 @@ create_sandbox_config "$settings_project" full console none
 
 show_menu() {
   case "$1" in
-    'Select project to change settings'*) printf '%s\n' "$(get_project_by_name ChangeSettings)" ;;
+    'Select project to change settings'*) printf '%s\n' ChangeSettings ;;
     'Select container edition'*) printf '%s\n' base ;;
     'Select container modes'*) printf '%s\n' Done ;;
     'Select start option'*) printf '%s\n' web ;;
@@ -588,7 +588,7 @@ change_project_settings_wizard
 # Going back at the first revisited prompt aborts without touching the config.
 show_menu() {
   case "$1" in
-    'Select project to change settings'*) printf '%s\n' "$(get_project_by_name ChangeSettings)" ;;
+    'Select project to change settings'*) printf '%s\n' ChangeSettings ;;
     'Select container edition'*) printf '%s\n' '← Go Back' ;;
     *) printf '%s\n' '← Go Back' ;;
   esac
@@ -606,7 +606,7 @@ broken_project="$workflow_home/broken-settings"
 mkdir -p "$broken_project/.opencode_config"
 add_project_to_registry BrokenSettings "$broken_project" none
 printf 'not-json\n' > "$broken_project/.opencode_config/sandbox_config.json"
-capture_menu() { printf '%s\n' "$*" >> "$workflow_home/menu-capture"; printf '%s\n' "$(get_project_by_name BrokenSettings) [broken config]"; }
+capture_menu() { printf '%s\n' "$*" >> "$workflow_home/menu-capture"; printf '%s\n' 'BrokenSettings [broken config]'; }
 : > "$workflow_home/menu-capture"
 show_menu() {
   case "$1" in
