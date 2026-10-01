@@ -1786,9 +1786,9 @@ detect_available_editions() {
   fi
 
   if [[ -f "$dockerfile_custom" ]]; then
-    mapfile -t custom_names < <(sed -nE '/^[[:space:]]*#/d; s/.*AS[[:space:]]+opencode-sandbox-([^[:space:]]+).*$/\1/p' "$dockerfile_custom")
+    mapfile -t custom_names < <(sed -nE '/^[[:space:]]*#/d; s/^[[:space:]]*FROM[[:space:]]+[^[:space:]]+[[:space:]]+AS[[:space:]]+opencode-sandbox-([^[:space:]]+)[[:space:]]*(#.*)?$/\1/p' "$dockerfile_custom")
   fi
-  mapfile -t base_names < <(sed -nE '/^[[:space:]]*#/d; s/.*AS[[:space:]]+opencode-sandbox-([^[:space:]]+).*$/\1/p' "$dockerfile")
+  mapfile -t base_names < <(sed -nE '/^[[:space:]]*#/d; s/^[[:space:]]*FROM[[:space:]]+[^[:space:]]+[[:space:]]+AS[[:space:]]+opencode-sandbox-([^[:space:]]+)[[:space:]]*(#.*)?$/\1/p' "$dockerfile")
 
   for name in "${base_names[@]}" "${custom_names[@]}"; do
     if [[ ! "$name" =~ ^[a-z0-9_-]+$ ]]; then

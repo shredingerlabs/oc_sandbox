@@ -14,7 +14,7 @@
 #   - Nur Umgebungsvariablen außerhalb dieser Datei setzen, nichts hier
 #     aktivieren, wenn du die Vorlage unverändert nutzen willst.
 #
-# Diese Datei bleibt bei Updates unangetastet (Außnahmen: sie fehlt — dann
+# Diese Datei bleibt bei Updates unangetastet (Ausnahmen: sie fehlt — dann
 # wird sie aus der Vorlage neu angelegt).
 
 # =============================================================================
