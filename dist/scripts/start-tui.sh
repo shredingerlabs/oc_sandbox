@@ -1295,8 +1295,21 @@ revisit_project_settings() {
 
   detect_available_editions || return 1
   local edition_choice
-  edition_choice=$(show_menu_prefilled "Select container edition" "$edition" "${AVAILABLE_EDITIONS[@]}" "← Go Back")
-  [[ "$edition_choice" != "← Go Back" ]] || return 1
+  local edition_is_available=false
+  local available_edition
+  for available_edition in "${AVAILABLE_EDITIONS[@]}"; do
+    [[ "$available_edition" == "$edition" ]] && edition_is_available=true
+  done
+  if [[ "$edition_is_available" == "true" ]]; then
+    edition_choice=$(show_menu_prefilled "Select container edition" "$edition" "${AVAILABLE_EDITIONS[@]}" "← Go Back")
+    [[ "$edition_choice" != "← Go Back" ]] || return 1
+  else
+    show_page "Stored edition no longer available" \
+      "The project was configured for the '${edition}' edition, which is no longer offered. Choose a new edition."
+    wait_for_enter || true
+    edition_choice=$(show_menu "Select container edition" "${AVAILABLE_EDITIONS[@]}" "← Go Back")
+    [[ "$edition_choice" != "← Go Back" ]] || return 1
+  fi
   edition="$edition_choice"
 
   local selected_modes=()

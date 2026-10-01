@@ -643,6 +643,82 @@ fi
 grep -Fq ' [broken config]' "$workflow_home/menu-capture"
 [[ "$(cat "$broken_project/.opencode_config/sandbox_config.json")" == 'not-json' ]]
 
+# A stored edition that no longer exists in discovery routes the wizard into the
+# ordinary guided re-selection chain instead of proceeding with a dead edition.
+vanished_editions_dir="$workflow_home/edition-discovery"
+mkdir -p "$vanished_editions_dir/scripts"
+cat > "$vanished_editions_dir/Dockerfile" <<'EOF'
+FROM ubuntu AS opencode-sandbox-base
+EOF
+cat > "$vanished_editions_dir/scripts/start.sh" <<'EOF'
+#!/usr/bin/env bash
+printf 'Usage: %s --safe --offline\n' "$0"
+EOF
+chmod +x "$vanished_editions_dir/scripts/start.sh"
+
+vanished_project="$workflow_home/vanished-edition"
+mkdir -p "$vanished_project"
+add_project_to_registry VanishedEdition "$vanished_project" none
+create_sandbox_config "$vanished_project" discontinued console none
+
+: > "$workflow_home/menu-capture"
+: > "$workflow_home/page-capture"
+show_page() { printf '%s\n' "$*" >> "$workflow_home/page-capture"; }
+wait_for_enter() { return 0; }
+capture_menu() { printf '%s\n' "$*" >> "$workflow_home/menu-capture"; }
+show_menu() {
+  case "$1" in
+    'Select project to change settings'*) capture_menu "$@"; printf '%s\n' VanishedEdition ;;
+    'Select container edition'*) capture_menu "$@"; printf '%s\n' base ;;
+    'Select container modes'*) printf '%s\n' Done ;;
+    'Select start option'*) printf '%s\n' console ;;
+    'Select VCS tracking'*) printf '%s\n' none ;;
+    'Select AI provider'*) printf '%s\n' none ;;
+    'Use Squid egress proxy'*) printf '%s\n' no ;;
+    *) printf '%s\n' '← Go Back' ;;
+  esac
+}
+SCRIPT_DIR="$vanished_editions_dir/scripts"
+change_project_settings_wizard
+SCRIPT_DIR="$PROJECT_ROOT/dist/scripts"
+changed_config="$vanished_project/.opencode_config/sandbox_config.json"
+[[ "$(jq -r '.container_edition' "$changed_config")" == base ]]
+[[ "$(jq -r '.start_option' "$changed_config")" == console ]]
+grep -Fq 'discontinued' "$workflow_home/page-capture"
+grep -Fqx 'Select container edition base ← Go Back' "$workflow_home/menu-capture"
+! grep -Fq 'current: discontinued' "$workflow_home/menu-capture"
+
+# Zero-edition discovery during re-selection is the ticket #49 discovery
+# failure: the wizard refuses cleanly instead of crashing or proceeding.
+reset_scripts_dir_dir="$test_home/no-stages"
+mkdir -p "$reset_scripts_dir_dir/scripts"
+cat > "$reset_scripts_dir_dir/Dockerfile" <<'EOF'
+FROM ubuntu AS opencode-sandbox-b@d
+EOF
+SCRIPT_DIR="$reset_scripts_dir_dir/scripts"
+if change_project_settings_wizard; then
+  printf 'zero-edition dates wizard reported success\n' >&2
+  exit 1
+fi
+SCRIPT_DIR="$PROJECT_ROOT/dist/scripts"
+[[ "$(jq -r '.container_edition' "$changed_config")" == base ]]
+
+# Build now passes the exact (possibly custom) edition name to the build script,
+# including editions discovered from Dockerfile.custom.
+custom_build_project="$workflow_home/custom-build"
+mkdir -p "$custom_build_project"
+add_project_to_registry CustomBuild "$custom_build_project" none
+create_sandbox_config "$custom_build_project" rust console none
+: > "$BUILD_ARGS"
+SCRIPT_DIR="$workflow_home/native"
+show_menu() { printf '%s\n' 'Build now'; }
+set +e
+check_and_build_containers "$custom_build_project"
+build_result=$?
+set -e
+SCRIPT_DIR="$PROJECT_ROOT/dist/scripts"
+grep -Fxq rust "$BUILD_ARGS"
+
 reconcile_project="$workflow_home/reconcile"
 mkdir -p "$reconcile_project"
 add_project_to_registry Reconcile "$reconcile_project" none
