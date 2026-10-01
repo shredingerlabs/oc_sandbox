@@ -129,18 +129,40 @@ mapfile -t native_args < "$args_file"
 
 printf 'start-tui mode selection tests passed\n'
 
-discovery_dir="$test_home/discovery"
+discovery_home="$test_home/discovery"
+discovery_dir="$discovery_home/scripts"
 mkdir -p "$discovery_dir"
-printf '%s\n' '#!/usr/bin/env bash' 'printf "Usage: %s [alpha|beta|all]\\n" "$0"' > "$discovery_dir/build-container.sh"
 printf '%s\n' '#!/usr/bin/env bash' 'printf "Usage: %s --safe --other --start_opencode --start_web --detach\\n" "$0"' > "$discovery_dir/start.sh"
-chmod +x "$discovery_dir/build-container.sh" "$discovery_dir/start.sh"
+chmod +x "$discovery_dir/start.sh"
 SCRIPT_DIR="$discovery_dir"
+
+cat > "$discovery_home/Dockerfile" <<'EOF'
+FROM ubuntu AS opencode-sandbox-base
+FROM opencode-sandbox-base AS opencode-sandbox-web
+FROM ubuntu AS opencode-sandbox-Plain
+FROM ubuntu AS plain-stage
+FROM ubuntu
+FROM ubuntu AS opencode-sandbox-b@d
+EOF
 detect_available_editions
-[[ "${AVAILABLE_EDITIONS[*]}" == "alpha beta" ]]
+[[ "${AVAILABLE_EDITIONS[*]}" == "base web" ]]
 [[ "${AVAILABLE_MODES[*]}" == "safe other" ]]
 
-printf '%s\n' '#!/usr/bin/env bash' 'exit 1' > "$discovery_dir/build-container.sh"
-chmod +x "$discovery_dir/build-container.sh"
+cat > "$discovery_home/Dockerfile" <<'EOF'
+FROM ubuntu AS opencode-sandbox-base
+EOF
+cat > "$discovery_home/Dockerfile.custom" <<'EOF'
+# FROM opencode-sandbox-base AS opencode-sandbox-commented
+FROM opencode-sandbox-base AS opencode-sandbox-base
+FROM opencode-sandbox-base AS opencode-sandbox-rust
+EOF
+detect_available_editions
+[[ "${AVAILABLE_EDITIONS[*]}" == "base rust" ]]
+
+cat > "$discovery_home/Dockerfile" <<'EOF'
+FROM ubuntu AS opencode-sandbox-b@d
+EOF
+: > "$discovery_home/Dockerfile.custom"
 if detect_available_editions; then
   printf 'discovery failure was accepted\n' >&2
   exit 1
