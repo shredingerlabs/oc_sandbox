@@ -22,7 +22,7 @@
 #   --cbm_ui           Aktiviert CBM Graph-UI auf Port 9749
 #   --start_opencode   Startet OpenCode direkt nach Container-Start
 #   --start_web        Startet OpenCode Web (Port 4096) nach Container-Start
-#   --edition          Container-Edition: base, web, embedded, full
+#   --edition          Container-Edition (z.B. über build-container.sh gebaut)
 #   --detach            Container im Hintergrund starten
 #   --container-id      Persisted project container identity
 #
@@ -44,8 +44,8 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 # --- Flags parsen -------------------------------------------------------------
 PROJECT_ROOT="${1:-}"
 if [[ "$PROJECT_ROOT" == "--help" || "$PROJECT_ROOT" == "-h" ]]; then
-  echo "Nutzung: $0 <projekt-root> [--edition <base|web|embedded|full>] [Flags]"
-  echo "  --edition          Container-Edition auswählen (Standard: full)"
+  echo "Nutzung: $0 <projekt-root> --edition <edition> [Flags]"
+  echo "  --edition          Container-Edition auswählen (erforderlich)"
   echo "  --use_proxy        Squid-Egress-Allowlist-Proxy starten und nutzen"
   echo "  --offline          Kein Netzwerk (--network=none)"
   echo "  --hil_mode         USB-Passthrough für Oszi und MCU-Geräte"
@@ -57,9 +57,10 @@ if [[ "$PROJECT_ROOT" == "--help" || "$PROJECT_ROOT" == "-h" ]]; then
   exit 0
 fi
 if [[ -z "$PROJECT_ROOT" ]]; then
-  echo "Nutzung: $0 <projekt-root> [--edition <edition>] [--use_proxy] [--offline] [--hil_mode] [--cbm_ui] [--start_opencode] [--start_web] [--detach]" >&2
+  echo "Nutzung: $0 <projekt-root> --edition <edition> [--use_proxy] [--offline] [--hil_mode] [--cbm_ui] [--start_opencode] [--start_web] [--detach]" >&2
   echo "" >&2
   echo "  <projekt-root>        Pfad zum Projekt-Root (siehe init-project.sh)" >&2
+  echo "  --edition <edition>   Container-Edition auswählen (erforderlich)" >&2
   echo "  --use_proxy           Squid-Egress-Allowlist-Proxy starten und nutzen" >&2
   echo "  --offline             Kein Netzwerk (--network=none)" >&2
   echo "  --hil_mode            USB-Passthrough für Oszi + MCU-Geräte" >&2
@@ -78,7 +79,6 @@ START_OPENCODE=false
 START_WEB=false
 DETACH=false
 CONTAINER_ID=""
-EDITION=full
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -101,16 +101,72 @@ while [[ $# -gt 0 ]]; do
       ;;
     *)
       echo "Unbekanntes Flag: $1" >&2
-      echo "Nutzung: $0 <projekt-root> [--edition <edition>] [--use_proxy] [--offline] [--hil_mode] [--cbm_ui] [--start_opencode] [--start_web] [--detach]" >&2
+      echo "Nutzung: $0 <projekt-root> --edition <edition> [--use_proxy] [--offline] [--hil_mode] [--cbm_ui] [--start_opencode] [--start_web] [--detach]" >&2
       exit 1
       ;;
   esac
 done
 
-case "$EDITION" in
-  base|web|embedded|full) ;;
-  *) echo "Unbekannte Edition: $EDITION" >&2; exit 1 ;;
-esac
+# --- Edition validieren ---------------------------------------------------------
+#
+# Editionen sind Dockerfile-Stages mit Namen opencode-sandbox-<name>
+# (siehe ADR 0019). Die Liste wird live aus dem shipped Dockerfile und
+# dem custom edition Dockerfile ermittelt - keine hardcodierte Whitelist.
+[[ -n "${EDITION:-}" ]] || {
+  echo "Fehler: --edition <edition> ist erforderlich." >&2
+  echo "Nutzung: $0 <projekt-root> --edition <edition> [--use_proxy] [--offline] [--hil_mode] [--cbm_ui] [--start_opencode] [--start_web] [--detach]" >&2
+  exit 1
+}
+
+if [[ ! "$EDITION" =~ ^[a-z0-9_-]+$ ]]; then
+  echo "Fehler: Ungültiger Editions-Name: $EDITION" >&2
+  echo "Erlaubt sind nur Kleinbuchstaben [a-z0-9_-]." >&2
+  exit 1
+fi
+
+discover_editions() {
+  local dockerfile custom_dockerfile
+  dockerfile="${REPO_ROOT}/Dockerfile"
+  custom_dockerfile="${REPO_ROOT}/Dockerfile.custom"
+
+  local combined=""
+  for f in "$dockerfile" "$custom_dockerfile"; do
+    [[ -f "$f" ]] || continue
+    if [[ -z "$combined" ]]; then
+      combined="$f"
+    else
+      combined="$combined
+$f"
+    fi
+  done
+  [[ -n "$combined" ]] || return 0
+
+  while IFS= read -r f; do
+    grep -vE '^[[:space:]]*#' "$f" 2>/dev/null |
+    grep -hoiE -- 'FROM[[:space:]]+[^[:space:]]+[[:space:]]+AS[[:space:]]+opencode-sandbox-[a-z0-9_-]+' - 2>/dev/null ||
+      true
+  done <<< "$combined" |
+    sed -E 's/.*AS[[:space:]]+opencode-sandbox-//' | tr '[:upper:]' '[:lower:]' |
+    grep -E -- '^[a-z0-9_-]+$' | sort -u
+}
+
+AVAILABLE_EDITIONS=()
+while IFS= read -r ed; do
+  [[ -n "$ed" ]] && AVAILABLE_EDITIONS+=("$ed")
+done < <(discover_editions)
+
+edition_known=false
+for ed in "${AVAILABLE_EDITIONS[@]:-}"; do
+  if [[ "$ed" == "$EDITION" ]]; then
+    edition_known=true
+    break
+  fi
+done
+if ! $edition_known; then
+  echo "Fehler: Unbekannte Edition: $EDITION" >&2
+  echo "Verfügbare Editionen: ${AVAILABLE_EDITIONS[*]:-}" >&2
+  exit 1
+fi
 
 # --- Projekt-Root validieren ---------------------------------------------------
 PROJECT_ROOT="$(realpath "$PROJECT_ROOT")"
