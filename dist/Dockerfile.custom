@@ -1,0 +1,47 @@
+# =============================================================================
+# Custom edition Dockerfile — Vorlage für eigene Editionen
+# =============================================================================
+#
+# Diese Datei ist eine Vorlage (Template) für eigene Container-Editionen.
+# Jede Edition ist ein eigenständiger Build-Abschnitt (Stage), der am Ende
+# immer mit der dev-User-Zeile und dem bash-login-Entrypoint abschließt.
+#
+# Regeln:
+#   - Der Stage-Name lautet: opencode-sandbox-<name> (klein: [a-z0-9_-]).
+#     Der Name <name> erscheint dann automatisch in den TUI-Menüs.
+#   - WICHTIG: Alle Zeilen bleiben auskommentiert, bis du selbst eine Stage
+#     ergänzt. Sonst entdeckt die Editionserkennung eine nicht gebaute Edition.
+#   - Nur Umgebungsvariablen außerhalb dieser Datei setzen, nichts hier
+#     aktivieren, wenn du die Vorlage unverändert nutzen willst.
+#
+# Diese Datei bleibt bei Updates unangetastet (Außnahmen: sie fehlt — dann
+# wird sie aus der Vorlage neu angelegt).
+
+# =============================================================================
+# Beispiel: Eigene Edition "rust"
+# =============================================================================
+# Alle Zeilen des Beispiels sind auskommentiert. Zum Aktivieren die führenden
+# '# ' entfernen und den Namen anpassen.
+#
+# FROM opencode-sandbox-base AS opencode-sandbox-rust
+#
+# USER root
+#
+# # --- System packages (rust toolchain) ---------------------------------------
+# RUN apt-get update && apt-get install -y --no-install-recommends \
+#         build-essential curl file git \
+#     && rm -rf /var/lib/apt/lists/*
+#
+# # --- Rust / Cargo -------------------------------------------------------------
+# ARG RUSTUP_HOME=/usr/local/rustup
+# ARG CARGO_HOME=/usr/local/cargo
+# ENV RUSTUP_HOME=${RUSTUP_HOME} \
+#     CARGO_HOME=${CARGO_HOME} \
+#     PATH=${CARGO_HOME}/bin:${PATH}
+# RUN curl -fsSL https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
+#
+# # --- Non-root user (Pflicht, wie in jeder Edition) ----------------------------
+# USER dev
+# WORKDIR /home/dev/project
+#
+# ENTRYPOINT ["/bin/bash", "-l"]

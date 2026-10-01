@@ -989,6 +989,106 @@ test_gum_install_success() {
   cleanup_test_env "$test_dir"
 }
 
+# --- Custom-Edition-Dockerfile-Erhalt (Dist/Dockerfile.custom) ---------------
+
+# Fake-Quellverzeichnis mit Template-Datei bauen (wie dist/ im Repo)
+setup_custom_dockerfile_source() {
+  local src_dir="$1"
+  mkdir -p "$src_dir/dist"
+  cp "$PROJECT_ROOT/dist/Dockerfile" "$src_dir/dist/Dockerfile"
+  cp "$PROJECT_ROOT/dist/Dockerfile.custom" "$src_dir/dist/Dockerfile.custom"
+}
+
+run_install_files() {
+  local source_dir="$1"
+  local target_dir="$2"
+  (
+    source "$INSTALL_SCRIPT" --help >/dev/null 2>&1
+    VERBOSE=false
+    PRESERVE_ALLOWLIST=true
+    install_files "$source_dir" "$target_dir"
+  )
+}
+
+test_custom_dockerfile_fresh_install_lands() {
+  local test_dir
+  test_dir=$(setup_test_env "custom-dockerfile-fresh")
+  local src="$test_dir/src"
+  local target="$test_dir/target"
+
+  setup_custom_dockerfile_source "$src"
+
+  local rc=0
+  run_install_files "$src" "$target" || rc=$?
+
+  assert_equals "0" "$rc" "install_files mit leerem Ziel" || { cleanup_test_env "$test_dir"; return 1; }
+  assert_file_exists "$target/dist/Dockerfile.custom" || { cleanup_test_env "$test_dir"; return 1; }
+  cmp -s "$PROJECT_ROOT/dist/Dockerfile.custom" "$target/dist/Dockerfile.custom" || {
+    echo "Template unterscheidet sich nach Fresh-Install"
+    cleanup_test_env "$test_dir"
+    return 1
+  }
+  cmp -s "$PROJECT_ROOT/dist/Dockerfile" "$target/dist/Dockerfile" || {
+    echo "dist/Dockerfile abweichend nach Fresh-Install"
+    cleanup_test_env "$test_dir"
+    return 1
+  }
+  cleanup_test_env "$test_dir"
+}
+
+test_custom_dockerfile_update_preserves_edited_file() {
+  local test_dir
+  test_dir=$(setup_test_env "custom-dockerfile-preserve")
+  local src="$test_dir/src"
+  local target="$test_dir/target"
+
+  setup_custom_dockerfile_source "$src"
+  run_install_files "$src" "$target" >/dev/null 2>&1
+
+  # User editiert die Datei (eigene Edition ergänzt)
+  echo "FROM opencode-sandbox-base AS opencode-sandbox-mytool" >> "$target/dist/Dockerfile.custom"
+  cp "$target/dist/Dockerfile.custom" "$test_dir/expected"
+
+  local rc=0
+  run_install_files "$src" "$target" || rc=$?
+
+  assert_equals "0" "$rc" "install_files bei Update mit editierter Datei" || { cleanup_test_env "$test_dir"; return 1; }
+  cmp -s "$test_dir/expected" "$target/dist/Dockerfile.custom" || {
+    echo "Editierte Dockerfile.custom wurde überschrieben (nicht erhalten)"
+    cleanup_test_env "$test_dir"
+    return 1
+  }
+  cmp -s "$PROJECT_ROOT/dist/Dockerfile" "$target/dist/Dockerfile" || {
+    echo "dist/Dockerfile muss weiterhin aktualisiert werden"
+    cleanup_test_env "$test_dir"
+    return 1
+  }
+  cleanup_test_env "$test_dir"
+}
+
+test_custom_dockerfile_recreated_if_absent() {
+  local test_dir
+  test_dir=$(setup_test_env "custom-dockerfile-absent")
+  local src="$test_dir/src"
+  local target="$test_dir/target"
+
+  setup_custom_dockerfile_source "$src"
+  run_install_files "$src" "$target" >/dev/null 2>&1
+  rm "$target/dist/Dockerfile.custom"
+
+  local rc=0
+  run_install_files "$src" "$target" || rc=$?
+
+  assert_equals "0" "$rc" "install_files nach Löschen der Datei" || { cleanup_test_env "$test_dir"; return 1; }
+  assert_file_exists "$target/dist/Dockerfile.custom" || { cleanup_test_env "$test_dir"; return 1; }
+  cmp -s "$PROJECT_ROOT/dist/Dockerfile.custom" "$target/dist/Dockerfile.custom" || {
+    echo "Fehlende Datei wurde nicht aus Template neu angelegt"
+    cleanup_test_env "$test_dir"
+    return 1
+  }
+  cleanup_test_env "$test_dir"
+}
+
 test_gum_install_tar_failure_reports_error() {
   # Regression (Win11 WSL): tar schlug beim Entpacken fehl ("Function not
   # implemented" auf drvfs) – vorher lief der Code still weiter und meldete
@@ -1071,6 +1171,13 @@ main() {
   run_test "gum: Temp-Basis nutzt existierendes TMPDIR" test_gum_tmpdir_parent_prefers_existing_tmpdir
   run_test "gum: Installation aus Release-Archiv" test_gum_install_success
   run_test "gum: kaputtes Archiv liefert klare Fehlermeldung" test_gum_install_tar_failure_reports_error
+
+  # Custom-Edition-Dockerfile-Erhalt
+  echo ""
+  echo "Running custom edition Dockerfile preservation tests..."
+  run_test "Fresh install: dist/Dockerfile.custom landet" test_custom_dockerfile_fresh_install_lands
+  run_test "Update: editierte dist/Dockerfile.custom bleibt erhalten" test_custom_dockerfile_update_preserves_edited_file
+  run_test "Update ohne Datei: wird erneut angelegt" test_custom_dockerfile_recreated_if_absent
 
   
   # Zusammenfassung
