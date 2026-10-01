@@ -9,6 +9,10 @@ Entwicklungssandbox** – mehrere Editionen für unterschiedliche Use Cases:
 - **web**: base + Node/TypeScript/Playwright
 - **embedded**: base + ARM toolchains/Arduino/MicroPython
 - **full**: web + embedded (default)
+- **swdev**: base + C/C++ (clang/gdb), Java (OpenJDK/Maven), Rust (rustup), Go, C++-Test-Frameworks (GoogleTest/Catch2)
+- **matlab**: base + GNU Octave + Python Scientific-Stack (numpy/scipy/matplotlib/pandas) — lizenzfrei
+- **ros2**: base + ROS 2 Jazzy (ros-base, RViz2, CycloneDDS, colcon/rosdep/vcstool)
+- **writing**: base + LibreOffice + pandoc + Fonts (odt/odp, docx/pptx, PDF-Export)
 
 **Use Cases:**
 
@@ -17,6 +21,10 @@ Entwicklungssandbox** – mehrere Editionen für unterschiedliche Use Cases:
 - **MicroPython**: mpremote, esptool für ESP32-Firmware-Entwicklung
 - **HIL-Tests**: USB-Oszilloskop (Picoscope 2204A) + Mikrocontroller-Geräte-Passthrough
 - **Browser-Automatisierung**: Chromium + Firefox via Playwright (für OpenCode-Browser-Tooling)
+- **Allgemeine Softwareentwicklung**: C/C++, Java, Rust, Go in `swdev` (inkl. GoogleTest/Catch2)
+- **Matlab / Skripte**: GNU Octave + Scientific-Python in `matlab` (lizenzfrei, headless)
+- **ROS 2**: Jazzy-Entwicklung in C++/Python in `ros2` (colcon, rosdep, RViz2)
+- **Dokumente**: LibreOffice + pandoc in `writing` (odt/odp, docx/pptx, PDF)
 - **Code-Intelligence**: codebase-memory-mcp (Knowledge-Graph-Indexing, auto-konfiguriert für OpenCode, UI auf Port 9749 mit `--cbm_ui` — [Referenz](https://github.com/DeusData/codebase-memory-mcp))
 - **Proxy**: Squid-Egress-Allowlist (optional, per `--use_proxy`)
 - **TUI**: Terminal-UI für interaktive Sandbox-Steuerung (`start-tui.sh`)
@@ -308,7 +316,7 @@ Einmalig die gewünschte Sandbox-Edition bauen:
 
 ```bash
 cd opencode-sandbox
-./dist/scripts/build-container.sh full     # oder: base, web, embedded, all
+./dist/scripts/build-container.sh full     # oder: base, web, embedded, swdev, matlab, ros2, writing, all
 ```
 
 Das baut:
@@ -317,6 +325,10 @@ Das baut:
 - `opencode-sandbox-web` — base + Node/TypeScript/Playwright
 - `opencode-sandbox-embedded` — base + ARM toolchains/Arduino/MicroPython
 - `opencode-sandbox-full` — web + embedded (default)
+- `opencode-sandbox-swdev` — base + C/C++, Java, Rust, Go + Test-Frameworks
+- `opencode-sandbox-matlab` — base + GNU Octave + Python Scientific-Stack
+- `opencode-sandbox-ros2` — base + ROS 2 Jazzy + colcon/rosdep/vcstool
+- `opencode-sandbox-writing` — base + LibreOffice + pandoc
 - `oc-proxy` — optionaler Squid-Egress-Proxy (wird nur bei `--use_proxy` benötigt)
 
 ### 2. Projekt-Root einrichten

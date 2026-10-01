@@ -81,7 +81,7 @@ rust_builds=$(grep -c -- '--target opencode-sandbox-rust' "$PODMAN_LOG")
 # --- 3: 'all' baut jede entdeckte Stage incl. custom ------------------------
 rm -f "$PODMAN_LOG"; PODMAN_MISSING_IMAGES="" run_script all
 targets="$(targets_from_log)"
-for expected in base web embedded full rust; do
+for expected in base web embedded full swdev matlab ros2 writing rust; do
   grep -q "opencode-sandbox-$expected" <<< "$targets"
 done
 printf 'all editions build test passed\n'
