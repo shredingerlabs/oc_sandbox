@@ -493,7 +493,16 @@ install_files() {
   elif ! $PRESERVE_ALLOWLIST && [[ -d "$target_dir" && -f "$target_dir/proxy/allowlist.txt" ]]; then
     log_verbose "proxy/allowlist.txt wird überschrieben (User-Entscheidung: nicht erhalten)"
   fi
-  
+
+  # Custom-Edition-Dockerfile sichern (bleibt bei Updates immer erhalten;
+  # fehlt sie, landet nach dem Kopieren wieder das Template aus dist/)
+  local custom_dockerfile=""
+  if [[ -d "$target_dir" && -f "$target_dir/dist/Dockerfile.custom" ]]; then
+    custom_dockerfile=$(mktemp)
+    cp "$target_dir/dist/Dockerfile.custom" "$custom_dockerfile"
+    log_verbose "Sichere dist/Dockerfile.custom (Custom-Editionen erhalten)"
+  fi
+
   # Erstelle Zielverzeichnis
   mkdir -p "$target_dir"
   
@@ -505,6 +514,14 @@ install_files() {
     cp "$allowlist_backup" "$target_dir/proxy/allowlist.txt"
     rm -f "$allowlist_backup"
     log_verbose "proxy/allowlist.txt wiederhergestellt"
+  fi
+
+  # Custom-Edition-Dockerfile wiederherstellen, wenn vorher vorhanden
+  if [[ -n "$custom_dockerfile" ]]; then
+    mkdir -p "$target_dir/dist"
+    cp "$custom_dockerfile" "$target_dir/dist/Dockerfile.custom"
+    rm -f "$custom_dockerfile"
+    log_verbose "dist/Dockerfile.custom wiederhergestellt (Custom-Editionen erhalten)"
   fi
   
   # Entferne .git Verzeichnis um Platz zu sparen
