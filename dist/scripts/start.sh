@@ -146,7 +146,7 @@ $f"
     grep -hoiE -- 'FROM[[:space:]]+[^[:space:]]+[[:space:]]+AS[[:space:]]+opencode-sandbox-[a-z0-9_-]+' - 2>/dev/null ||
       true
   done <<< "$combined" |
-    sed -E 's/.*AS[[:space:]]+opencode-sandbox-//' | tr '[:upper:]' '[:lower:]' |
+    sed -E 's/.*AS[[:space:]]+opencode-sandbox-//' |
     grep -E -- '^[a-z0-9_-]+$' | sort -u
 }
 
