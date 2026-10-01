@@ -5,14 +5,23 @@ Entwicklungssandbox** – mehrere Editionen für unterschiedliche Use Cases:
 
 **Editionen:**
 
+Die Editionen werden **automatisch** aus den `FROM ... AS opencode-sandbox-<name>`-Stages
+von `dist/Dockerfile` und `dist/Dockerfile.custom` entdeckt (siehe
+[ADR 0019](docs/adr/) für Details) – es gibt keine hardcodierte Whitelist.
+
+Mitgeliefert werden:
+
 - **base**: Python + core system packages
 - **web**: base + Node/TypeScript/Playwright
 - **embedded**: base + ARM toolchains/Arduino/MicroPython
-- **full**: web + embedded (default)
 - **swdev**: base + C/C++ (clang/gdb), Java (OpenJDK/Maven), Rust (rustup), Go, C++-Test-Frameworks (GoogleTest/Catch2)
 - **matlab**: base + GNU Octave + Python Scientific-Stack (numpy/scipy/matplotlib/pandas) — lizenzfrei
 - **ros2**: base + ROS 2 Jazzy (ros-base, RViz2, CycloneDDS, colcon/rosdep/vcstool)
 - **writing**: base + LibreOffice + pandoc + Fonts (odt/odp, docx/pptx, PDF-Export)
+
+Eigene Editionen lassen sich per `dist/Dockerfile.custom` ergänzen (Vorlage
+dort) und tauchen danach automatisch in `build-container.sh`, `start.sh` und
+der TUI auf.
 
 **Use Cases:**
 
@@ -316,19 +325,23 @@ Einmalig die gewünschte Sandbox-Edition bauen:
 
 ```bash
 cd opencode-sandbox
-./dist/scripts/build-container.sh full     # oder: base, web, embedded, swdev, matlab, ros2, writing, all
+./dist/scripts/build-container.sh web     # oder: base, embedded, swdev, matlab, ros2, writing, all
 ```
+
+Das Skript entdeckt die Editionen live aus den
+`FROM ... AS opencode-sandbox-<name>`-Stages von `dist/Dockerfile` und
+`dist/Dockerfile.custom`; `all` baut alle gefundenen Editionen.
 
 Das baut:
 
 - `opencode-sandbox-base` — Python + core system packages
 - `opencode-sandbox-web` — base + Node/TypeScript/Playwright
 - `opencode-sandbox-embedded` — base + ARM toolchains/Arduino/MicroPython
-- `opencode-sandbox-full` — web + embedded (default)
 - `opencode-sandbox-swdev` — base + C/C++, Java, Rust, Go + Test-Frameworks
 - `opencode-sandbox-matlab` — base + GNU Octave + Python Scientific-Stack
 - `opencode-sandbox-ros2` — base + ROS 2 Jazzy + colcon/rosdep/vcstool
 - `opencode-sandbox-writing` — base + LibreOffice + pandoc
+- plus alle eigenen Editionen aus `dist/Dockerfile.custom`
 - `oc-proxy` — optionaler Squid-Egress-Proxy (wird nur bei `--use_proxy` benötigt)
 
 ### 2. Projekt-Root einrichten
@@ -424,8 +437,11 @@ VCS-Token erfasst wird (GitHub: `https://oauth2:<token>@github.com`).
 ### 3. Sandbox starten
 
 ```bash
-dist/scripts/start.sh ~/projects/kunde-x            # Default: full edition, volles Netz
+dist/scripts/start.sh ~/projects/kunde-x --edition web            # volles Netz
 ```
+
+Die `--edition`-Flag akzeptiert jede über `Dockerfile`/`Dockerfile.custom`
+entdeckte Edition (kein fester Default).
 
 **Edition wählen:**
 
@@ -433,7 +449,7 @@ dist/scripts/start.sh ~/projects/kunde-x            # Default: full edition, vol
 dist/scripts/start.sh ~/projects/kunde-x --edition web       # Web-only
 dist/scripts/start.sh ~/projects/kunde-x --edition embedded  # Embedded-only
 dist/scripts/start.sh ~/projects/kunde-x --edition base      # Minimal Python
-dist/scripts/start.sh ~/projects/kunde-x --edition full      # Web + Embedded (default)
+dist/scripts/start.sh ~/projects/kunde-x --edition swdev     # C/C++, Java, Rust, Go
 ```
 
 | Flag-Kombination         | Netzwerk | Proxy           | Geräte                    | Anwendung                          |
@@ -456,8 +472,8 @@ Projekt-Registry (Standard sonst: Basisname des Projekt-Roots).
 Beispiele:
 
 ```bash
-# Coding ohne Einschränkungen (full edition)
-dist/scripts/start.sh ~/projects/kunde-x
+# Coding ohne Einschränkungen (web edition)
+dist/scripts/start.sh ~/projects/kunde-x --edition web
 
 # Web-only edition
 dist/scripts/start.sh ~/projects/kunde-x --edition web
@@ -529,7 +545,8 @@ rm -rf ~/projects/kunde-x/.opencode_config/* ~/projects/kunde-x/.opencode_data/*
 ├── AGENTS.md                     <- Agent-spezifische Anweisungen
 ├── CONTEXT.md                    <- Domain-Vokabular & Kontext
 ├── dist/                         <- Produktions-Release (Quelle für Releases)
-│   ├── Dockerfile                <- Multi-Stage: base, web, embedded, full
+│   ├── Dockerfile                <- Multi-Stage: base, web, embedded, swdev, matlab, ros2, writing
+│   ├── Dockerfile.custom          <- Vorlage für eigene Editionen (auto-entdeckt)
 │   ├── README.md                 <- Kurzanleitung für Produktion
 │   ├── scripts/
 │   │   ├── start.sh              <- Einheitliches Start-Skript (--edition flag)

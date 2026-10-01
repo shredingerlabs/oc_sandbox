@@ -8,13 +8,14 @@ mehreren Editionen.
 
 ```
 dist/
-├── Dockerfile                    <- Multi-Stage: base, web, embedded, full
+├── Dockerfile                    <- Multi-Stage: base, web, embedded, swdev, matlab, ros2, writing
 ├── scripts/
 │   ├── start.sh                  <- Einheitliches Start-Skript (--edition flag)
 │   ├── start-tui.sh              <- TUI-Variante des Start-Skripts
 │   ├── build-container.sh        <- Baut Sandbox-Editionen + Proxy
 │   ├── init-project.sh           <- Legt Projekt-Root-Struktur an
 │   └── uninstall.sh              <- Deinstalliert opencode-sandbox
+├── Dockerfile.custom              <- Vorlage für eigene Editionen (auto-entdeckt)
 ├── proxy/
 │   ├── Dockerfile                <- Separates Squid-Proxy-Image
 │   ├── squid.conf
@@ -107,10 +108,21 @@ prompt when gum is available and a plain `read` fallback otherwise.
 
 ## Editionen
 
+Die Editionen werden **automatisch** aus den
+`FROM ... AS opencode-sandbox-<name>`-Stages von `Dockerfile` und
+`Dockerfile.custom` entdeckt – `build-container.sh`, `start.sh` und die TUI
+pflegen keine eigene Whitelist. Mitgeliefert werden:
+
 - **base**: Python + core system packages
 - **web**: base + Node/TypeScript/Playwright
 - **embedded**: base + ARM toolchains/Arduino/MicroPython
-- **full**: web + embedded (default)
+- **swdev**: base + C/C++/Java/Rust/Go + Test-Frameworks
+- **matlab**: base + GNU Octave + Python Scientific-Stack (lizenzfrei)
+- **ros2**: base + ROS 2 Jazzy (colcon/rosdep/vcstool)
+- **writing**: base + LibreOffice + pandoc + Fonts
+
+Eigene Editionen per `Dockerfile.custom` ergänzen (Vorlage in der Datei) – sie
+erscheinen danach automatisch in `build-container.sh`, `start.sh` und der TUI.
 
 ## Installation & Update
 
@@ -200,7 +212,7 @@ sudo udevadm trigger
 ### 2. Images bauen
 
 ```bash
-./scripts/build-container.sh full
+./scripts/build-container.sh web        # oder eine andere entdeckte Edition, oder: all
 ```
 
 ### 3. Projekt-Root einrichten
@@ -220,7 +232,7 @@ später aus `<url>` geklont.
 ```
 
 **Optionen:**
-- `--edition <base|web|embedded|full>` – Edition wählen
+- `--edition <edition>` – Edition wählen (jede aus `Dockerfile`/`Dockerfile.custom` entdeckte Edition, z. B. `base`, `web`, `embedded`, `swdev`, `matlab`, `ros2`, `writing`)
 - `--use_proxy` – Egress-Proxy mit Allowlist
 - `--offline` – Komplett offline (kein Netzwerk)
 - `--hil_mode` – HIL-Tests mit USB-Geräten (Oszilloskop, MCU)

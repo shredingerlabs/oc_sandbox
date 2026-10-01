@@ -129,52 +129,6 @@ RUN arduino-cli core update-index \
 ENTRYPOINT ["/bin/bash", "-l"]
 
 # =============================================================================
-# EDITION: full (web + embedded)
-# =============================================================================
-FROM opencode-sandbox-web AS opencode-sandbox-full
-
-USER root
-
-# --- System packages (embedded toolchains) -----------------------------------
-RUN apt-get update && apt-get install -y --no-install-recommends \
-        golang-go \
-        gcc-arm-none-eabi gdb-multiarch \
-        simavr \
-    && rm -rf /var/lib/apt/lists/*
-
-# --- PicoTech vendor SDK for Picoscope (PS2000 + PS2000A APIs) ---------------
-RUN curl -fsSL https://labs.picotech.com/debian/dists/picoscope/Release.gpg.key \
-        | gpg --dearmor -o /usr/share/keyrings/picotech.gpg \
-    && echo "deb [signed-by=/usr/share/keyrings/picotech.gpg] https://labs.picotech.com/debian/ picoscope main" \
-        > /etc/apt/sources.list.d/picoscope.list \
-    && apt-get update \
-    && apt-get download libps2000 libps2000a libpicoipp \
-    && mkdir -p /etc/udev/rules.d \
-    && ln -sf /bin/true /usr/local/bin/udevadm \
-    && dpkg -i --force-depends libps2000*.deb libps2000a*.deb libpicoipp*.deb \
-    && rm -f /usr/local/bin/udevadm \
-    && rm -rf /var/lib/apt/lists/* libps2000*.deb libps2000a*.deb libpicoipp*.deb
-
-# --- Arduino CLI binary ------------------------------------------------------
-RUN curl -fsSL https://downloads.arduino.cc/arduino-cli/arduino-cli_latest_Linux_64bit.tar.gz \
-        | tar xz -C /usr/local/bin arduino-cli
-
-# --- Python packages (embedded) ----------------------------------------------
-RUN pip3 install --break-system-packages --no-cache-dir \
-        mpremote esptool platformio \
-        pyvisa pyvisa-py pyusb \
-        picoscope picosdk
-
-USER dev
-
-# Run core install as dev so data lands in /home/dev/.arduino15/
-RUN arduino-cli core update-index \
-    && arduino-cli core install arduino:avr \
-    && arduino-cli core install arduino:esp32
-
-ENTRYPOINT ["/bin/bash", "-l"]
-
-# =============================================================================
 # EDITION: swdev (C/C++, Java, Rust, Go)
 # =============================================================================
 FROM opencode-sandbox-base AS opencode-sandbox-swdev
