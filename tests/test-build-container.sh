@@ -56,10 +56,6 @@ run_script() {
   ( cd "$test_home" && bash "$script" "$@" > /dev/null 2> "$test_home/err.log" )
 }
 
-script_err() {
-  ( cd "$test_home" && bash "$script" "$@" > /dev/null 2> "$test_home/err.log" )
-}
-
 make_custom_dockerfile <<'EOF'
 FROM opencode-sandbox-base AS opencode-sandbox-rust
 
@@ -114,7 +110,7 @@ FROM opencode-sandbox-web AS opencode-sandbox-rust
 USER dev
 ENTRYPOINT ["/bin/bash", "-l"]
 EOF
-if PODMAN_MISSING_IMAGES="opencode-sandbox-web" script_err rust; then
+if PODMAN_MISSING_IMAGES="opencode-sandbox-web" run_script rust; then
   printf 'build with missing non-base parent unexpectedly succeeded\n' >&2
   exit 1
 fi
@@ -132,7 +128,7 @@ FROM opencode-sandbox-base AS opencode-sandbox-rust
 EOF
 rm -f "$PODMAN_LOG"
 for bad in nosuchedition Web; do
-  if script_err "$bad"; then
+  if run_script "$bad"; then
     printf 'invalid edition %s unexpectedly succeeded\n' "$bad" >&2
     exit 1
   fi
@@ -146,7 +142,7 @@ printf 'unknown edition rejection test passed\n'
 
 # --- 8: Egress-Proxy-Build unveraendert ------------------------------------
 : > "$PODMAN_LOG"
-if ! PODMAN_MISSING_IMAGES="" script_err base; then
+if ! PODMAN_MISSING_IMAGES="" run_script base; then
   printf 'base build failed\n' >&2
   exit 1
 fi

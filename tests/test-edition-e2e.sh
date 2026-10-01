@@ -231,6 +231,9 @@ grep -q 'Dockerfile and Dockerfile.custom' "$test_home/collide-warnings.txt"
 : > "$PODMAN_LOG"; PODMAN_MISSING_IMAGES="" run_build web
 grep -q -- '--target opencode-sandbox-web' "$PODMAN_LOG"
 ! grep -q -- '-f Dockerfile.custom' "$PODMAN_LOG"
+grep -q 'Dockerfile und Dockerfile.custom' "$test_home/build-err.log"
+grep -q 'übersprungen' "$test_home/build-err.log"
+printf 'build script collision warning test passed\n'
 
 : > "$PODMAN_LOG"; PODMAN_MISSING_IMAGES="" run_build all
 if grep -q -- '--target opencode-sandbox-B@d' "$PODMAN_LOG"; then
@@ -243,6 +246,9 @@ if run_start "$project_root" --edition "rust"; then
   printf 'start.sh accepted edition derived from invalid stage name\n' >&2
   exit 1
 fi
+grep -q 'Unbekannte Edition' "$test_home/start-err.log"
+grep -q 'Dockerfile und Dockerfile.custom' "$test_home/start-err.log"
+grep -q 'übersprungen' "$test_home/start-err.log"
 if run_start "$project_root" --edition "Rust"; then
   printf 'start.sh accepted invalid edition name\n' >&2
   exit 1

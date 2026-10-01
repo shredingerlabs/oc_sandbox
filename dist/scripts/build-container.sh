@@ -15,18 +15,16 @@ cd "$(dirname "$0")/.."
 declare -A STAGE_FILE=()
 STAGE_ORDER=()
 
-strip_stage() { sed -E 's/.*[[:space:]]AS[[:space:]]+//; s/[[:space:]]+$//'; }
-
 for dockerfile in Dockerfile Dockerfile.custom; do
   [[ -f "$dockerfile" ]] || continue
-  while IFS= read -r line; do
-    stage=$(strip_stage <<< "$line")
-    name=${stage#opencode-sandbox-}
-    [[ -n "$name" && "$name" != "$stage" ]] || continue
-    [[ -z "${STAGE_FILE[$stage]:-}" ]] || continue
-    STAGE_FILE[$stage]="$dockerfile"
-    STAGE_ORDER+=("$stage")
-  done < <(grep -E '^[[:space:]]*FROM[[:space:]].*[[:space:]]AS[[:space:]]+opencode-sandbox-[a-z0-9_-]+$' "$dockerfile" || true)
+  while IFS= read -r stage; do
+    if [[ -z "${STAGE_FILE[$stage]:-}" ]]; then
+      STAGE_FILE[$stage]="$dockerfile"
+      STAGE_ORDER+=("$stage")
+    elif [[ "${STAGE_FILE[$stage]}" != "$dockerfile" ]]; then
+      echo "Warnung: Stage '$stage' wurde in Dockerfile und Dockerfile.custom gefunden — Edition wird übersprungen." >&2
+    fi
+  done < <(sed -nE '/^[[:space:]]*#/d; s/^[[:space:]]*FROM[[:space:]]+[^[:space:]]+[[:space:]]+AS[[:space:]]+(opencode-sandbox-[a-z0-9_-]+)[[:space:]]*(#.*)?$/\1/p' "$dockerfile" || true)
 done
 
 USAGE_EDITIONS=""
@@ -57,7 +55,7 @@ stage_of_edition() {
 
 parent_of_stage() {
   local stage="$1" file="$2" from_line
-  from_line=$(grep -E "^[[:space:]]*FROM[[:space:]].*[[:space:]]AS[[:space:]]+${stage}[[:space:]]*$" "$file" | head -1 || true)
+  from_line=$(grep -E "^[[:space:]]*FROM[[:space:]].*[[:space:]]AS[[:space:]]+${stage}([[:space:]]+(#.*)?|#.*)?$" "$file" | head -1 || true)
   sed -E 's/^[[:space:]]*FROM[[:space:]]+//; s/[[:space:]]+AS[[:space:]]+.*$//; s/[[:space:]]+$//' <<< "$from_line"
 }
 

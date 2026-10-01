@@ -125,31 +125,21 @@ if [[ ! "$EDITION" =~ ^[a-z0-9_-]+$ ]]; then
 fi
 
 discover_editions() {
-  local dockerfile custom_dockerfile
-  dockerfile="${REPO_ROOT}/Dockerfile"
-  custom_dockerfile="${REPO_ROOT}/Dockerfile.custom"
-
-  local combined=""
-  for f in "$dockerfile" "$custom_dockerfile"; do
+  for f in "${REPO_ROOT}/Dockerfile" "${REPO_ROOT}/Dockerfile.custom"; do
     [[ -f "$f" ]] || continue
-    if [[ -z "$combined" ]]; then
-      combined="$f"
-    else
-      combined="$combined
-$f"
-    fi
+    while IFS= read -r name; do
+      [[ "$name" =~ ^[a-z0-9_-]+$ ]] || continue
+      if [[ -z "${DISCOVERED_FILE[$name]:-}" ]]; then
+        DISCOVERED_FILE[$name]="$f"
+        printf '%s\n' "$name"
+      elif [[ "${DISCOVERED_FILE[$name]}" != "$f" ]]; then
+        echo "Warnung: Edition 'opencode-sandbox-$name' kommt in Dockerfile und Dockerfile.custom vor — Edition wird übersprungen." >&2
+      fi
+    done < <(sed -nE '/^[[:space:]]*#/d; s/^[[:space:]]*FROM[[:space:]]+[^[:space:]]+[[:space:]]+AS[[:space:]]+opencode-sandbox-([^[:space:]]+)[[:space:]]*(#.*)?$/\1/p' "$f" || true)
   done
-  [[ -n "$combined" ]] || return 0
-
-  while IFS= read -r f; do
-    grep -vE '^[[:space:]]*#' "$f" 2>/dev/null |
-    grep -hoiE -- 'FROM[[:space:]]+[^[:space:]]+[[:space:]]+AS[[:space:]]+opencode-sandbox-[a-z0-9_-]+' - 2>/dev/null ||
-      true
-  done <<< "$combined" |
-    sed -E 's/.*AS[[:space:]]+opencode-sandbox-//' |
-    grep -E -- '^[a-z0-9_-]+$' | sort -u
 }
 
+declare -A DISCOVERED_FILE=()
 AVAILABLE_EDITIONS=()
 while IFS= read -r ed; do
   [[ -n "$ed" ]] && AVAILABLE_EDITIONS+=("$ed")
