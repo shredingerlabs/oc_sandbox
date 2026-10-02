@@ -2,80 +2,123 @@
 #
 # Baut Sandbox-Editionen und Proxy-Image.
 #
-# Editionen:
-#   opencode-sandbox-base     — Python + core system packages
-#   opencode-sandbox-web      — base + Node/TypeScript/Playwright
-#   opencode-sandbox-embedded — base + ARM toolchains/Arduino/MicroPython
-#   opencode-sandbox-full     — web + embedded (default, backward compat)
+# Editions-Registry (ADR 0019): entdeckt alle Container-Stages der Form
+#   FROM <parent> AS opencode-sandbox-<name>
+# in Dockerfile und Dockerfile.custom (= <script_dir>/../dist/). Jede
+# entdeckte Edition ist ein gueltiges Argument; Namen sind klein
+# [a-z0-9_-]. Ohne Argument wird jede entdeckte Edition gebaut.
 #
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-EDITION="${1:-full}"
+# --- Stage-Registry ---------------------------------------------------------
+declare -A STAGE_FILE=()
+STAGE_ORDER=()
 
-if [[ "$EDITION" == "--help" || "$EDITION" == "-h" ]]; then
-  echo "Nutzung: $0 [base|web|embedded|full|all]"
-  echo "Editionen: base web embedded full all"
+for dockerfile in Dockerfile Dockerfile.custom; do
+  [[ -f "$dockerfile" ]] || continue
+  while IFS= read -r stage; do
+    if [[ -z "${STAGE_FILE[$stage]:-}" ]]; then
+      STAGE_FILE[$stage]="$dockerfile"
+      STAGE_ORDER+=("$stage")
+    elif [[ "${STAGE_FILE[$stage]}" != "$dockerfile" ]]; then
+      echo "Warnung: Stage '$stage' wurde in Dockerfile und Dockerfile.custom gefunden — Edition wird übersprungen." >&2
+    fi
+  done < <(sed -nE '/^[[:space:]]*#/d; s/^[[:space:]]*FROM[[:space:]]+[^[:space:]]+[[:space:]]+AS[[:space:]]+(opencode-sandbox-[a-z0-9_-]+)[[:space:]]*(#.*)?$/\1/p' "$dockerfile" || true)
+done
+
+USAGE_EDITIONS=""
+for stage in "${STAGE_ORDER[@]}"; do
+  USAGE_EDITIONS+="${stage#opencode-sandbox-}|"
+done
+USAGE_EDITIONS="${USAGE_EDITIONS%|}"
+
+if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+  echo "Nutzung: $0 [$USAGE_EDITIONS|all]"
+  echo "Editionen: $(echo "$USAGE_EDITIONS" | tr '|' ' ')   (Standard: all)"
+  echo "Entdeckt aus den FROM ... AS opencode-sandbox-<name>-Stages von Dockerfile(.custom)."
   exit 0
 fi
 
-case "$EDITION" in
-  base)
-    echo "==> Baue opencode-sandbox-base"
-    podman build --network host -t opencode-sandbox-base --target opencode-sandbox-base -f Dockerfile .
-    ;;
-  web)
-    echo "==> Baue opencode-sandbox-web"
-    podman build --network host -t opencode-sandbox-web --target opencode-sandbox-web -f Dockerfile .
-    ;;
-  embedded)
-    echo "==> Baue opencode-sandbox-embedded"
-    podman build --network host -t opencode-sandbox-embedded --target opencode-sandbox-embedded -f Dockerfile .
-    ;;
-  full)
-    echo "==> Baue opencode-sandbox-base"
-    podman build --network host -t opencode-sandbox-base --target opencode-sandbox-base -f Dockerfile .
-    echo "==> Baue opencode-sandbox-web"
-    podman build --network host -t opencode-sandbox-web --target opencode-sandbox-web -f Dockerfile .
-    echo "==> Baue opencode-sandbox-embedded"
-    podman build --network host -t opencode-sandbox-embedded --target opencode-sandbox-embedded -f Dockerfile .
-    echo "==> Baue opencode-sandbox-full (web + embedded)"
-    podman build --network host -t opencode-sandbox-full --target opencode-sandbox-full -f Dockerfile .
-    ;;
-  all)
-    echo "==> Baue alle Editionen"
-    podman build --network host -t opencode-sandbox-base --target opencode-sandbox-base -f Dockerfile .
-    podman build --network host -t opencode-sandbox-web --target opencode-sandbox-web -f Dockerfile .
-    podman build --network host -t opencode-sandbox-embedded --target opencode-sandbox-embedded -f Dockerfile .
-    podman build --network host -t opencode-sandbox-full --target opencode-sandbox-full -f Dockerfile .
-    ;;
-  *)
-    echo "Unbekannte Edition: $EDITION" >&2
-    echo "Nutzung: $0 [base|web|embedded|full|all]" >&2
-    echo "" >&2
-    echo "  Standard: full (web + embedded)" >&2
+if [[ ${#STAGE_ORDER[@]} -eq 0 ]]; then
+  echo "Fehler: keine Editionen gefunden (keine Stage FROM ... AS opencode-sandbox-<name> in Dockerfile)." >&2
+  exit 1
+fi
+
+stage_of_edition() {
+  if [[ "$1" == opencode-sandbox-* ]]; then
+    printf '%s\n' "$1"
+  else
+    printf 'opencode-sandbox-%s\n' "$1"
+  fi
+}
+
+parent_of_stage() {
+  local stage="$1" file="$2" from_line
+  from_line=$(grep -E "^[[:space:]]*FROM[[:space:]].*[[:space:]]AS[[:space:]]+${stage}([[:space:]]+(#.*)?|#.*)?$" "$file" | head -1 || true)
+  sed -E 's/^[[:space:]]*FROM[[:space:]]+//; s/[[:space:]]+AS[[:space:]]+.*$//; s/[[:space:]]+$//' <<< "$from_line"
+}
+
+build_edition() {
+  local stage="$1"
+  local file="${STAGE_FILE[$stage]:-}"
+  if [[ -z "$file" ]]; then
+    echo "Fehler: unbekannte Edition: $stage" >&2
     exit 1
-    ;;
-esac
+  fi
+
+  local parent
+  parent=$(parent_of_stage "$stage" "$file")
+  if [[ "$parent" == opencode-sandbox-* ]]; then
+    if ! podman image exists "$parent" >/dev/null 2>&1; then
+      if [[ "$parent" == "opencode-sandbox-base" ]]; then
+        echo "==> Übergeordnetes Image $parent fehlt — baue es zuerst"
+        build_edition "$parent"
+      else
+        echo "Fehler: übergeordnetes Image '$parent' für '$stage' fehlt." >&2
+        echo "Baue es zuerst: $0 ${parent#opencode-sandbox-}" >&2
+        exit 1
+      fi
+    fi
+  fi
+
+  echo "==> Baue $stage ($file)"
+  podman build --network host -t "$stage" --target "$stage" -f "$file" .
+}
+
+if [[ $# -eq 0 || "${1:-}" == "all" ]]; then
+  echo "==> Baue alle Editionen: $(echo "${STAGE_ORDER[@]}" | tr ' ' ' ')"
+  for stage in "${STAGE_ORDER[@]}"; do
+    build_edition "$stage"
+  done
+elif arg_stage=$(stage_of_edition "$1") && [[ -n "${STAGE_FILE[$arg_stage]:-}" ]]; then
+  build_edition "$arg_stage"
+else
+  echo "Unbekannte Edition: ${1:-}" >&2
+  echo "Verfügbare Editionen:" >&2
+  for stage in "${STAGE_ORDER[@]}"; do
+    echo "  $stage" >&2
+  done
+  echo "Nutzung: $0 [$USAGE_EDITIONS|all]" >&2
+  exit 1
+fi
 
 echo "==> Baue Egress-Proxy (Squid)"
 podman build -t oc-proxy -f proxy/Dockerfile proxy/
 
 echo "==> Fertig."
 echo ""
-echo "Editionen:"
-echo "  opencode-sandbox-base     — Python + core system packages"
-echo "  opencode-sandbox-web      — base + Node/TypeScript/Playwright"
-echo "  opencode-sandbox-embedded — base + ARM toolchains/Arduino/MicroPython"
-echo "  opencode-sandbox-full     — web + embedded (default)"
+echo "Gefundene Editionen:"
+for stage in "${STAGE_ORDER[@]}"; do
+  echo "  $stage"
+done
 echo ""
 echo "Proxy starten mit:"
 echo "    podman run -d --name oc-proxy -p 127.0.0.1:3128:3128 oc-proxy"
 echo ""
 echo "Sandbox starten mit:"
-echo "    scripts/start.sh <projekt-root> --edition <base|web|embedded|full> [Flags]"
+echo "    scripts/start.sh <projekt-root> --edition <edition> [Flags]"
 echo ""
 echo "Beispiele:"
 echo "    scripts/start.sh ~/proj --edition web"
 echo "    scripts/start.sh ~/proj --edition embedded --hil_mode"
-echo "    scripts/start.sh ~/proj --edition full --use_proxy"

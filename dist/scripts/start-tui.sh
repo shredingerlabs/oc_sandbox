@@ -1295,8 +1295,21 @@ revisit_project_settings() {
 
   detect_available_editions || return 1
   local edition_choice
-  edition_choice=$(show_menu_prefilled "Select container edition" "$edition" "${AVAILABLE_EDITIONS[@]}" "← Go Back")
-  [[ "$edition_choice" != "← Go Back" ]] || return 1
+  local edition_is_available=false
+  local available_edition
+  for available_edition in "${AVAILABLE_EDITIONS[@]}"; do
+    [[ "$available_edition" == "$edition" ]] && edition_is_available=true
+  done
+  if [[ "$edition_is_available" == "true" ]]; then
+    edition_choice=$(show_menu_prefilled "Select container edition" "$edition" "${AVAILABLE_EDITIONS[@]}" "← Go Back")
+    [[ "$edition_choice" != "← Go Back" ]] || return 1
+  else
+    show_page "Stored edition no longer available" \
+      "The project was configured for the '${edition}' edition, which is no longer offered. Choose a new edition."
+    wait_for_enter || true
+    edition_choice=$(show_menu "Select container edition" "${AVAILABLE_EDITIONS[@]}" "← Go Back")
+    [[ "$edition_choice" != "← Go Back" ]] || return 1
+  fi
   edition="$edition_choice"
 
   local selected_modes=()
@@ -1760,17 +1773,41 @@ build_container_for_edition() {
 }
 
 detect_available_editions() {
-  local help
-  if ! help=$(bash "${SCRIPT_DIR}/build-container.sh" --help 2>&1); then
-    echo "Error: unable to discover container editions from build-container.sh." >&2
+  local dockerfile="${SCRIPT_DIR}/../Dockerfile"
+  local dockerfile_custom="${SCRIPT_DIR}/../Dockerfile.custom"
+  local base_names=() custom_names=() edition name
+
+  AVAILABLE_EDITIONS=()
+  AVAILABLE_MODES=()
+
+  if [[ ! -f "$dockerfile" ]]; then
+    echo "Error: dist/Dockerfile not found." >&2
     return 1
   fi
-  AVAILABLE_EDITIONS=()
-  while read -r edition; do
-    [[ -n "$edition" ]] && AVAILABLE_EDITIONS+=("$edition")
-  done < <(sed -nE 's/.*\[([^]]+)\].*/\1/p' <<< "$help" | tr '|' '\n' | grep -Ev '^all$' | awk '!seen[$0]++')
+
+  if [[ -f "$dockerfile_custom" ]]; then
+    mapfile -t custom_names < <(sed -nE '/^[[:space:]]*#/d; s/^[[:space:]]*FROM[[:space:]]+[^[:space:]]+[[:space:]]+AS[[:space:]]+opencode-sandbox-([^[:space:]]+)[[:space:]]*(#.*)?$/\1/p' "$dockerfile_custom")
+  fi
+  mapfile -t base_names < <(sed -nE '/^[[:space:]]*#/d; s/^[[:space:]]*FROM[[:space:]]+[^[:space:]]+[[:space:]]+AS[[:space:]]+opencode-sandbox-([^[:space:]]+)[[:space:]]*(#.*)?$/\1/p' "$dockerfile")
+
+  for name in "${base_names[@]}" "${custom_names[@]}"; do
+    if [[ ! "$name" =~ ^[a-z0-9_-]+$ ]]; then
+      echo "Warning: Dockerfile stage name 'opencode-sandbox-$name' contains invalid characters — stage skipped." >&2
+      continue
+    fi
+    local duplicate=0
+    for edition in "${AVAILABLE_EDITIONS[@]}"; do
+      [[ "$edition" == "$name" ]] && duplicate=1
+    done
+    if ((duplicate)); then
+      echo "Warning: stage name 'opencode-sandbox-$name' found in Dockerfile and Dockerfile.custom — edition skipped." >&2
+    else
+      AVAILABLE_EDITIONS+=("$name")
+    fi
+  done
+
   if [[ ${#AVAILABLE_EDITIONS[@]} -eq 0 ]]; then
-    echo "Error: build-container.sh help did not list any supported editions." >&2
+    echo "Error: no valid container stages found in Dockerfile/Dockerfile.custom." >&2
     return 1
   fi
 
