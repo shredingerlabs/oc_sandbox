@@ -941,7 +941,7 @@ setup_github_credentials() {
 setup_gitlab_credentials() {
   local project_path="$1"
   local host="${2:-gitlab.com}"
-  configure_vcs_credentials "$project_path" "gitlab" "${project_path}/.git_local/glab-cli/hosts.yml" "$host"
+  configure_vcs_credentials "$project_path" "gitlab" "${project_path}/.git_local/glab-cli/config.yml" "$host"
 }
 
 setup_self_hosted_gitlab_credentials() {
@@ -952,7 +952,7 @@ setup_self_hosted_gitlab_credentials() {
     show_page "Invalid GitLab host" "Use a hostname without a scheme or path."
     return 1
   }
-  configure_vcs_credentials "$project_path" "gitlab" "${project_path}/.git_local/glab-cli/hosts.yml" "$host"
+  configure_vcs_credentials "$project_path" "gitlab" "${project_path}/.git_local/glab-cli/config.yml" "$host"
 }
 
 setup_custom_vcs_credentials() {
@@ -1075,7 +1075,7 @@ configure_vcs_credentials() {
     github) config=$(VCS_TOKEN="$token" jq -n --arg host "$host" \
       '{($host): {user: "oauth2", oauth_token: $ENV.VCS_TOKEN, git_protocol: "https"}}') ;;
     gitlab) config=$(VCS_TOKEN="$token" jq -n --arg host "$host" \
-      '{($host): {token: $ENV.VCS_TOKEN}}') ;;
+      '{editor: "vi", hosts: {($host): {token: $ENV.VCS_TOKEN}}}') ;;
     custom) config=$(VCS_TOKEN="$token" jq -n --arg host "$host" \
       '{($host): {token: $ENV.VCS_TOKEN}}') ;;
   esac
@@ -1363,7 +1363,7 @@ revisit_project_settings() {
   local vcs_credentials_file=""
   case "$vcs_choice" in
     github.com) vcs_credentials_file="${project_path}/.git_local/gh-cli/hosts.yml" ;;
-    gitlab.com|"own GitLab") vcs_credentials_file="${project_path}/.git_local/glab-cli/hosts.yml" ;;
+    gitlab.com|"own GitLab") vcs_credentials_file="${project_path}/.git_local/glab-cli/config.yml" ;;
     others) vcs_credentials_file="${project_path}/.git_local/vcs/hosts.yml" ;;
   esac
   if [[ "$vcs_choice" != "$current_vcs" || ( "$vcs_choice" != "none" && ! -e "$vcs_credentials_file" ) ]]; then

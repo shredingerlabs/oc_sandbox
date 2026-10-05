@@ -359,7 +359,7 @@ folgenden Unterordnern.
     gitconfig             <- user.name/user.email, safe.directory, credential-store
     credentials           <- git credential-store (optional)
     gh-cli/hosts.yml      <- GitHub CLI Token (Alternative zu SSH Deploy Keys)
-    glab-cli/hosts.yml    <- GitLab CLI Token
+    glab-cli/config.yml   <- GitLab CLI Token (hosts:-Block, siehe glab-Abschnitt)
   .cbm_cache/            <- CBM Knowledge-Graph-Datenbank (persistent)
   .bash_local/           <- bash_profile für den Container (persistente Prompt-/Env-Anpassungen)
 ```
@@ -415,9 +415,9 @@ Token erzeugen: GitHub → Settings → Developer settings → Personal access t
 **GitLab (`glab`):**
 
 ```bash
-cp templates/git_local/glab-cli/hosts.yml ~/projects/kunde-x/.git_local/glab-cli/hosts.yml
-$EDITOR ~/projects/kunde-x/.git_local/glab-cli/hosts.yml   # token eintragen
-chmod 600 ~/projects/kunde-x/.git_local/glab-cli/hosts.yml
+cp templates/git_local/glab-cli/config.yml ~/projects/kunde-x/.git_local/glab-cli/config.yml
+$EDITOR ~/projects/kunde-x/.git_local/glab-cli/config.yml   # hosts:-Block auskommentieren, token eintragen
+chmod 600 ~/projects/kunde-x/.git_local/glab-cli/config.yml
 ```
 
 Token erzeugen: GitLab → Preferences → Access Tokens. Benötigte Scopes: `api`, `read_repository`, `write_repository`.

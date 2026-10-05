@@ -30,7 +30,7 @@
 
 **first-run setup** — Automated container initialization including in-container probe (`git ls-remote`) and full clone for cloned projects, then CBM configuration and skills setup, tracked via `setup_clone_complete`, `setup_cbm_complete`, and `setup_skills_complete` flags in sandbox_config.json, offering granular recovery for partial failures including Retry / Change URL / Exit for clone issues.
 
-**VCS integration** — Version Control System setup (GitHub, GitLab, or custom host) creating host token files (`gh-cli/hosts.yml`, `glab-cli/hosts.yml`, or `vcs/hosts.yml`) in `.git_local/` subdirectories, separate from AI provider configuration.
+**VCS integration** — Version Control System setup (GitHub, GitLab, or custom host) creating host token files (`gh-cli/hosts.yml`, `glab-cli/config.yml` with a `hosts:` block — glab ignores a separate `hosts.yml`, or `vcs/hosts.yml`) in `.git_local/` subdirectories, separate from AI provider configuration.
 
 **AI provider** — LLM API service configuration like GWDG, stored in auth.json within `.opencode_data/` with provider sections for OpenCode integration.
 

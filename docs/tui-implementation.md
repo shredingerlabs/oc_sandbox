@@ -32,7 +32,7 @@ dist/
 └── .git_local/
     ├── gitconfig                 # Git configuration
     ├── gh-cli/hosts.yml          # GitHub CLI credentials
-     ├── glab-cli/hosts.yml        # GitLab CLI credentials
+    ├── glab-cli/config.yml        # GitLab CLI credentials (hosts block)
      └── vcs/hosts.yml             # Custom VCS host credentials
 ```
 
