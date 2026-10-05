@@ -1,0 +1,6 @@
+# Projekt-lokale GitHub CLI-Konfiguration (.git_local/gh-cli/config.yml)
+#
+# GH_CONFIG_DIR zeigt auf dieses Verzeichnis.
+# Allgemeine Einstellungen (nicht host-spezifisch).
+
+editor: vi

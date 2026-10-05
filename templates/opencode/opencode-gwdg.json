@@ -1,0 +1,46 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "plugin": ["opencode-models-discovery@1.5.3"],
+  "permission": {
+    "external_directory": {
+      "/tmp/**": "allow",
+      "/home/dev/**": "allow",
+      "/usr/local/share/playwright-browsers/**": "allow",
+      "/opt/picoscope/**": "allow",
+      "/usr/local/lib/python3.12/dist-packages/picosdk/**": "allow"
+    }
+  },
+  "mcp": {
+    "codebase-memory-mcp": {
+      "type": "local",
+      "command": ["/usr/local/bin/codebase-memory-mcp"],
+      "enabled": true
+    }
+  },
+  "provider": {
+    "gwdg-saia": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "GWDG SAIA",
+      "options": {
+        "baseURL": "https://chat-ai.academiccloud.de/v1",
+        "timeout": false,
+        "modelsDiscovery": {
+          "enabled": true,
+          "smartModelName": true,
+          "models": {
+            "excludeBy": [
+              {
+                "field": "id",
+                "match": "embed|e5-|bge-|gte-|nomic-|instructor|rerank"
+              }
+            ]
+          },
+          "cache": {
+            "enabled": true,
+            "ttlSeconds": 3600
+          }
+        }
+      }
+    }
+  }
+}
