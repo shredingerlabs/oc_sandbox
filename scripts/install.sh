@@ -952,6 +952,7 @@ validate_installation() {
     "scripts/build-container.sh"
     "scripts/init-project.sh"
     "scripts/start-tui.sh"
+    "scripts/configure-project.sh"
     "scripts/uninstall.sh"
     "Dockerfile"
   )
