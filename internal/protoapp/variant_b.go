@@ -6,7 +6,6 @@ package protoapp
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/charmbracelet/bubbles/help"
 	tea "github.com/charmbracelet/bubbletea"
@@ -24,7 +23,7 @@ func newVariantB() *variantB {
 	return &variantB{projects: fakeProjects()}
 }
 
-func (v *variantB) Name() string { return "B (Master/detail split)" }
+func (v *variantB) Name() string { return "B split" }
 
 func (v *variantB) Update(msg tea.Msg, width, height int) {
 	switch msg := msg.(type) {
@@ -92,16 +91,16 @@ func (v *variantB) View(width, height int, h help.Model, k keyMap) string {
 	p := v.projects[v.focus]
 	var rows []string
 	rows = append(rows, styleCurrentVal.Render(p.Name))
-	rows = append(rows, description("Status", p.Status, "running", "stopped"))
-	rows = append(rows, description("Edition", p.Edition,
-		"opencode-sandbox-web", "opencode-sandbox-embedded", "opencode-sandbox-swdev",
-		"opencode-sandbox-matlab", "opencode-sandbox-ros2", "opencode-sandbox-writing"))
-	rows = append(rows, description("Modes", strings.Join(p.Modes, ", "), "offline", "hil_mode", "cbm_ui"))
-	rows = append(rows, description("Start", p.StartOption, "console", "opencode", "web"))
-	rows = append(rows, description("AI provider", p.AiProvider, "gwdg-saia", "none"))
-	rows = append(rows, description("VCS tracking", p.VcsTracking, "none", "github.com", "gitlab.com", "own GitLab", "others"))
-	rows = append(rows, description("Use proxy", boolLabel(p.UseProxy), "yes", "no"))
-	rows = append(rows, description("Setup", setupLabel(p.SetupComplete)))
+	rows = append(rows, settingsBlock("Status", p.Status, "running", "stopped"))
+	rows = append(rows, settingsBlock("Edition", shortEdition(p.Edition),
+		"edition web", "edition embedded", "edition swdev",
+		"edition matlab", "edition ros2", "edition writing"))
+	rows = append(rows, settingsBlock("Modes", modesLabel(p.Modes), "none", "offline", "hil_mode", "cbm_ui"))
+	rows = append(rows, settingsBlock("Start", p.StartOption, "console", "opencode", "web"))
+	rows = append(rows, settingsBlock("AI provider", p.AiProvider, "gwdg-saia", "none"))
+	rows = append(rows, settingsBlock("VCS tracking", p.VcsTracking, "none", "github.com", "gitlab.com", "own GitLab", "others"))
+	rows = append(rows, settingsBlock("Use proxy", boolLabel(p.UseProxy), "yes", "no"))
+	rows = append(rows, settingsBlock("Setup", setupLabel(p.SetupComplete)))
 	rows = append(rows, "", styleMutedAlt.Render("path: "+p.Path))
 	rows = append(rows, styleMutedAlt.Render("last used: "+p.LastUsed.Format("2006-01-02 15:04")))
 	if v.toast != "" {

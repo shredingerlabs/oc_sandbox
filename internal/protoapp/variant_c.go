@@ -27,7 +27,7 @@ func newVariantC() *variantC {
 	return &variantC{drawer: true, projects: fakeProjects()}
 }
 
-func (v *variantC) Name() string { return "C (Table + settings drawer)" }
+func (v *variantC) Name() string { return "C table" }
 
 func (v *variantC) Update(msg tea.Msg, width, height int) {
 	switch msg := msg.(type) {
@@ -105,14 +105,14 @@ func (v *variantC) View(width, height int, h help.Model, k keyMap) string {
 		p := v.projects[v.focus]
 		var rows []string
 		rows = append(rows, styleHeader.Render(fmt.Sprintf("Settings — %s  (s toggles this drawer)", p.Name)))
-		rows = append(rows, description("Edition", p.Edition,
-			"opencode-sandbox-web", "opencode-sandbox-embedded", "opencode-sandbox-swdev",
-			"opencode-sandbox-matlab", "opencode-sandbox-ros2", "opencode-sandbox-writing"))
-		rows = append(rows, description("Modes", strings.Join(p.Modes, ", "), "offline", "hil_mode", "cbm_ui"))
-		rows = append(rows, description("Start", p.StartOption, "console", "opencode", "web"))
-		rows = append(rows, description("AI provider", p.AiProvider, "gwdg-saia", "none"))
-		rows = append(rows, description("VCS tracking", p.VcsTracking, "none", "github.com", "gitlab.com", "own GitLab", "others"))
-		rows = append(rows, description("Use proxy", boolLabel(p.UseProxy), "yes", "no"))
+		rows = append(rows, settingsBlock("Edition", shortEdition(p.Edition),
+			"edition web", "edition embedded", "edition swdev",
+			"edition matlab", "edition ros2", "edition writing"))
+		rows = append(rows, settingsBlock("Modes", modesLabel(p.Modes), "none", "offline", "hil_mode", "cbm_ui"))
+		rows = append(rows, settingsBlock("Start", p.StartOption, "console", "opencode", "web"))
+		rows = append(rows, settingsBlock("AI provider", p.AiProvider, "gwdg-saia", "none"))
+		rows = append(rows, settingsBlock("VCS tracking", p.VcsTracking, "none", "github.com", "gitlab.com", "own GitLab", "others"))
+		rows = append(rows, settingsBlock("Use proxy", boolLabel(p.UseProxy), "yes", "no"))
 		if v.toast != "" {
 			rows = append(rows, styleWarn.Render(v.toast))
 		}

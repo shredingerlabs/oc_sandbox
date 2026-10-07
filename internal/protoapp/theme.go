@@ -19,11 +19,12 @@ var (
 var (
 	styleHeader      = lipgloss.NewStyle().Background(colHeaderBg).Foreground(colCurrent).Padding(0, 1)
 	styleHeaderTitle = lipgloss.NewStyle().Background(colHeaderBg).Foreground(colAccent).Bold(true).Padding(0, 1)
-	styleFooter      = lipgloss.NewStyle().Foreground(colFooterFg).Padding(0, 1)
+	styleFooter      = lipgloss.NewStyle().Foreground(colFooterFg)
 	styleStatusRun   = lipgloss.NewStyle().Foreground(colRunning)
 	styleStatusStop  = lipgloss.NewStyle().Foreground(colStopped)
 	styleWarn        = lipgloss.NewStyle().Foreground(colWarn)
 	styleCurrentVal  = lipgloss.NewStyle().Foreground(colCurrent).Bold(true)
 	styleMutedAlt    = lipgloss.NewStyle().Foreground(colMuted)
+	styleFieldLabel  = lipgloss.NewStyle().Foreground(colCardFg).Bold(true)
 	styleSelectedRow = lipgloss.NewStyle().Background(lipgloss.Color("236"))
 )

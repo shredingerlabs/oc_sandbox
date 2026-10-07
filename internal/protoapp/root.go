@@ -98,12 +98,16 @@ func (r *Root) View() string {
 	if r.width == 0 {
 		return "resize…"
 	}
+	// Reserve the pill's width BEFORE rendering, so the shell can right-align
+	// its footer help just short of the pill.
+	pillLabel := r.pillLabel()
+	footerReserve = lipgloss.Width(pillLabel)
 	body := r.variants[r.current].View(r.width, r.height, r.help, r.keys)
 	// Overwrite the footer's right end with the variant pill.
 	lines := strings.Split(body, "\n")
 	last := len(lines) - 1
-	pillLabel := styleSwitcher.Render(r.pillLabel())
-	start := r.width - lipgloss.Width(pillLabel)
+	pillStyled := styleSwitcher.Render(pillLabel)
+	start := r.width - lipgloss.Width(pillStyled)
 	if start > 0 && last >= 0 {
 		line := lines[last]
 		if len(line) < r.width {
@@ -111,9 +115,37 @@ func (r *Root) View() string {
 		}
 		// naive splice: strip ANSI would be needed for exactness; instead
 		// rebuild: keep left part (plain width) + pill
-		lines[last] = line[:maxInt(0, start)] + pillLabel
+		lines[last] = ansiCut(line, start) + pillStyled
 	}
 	return strings.Join(lines, "\n")
+}
+
+// ansiCut returns s truncated to n printable columns, keeping ANSI escapes
+// balanced (the old byte-slice splice cut mid-escape and corrupted the help).
+func ansiCut(s string, n int) string {
+	var b strings.Builder
+	inEsc := false
+	cols := 0
+	for _, r := range s {
+		if r == 0x1b {
+			inEsc = true
+			b.WriteRune(r)
+			continue
+		}
+		if inEsc {
+			b.WriteRune(r)
+			if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') {
+				inEsc = false
+			}
+			continue
+		}
+		if cols >= n {
+			break
+		}
+		b.WriteRune(r)
+		cols++
+	}
+	return b.String()
 }
 
 var styleSwitcher = lipgloss.NewStyle().

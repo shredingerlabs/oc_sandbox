@@ -1,6 +1,8 @@
-// Variant A: card grid. THROWAWAY prototype (issue #69).
-// Cards flow left-to-right, wrapping on width. Single click selects
-// (focus ring + details strip below the grid); double-click / Enter starts.
+// Variant A (hybrid): card grid LEFT, settings pane RIGHT. THROWAWAY
+// prototype (issue #69). Grid geometry adapted from exampleCards.go
+// (fixed card size, cols = gridW/cardW, keeps selected row visible);
+// inner card text/styling from variant A; left/right positioning from
+// variant B. Single click selects; double-click / Enter starts.
 package protoapp
 
 import (
@@ -8,39 +10,46 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/bubbles/help"
-	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+)
+
+const (
+	cardW         = 30 // total card width including border
+	cardH         = 7  // total card height including border (5 content lines)
+	settingsPaneW = 42 // width of the right-hand settings pane
 )
 
 type variantA struct {
 	projects []Project
 	focus    int
-	width    int
-	cardW    int
 	cols     int
+	offRow   int
 	dbl      dblClickTracker
 	toast    string
 }
 
 func newVariantA() *variantA {
-	return &variantA{projects: fakeProjects(), cardW: 30}
+	return &variantA{projects: fakeProjects()}
 }
 
-func (v *variantA) Name() string { return "A (Card grid + detail strip)" }
+func (v *variantA) Name() string { return "A cards" }
+
+// geom mirrors exampleCards.go: fixed card size -> cols = gridW/cardW,
+// visible rows = bodyH/cardH.
+func (v *variantA) geom(width, height int) (gridW, cols, visRows int) {
+	bodyH := height - 2
+	gridW = maxInt(1, width-settingsPaneW)
+	cols = maxInt(1, gridW/cardW)
+	visRows = maxInt(1, bodyH/cardH)
+	return gridW, cols, visRows
+}
 
 func (v *variantA) Update(msg tea.Msg, width, height int) {
-	v.width = width
-	// Body height: shell takes header+footer.
-	bodyH := height - 2
-	cardH := 7
-	rows := maxInt(1, (bodyH-4)/cardH) // 4 lines for detail strip
-	if rows < 1 {
-		rows = 1
-	}
-	if cols := maxInt(1, (width-2)/(v.cardW+2)); cols != v.cols {
-		v.cols = cols
-	}
+	_, cols, visRows := v.geom(width, height)
+	v.cols = cols
+	totalRows := (len(v.projects) + cols - 1) / cols
+	v.offRow = min(v.offRow, maxInt(0, totalRows-visRows))
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.String() {
@@ -54,7 +63,7 @@ func (v *variantA) Update(msg tea.Msg, width, height int) {
 	case tea.MouseMsg:
 		n := v.dbl.press(msg)
 		if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft {
-			if idx, hit := v.hitCard(msg.X, msg.Y, bodyH); hit {
+			if idx, hit := v.hitCard(msg.X, msg.Y, width, height); hit {
 				if n == 2 {
 					v.focus = idx
 					v.toast = fmt.Sprintf("▶ start %s (fake double-click)", v.projects[idx].Name)
@@ -64,25 +73,23 @@ func (v *variantA) Update(msg tea.Msg, width, height int) {
 				}
 			}
 		}
-		if msg.Button == tea.MouseButtonWheelUp || msg.Button == tea.MouseButtonWheelDown {
-			// grid fits; scroll is a no-op (reaction target: does that feel wasted?)
-		}
 	}
 }
 
-func (v *variantA) hitCard(x, y, bodyH int) (int, bool) {
-	if v.cols == 0 {
+// hitCard maps screen coordinates to a card. Screen row 0 is the shell
+// header; the grid starts at screen row y=1 (body row 0), one card per
+// cardH lines, cards flow left-to-right, wrapping on cols.
+func (v *variantA) hitCard(x, y, width, height int) (int, bool) {
+	_, cols, _ := v.geom(width, height)
+	if y < 1 {
 		return 0, false
 	}
-	cardH := 7
-	row := y / cardH // header is row 0; cards start at line 1
-	if row == 0 {
+	col := x / cardW
+	if col >= cols {
 		return 0, false
 	}
-	// rows scroll region: cards start at body row 0 (after header in shell)
-	_ = bodyH
-	col := x / (v.cardW + 2)
-	idx := (row-1)*v.cols + col
+	localRow := (y - 1) / cardH
+	idx := (v.offRow+localRow)*cols + col
 	if idx >= 0 && idx < len(v.projects) {
 		return idx, true
 	}
@@ -90,36 +97,54 @@ func (v *variantA) hitCard(x, y, bodyH int) (int, bool) {
 }
 
 func (v *variantA) View(width, height int, h help.Model, k keyMap) string {
+	gridW, cols, visRows := v.geom(width, height)
+	v.cols = cols
 	bodyH := height - 2
-	cardH := 7
-	rowsWanted := maxInt(1, (bodyH-4)/cardH)
-
-	cards := make([]string, len(v.projects))
-	for i, p := range v.projects {
-		cards[i] = v.card(p, i == v.focus, width)
+	totalRows := (len(v.projects) + cols - 1) / cols
+	if v.offRow > totalRows-visRows {
+		v.offRow = maxInt(0, totalRows-visRows)
+	}
+	// Keep the focused card's row visible (like exampleCards.go).
+	row := v.focus / cols
+	if row < v.offRow {
+		v.offRow = row
+	} else if row >= v.offRow+visRows {
+		v.offRow = row - visRows + 1
 	}
 
 	var gridRows []string
-	for start := 0; start < len(cards); start += v.cols {
-		end := min(start+v.cols, len(cards))
-		row := lipgloss.JoinHorizontal(lipgloss.Top, cards[start:end]...)
-		gridRows = append(gridRows, row)
-		if len(gridRows) >= rowsWanted {
-			break
+	endRow := min(totalRows, v.offRow+visRows)
+	for r := v.offRow; r < endRow; r++ {
+		var cards []string
+		for c := 0; c < cols; c++ {
+			i := r*cols + c
+			if i >= len(v.projects) {
+				break
+			}
+			cards = append(cards, v.card(v.projects[i], i == v.focus))
 		}
+		gridRows = append(gridRows, lipgloss.JoinHorizontal(lipgloss.Top, cards...))
 	}
 	grid := lipgloss.JoinVertical(lipgloss.Left, gridRows...)
 
-	detail := v.detailStrip(width)
+	settings := v.settingsPane()
 	if v.toast != "" {
-		detail = styleWarn.Render(v.toast)
+		// Insert under the pane header so MaxHeight can't clip it off.
+		parts := strings.SplitN(settings, "\n", 2)
+		settings = parts[0] + "\n" + styleWarn.Render(v.toast)
+		if len(parts) > 1 {
+			settings += "\n" + parts[1]
+		}
 	}
 
-	body := lipgloss.JoinVertical(lipgloss.Left, grid, "", detail)
+	body := lipgloss.JoinHorizontal(lipgloss.Top,
+		lipgloss.NewStyle().Width(gridW).Height(bodyH).MaxHeight(bodyH).Render(grid),
+		lipgloss.NewStyle().Width(settingsPaneW-1).Height(bodyH).MaxHeight(bodyH).PaddingLeft(1).Render(settings),
+	)
 	return shell(width, height, 0, body, h, k)
 }
 
-func (v *variantA) card(p Project, focused bool, termW int) string {
+func (v *variantA) card(p Project, focused bool) string {
 	status := styleStatusStop.Render("○ stopped")
 	if p.Status == "running" {
 		status = styleStatusRun.Render("● running")
@@ -135,52 +160,41 @@ func (v *variantA) card(p Project, focused bool, termW int) string {
 		styleMutedAlt.Render("start " + p.StartOption),
 		styleMutedAlt.Render("last " + p.LastUsed.Format("2006-01-02 15:04")),
 	}
-	cardStyle := lipgloss.NewStyle().
+	st := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		Padding(0, 1).
-		Width(v.cardW - 2 - lipgloss.Width(lipgloss.RoundedBorder().TopLeft)) // border chars
-	cardStyle = cardStyle.Width(v.cardW)
+		Width(cardW - 2).  // lipgloss Width excludes the border
+		Height(cardH - 2). // same for Height
+		MaxHeight(cardH)
 	if focused {
-		cardStyle = cardStyle.BorderForeground(colAccent).Foreground(lipgloss.Color("255"))
+		st = st.BorderForeground(colAccent)
 	} else {
-		cardStyle = cardStyle.BorderForeground(lipgloss.Color("238"))
+		st = st.BorderForeground(lipgloss.Color("240"))
 	}
-	return cardStyle.Render(strings.Join(inner, "\n"))
+	return st.Render(strings.Join(inner, "\n"))
 }
 
-func (v *variantA) detailStrip(termW int) string {
+func (v *variantA) settingsPane() string {
 	p := v.projects[v.focus]
-	rows := []string{
-		description("Name", p.Name),
-		description("Edition", p.Edition, "opencode-sandbox-web", "opencode-sandbox-embedded", "opencode-sandbox-swdev", "opencode-sandbox-matlab", "opencode-sandbox-ros2", "opencode-sandbox-writing"),
-		description("Modes", strings.Join(p.Modes, ", "), "offline", "hil_mode", "cbm_ui"),
-		description("Start", p.StartOption, "console", "opencode", "web"),
-		description("AI provider", p.AiProvider, "gwdg-saia", "none"),
-		description("VCS tracking", p.VcsTracking, "none", "github.com", "gitlab.com", "own GitLab", "others"),
-		description("Use proxy", boolLabel(p.UseProxy), "yes", "no"),
+	blocks := []string{
+		styleHeader.Render("Settings — " + p.Name + "  (muted = alternatives)"),
+		settingsBlock("Edition", shortEdition(p.Edition),
+			"edition web", "edition embedded", "edition swdev",
+			"edition matlab", "edition ros2", "edition writing"),
+		settingsBlock("Modes", modesLabel(p.Modes), "none", "offline", "hil_mode", "cbm_ui"),
+		settingsBlock("Start", p.StartOption, "console", "opencode", "web"),
+		settingsBlock("AI provider", p.AiProvider, "gwdg-saia", "none"),
+		settingsBlock("VCS tracking", p.VcsTracking, "none", "github.com", "gitlab.com", "own GitLab", "others"),
+		settingsBlock("Use proxy", boolLabel(p.UseProxy), "yes", "no"),
 	}
-	out := styleHeader.Render("Settings — " + p.Name + "  (current values highlighted; muted = clickable alternatives)")
-	out += "\n" + strings.Join(rows, "\n")
-	return lipgloss.NewStyle().MaxWidth(termW).Render(out)
+	return strings.Join(blocks, "\n")
 }
 
-func description(label string, current string, alts ...string) string {
-	var parts []string
-	parts = append(parts, fmt.Sprintf("%-13s", label+" ")+" "+styleCurrentVal.Render("● "+current))
-	for _, a := range alts {
-		if a == current {
-			continue
-		}
-		parts = append(parts, styleMutedAlt.Render("○ "+a))
+func modesLabel(m []string) string {
+	if len(m) == 0 {
+		return "none"
 	}
-	return strings.Join(parts, "   ")
-}
-
-func boolLabel(b bool) string {
-	if b {
-		return "yes"
-	}
-	return "no"
+	return strings.Join(m, ", ")
 }
 
 func shortEdition(e string) string {
@@ -202,4 +216,3 @@ func min(a, b int) int {
 }
 
 var _ help.Model
-var _ key.Binding

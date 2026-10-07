@@ -10,10 +10,11 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// Menu items reflect the spec state after ticket 63 (Settings Flow
-// Consolidation): the header menu holds Open Project, New Project, Container,
-// Settings, Exit.
+// headerMenuItems holds the spec state after ticket 63; footerReserve is the
+// width Root reserves for the floating variant pill on the footer's last row.
 var headerMenuItems = []string{"Open Project", "New Project", "Container", "Settings", "Exit"}
+
+var footerReserve int
 
 type keyMap struct {
 	SwitchVariant key.Binding
@@ -29,19 +30,19 @@ func newKeys() keyMap {
 	return keyMap{
 		SwitchVariant: key.NewBinding(
 			key.WithKeys("v"),
-			key.WithHelp("v", "next variant"),
+			key.WithHelp("v", "cycle"),
 		),
 		NextProject: key.NewBinding(
 			key.WithKeys("down", "j"),
-			key.WithHelp("↓", "select project"),
+			key.WithHelp("↓", "select"),
 		),
 		PrevProject: key.NewBinding(
 			key.WithKeys("up", "k"),
-			key.WithHelp("↑", "select project"),
+			key.WithHelp("↑", "select"),
 		),
 		Start: key.NewBinding(
 			key.WithKeys("enter"),
-			key.WithHelp("enter", "start project"),
+			key.WithHelp("↵", "start"),
 		),
 		Menu: key.NewBinding(
 			key.WithKeys("m"),
@@ -59,7 +60,7 @@ func newKeys() keyMap {
 }
 
 func (k keyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.SwitchVariant, k.NextProject, k.Start, k.Menu, k.Help, k.Quit}
+	return []key.Binding{k.SwitchVariant, k.NextProject, k.Start, k.Quit}
 }
 
 func (k keyMap) FullHelp() [][]key.Binding {
@@ -68,30 +69,37 @@ func (k keyMap) FullHelp() [][]key.Binding {
 
 // shell renders the shared chrome around a variant's center view.
 func shell(width, height int, menuFocus int, body string, h help.Model, k keyMap) string {
-	// Header: title + menu items.
+	// Header: title + menu items. Unselected items are white-on-blue so the
+	// accent entry stands out by bold/pip only (user feedback on A).
 	menu := make([]string, len(headerMenuItems))
 	for i, item := range headerMenuItems {
 		if i == menuFocus {
 			menu[i] = lipgloss.NewStyle().Background(colAccent).Foreground(lipgloss.Color("0")).Bold(true).Padding(0, 1).Render(item)
 		} else {
-			menu[i] = lipgloss.NewStyle().Foreground(colMuted).Padding(0, 1).Render(item)
+			menu[i] = lipgloss.NewStyle().Foreground(colCardFg).Padding(0, 1).Render(item)
 		}
 	}
 	title := styleHeaderTitle.Render("oc-sandbox")
-	hint := styleHeader.Render("m: menu ↩ scroll, ○/● container status")
 	left := lipgloss.Width(title + strings.Join(menu, ""))
-	gap := width - left - lipgloss.Width(hint)
+	gap := width - left
 	if gap < 1 {
 		gap = 1
 	}
-	header := title + strings.Join(menu, "") + strings.Repeat(" ", gap) + hint
+	header := title + strings.Join(menu, "") + strings.Repeat(" ", gap)
 	header = lipgloss.NewStyle().MaxWidth(width).Render(header)
 
-	footer := h.View(k)
-	if fpad := width - lipgloss.Width(footer); fpad > 0 {
-		footer = strings.Repeat(" ", fpad) + footer
+	// Footer: mouse/legend hint on the left (moved here from the header per
+	// user feedback), keyboard help right-aligned just before the variant
+	// pill (root.View reserves its width in footerReserve before rendering).
+	hint := styleFooter.Render("m: menu ↩ scroll, ○/● container status")
+	helpView := h.View(k)
+	avail := width - footerReserve
+	lead := avail - lipgloss.Width(hint) - lipgloss.Width(helpView)
+	footer := hint
+	if lead >= 1 {
+		footer = hint + strings.Repeat(" ", lead) + helpView
 	}
-	footer = styleFooter.Render(footer)
+	footer = lipgloss.NewStyle().MaxWidth(width).Render(footer)
 
 	// Vertical layout: clamp/fill body so header+body+footer == height.
 	maxBody := height - 2
