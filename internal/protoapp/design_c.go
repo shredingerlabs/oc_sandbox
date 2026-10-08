@@ -24,11 +24,19 @@ type designC struct {
 	boxW        int
 	tabsRects   [2]rect
 	fieldRects  []rect
+	optionRects []optRect
 	ctTabsRects [2]rect
 	chipRects   []rect
 	stopRects   []rect
 	selAll      rect
 	dbl         dblClickTracker
+}
+
+// optRect is a click box around one option token inside a select row.
+type optRect struct {
+	fi  int
+	val string
+	r   rect
 }
 
 func newDesignC() *designC {
@@ -83,7 +91,16 @@ func (d *designC) UpdateNP(msg tea.Msg, width, height int) {
 				return
 			}
 		}
-		// fields: stored rects (label+value as one 2-line box)
+		// fields: stored rects (label+value as one 2-line box); option
+		// tokens first so clicking a specific option activates just it
+		for _, or := range d.optionRects {
+			if or.r.hit(msg.X, msg.Y) {
+				id := s.fields[or.fi]
+				s.focus = or.fi
+				s.setSelect(id, or.val)
+				return
+			}
+		}
 		for fi, fr := range d.fieldRects {
 			if fr.hit(msg.X, msg.Y) {
 				id := s.fields[fi]
@@ -131,36 +148,52 @@ const boxW = 64
 func (d *designC) ViewNP(width, height int, h help.Model, k keyMap) string {
 	s := d.np
 	bodyH := height - 2
-	rows := []string{"", d.dialogTabs(s.source)}
-	// record tab rects (content starts at x0+2; tabs are row 1 -> y=3)
-	tabL, tabR := npTab("Blank project", s.source == 0), npTab("From URL", s.source == 1)
+	d.optionRects = nil
 	x0 := 1 // pinned top-left under the header, like the card grids
+	d.boxX = x0
+	rows := []string{"", d.dialogTabs(s.source)}
+	tabL, tabR := npTab("Blank project", s.source == 0), npTab("From URL", s.source == 1)
 	wL := lipgloss.Width(tabL)
-	d.tabsRects = [2]rect{
-		{x: x0 + 2, y: 3, w: wL, h: 1},
-		{x: x0 + 2 + wL, y: 3, w: lipgloss.Width(tabR), h: 1},
-	}
+	d.tabsRects = [2]rect{{y: 3, w: wL, h: 1}, {y: 3, w: lipgloss.Width(tabR), h: 1}}
 	rows[1] = tabL + tabR
 	nf := 0
 	for _, id := range s.fields {
 		if id == fCreate {
 			continue
 		}
-		rows = append(rows, styleMutedAlt.Render(fieldLabel(id)), d.dlgValue(id))
+		rows = append(rows, styleMutedAlt.Render(fieldLabel(id)), d.dlgValue(id, nf))
+		nf++
+	}
+	// toast row is always reserved so hit rects never shift
+	rows = append(rows, styleWarn.Render(s.toast))
+	btn := button("Create Project", s.fields[s.focus] == fCreate)
+	rows = append(rows, btn) // right-aligned after the card width is known
+
+	// card as wide as the widest content (no "…" truncation)
+	maxw := 0
+	for _, r := range rows {
+		maxw = maxInt(maxw, lipgloss.Width(r))
+	}
+	boxW := maxw + 4
+	// tab/field/button rects in screen space (content x = x0+2)
+	d.tabsRects[0].x = x0 + 2
+	d.tabsRects[1].x = x0 + 2 + wL
+	d.fieldRects = d.fieldRects[:0]
+	nf = 0
+	for _, id := range s.fields {
+		if id == fCreate {
+			continue
+		}
 		d.fieldRects = append(d.fieldRects, rect{x: x0 + 2, y: 4 + 2*nf, w: boxW - 4, h: 2})
 		nf++
 	}
-	// toast row is always reserved so hit boxes never shift
-	rows = append(rows, styleWarn.Render(s.toast))
-	btn := button("Create Project", s.fields[s.focus] == fCreate)
-	rows = append(rows, alignRight(boxW-4, btn))
-	d.npBtn = rect{x: x0 + 2 + (boxW - 4) - lipgloss.Width(btn), y: 2 + len(rows) - 1, w: lipgloss.Width(btn), h: 3}
+	btnX := x0 + 2 + (boxW - 4) - lipgloss.Width(btn)
+	d.npBtn = rect{x: btnX, y: 2 + len(rows) - 1, w: lipgloss.Width(btn), h: 3}
+	rows[len(rows)-1] = alignRight(maxw, btn)
 
 	inner := lipgloss.NewStyle().Width(boxW - 2).Padding(0, 1).Render(strings.Join(rows, "\n"))
 	box := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(colAccent).
 		Width(boxW).MaxHeight(bodyH).Render(inner)
-	d.boxX = x0
-	d.boxW = boxW
 	body := padLeft(x0, box)
 	// anchor to the top: fill the rest of the body AFTER the box, so the
 	// shell's bottom-anchored padding can't push the dialog down
@@ -202,7 +235,10 @@ func (d *designC) dialogTabs(sel int) string {
 	return l + r
 }
 
-func (d *designC) dlgValue(id int) string {
+// dlgValue renders a field's value line; select fields render ALL options
+// in fixed order — ● current, ○ others, no reordering, no "·" separators —
+// and record a click rect per option token.
+func (d *designC) dlgValue(id, fi int) string {
 	s := d.np
 	focused := s.fields[s.focus] == id
 	val := s.value(id)
@@ -230,10 +266,26 @@ func (d *designC) dlgValue(id int) string {
 		}
 		return styleMutedAlt.Render(val)
 	default:
-		line := styleCurrentVal.Render("● "+val)
-		if alt := alternatives(id, val); alt != "" {
-			line += "  " + styleMutedAlt.Render("○ " + alt)
+		// value line: every option, fixed order; current gets ●
+		var toks []string
+		off := 0
+		y := 4 + 2*fi + 1 // value line row in screen space
+		for _, opt := range optionList(id) {
+			var tok string
+			if opt == val {
+				tok = styleCurrentVal.Render("● " + opt)
+			} else {
+				tok = styleMutedAlt.Render("○ " + opt)
+			}
+			tw := lipgloss.Width("● " + opt)
+			d.optionRects = append(d.optionRects, optRect{
+				fi: fi, val: opt,
+				r: rect{x: d.boxX + 2 + off, y: y, w: tw, h: 1},
+			})
+			toks = append(toks, tok)
+			off += tw + 2
 		}
+		line := strings.Join(toks, strings.Repeat(" ", 2))
 		if focused {
 			return styleSelectedRow.Render(line)
 		}
@@ -315,13 +367,15 @@ func (d *designC) UpdateCT(msg tea.Msg, width, height int) {
 
 func (d *designC) ViewCT(width, height int, h help.Model, k keyMap) string {
 	bodyH := height - 2
-	// content column starts at x=1 (PaddingLeft(1)); body rows start at y=1
-	tabs := d.ctTabs(d.ctPane)
-	// each tab pill is label + padding(0,1); pills are adjacent
-	wL := lipgloss.Width("Build Container") + 2
+	// align the Build/Stop sub-menu under "Open Project" in the top menu:
+	// the header starts with the padded "oc-sandbox" title, so xTabs is its
+	// printed width. PaddingLeft(1) already puts content at x=1; prepend the
+	// difference to the tab row only.
+	xTabs := lipgloss.Width(styleHeaderTitle.Render("oc-sandbox"))
+	tabs := strings.Repeat(" ", xTabs-1) + d.ctTabs(d.ctPane)
 	d.ctTabsRects = [2]rect{
-		{x: 1, y: 1, w: wL, h: 1},
-		{x: 1 + wL, y: 1, w: lipgloss.Width("Stop Container") + 2, h: 1},
+		{x: xTabs, y: 1, w: lipgloss.Width("Build Container") + 2, h: 1},
+		{x: xTabs + lipgloss.Width("Build Container") + 2, y: 1, w: lipgloss.Width("Stop Container") + 2, h: 1},
 	}
 	rows := []string{tabs, ""}
 	rows = append(rows, d.ctContent(width)...)

@@ -198,7 +198,7 @@ func (d *designA) fieldRow(id int) string {
 	}
 }
 
-// alternatives lists the not-current options, compacted for one line.
+// alternatives lists the not-current options in fixed order (inline rows).
 func alternatives(id int, cur string) string {
 	var all []string
 	switch id {
@@ -213,7 +213,7 @@ func alternatives(id int, cur string) string {
 	case fVCS:
 		all = []string{"none", "github.com", "gitlab.com", "own GitLab", "others"}
 	case fProxy:
-		all = []string{"yes", "no"}
+		all = []string{"no", "yes"}
 	default:
 		return ""
 	}
@@ -223,12 +223,7 @@ func alternatives(id int, cur string) string {
 			out = append(out, a)
 		}
 	}
-	sep := " · "
-	res := strings.Join(out, sep)
-	if len(res) > 34 {
-		res = res[:34] + "…"
-	}
-	return res
+	return strings.Join(out, "  ○ ") // caller prefixes the first "○"
 }
 
 func menuItem(label string, selected bool) string {

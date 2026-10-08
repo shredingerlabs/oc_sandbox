@@ -52,6 +52,42 @@ func TestCClickFlow(t *testing.T) {
 	}
 }
 
+func TestNPOptionClick(t *testing.T) {
+	// regression: clicking option tokens used to panic on stale rects
+	root := NewRoot()
+	root.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	root.view = viewNew
+	root.current = 2
+	root.View() // 1st layout
+	root.View() // 2nd layout on top (previously accumulated rects -> panic)
+	d := root.designs[2].(*designC)
+	s := d.np
+	// click "yes" in the Use proxy row (fixed order: no=●, yes=○)
+	for _, or := range d.optionRects {
+		id := s.fields[or.fi]
+		if id == fProxy && or.val == "yes" {
+			click(root, or.r.x+1, or.r.y)
+		}
+	}
+	if !s.proxy {
+		t.Fatal("option click did not activate 'yes'")
+	}
+	// activate a specific VCS option by clicking its token
+	for _, or := range d.optionRects {
+		id := s.fields[or.fi]
+		if id == fVCS && or.val == "gitlab.com" {
+			click(root, or.r.x+1, or.r.y)
+		}
+	}
+	if s.vcs != "gitlab.com" {
+		t.Fatalf("vcs=%q", s.vcs)
+	}
+	// option order intact: none still first in VCS list
+	if first := optionList(fVCS)[0]; first != "none" {
+		t.Fatalf("order changed: %q", first)
+	}
+}
+
 func TestNPPathEditable(t *testing.T) {
 	root := NewRoot()
 	root.Update(tea.WindowSizeMsg{Width: 100, Height: 30})

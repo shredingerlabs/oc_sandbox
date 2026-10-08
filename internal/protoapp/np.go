@@ -132,24 +132,66 @@ func (s *npState) value(id int) string {
 }
 
 // nextVal cycles a select field to its next alternative; returns true if handled.
+// optionList is the fixed canonical option order (selection never
+// reorders the list; the selected option keeps its slot).
+func optionList(id int) []string {
+	switch id {
+	case fEdition:
+		return []string{"swdev", "webdev", "hil", "custom", "writing", "ros2"}
+	case fModes:
+		return []string{"none", "offline", "hil_mode", "cbm_ui"}
+	case fStart:
+		return []string{"opencode", "console", "web"}
+	case fAI:
+		return []string{"gwdg-saia", "none"}
+	case fVCS:
+		return []string{"none", "github.com", "gitlab.com", "own GitLab", "others"}
+	case fProxy:
+		return []string{"no", "yes"}
+	}
+	return nil
+}
+
 func (s *npState) nextVal(id int) bool {
 	switch id {
 	case fEdition:
-		s.edition = cycle(s.edition, []string{"swdev", "webdev", "hil", "custom", "writing", "ros2"})
+		s.edition = cycle(s.edition, optionList(id))
 	case fModes:
 		s.modes = cycleModes(s.modes)
 	case fStart:
-		s.start = cycle(s.start, []string{"opencode", "console", "web"})
+		s.start = cycle(s.start, optionList(id))
 	case fAI:
-		s.ai = cycle(s.ai, []string{"gwdg-saia", "none"})
+		s.ai = cycle(s.ai, optionList(id))
 	case fVCS:
-		s.vcs = cycle(s.vcs, []string{"none", "github.com", "gitlab.com", "own GitLab", "others"})
+		s.vcs = cycle(s.vcs, optionList(id))
 	case fProxy:
 		s.proxy = !s.proxy
 	default:
 		return false
 	}
 	return true
+}
+
+// setSelect picks a specific option for the field (used by option clicks).
+func (s *npState) setSelect(id int, val string) {
+	switch id {
+	case fEdition:
+		s.edition = val
+	case fModes:
+		if val == "none" {
+			s.modes = nil
+		} else {
+			s.modes = []string{val}
+		}
+	case fStart:
+		s.start = val
+	case fAI:
+		s.ai = val
+	case fVCS:
+		s.vcs = val
+	case fProxy:
+		s.proxy = val == "yes"
+	}
 }
 
 var editions = []string{"opencode-sandbox-swdev", "opencode-sandbox-webdev", "opencode-sandbox-hil", "opencode-sandbox-custom", "opencode-sandbox-writing", "opencode-sandbox-ros2"}
@@ -163,14 +205,9 @@ func cycle(cur string, alts []string) string {
 	return alts[0]
 }
 
-var modeAlts = []string{"offline", "hil_mode", "cbm_ui"}
-
 func cycleModes(cur []string) []string {
-	if len(cur) == 0 {
-		return []string{modeAlts[0]}
-	}
-	// single-select cycling keeps the prototype simple
-	return []string{cycle(cur[0], modeAlts)}
+	// single-select cycling keeps the prototype simple; "none" is reachable
+	return []string{cycle(modesLabel(cur), optionList(fModes))}
 }
 
 // input handles a printable rune in the focused text field.
