@@ -15,7 +15,7 @@ func Card(rows []string) string {
 	for _, r := range rows {
 		maxw = max(maxw, Width(r))
 	}
-	inner := lipgloss.NewStyle().Width(maxw + 2).Padding(0, 1).Render(strings.Join(rows, "\n"))
+	inner := lipgloss.NewStyle().Width(maxw+2).Padding(0, 1).Render(strings.Join(rows, "\n"))
 	return lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(ColAccent).Render(inner)
 }
 
