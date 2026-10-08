@@ -1003,12 +1003,16 @@ configure_git_identity() {
     return 1
   }
 
-  mkdir -p "$(dirname "$git_config")"
-  chmod 700 "${project_path}/.git_local"
-  touch "$git_config"
-  git config --file "$git_config" user.name "$name"
-  git config --file "$git_config" user.email "$email"
-  chmod 600 "$git_config"
+  run_configure_project git-identity "$project_path" --name "$name" --email "$email"
+}
+
+run_configure_project() {
+  local script="${SCRIPT_DIR}/configure-project.sh"
+  if [[ ! -x "$script" ]]; then
+    echo "Error: configure-project.sh not found or not executable"
+    return 1
+  fi
+  "$script" "$@"
 }
 
 prompt_for_secret() {
@@ -1043,7 +1047,6 @@ write_secret_file() {
   esac
   local temp_file
   temp_file=$(mktemp "${filepath}.tmp.XXXXXX")
-  TUI_TEMP_FILES+=("$temp_file")
   chmod 600 "$temp_file"
   printf '%s\n' "$content" > "$temp_file"
   mv -f -- "$temp_file" "$filepath"
@@ -1070,37 +1073,17 @@ configure_vcs_credentials() {
   token=$(prompt_for_secret "Token:") || return 1
   [[ -n "$token" ]] || return 1
 
-  local config
-  case "$provider" in
-    github) config=$(VCS_TOKEN="$token" jq -n --arg host "$host" \
-      '{($host): {user: "oauth2", oauth_token: $ENV.VCS_TOKEN, git_protocol: "https"}}') ;;
-    gitlab) config=$(VCS_TOKEN="$token" jq -n --arg host "$host" \
-      '{editor: "vi", hosts: {($host): {token: $ENV.VCS_TOKEN}}}') ;;
-    custom) config=$(VCS_TOKEN="$token" jq -n --arg host "$host" \
-      '{($host): {token: $ENV.VCS_TOKEN}}') ;;
-  esac
-  write_secret_file "$credentials_file" "$config"
-
-  local git_credentials_file="${project_path}/.git_local/credentials"
-  local git_user="oauth2"
-  [[ "$provider" == "gitlab" || "$provider" == "custom" ]] && git_user="token"
-  write_secret_file "$git_credentials_file" "https://${git_user}:${token}@${host}"
+  run_configure_project vcs-credentials "$provider" "$project_path" --token "$token" --host "$host"
 }
 
 setup_gwdg_provider() {
   local project_path="$1"
   local auth_file="${project_path}/.opencode_data/auth.json"
-  local existing=''
 
-  if [[ -e "$auth_file" ]]; then
-    existing=$(jq -c . "$auth_file") || {
-      show_page "Invalid AI credentials" "Existing auth.json is not valid JSON."
-      return 1
-    }
-    if jq -e 'has("gwdg-saia")' <<< "$existing" >/dev/null && \
-      ! confirm_credential_replacement "$auth_file"; then
-      return 0
-    fi
+  if [[ -e "$auth_file" ]] && \
+    jq -e 'has("gwdg-saia")' "$auth_file" >/dev/null && \
+    ! confirm_credential_replacement "$auth_file"; then
+    return 0
   fi
 
   show_page "GWDG SAIA provider" "Enter the GWDG SAIA token."
@@ -1108,32 +1091,12 @@ setup_gwdg_provider() {
   token=$(prompt_for_secret "Token:") || return 1
   [[ -n "$token" ]] || return 1
 
-  local config
-  if [[ -n "$existing" ]]; then
-    config=$(GWDG_TOKEN="$token" jq '. + {"gwdg-saia": {type: "api", key: $ENV.GWDG_TOKEN}}' <<< "$existing")
-  else
-    config=$(GWDG_TOKEN="$token" jq -n '{"gwdg-saia": {type: "api", key: $ENV.GWDG_TOKEN}}')
-  fi
-  write_secret_file "$auth_file" "$config"
-  configure_gwdg_opencode_config "$project_path"
+  run_configure_project ai-provider gwdg "$project_path" --token "$token" --replace && \
+    run_configure_project opencode-config gwdg "$project_path"
 }
 
 configure_gwdg_opencode_config() {
-  local project_path="$1"
-  local config_file="${project_path}/.opencode_config/opencode.json"
-  local template="${SCRIPT_DIR}/../templates/opencode/opencode-gwdg.json"
-  [[ -f "$template" ]] || return 0
-
-  local config
-  if [[ -f "$config_file" ]]; then
-    config=$(jq --slurpfile gwdg "$template" \
-      'reduce ($gwdg[0] | keys[]) as $key (.; if $key == "provider" then
-        .provider = ((.provider // {}) * $gwdg[0].provider) else .[$key] = $gwdg[0][$key] end)' \
-      "$config_file") || return 1
-  else
-    config=$(<"$template")
-  fi
-  write_config_without_backup "$config_file" "$config"
+  run_configure_project opencode-config gwdg "$1"
 }
 
 write_config_without_backup() {
@@ -1144,7 +1107,6 @@ write_config_without_backup() {
   mkdir -p "$parent_dir"
   local temp_file
   temp_file=$(mktemp "${filepath}.tmp.XXXXXX")
-  TUI_TEMP_FILES+=("$temp_file")
   printf '%s\n' "$content" > "$temp_file"
   if [[ -e "$filepath" ]]; then
     chmod "$(stat -c '%a' "$filepath")" "$temp_file"

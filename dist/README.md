@@ -12,6 +12,7 @@ dist/
 ├── scripts/
 │   ├── start.sh                  <- Einheitliches Start-Skript (--edition flag)
 │   ├── start-tui.sh              <- TUI-Variante des Start-Skripts
+│   ├── configure-project.sh      <- Projekt-Konfiguration (Git-Identität, VCS-Credentials, AI-Provider)
 │   ├── build-container.sh        <- Baut Sandbox-Editionen + Proxy
 │   ├── init-project.sh           <- Legt Projekt-Root-Struktur an
 │   └── uninstall.sh              <- Deinstalliert opencode-sandbox

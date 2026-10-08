@@ -1,0 +1,10 @@
+Nutzung: dist/scripts/start.sh <projekt-root> --edition <edition> [Flags]
+  --edition          Container-Edition auswählen (erforderlich)
+  --use_proxy        Squid-Egress-Allowlist-Proxy starten und nutzen
+  --offline          Kein Netzwerk (--network=none)
+  --hil_mode         USB-Passthrough für Oszi und MCU-Geräte
+  --cbm_ui           CBM Graph-UI auf Port 9749 aktivieren
+  --start_opencode   OpenCode direkt nach Container-Start starten
+  --start_web        OpenCode Web (Port 4096) starten und veröffentlichen
+  --detach           Container im Hintergrund starten
+  --container-id     Persisted project container identity
