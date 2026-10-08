@@ -191,7 +191,9 @@ setup_github_credentials "$credentials_project" >"$credential_output"
 ! grep -Fq 'test-secret' "$credential_output"
 
 setup_gitlab_credentials "$credentials_project" >/dev/null
-[[ "$(jq -r '.["gitlab.com"].token' "$credentials_project/.git_local/glab-cli/hosts.yml")" == 'test-secret' ]]
+# glab liest Host-Credentials aus dem hosts:-Block in config.yml (keine
+# separate hosts.yml - die ignoriert glab komplett).
+[[ "$(jq -r '.hosts["gitlab.com"].token' "$credentials_project/.git_local/glab-cli/config.yml")" == 'test-secret' ]]
 [[ "$(<"$credentials_project/.git_local/credentials")" == 'https://token:test-secret@gitlab.com' ]]
 setup_custom_vcs_credentials "$credentials_project" >/dev/null
 [[ "$(jq -r '.["git.example.com"].token' "$credentials_project/.git_local/vcs/hosts.yml")" == 'test-secret' ]]
@@ -200,7 +202,7 @@ setup_custom_vcs_credentials "$credentials_project" >/dev/null
 prompt_for_text() { printf '%s\n' 'selfhosted.example.com'; }
 show_menu() { printf '%s\n' 'Replace'; }
 setup_self_hosted_gitlab_credentials "$credentials_project" >/dev/null
-[[ "$(jq -r --arg host selfhosted.example.com '.[$host].token' "$credentials_project/.git_local/glab-cli/hosts.yml")" == 'test-secret' ]]
+[[ "$(jq -r '.hosts["selfhosted.example.com"].token' "$credentials_project/.git_local/glab-cli/config.yml")" == 'test-secret' ]]
 [[ "$(<"$credentials_project/.git_local/credentials")" == 'https://token:test-secret@selfhosted.example.com' ]]
 
 prompt_for_text() { printf '%s\n' 'https://invalid.example.com/path'; }

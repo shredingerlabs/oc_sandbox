@@ -208,9 +208,9 @@ if [[ ! -f "${GIT_DIR}/gitconfig" ]]; then
   echo "  user.email im Container." >&2
 fi
 
-if [[ ! -f "${GIT_DIR}/glab-cli/hosts.yml" ]]; then
-  echo "Warnung: ${GIT_DIR}/glab-cli/hosts.yml fehlt - lege eine an (z.B. aus" >&2
-  echo "  templates/git_local/glab-cli/hosts.yml kopieren), sonst fehlt die" >&2
+if [[ ! -f "${GIT_DIR}/glab-cli/config.yml" ]]; then
+  echo "Warnung: ${GIT_DIR}/glab-cli/config.yml fehlt - lege eine an (z.B. aus" >&2
+  echo "  templates/git_local/glab-cli/config.yml kopieren), sonst fehlt die" >&2
   echo "  glab-Authentifizierung im Container." >&2
 fi
 
@@ -234,11 +234,11 @@ if [[ -f "${GIT_DIR}/credentials" ]]; then
   fi
 fi
 
-if [[ -f "${GIT_DIR}/glab-cli/hosts.yml" ]]; then
-  perms="$(stat -c '%a' "${GIT_DIR}/glab-cli/hosts.yml")"
+if [[ -f "${GIT_DIR}/glab-cli/config.yml" ]]; then
+  perms="$(stat -c '%a' "${GIT_DIR}/glab-cli/config.yml")"
   if [[ "$perms" != "600" ]]; then
-    echo "Warnung: ${GIT_DIR}/glab-cli/hosts.yml hat Rechte ${perms}, setze auf 600." >&2
-    chmod 600 "${GIT_DIR}/glab-cli/hosts.yml"
+    echo "Warnung: ${GIT_DIR}/glab-cli/config.yml hat Rechte ${perms}, setze auf 600." >&2
+    chmod 600 "${GIT_DIR}/glab-cli/config.yml"
   fi
 fi
 

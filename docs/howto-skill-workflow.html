@@ -127,7 +127,7 @@
 
 <h1>Matt Pococks Skills im Entwickler-Workflow</h1>
 
-<p>Die <strong>Skills</strong> (25 Stück, MIT-lizenziert, Repo:
+<p>Die <strong>Skills</strong> (26 Stück, MIT-lizenziert, Repo:
 <a href="https://github.com/mattpocock/skills/"><code>mattpocock/skills</code></a>) sind
 schlanke Instruktionsdateien, die einem Coding-Agenten einen wiederholbaren,
 zuverlässigen Prozess geben, statt ihn raten zu lassen.</p>
@@ -140,6 +140,7 @@ zuverlässigen Prozess geben, statt ihn raten zu lassen.</p>
     <li><a href="#tipps">Allgemeine Tipps</a></li>
     <li><a href="#reihenfolge">Skill-Reihenfolge</a></li>
     <li><a href="#grilling-im-vergleich">wayfinder vs. grill-with-docs vs. grill-me</a></li>
+    <li><a href="#implement-vs-implement-spec">implement vs. implement-spec</a></li>
     <li><a href="#prompt-beispiele">Prompt Beispiele</a></li>
     <li><a href="#detailierte-infos">Detailierte Infos zum Workflow und den Skills</a></li>
   </ol>
@@ -158,7 +159,7 @@ npx skills update
 <p>Einmalig pro Repo vom CodingAgent <code>/setup-matt-pocock-skills</code> ausführen
 lassen. Konfiguriert Issue-Tracker, Triage-Labels, Doku-Ablage.</p>
 
-<h2 id="tipps">3. Allgemeine Tipps & Erfahrungswerte</h2>
+<h2 id="tipps">3. Allgemeine Tipps &amp; Erfahrungswerte</h2>
 
 <p>Für <strong>jede neue Aufgabe jeweils eine neue Session</strong> starten. Bereits
 nach relativ wenigen Token verlassen die Modelle die „SmartZone“. Dabei „verdummen“ diese langsam und
@@ -219,8 +220,14 @@ unvorhersehbaren Verhalten.</p>
   </tr>
   <tr>
     <td>Klar definierte, kleine Änderungen — <strong>Klärung und Umsetzung</strong>
-        passt in <strong>eine Session</strong> (&lt; 100–150k Token)</td>
+        passiert in <strong>eine Session</strong> (&lt; 100–150k Token)</td>
     <td><code>/grill-with-docs</code> → <code>/implement</code></td>
+  </tr>
+  <tr>
+    <td>Ganze <strong>Spec</strong> umsetzen — <strong>viele Tickets</strong>, die
+        in <strong>einer Session</strong> orchestriert zusammenpassen
+        (Integration-Branch statt Session pro Ticket)</td>
+    <td><code>/implement-spec</code> auf die Spec anwenden</td>
   </tr>
   <tr>
     <td>Pflege der Codebase (regelmäßig, alle paar Tage; auch vor größeren Builds)</td>
@@ -289,15 +296,73 @@ darin, ob die Klärung dokumentiert wird und ob sie in eine Agenten-Session
   <li>Fallen laut Doku: <strong>keinen Production-Code in der Map</strong> schreiben;
       die Map <strong>klein</strong> halten — „prototypemaxxing not planmaxxing“;
       eine Map-Session nach der anderen (nicht parallel)</li>
-  <li>Danach: Map → <code>/to-spec</code> (kollabiert die verlinkten Entscheidungen
-      zu einem baubaren Plan) → <code>/to-tickets</code> → <code>/implement</code> auf
-      die einzelnen Tickets.</li>
+      <li>Danach: Map → <code>/to-spec</code> (kollabiert die verlinkten Entscheidungen
+      zu einem baubaren Plan) → <code>/to-tickets</code> → <code>/implement</code> pro
+      Ticket <em>oder</em> <code>/implement-spec</code> auf den gesamten Spec
+      (vgl. §6).</li>
   <li>Braucht Tracker-Anbindung aus <code>/setup-matt-pocock-skills</code> (GitHub,
       GitLab, Linear, Jira, Azure DevOps u. a. über „Other“; lokales Tracking über
       .md-Files ist eine first-class-Option, kein Fallback)</li>
 </ul>
 
-<h2 id="prompt-beispiele">6. Prompt Beispiele</h2>
+<h2 id="implement-vs-implement-spec">6. implement vs. implement-spec</h2>
+
+<p>Beide setzen Tickets um — der Unterschied ist die <strong>Orchestrierung</strong>:</p>
+
+<table>
+  <tbody>
+  <tr><th style="width:20%">Skill</th><th style="width:40%">Ablauf</th><th>Wann einsetzen</th></tr>
+  <tr>
+    <td><code>/implement</code></td>
+    <td><strong>Ein Ticket pro Session.</strong> Implementiert das Ticket direkt im
+        aktuellen Kontext (keine Subagents), committet auf dem aktuellen Branch,
+        lädt am Ende <code>/code-review</code> nach. Schließt das Ticket
+        <strong>nicht</strong> selbst.</td>
+    <td>Standard für Einzeltickets; ist bereits Pflicht in der
+        <code>/to-tickets</code>-Kette aus §4 — unabhängige Tickets können
+        parallel via separate Sessions laufen.</td>
+  </tr>
+  <tr>
+    <td><code>/implement-spec</code></td>
+    <td><strong>Ganzer Spec in einer Session.</strong> Liest Spec + Tickets als
+        <strong>Task-Graph</strong> (nicht als Liste), legt eine
+        <strong>Integration-Branch</strong> an, startet pro Ticket einen
+        <strong>Implementer-Subagent</strong> in einem eigenen Worktree (auf
+        eigenem Branch) und merged die einzelnen Branches per
+        <strong>Merger-Subagent</strong> in den Integration-Branch. Wenn das
+        „Frontier“ (nicht blockierte Tickets) wächst, startet der Skill
+        automatisch weitere Subagents für maximale Parallelität. Am Ende
+        <code>/code-review</code> auf dem Integration-Branch.</td>
+    <td>Wenn der Spec aus vielen Tickets besteht, die zusammenpassen und besser
+        in einer Session mit parallelen Subagents fließen, als sie über
+        Session-pro-Ticket abzuarbeiten.</td>
+  </tr>
+  </tbody>
+</table>
+
+<h3>Voraussetzungen</h3>
+<ul>
+  <li>Spec + Tickets müssen existieren (aus <code>/to-spec</code> →
+      <code>/to-tickets</code>).</li>
+  <li>Issue-Tracker muss eingerichtet sein (<code>/setup-matt-pocock-skills</code>).</li>
+</ul>
+
+<div class="info">
+  <strong>Kontrast zur <code>/implement</code>-Konvention:</strong>
+  <code>/implement-spec</code> <strong>schließt die Tickets selbst</strong> („resolve
+  each ticket the way the issue tracker closes work“) — im Gegensatz zu
+  <code>/implement</code>, wo das manuell passiert. Bei GitHub via PRs auf
+  einem <strong>Integration-Branch</strong> macht das der Skill automatisch;
+  sonst je nach Tracker.
+</div>
+
+<div class="warn">
+  Setzt voraus, dass die Codebase mit <code>git worktree</code> + separaten
+  Branches umgehen kann; Konflikte zwischen den parallelen
+  Implementer-Branches müssen ggf. beim Merger-Step gelöst werden.
+</div>
+
+<h2 id="prompt-beispiele">7. Prompt Beispiele</h2>
 
 <p>Repo auf GitHub über <code>gh</code> CLI, geht ident. mit <code>glab</code> auf GitLab.</p>
 <p>Issue-Nummern sind in der Repo ersichtlich.</p>
@@ -335,10 +400,24 @@ issues. Lokales Tracking ermöglicht keine Blocking-Abhängigkeiten.</p>
 
 <pre><code> /implement gh issue #3</code></pre>
 
-<p><code>/implement</code> schließt das Ticket <strong>nicht</strong> selbst — Kriterien
-prüfen und Ticket selbst schließen (Commits macht <code>/implement</code> selbst,
-auf dem aktuellen Branch). Am Ende lädt der Agent aus <code>/implement</code>
-automatisch <code>/code-review</code> nach.</p>
+<p><code>/implement</code> schließt das Ticket <strong>nicht</strong> selbst —
+Kriterien prüfen und Ticket selbst schließen (Commits macht
+<code>/implement</code> selbst, auf dem aktuellen Branch). Am Ende lädt der Agent
+aus <code>/implement</code> automatisch <code>/code-review</code> nach.</p>
+
+<h3>Implement-Spec</h3>
+
+<p>Ganzen Spec (mit allen zugehörigen Tickets) in einer Session umsetzen:</p>
+
+<pre><code> /implement-spec gh issue #42.
+</code></pre>
+
+<p>(Nummer der Spec-Issue anpassen — die Tickets sind über Blocking-Links
+verknüpft.) <code>/implement-spec</code> <strong>schließt die Tickets selbst</strong>
+— anders als <code>/implement</code>. Alternativ geht statt
+<code>/implement</code>-pro-Ticket auch <code>/implement-spec</code> im
+grill-with-docs-Flow nach <code>/to-tickets</code>. Am Ende läuft
+<code>/code-review</code> automatisch auf dem Integration-Branch.</p>
 
 <h3>Grill-With-Docs</h3>
 
@@ -364,11 +443,11 @@ automatisch <code>/code-review</code> nach.</p>
 </code></pre></li>
 </ol>
 
-<h2 id="detailierte-infos">7. Detailierte Infos zum Workflow und den Skills</h2>
+<h2 id="detailierte-infos">8. Detailierte Infos zum Workflow und den Skills</h2>
 
 <p>Die offizielle Doku von Matt Pocock:
 <a href="https://www.aihero.dev/skills">www.aihero.dev/skills</a> — dort listet er
-alle 25 Skills, den Main Flow (Idee → Ship) und den Changelog.
+alle 26 Skills, den Main Flow (Idee → Ship) und den Changelog.
 Installiert/aktualisiert wird über:</p>
 
 

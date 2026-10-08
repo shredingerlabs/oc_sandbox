@@ -162,18 +162,35 @@ und in der OpenCode (Terminal- und Weboberfläche) läuft. Deine Zentrale ist di
 <a href="https://github.com/charmbracelet/gum">gum</a>): Sie führt durch Container-Bau,
 Projekt-Einrichtung und Start.</p>
 
-<p>Der Container gibt es in vier <strong>Editionen</strong>, je nach Bedarf:</p>
+<p>Es gibt verschiedene <strong>Editionen</strong>, je nach Bedarf. Die
+Editionen werden automatisch aus den <code>FROM ... AS
+opencode-sandbox-&lt;name&gt;</code>-Stages in <code>Dockerfile</code> und
+<code>Dockerfile.custom</code> entdeckt (ADR 0019) – es gibt keine feste
+Whitelist:</p>
 
 <table>
   <tr><th>Edition</th><th>Inhalt</th><th>Für wen?</th></tr>
   <tr><td><code>base</code></td><td>Python + Systempakete</td><td>reine Python-/CLI-Arbeit</td></tr>
   <tr><td><code>web</code></td><td>base + Node/TypeScript/Playwright</td><td>Web-/TS-Projekte</td></tr>
-  <tr><td><code>embedded</code></td><td>base + ARM-Toolchains/Arduino/MicroPython</td><td>Mikrocontroller</td></tr>
-  <tr><td><code>full</code></td><td>web + embedded (Standard)</td><td>alles gemischt</td></tr>
+  <tr><td><code>embedded</code></td><td>base + ARM-Toolchains/Arduino/MicroPython/Picoscope</td><td>Mikrocontroller, HIL-Tests</td></tr>
+  <tr><td><code>swdev</code></td><td>base + C/C++ (clang/gdb), Java (OpenJDK/Maven), Rust (rustup), Go, Test-Frameworks (GoogleTest/Catch2)</td><td>klassische Software-Entwicklung</td></tr>
+  <tr><td><code>matlab</code></td><td>base + GNU Octave + Python Scientific-Stack (numpy/scipy/matplotlib/pandas) – lizenzfrei</td><td>Numerik / Skripte</td></tr>
+  <tr><td><code>ros2</code></td><td>base + ROS 2 Jazzy (ros-base, RViz2, CycloneDDS, colcon/rosdep/vcstool)</td><td>Robotik</td></tr>
+  <tr><td><code>writing</code></td><td>base + LibreOffice + pandoc + Fonts (odt/odp, docx/pptx, PDF-Export)</td><td>Dokumente / Schreiben</td></tr>
 </table>
 
-<p>Im Zweifel: <code>full</code> wählen – die Editionen unterscheiden sich nur im
-Umfang der vorinstallierten Werkzeuge.</p>
+<p><strong>Eigene Editionen (Custom Editions):</strong> Über die Vorlage
+<code>Dockerfile.custom</code> im Installationsordner (<code>~/.oc-sandbox/</code>)
+legst du eigene Editionen an – jede ist ein eigener Build-Abschnitt (Stage) mit
+einem <code>FROM opencode-sandbox-base AS opencode-sandbox-&lt;name&gt;</code>-Header,
+der auf <code>USER dev</code> und <code>ENTRYPOINT ["/bin/bash","-l"]</code>
+endet. Neue Editionen tauchen danach automatisch in Build, Start und TUI auf.
+Diese Datei bleibt bei Updates unangetastet.</p>
+
+<p>Editionen mit gleichen/ähnlichen Werkzeugen unterscheiden sich nur im Umfang
+der vorinstallierten Pakete – wähle die schmalste Edition, die dein Projekt
+abdeckt. Gibt es deine Wunsch-Kombination nicht, definierst du sie dir einfach
+selbst als Custom Edition (siehe oben).</p>
 
 <h2 id="installation-wsl">2. Installation unter Windows 11 (WSL)</h2>
 
@@ -306,9 +323,11 @@ scheitern, läuft die TUI in einem einfachen Textmodus weiter) und benutzt
   einem Systemneustart ist deutlich schneller.
 </div>
 
-<p>Im Hauptmenü <strong>Build Container</strong> wählen und die gewünschte Edition
-bauen (<code>all</code> baut alle). Danach ist der Bau abgeschlossen – nur bei Versions-Updates
-wiederholen.</p>
+<p>Im Hauptmenü <strong>Build Container</strong> wählen (das Skript entdeckt die
+Editionen live aus <code>Dockerfile</code>/<code>Dockerfile.custom</code>;
+<code>all</code> baut alle gefundenen). Danach ist der Bau abgeschlossen – nur bei
+Versions-Updates wiederholen. Eigene Editionen aus
+<code>Dockerfile.custom</code> erscheinen hier automatisch.</p>
 
 <h3>5.2 Vorher vorbereiten: eigenes Repo anlegen (GitHub / GitLab / eigener Server)</h3>
 
@@ -369,10 +388,11 @@ Wizard fragt Schritt für Schritt:</p>
   <tr><td>2. Repo-URL</td><td>Git-URL zum Klonen (nur bei Clone gewählt); der Projektname wird daraus vorbelegt</td><td>HTTPS-URL, z.B. <code>https://github.com/you/repo.git</code></td></tr>
   <tr><td>3. Projektname</td><td>Anzeigename, z.B. <code>mein-erstes-projekt</code></td><td>kurzer, klarer Name</td></tr>
   <tr><td>4. Pfad</td><td>Wohin? Standard: <code>~/oc-sandbox/&lt;name&gt;</code></td><td>Standard lassen, oder eigener Pfad z.B. <code>~/projects/kunde-x</code></td></tr>
-  <tr><td>5. VCS-Host</td><td><code>none</code>, GitHub, GitLab (öffentlich oder eigenes), eigener Host</td><td>kein Git nötig → <code>none</code>; sonst dein Host (bei Clone wird GitHub/GitLab anhand der URL oft automatisch erkannt)</td></tr>
-  <tr><td>6. Token</td><td>Persönlicher Zugriffstoken (z.B. GitHub PAT), wird <strong>verborgen</strong> abgefragt</td><td>nur bei VCS ≠ <code>none</code></td></tr>
-  <tr><td>7. Git-Identität</td><td><code>user.name</code>, <code>user.email</code></td><td>dein Name/E-Mail, nur bei VCS ≠ <code>none</code></td></tr>
-  <tr><td>8. Start-Option</td><td><code>console</code> / <code>opencode</code> / <code>web</code></td><td><code>opencode</code> (empfohlen, siehe Tipps)</td></tr>
+  <tr><td>5. Edition + Modi</td><td>Container-Edition (alle entdeckten Editionen inkl. eigener aus <code>Dockerfile.custom</code>) und Modi (z.B. Proxy, Offline, HIL, CBM-UI – Mehrfachauswahl)</td><td>Edition passend zum Projekt wählen (siehe Abschnitt 1); meist reicht die Voreinstellung ohne Zusatz-Modi</td></tr>
+  <tr><td>6. Start-Option</td><td><code>console</code> / <code>opencode</code> / <code>web</code></td><td><code>opencode</code> (empfohlen, siehe Tipps)</td></tr>
+  <tr><td>7. VCS-Host</td><td><code>none</code>, GitHub, GitLab (öffentlich oder eigenes), eigener Host</td><td>kein Git nötig → <code>none</code>; sonst dein Host (bei Clone wird GitHub/GitLab anhand der URL oft automatisch erkannt)</td></tr>
+  <tr><td>8. Token</td><td>Persönlicher Zugriffstoken (z.B. GitHub PAT), wird <strong>verborgen</strong> abgefragt</td><td>nur bei VCS ≠ <code>none</code></td></tr>
+  <tr><td>9. Git-Identität</td><td><code>user.name</code>, <code>user.email</code></td><td>dein Name/E-Mail, nur bei VCS ≠ <code>none</code></td></tr>
 </table>
 
 <h4>Projektquelle „Clone existing repo via URL“</h4>
@@ -591,8 +611,8 @@ wiederholt, nicht alles.</p>
 </div>
 
 <footer>
-  oc-sandbox – Quickstart Guide · Stand: September 2026 ·
-  Erzeugt aus dem Repo <code>oc_sandbox</code> (docs/anleitung/index.html)
+  oc-sandbox – Quickstart Guide · Stand: Oktober 2026 ·
+  Erzeugt aus dem Repo <code>oc_sandbox</code> (docs/index.html)
 </footer>
 
 </body>
