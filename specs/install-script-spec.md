@@ -122,6 +122,7 @@ Create a downloadable install script and bash one-liner that automates the entir
 - GitHub API: Unauthenticated, handle rate limits gracefully
 - Special file handling: Only `proxy/allowlist.txt` protected during updates
 - Symlink creation: Single entry-point symlink `oc-sandbox` → `scripts/start-tui.sh` in `~/.local/bin`
+- Symlink creation (--bin): Entry points (symlink + desktop shortcut) point at the Go binary `<install>/bin/oc-sandbox` (platform-matched `oc-sandbox_<goos>_<goarch>` copied from the release's `bin/`); bash TUI remains default until the Go TUI parity gate passes (ADR-0020)
 - Stale symlink cleanup: Removes existing symlinks in `~/.local/bin` pointing into the install path before creating the `oc-sandbox` symlink
 - Existing symlink handling: Overwrite without prompting when using `--symlinks`
 - Logging: stdout/stderr only, no log files created
