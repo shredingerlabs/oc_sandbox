@@ -29,11 +29,13 @@ const (
 	viewOpen = iota
 	viewNew
 	viewContainer
+	viewSettings
 )
 
 type Root struct {
 	width, height int
 	open          *variantA
+	set           *settings71
 	designs       []design
 	current       int // design index
 	view          int // center view
@@ -45,6 +47,7 @@ type Root struct {
 func NewRoot() Root {
 	return Root{
 		open:    newVariantA(),
+		set:     newSettings71(),
 		designs: []design{newDesignA(), newDesignB(), newDesignC()},
 		keys:    newKeys(),
 		help:    help.New(),
@@ -69,6 +72,9 @@ func (r *Root) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "3":
 			r.view = viewContainer
 			return r, nil
+		case "4":
+			r.view = viewSettings
+			return r, nil
 		}
 		if key.Matches(msg, r.keys.SwitchVariant) {
 			r.current = (r.current + 1) % len(r.designs)
@@ -87,7 +93,7 @@ func (r *Root) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						case viewOpen, viewNew, viewContainer:
 							r.view = i
 						case 3: // Settings
-							r.open.toast = "settings live in the Open Project pane (#63)"
+							r.view = viewSettings
 						default: // Exit
 							return r, tea.Quit
 						}
@@ -117,6 +123,8 @@ func (r *Root) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		r.designs[r.current].UpdateNP(msg, r.width, r.height)
 	case viewContainer:
 		r.designs[r.current].UpdateCT(msg, r.width, r.height)
+	case viewSettings:
+		r.set.Update(msg, r.width, r.height)
 	default:
 		r.open.Update(msg, r.width, r.height)
 	}
@@ -141,7 +149,10 @@ func (r *Root) pillGeometry() pill {
 
 func (r *Root) pillLabel() string {
 	label := r.open.Name()
-	if r.view != viewOpen {
+	switch r.view {
+	case viewSettings:
+		label = r.set.Name()
+	case viewNew, viewContainer:
 		label = r.designs[r.current].Name()
 	}
 	return fmt.Sprintf(" ‹ design %d/%d: %s › ", r.current+1, len(r.designs), label)
@@ -161,6 +172,8 @@ func (r *Root) View() string {
 		body = r.designs[r.current].ViewNP(r.width, r.height, r.help, r.keys)
 	case viewContainer:
 		body = r.designs[r.current].ViewCT(r.width, r.height, r.help, r.keys)
+	case viewSettings:
+		body = r.set.View(r.width, r.height, r.help, r.keys)
 	default:
 		body = r.open.View(r.width, r.height, r.help, r.keys)
 	}

@@ -105,7 +105,7 @@ func shell(width, height int, menuFocus int, body string, h help.Model, k keyMap
 	// Footer: mouse/legend hint on the left (moved here from the header per
 	// user feedback), keyboard help right-aligned just before the variant
 	// pill (root.View reserves its width in footerReserve before rendering).
-	hint := styleFooter.Render("1 open · 2 new · 3 container · v design · m menu, ○/● status")
+	hint := styleFooter.Render("1 open · 2 new · 3 container · 4 settings · v design · m menu, ○/● status")
 	helpView := h.View(k)
 	avail := width - footerReserve
 	lead := avail - lipgloss.Width(hint) - lipgloss.Width(helpView)
