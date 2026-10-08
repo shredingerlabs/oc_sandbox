@@ -86,7 +86,7 @@ func TestDesignBAndCMouse(t *testing.T) {
 	root.current = 2
 	root.view = viewNew
 	root.View()
-	root.Update(tea.MouseMsg{X: 60, Y: 3, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft})
+	root.Update(tea.MouseMsg{X: 22, Y: 3, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft})
 	if d := root.designs[2].(*designC); d.np.source != 1 {
 		t.Fatalf("C source=%d", d.np.source)
 	}

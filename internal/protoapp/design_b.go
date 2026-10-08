@@ -22,6 +22,7 @@ type designB struct {
 	ctBtn    rect
 	chips    []rect
 	segY     int
+	ctDbl    dblClickTracker
 }
 
 func newDesignB() *designB {
@@ -170,7 +171,7 @@ func (d *designB) fieldRow(id int) string {
 	val := s.value(id)
 	focused := s.fields[s.focus] == id
 	switch id {
-	case fName, fURL:
+	case fName, fURL, fPath:
 		if focused {
 			rs := []rune(val)
 			if s.cursor > len(rs) {
@@ -182,9 +183,10 @@ func (d *designB) fieldRow(id int) string {
 		if val == "" && id == fName {
 			val = styleMutedAlt.Render("…")
 		}
+		if id == fPath {
+			return styleMutedAlt.Render(label + " " + val)
+		}
 		return label + " " + val
-	case fPath:
-		return styleMutedAlt.Render(label + " " + val)
 	default:
 		line := label + " " + styleCurrentVal.Render("● "+val)
 		if alt := alternatives(id, val); alt != "" {
@@ -244,10 +246,12 @@ func (d *designB) UpdateCT(msg tea.Msg, width, height int) {
 		if d.ctPane == 0 {
 			for i, ch := range d.chips {
 				if ch.hit(msg.X, msg.Y) {
-					if d.buildSel == i {
+					// first click selects, double-click builds
+					if d.buildSel == i && d.ctDbl.press(msg) == 2 {
 						c.build(editions[i])
+					} else {
+						d.buildSel = i
 					}
-					d.buildSel = i
 					return
 				}
 			}

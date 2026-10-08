@@ -26,11 +26,12 @@ const (
 const pathBase = "/home/dev/oc-sandbox"
 
 type npState struct {
-	source  int    // 0 blank, 1 from-url
-	url     string
-	name    string
-	path    string // derived from name
-	edition string
+	source     int    // 0 blank, 1 from-url
+	url        string
+	name       string
+	path       string // derived from name
+	pathManual bool   // set when the user types in the path field
+	edition    string
 	modes   []string
 	start   string
 	ai      string
@@ -71,6 +72,14 @@ func (s *npState) rePath() {
 		}
 	}
 	s.path = pathBase + "/" + string(b)
+}
+
+// autofill derives the path from the name; editing the name always
+// re-derives it, editing the path types it directly.
+func (s *npState) autofill() {
+	if !s.pathManual {
+		s.rePath()
+	}
 }
 
 // labels used by every design
@@ -170,11 +179,16 @@ func (s *npState) input(id int, r rune) bool {
 	case fName:
 		s.name = insertRune(s.name, s.cursor, r)
 		s.cursor++
-		s.rePath() // path auto-updates after name entry
+		s.autofill() // path auto-updates after name entry
 		return true
 	case fURL:
 		s.url = insertRune(s.url, s.cursor, r)
 		s.cursor++
+		return true
+	case fPath:
+		s.path = insertRune(s.path, s.cursor, r)
+		s.cursor++
+		s.pathManual = true // autofill stops once the path is hand-edited
 		return true
 	}
 	return false
@@ -184,10 +198,14 @@ func (s *npState) backspace(id int) bool {
 	switch id {
 	case fName:
 		s.name, s.cursor = deleteRune(s.name, s.cursor)
-		s.rePath()
+		s.autofill()
 		return true
 	case fURL:
 		s.url, s.cursor = deleteRune(s.url, s.cursor)
+		return true
+	case fPath:
+		s.path, s.cursor = deleteRune(s.path, s.cursor)
+		s.pathManual = true
 		return true
 	}
 	return false

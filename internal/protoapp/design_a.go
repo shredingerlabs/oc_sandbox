@@ -24,6 +24,7 @@ type designA struct {
 	buildBtn rect
 	stopBtn  rect
 	selAllY  int
+	ctDbl    dblClickTracker
 }
 
 func newDesignA() *designA {
@@ -166,7 +167,7 @@ func (d *designA) fieldRow(id int) string {
 	focused := s.fields[s.focus] == id
 	val := s.value(id)
 	switch id {
-	case fName, fURL:
+	case fName, fURL, fPath:
 		if focused {
 			rs := []rune(val)
 			if s.cursor > len(rs) {
@@ -178,9 +179,10 @@ func (d *designA) fieldRow(id int) string {
 		if val == "" && id == fName {
 			val = styleMutedAlt.Render("…")
 		}
+		if id == fPath {
+			return styleMutedAlt.Render(label + val)
+		}
 		return label + val
-	case fPath:
-		return styleMutedAlt.Render(label + val)
 	default:
 		line := label
 		cur := s.value(id)
@@ -286,11 +288,12 @@ func (d *designA) UpdateCT(msg tea.Msg, width, height int) {
 		}
 		running := fakeRunning()
 		if d.ctPane == 0 {
-			// edition rows: y=1..n
+			// edition rows: y=1..n; first click selects, double-click builds
+			n := d.ctDbl.press(msg)
 			idx := msg.Y - 1
 			if idx >= 0 && idx < len(editions) {
-				if d.buildSel == idx {
-					c.build(editions[idx]) // second click builds
+				if d.buildSel == idx && n == 2 {
+					c.build(editions[idx])
 				}
 				d.buildSel = idx
 			}

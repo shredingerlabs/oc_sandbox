@@ -14,14 +14,21 @@ import (
 )
 
 type designC struct {
-	np       *npState
-	ct       *ctState
-	ctPane   int
-	buildSel int
-	npBtn    rect
-	ctBtn    rect
-	boxX     int
-	boxW     int
+	np          *npState
+	ct          *ctState
+	ctPane      int
+	buildSel    int
+	npBtn       rect
+	ctBtn       rect
+	boxX        int
+	boxW        int
+	tabsRects   [2]rect
+	fieldRects  []rect
+	ctTabsRects [2]rect
+	chipRects   []rect
+	stopRects   []rect
+	selAll      rect
+	dbl         dblClickTracker
 }
 
 func newDesignC() *designC {
@@ -67,26 +74,29 @@ func (d *designC) UpdateNP(msg tea.Msg, width, height int) {
 			s.create()
 			return
 		}
-		// dialog tabs at y = 3 (border 1, blank 2)
-		if msg.Y == 3 && msg.X >= d.boxX && msg.X < d.boxX+d.boxW {
-			if msg.X < d.boxX+d.boxW/2 {
-				s.source = 0
-			} else {
-				s.source = 1
+		// tabs: hit-test the actual tab pills
+		for i, tr := range d.tabsRects {
+			if tr.hit(msg.X, msg.Y) {
+				s.source = i
+				s.focus = 0
+				d.refresh()
+				return
 			}
-			s.focus = 0
-			d.refresh()
-			return
 		}
-		// fields: two lines each (label, value) starting y=4
-		fi := (msg.Y - 4) / 2
-		if fi >= 0 && fi < len(s.fields) {
-			id := s.fields[fi]
-			if id == fCreate {
-				s.create()
-			} else if s.focus == fi && d.nextVal2(id) {
-			} else {
+		// fields: stored rects (label+value as one 2-line box)
+		for fi, fr := range d.fieldRects {
+			if fr.hit(msg.X, msg.Y) {
+				id := s.fields[fi]
+				if s.focus == fi && d.nextVal2(id) {
+					return
+				}
 				s.focus = fi
+				// caret where clicked, on text fields
+				if id == fName || id == fURL || id == fPath {
+					pos := msg.X - fr.x
+					s.cursor = min(maxInt(0, pos), len([]rune(s.value(id))))
+				}
+				return
 			}
 		}
 	}
@@ -102,7 +112,11 @@ func (d *designC) nextVal2(id int) bool {
 
 func (d *designC) npActivate(id int) {
 	s := d.np
-	if id == fCreate {
+	switch id {
+	case fName, fURL, fPath:
+		// editable text; Enter is a no-op (arrow keys move the caret)
+		return
+	case fCreate:
 		s.create()
 		return
 	}
@@ -118,33 +132,51 @@ func (d *designC) ViewNP(width, height int, h help.Model, k keyMap) string {
 	s := d.np
 	bodyH := height - 2
 	rows := []string{"", d.dialogTabs(s.source)}
+	// record tab rects (content starts at x0+2; tabs are row 1 -> y=3)
+	tabL, tabR := npTab("Blank project", s.source == 0), npTab("From URL", s.source == 1)
+	x0 := 1 // pinned top-left under the header, like the card grids
+	wL := lipgloss.Width(tabL)
+	d.tabsRects = [2]rect{
+		{x: x0 + 2, y: 3, w: wL, h: 1},
+		{x: x0 + 2 + wL, y: 3, w: lipgloss.Width(tabR), h: 1},
+	}
+	rows[1] = tabL + tabR
+	nf := 0
 	for _, id := range s.fields {
 		if id == fCreate {
 			continue
 		}
 		rows = append(rows, styleMutedAlt.Render(fieldLabel(id)), d.dlgValue(id))
+		d.fieldRects = append(d.fieldRects, rect{x: x0 + 2, y: 4 + 2*nf, w: boxW - 4, h: 2})
+		nf++
 	}
-	rows = append(rows, "")
-	if s.toast != "" {
-		rows = append(rows, styleWarn.Render(s.toast))
-	}
+	// toast row is always reserved so hit boxes never shift
+	rows = append(rows, styleWarn.Render(s.toast))
 	btn := button("Create Project", s.fields[s.focus] == fCreate)
 	rows = append(rows, alignRight(boxW-4, btn))
+	d.npBtn = rect{x: x0 + 2 + (boxW - 4) - lipgloss.Width(btn), y: 2 + len(rows) - 1, w: lipgloss.Width(btn), h: 3}
 
 	inner := lipgloss.NewStyle().Width(boxW - 2).Padding(0, 1).Render(strings.Join(rows, "\n"))
 	box := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(colAccent).
 		Width(boxW).MaxHeight(bodyH).Render(inner)
-	x0 := (width - boxW) / 2
-	if x0 < 0 {
-		x0 = 0
-	}
-	// button rect in screen space (box starts at body top, right-aligned
-	// within the inner width)
-	d.npBtn = rect{x: x0 + 2 + (boxW - 4) - lipgloss.Width(btn), y: 2 + len(rows) - 1, w: lipgloss.Width(btn), h: 3}
 	d.boxX = x0
 	d.boxW = boxW
-	body := lipgloss.NewStyle().Width(width).MaxWidth(width).Render(padLeft(x0, box))
+	body := padLeft(x0, box)
+	// anchor to the top: fill the rest of the body AFTER the box, so the
+	// shell's bottom-anchored padding can't push the dialog down
+	if fill := bodyH - lipgloss.Height(body); fill > 0 {
+		body += strings.Repeat("\n", fill)
+	}
+	body = lipgloss.NewStyle().Width(width).MaxWidth(width).Render(body)
 	return shell(width, height, 1, body, h, k)
+}
+
+func npTab(label string, selected bool) string {
+	st := lipgloss.NewStyle().Padding(0, 1)
+	if selected {
+		return st.Background(colAccent).Foreground(lipgloss.Color("0")).Bold(true).Render(label)
+	}
+	return st.Render(label)
 }
 
 func padLeft(n int, s string) string {
@@ -189,6 +221,13 @@ func (d *designC) dlgValue(id int) string {
 		}
 		return styleCurrentVal.Render(val)
 	case fPath:
+		if focused {
+			rs := []rune(val)
+			if s.cursor > len(rs) {
+				s.cursor = len(rs)
+			}
+			return styleCurrentVal.Render(string(rs[:s.cursor]) + "▌" + string(rs[s.cursor:]))
+		}
 		return styleMutedAlt.Render(val)
 	default:
 		line := styleCurrentVal.Render("● "+val)
@@ -234,36 +273,38 @@ func (d *designC) UpdateCT(msg tea.Msg, width, height int) {
 			return
 		}
 		running := fakeRunning()
-		if msg.Y == 1 { // tabs Build | Stop
-			if msg.X < width/2 {
-				d.ctPane = 0
-			} else {
-				d.ctPane = 1
+		n := d.dbl.press(msg)
+		// tabs Build | Stop: hit-test the actual tab pills
+		for i, tr := range d.ctTabsRects {
+			if tr.hit(msg.X, msg.Y) {
+				d.ctPane = i
+				return
 			}
-			return
 		}
 		if d.ctPane == 0 {
-			// 2-col cards, cardW x cardH, start at y=3 (after tabs+blank)
-			col := (msg.X - 1) / cardW
-			row := (msg.Y - 3) / cardH
-			cols := maxInt(1, (width-2)/cardW)
-			idx := row*cols + col
-			if idx >= 0 && idx < len(editions) {
-				if d.buildSel == idx {
-					c.build(editions[idx])
+			// cards: stored rects; FIRST click selects, DOUBLE-click builds
+			for i, cr := range d.chipRects {
+				if cr.hit(msg.X, msg.Y) {
+					if n == 2 && d.buildSel == i {
+						c.build(editions[i])
+					} else {
+						d.buildSel = i
+					}
+					return
 				}
-				d.buildSel = idx
 			}
 			if d.ctBtn.hit(msg.X, msg.Y) {
 				c.build(editions[d.buildSel])
 			}
 		} else {
-			if msg.Y == 3 {
+			if d.selAll.hit(msg.X, msg.Y) {
 				c.toggleAll(running)
 			}
-			idx := msg.Y - 4
-			if idx >= 0 && idx < len(running) {
-				c.selection[running[idx].Name] = !c.selection[running[idx].Name]
+			for i, rr := range d.stopRects {
+				if rr.hit(msg.X, msg.Y) {
+					c.selection[running[i].Name] = !c.selection[running[i].Name]
+					return
+				}
 			}
 			if d.ctBtn.hit(msg.X, msg.Y) {
 				c.stop(running)
@@ -274,21 +315,50 @@ func (d *designC) UpdateCT(msg tea.Msg, width, height int) {
 
 func (d *designC) ViewCT(width, height int, h help.Model, k keyMap) string {
 	bodyH := height - 2
-	rows := []string{d.ctTabs(d.ctPane), ""}
+	// content column starts at x=1 (PaddingLeft(1)); body rows start at y=1
+	tabs := d.ctTabs(d.ctPane)
+	// each tab pill is label + padding(0,1); pills are adjacent
+	wL := lipgloss.Width("Build Container") + 2
+	d.ctTabsRects = [2]rect{
+		{x: 1, y: 1, w: wL, h: 1},
+		{x: 1 + wL, y: 1, w: lipgloss.Width("Stop Container") + 2, h: 1},
+	}
+	rows := []string{tabs, ""}
+	rows = append(rows, d.ctContent(width)...)
+	// toast row always reserved so stored rects stay stable
+	rows = append(rows, styleWarn.Render(d.ct.toast))
+	label := "Build"
+	if d.ctPane == 1 {
+		label = "Stop"
+	}
+	btn := button(label, false)
+	rows = append(rows, alignRight(width-1, btn))
+	d.ctBtn = rect{x: width - lipgloss.Width(btn), y: 1 + len(rows) - 1, w: lipgloss.Width(btn), h: 3}
+	content := lipgloss.NewStyle().Width(width).Height(bodyH).MaxHeight(bodyH).PaddingLeft(1).
+		Render(strings.Join(rows, "\n"))
+	return shell(width, height, 2, content, h, k)
+}
+
+// ctContent renders the Build (cards) or Stop (checklist) pane and records
+// its hit rects.
+func (d *designC) ctContent(width int) []string {
+	var rows []string
+	d.chipRects = nil
+	d.stopRects = nil
 	if d.ctPane == 0 {
 		cols := maxInt(1, (width-2)/cardW)
+		var cards []string
 		for i, e := range editions {
-			rows = append(rows, editionCard(shortEdition(e), i == d.buildSel, cols, i))
+			cards = append(cards, editionCard(shortEdition(e), i == d.buildSel))
 		}
-		// join cards horizontally in rows of `cols`
-		rows = joinCardRows(rows[2:], cols)
-		rows = append([]string{d.ctTabs(d.ctPane), ""}, rows...)
-		if d.ct.toast != "" {
-			rows = append(rows, styleWarn.Render(d.ct.toast))
+		for r := 0; r*cols < len(cards); r++ {
+			end := min((r+1)*cols, len(cards))
+			rowCards := cards[r*cols:end]
+			rows = append(rows, lipgloss.JoinHorizontal(lipgloss.Top, rowCards...))
+			for c := range rowCards {
+				d.chipRects = append(d.chipRects, rect{x: 1 + c*cardW, y: 3 + r*cardH, w: cardW, h: cardH})
+			}
 		}
-		btn := button("Build", false)
-		rows = append(rows, alignRight(width-1, btn))
-		d.ctBtn = rect{x: width - lipgloss.Width(btn), y: 1 + len(rows) - 1, w: lipgloss.Width(btn), h: 3}
 	} else {
 		running := fakeRunning()
 		box := "☐"
@@ -296,24 +366,17 @@ func (d *designC) ViewCT(width, height int, h help.Model, k keyMap) string {
 			box = "☒"
 		}
 		rows = append(rows, " "+box+" select all")
-		for _, p := range running {
+		d.selAll = rect{x: 1, y: 3, w: 2 + lipgloss.Width("select all"), h: 1}
+		for i, p := range running {
 			box = "☐"
 			if d.ct.selection[p.Name] {
 				box = "☒"
 			}
 			rows = append(rows, " "+box+" "+p.Name+"  "+styleStatusRun.Render("● running"))
+			d.stopRects = append(d.stopRects, rect{x: 1, y: 4 + i, w: width - 2, h: 1})
 		}
-		rows = append(rows, "")
-		if d.ct.toast != "" {
-			rows = append(rows, styleWarn.Render(d.ct.toast))
-		}
-		btn := button("Stop", false)
-		rows = append(rows, alignRight(width-1, btn))
-		d.ctBtn = rect{x: width - lipgloss.Width(btn), y: 1 + len(rows) - 1, w: lipgloss.Width(btn), h: 3}
 	}
-	content := lipgloss.NewStyle().Width(width).Height(bodyH).MaxHeight(bodyH).PaddingLeft(1).
-		Render(strings.Join(rows, "\n"))
-	return shell(width, height, 2, content, h, k)
+	return rows
 }
 
 func (d *designC) ctTabs(sel int) string {
@@ -327,7 +390,7 @@ func (d *designC) ctTabs(sel int) string {
 	return l + r
 }
 
-func editionCard(title string, selected bool, cols, idx int) string {
+func editionCard(title string, selected bool) string {
 	inner := []string{title, styleMutedAlt.Render("not built (fake)"), ""}
 	st := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
@@ -339,17 +402,6 @@ func editionCard(title string, selected bool, cols, idx int) string {
 		st = st.BorderForeground(lipgloss.Color("240"))
 	}
 	return st.Render(strings.Join(inner, "\n"))
-}
-
-// joinCardRows takes a flat list of card strings (one per card) and
-// joins every `cols` of them horizontally into single rows.
-func joinCardRows(cards []string, cols int) []string {
-	var rows []string
-	for i := 0; i < len(cards); i += cols {
-		end := min(i+cols, len(cards))
-		rows = append(rows, lipgloss.JoinHorizontal(lipgloss.Top, cards[i:end]...))
-	}
-	return rows
 }
 
 var _ help.Model
