@@ -1,7 +1,8 @@
-// Root model: variant switcher + shared state. THROWAWAY prototype (issue #69).
-// The floating switcher (bottom-right) is the TUI equivalent of the
-// ?variant= URL param from the prototype skill: cycles with V / ←→ clicks,
-// always visible, visually distinct from the design being evaluated.
+// Root model: view switcher + design switcher. THROWAWAY prototype
+// (issue #70, second iteration on the #69 shell). Header menu items
+// switch center-views (Open Project / New Project / Container); the
+// floating pill cycles designs (structural takes on the two NEW
+// center-views; Open Project is the #69 winner and stays fixed).
 package protoapp
 
 import (
@@ -14,16 +15,28 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-type variant interface {
+// design is a structural take on the New Project + Container views.
+type design interface {
 	Name() string
-	Update(msg tea.Msg, width, height int)
-	View(width, height int, h help.Model, k keyMap) string
+	UpdateNP(msg tea.Msg, width, height int)
+	ViewNP(width, height int, h help.Model, k keyMap) string
+	UpdateCT(msg tea.Msg, width, height int)
+	ViewCT(width, height int, h help.Model, k keyMap) string
 }
+
+// center views, matching headerMenuItems order
+const (
+	viewOpen = iota
+	viewNew
+	viewContainer
+)
 
 type Root struct {
 	width, height int
-	variants      []variant
-	current       int
+	open          *variantA
+	designs       []design
+	current       int // design index
+	view          int // center view
 	keys          keyMap
 	help          help.Model
 	switchDbl     dblClickTracker
@@ -31,9 +44,10 @@ type Root struct {
 
 func NewRoot() Root {
 	return Root{
-		variants: []variant{newVariantA(), newVariantB(), newVariantC()},
-		keys:     newKeys(),
-		help:     help.New(),
+		open:    newVariantA(),
+		designs: []design{newDesignA(), newDesignB(), newDesignC()},
+		keys:    newKeys(),
+		help:    help.New(),
 	}
 }
 
@@ -45,16 +59,43 @@ func (r *Root) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		r.width, r.height = msg.Width, msg.Height
 		return r, nil
 	case tea.KeyMsg:
+		switch msg.String() {
+		case "1":
+			r.view = viewOpen
+			return r, nil
+		case "2":
+			r.view = viewNew
+			return r, nil
+		case "3":
+			r.view = viewContainer
+			return r, nil
+		}
 		if key.Matches(msg, r.keys.SwitchVariant) {
-			r.current = (r.current + 1) % len(r.variants)
+			r.current = (r.current + 1) % len(r.designs)
 			return r, nil
 		}
 		if key.Matches(msg, r.keys.Quit) {
 			return r, tea.Quit
 		}
 	case tea.MouseMsg:
-		// Switcher pill hit-test: bottom two rows, right-aligned.
 		if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft {
+			// header menu items on row 0 (click Open/New/Container to switch)
+			if msg.Y == 0 {
+				for i, m := range menuRects(r.width) {
+					if m.hit(msg.X, msg.Y) {
+						switch i {
+						case viewOpen, viewNew, viewContainer:
+							r.view = i
+						case 3: // Settings
+							r.open.toast = "settings live in the Open Project pane (#63)"
+						default: // Exit
+							return r, tea.Quit
+						}
+						return r, nil
+					}
+				}
+			}
+			// Switcher pill hit-test: bottom row, right-aligned.
 			pill := r.pillGeometry()
 			if pill.hit(msg.X, msg.Y) {
 				if r.switchDbl.press(msg) == 2 {
@@ -62,15 +103,23 @@ func (r *Root) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return r, tea.Quit
 				}
 				if msg.X < pill.midX {
-					r.current = (r.current - 1 + len(r.variants)) % len(r.variants)
+					r.current = (r.current - 1 + len(r.designs)) % len(r.designs)
 				} else {
-					r.current = (r.current + 1) % len(r.variants)
+					r.current = (r.current + 1) % len(r.designs)
 				}
 				return r, nil
 			}
 		}
 	}
-	r.variants[r.current].Update(msg, r.width, r.height)
+	// route the event to the active center view
+	switch r.view {
+	case viewNew:
+		r.designs[r.current].UpdateNP(msg, r.width, r.height)
+	case viewContainer:
+		r.designs[r.current].UpdateCT(msg, r.width, r.height)
+	default:
+		r.open.Update(msg, r.width, r.height)
+	}
 	return r, nil
 }
 
@@ -91,7 +140,11 @@ func (r *Root) pillGeometry() pill {
 }
 
 func (r *Root) pillLabel() string {
-	return fmt.Sprintf(" ‹ %d/3: %s › ", r.current+1, r.variants[r.current].Name())
+	label := r.open.Name()
+	if r.view != viewOpen {
+		label = r.designs[r.current].Name()
+	}
+	return fmt.Sprintf(" ‹ design %d/%d: %s › ", r.current+1, len(r.designs), label)
 }
 
 func (r *Root) View() string {
@@ -102,7 +155,15 @@ func (r *Root) View() string {
 	// its footer help just short of the pill.
 	pillLabel := r.pillLabel()
 	footerReserve = lipgloss.Width(pillLabel)
-	body := r.variants[r.current].View(r.width, r.height, r.help, r.keys)
+	var body string
+	switch r.view {
+	case viewNew:
+		body = r.designs[r.current].ViewNP(r.width, r.height, r.help, r.keys)
+	case viewContainer:
+		body = r.designs[r.current].ViewCT(r.width, r.height, r.help, r.keys)
+	default:
+		body = r.open.View(r.width, r.height, r.help, r.keys)
+	}
 	// Overwrite the footer's right end with the variant pill.
 	lines := strings.Split(body, "\n")
 	last := len(lines) - 1

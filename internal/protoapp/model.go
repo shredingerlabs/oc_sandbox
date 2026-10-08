@@ -1,10 +1,10 @@
-// Package protoapp is a THROWAWAY prototype (issue #69, wayfinder map #56).
-// It answers: what should the Open Project center-view look like?
+// Package protoapp is a THROWAWAY prototype (issue #70, wayfinder map #56).
+// It answers: what should the New Project + Container center-views look like?
 // Do not promote to production without a rewrite (see prototype skill).
 //
-// Three structurally different variants of the Open Project center-view,
+// Three structurally different designs of the New Project + Container center-views,
 // switchable with the V key (tab/arrow cycles in the floating switcher row).
-// The reaction target: density, alignment, card info, click/double-click feel.
+// Open Project stays the #69 winner; the reaction target is layout + interaction feel.
 package protoapp
 
 import "time"

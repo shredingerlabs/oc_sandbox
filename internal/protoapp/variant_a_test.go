@@ -18,7 +18,7 @@ func TestHitCard(t *testing.T) {
 	}
 	// 80x24: gridW = 38 -> one card column, settings pane on the right.
 	click(10, 3) // card row 0
-	va := root.variants[0].(*variantA)
+	va := root.open
 	if va.focus != 0 {
 		t.Errorf("click (10,3): focus=%d, want 0", va.focus)
 	}

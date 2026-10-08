@@ -67,6 +67,20 @@ func (k keyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{{k.SwitchVariant, k.Menu, k.Quit}, {k.NextProject, k.Start, k.Help}}
 }
 
+// menuRects returns the screen-space hit boxes of the header menu items
+// (row 0), used by Root to switch center views on click.
+func menuRects(width int) []rect {
+	x := lipgloss.Width(styleHeaderTitle.Render("oc-sandbox"))
+	out := make([]rect, len(headerMenuItems))
+	for i, item := range headerMenuItems {
+		w := lipgloss.Width(item) + 2 // padding 0,1
+		out[i] = rect{x: x, y: 0, w: w, h: 1}
+		x += w
+	}
+	_ = width
+	return out
+}
+
 // shell renders the shared chrome around a variant's center view.
 func shell(width, height int, menuFocus int, body string, h help.Model, k keyMap) string {
 	// Header: title + menu items. Unselected items are white-on-blue so the
@@ -91,7 +105,7 @@ func shell(width, height int, menuFocus int, body string, h help.Model, k keyMap
 	// Footer: mouse/legend hint on the left (moved here from the header per
 	// user feedback), keyboard help right-aligned just before the variant
 	// pill (root.View reserves its width in footerReserve before rendering).
-	hint := styleFooter.Render("m: menu ↩ scroll, ○/● container status")
+	hint := styleFooter.Render("1 open · 2 new · 3 container · v design · m menu, ○/● status")
 	helpView := h.View(k)
 	avail := width - footerReserve
 	lead := avail - lipgloss.Width(hint) - lipgloss.Width(helpView)
