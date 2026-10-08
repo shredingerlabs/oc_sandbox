@@ -149,7 +149,7 @@ cmd_vcs_credentials() {
       ;;
     gitlab)
       host="${host:-gitlab.com}"
-      credentials_file="${project_path}/.git_local/glab-cli/hosts.yml"
+      credentials_file="${project_path}/.git_local/glab-cli/config.yml"
       git_user="token"
       ;;
     custom)
@@ -166,7 +166,7 @@ cmd_vcs_credentials() {
     github) config=$(VCS_TOKEN="$token" jq -n --arg host "$host" \
       '{($host): {user: "oauth2", oauth_token: $ENV.VCS_TOKEN, git_protocol: "https"}}') ;;
     gitlab) config=$(VCS_TOKEN="$token" jq -n --arg host "$host" \
-      '{($host): {token: $ENV.VCS_TOKEN}}') ;;
+      '{editor: "vi", hosts: {($host): {token: $ENV.VCS_TOKEN}}}') ;;
     custom) config=$(VCS_TOKEN="$token" jq -n --arg host "$host" \
       '{($host): {token: $ENV.VCS_TOKEN}}') ;;
   esac
