@@ -67,6 +67,32 @@ func (k keyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{{k.SwitchVariant, k.Menu, k.Quit}, {k.NextProject, k.Start, k.Help}}
 }
 
+// separatorRow renders a full-width rule row (between the header menu and
+// a sub-menu row).
+func separatorRow(width int) string {
+	return styleMutedAlt.Render(strings.Repeat("─", maxInt(0, width-1)))
+}
+
+// subTabs renders sub-menu tab pills (padding 0,1, accent when selected);
+// returns the row string and each tab's x offset inside it.
+func subTabs(items []string, sel int) (string, []int) {
+	st := lipgloss.NewStyle().Padding(0, 1)
+	stSel := st.Background(colAccent).Foreground(lipgloss.Color("0")).Bold(true)
+	var b strings.Builder
+	var offs []int
+	x := 0
+	for i, it := range items {
+		offs = append(offs, x)
+		s := st.Render(it)
+		if i == sel {
+			s = stSel.Render(it)
+		}
+		b.WriteString(s)
+		x += lipgloss.Width(s)
+	}
+	return b.String(), offs
+}
+
 // menuRects returns the screen-space hit boxes of the header menu items
 // (row 0), used by Root to switch center views on click.
 func menuRects(width int) []rect {

@@ -1,9 +1,9 @@
-// Settings center-view, third prototype iteration (issue #71): left menu
-// (Import existing project / Export+Restore Sandbox Config / Uninstall),
-// right pane per menu item. Import = path entry + folder chooser; export =
-// export button + save-as wizard; restore = file chooser; uninstall =
-// option rows + typed "uninstall" confirmation before the executable.
-// THROWAWAY prototype.
+// Settings center-view, iteration 2 of feedback (issue #71): sub-menu
+// under the header menu (Import project / Export Config / Restore Config /
+// Uninstall) over a separator line, options in a New Project (Variant C)
+// style card. Import = path entry + folder chooser; export = export button
+// + save-as wizard; restore = file chooser; uninstall = option rows +
+// typed "uninstall" confirmation before the executable. THROWAWAY prototype.
 package protoapp
 
 import (
@@ -14,9 +14,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-const setMenuW = 26
-
-var settingsMenuItems = []string{"Import existing project", "Export/Restore Sandbox Config", "Uninstall"}
+var settingsTabs = []string{"Import project", "Export Config", "Restore Config", "Uninstall"}
 
 // fake folder chooser entries: one is a complete sandbox project root,
 // the rest are ordinary folders (strict structure check rejects them).
@@ -36,9 +34,7 @@ var fakeBackups = []string{
 }
 
 type settings71 struct {
-	menu int // 0 import, 1 export/restore, 2 uninstall
-	sub  int // export/restore sub-pane: 0 export, 1 restore
-
+	sub      int // 0 import, 1 export, 2 restore, 3 uninstall
 	impPath  string
 	impCur   int
 	impSel   int
@@ -48,6 +44,7 @@ type settings71 struct {
 	expDest  string
 	expCur   int
 	expFocus int // 0 dest field, 1 save, 2 cancel
+
 	resSel   int
 	resFocus int // 0 chooser, 1 restore button
 
@@ -57,67 +54,69 @@ type settings71 struct {
 	unCur     int
 	toast     string
 
-	menuRects []rect
-	impRects  [3]rect // path, chooser box, button
+	tabRects  [4]rect
+	impRects  [2]rect // path, button
 	foldRects []rect
-	subRects  [2]rect
+	impArea   rect
 	expRects  [3]rect // dest, save, cancel
-	resRects  [2]rect // chooser box, button
+	resRects  [2]rect // chooser area, button
 	backRects []rect
 	unRects   [5]rect // 3 opts, confirm, button
+	boxX      int
 }
 
 func newSettings71() *settings71 {
-	return &settings71{impPath: "/home/dev/work/", impCur: len("/home/dev/work/"), expDest: pathBase + "/sandbox-config.json", expCur: len(pathBase + "/sandbox-config.json")}
+	return &settings71{
+		impPath: "/home/dev/work/", impCur: len("/home/dev/work/"),
+		expDest: pathBase + "/sandbox-config.json", expCur: len(pathBase + "/sandbox-config.json"),
+	}
 }
 
 func (s *settings71) Name() string { return "settings 71" }
 
-// focus count per pane
 func (s *settings71) focusCount() int {
-	switch s.menu {
+	switch s.sub {
 	case 0:
 		return 3
 	case 1:
-		if s.sub == 0 {
-			if s.expStage == 0 {
-				return 1
-			}
-			return 3
+		if s.expStage == 0 {
+			return 1
 		}
+		return 3
+	case 2:
 		return 2
 	default:
 		return 5
 	}
 }
 
+// focusVal returns pointer to the focused per-pane focus index.
 func (s *settings71) moveFocus(d int) {
 	n := s.focusCount()
-	switch s.menu {
+	switch s.sub {
 	case 0:
 		s.impFocus = (s.impFocus + d + n) % n
 	case 1:
-		if s.sub == 0 {
-			if s.expStage == 0 {
-				return
-			}
+		if s.expStage != 0 {
 			s.expFocus = (s.expFocus + d + n) % n
-		} else {
-			s.resFocus = (s.resFocus + d + n) % n
 		}
+	case 2:
+		s.resFocus = (s.resFocus + d + n) % n
 	default:
 		s.unFocus = (s.unFocus + d + n) % n
 	}
 }
 
+// focusedField returns 0 (import path), 1 (export dest), 2 (uninstall
+// confirm) when the focus sits on a text field, -1 otherwise.
 func (s *settings71) focusedField() int {
-	switch s.menu {
+	switch s.sub {
 	case 0:
 		if s.impFocus == 0 {
 			return 0
 		}
 	case 1:
-		if s.sub == 0 && s.expStage == 1 && s.expFocus == 0 {
+		if s.expStage == 1 && s.expFocus == 0 {
 			return 1
 		}
 	default:
@@ -173,7 +172,7 @@ func (s *settings71) key(msg tea.KeyMsg) {
 				*c--
 			}
 		} else {
-			s.menu = (s.menu + 2) % 3
+			s.sub = (s.sub + 3) % 4
 		}
 	case "right":
 		if f >= 0 {
@@ -182,12 +181,12 @@ func (s *settings71) key(msg tea.KeyMsg) {
 				*c++
 			}
 		} else {
-			s.menu = (s.menu + 1) % 3
+			s.sub = (s.sub + 1) % 4
 		}
 	case "enter":
 		s.activate()
 	case " ":
-		if s.menu == 2 && s.unFocus < 3 {
+		if s.sub == 3 && s.unFocus < 3 {
 			s.unOpts[s.unFocus] = !s.unOpts[s.unFocus]
 		}
 	case "backspace":
@@ -199,30 +198,27 @@ func (s *settings71) key(msg tea.KeyMsg) {
 }
 
 func (s *settings71) activate() {
-	switch s.menu {
+	switch s.sub {
 	case 0:
-		switch s.impFocus {
-		case 2:
+		if s.impFocus == 2 {
 			s.doImport()
 		}
 	case 1:
-		if s.sub == 0 {
-			if s.expStage == 0 {
-				s.expStage = 1
-				s.expFocus = 0
-				return
-			}
-			switch s.expFocus {
-			case 1:
-				s.toast = "export → " + s.expDest + " (fake)"
-				s.expStage = 0
-			case 2:
-				s.expStage = 0
-			}
-		} else {
-			if s.resFocus == 1 {
-				s.toast = "restore " + fakeBackups[s.resSel] + " (fake)"
-			}
+		if s.expStage == 0 {
+			s.expStage = 1
+			s.expFocus = 0
+			return
+		}
+		switch s.expFocus {
+		case 1:
+			s.toast = "export → " + s.expDest + " (fake)"
+			s.expStage = 0
+		case 2:
+			s.expStage = 0
+		}
+	case 2:
+		if s.resFocus == 1 {
+			s.toast = "restore " + fakeBackups[s.resSel] + " (fake)"
 		}
 	default:
 		switch s.unFocus {
@@ -246,7 +242,7 @@ func (s *settings71) doImport() {
 }
 
 func (s *settings71) runUninstall() {
-	if strings.TrimSpace(s.unConfirm) != "uninstall" {
+	if !strings.EqualFold(strings.TrimSpace(s.unConfirm), "uninstall") {
 		s.toast = "type \"uninstall\" to confirm"
 		return
 	}
@@ -264,12 +260,13 @@ func (s *settings71) runUninstall() {
 }
 
 func (s *settings71) mouse(x, y int) {
-	for i, r := range s.menuRects {
+	for i, r := range s.tabRects {
 		if r.hit(x, y) {
-			s.menu = i
+			s.sub = i
 			return
 		}
 	}
+	// import pane
 	for i, r := range s.foldRects {
 		if r.hit(x, y) {
 			s.impSel = i
@@ -280,85 +277,72 @@ func (s *settings71) mouse(x, y int) {
 	}
 	if s.impRects[0].hit(x, y) {
 		s.impFocus = 0
-		s.impCur = min(s.impCur, len([]rune(s.impPath)))
 		if s.impCur == 0 {
 			s.impCur = len([]rune(s.impPath))
 		}
 		return
 	}
-	if s.impRects[1].hit(x, y) {
+	if s.impArea.hit(x, y) {
 		s.impFocus = 1
 		return
 	}
-	if s.impRects[2].hit(x, y) {
+	if s.impRects[1].hit(x, y) {
 		s.doImport()
 		return
 	}
-	if s.menu == 1 {
-		for i, r := range s.subRects {
-			if r.hit(x, y) {
-				s.sub = i
-				return
-			}
-		}
-		if s.sub == 0 {
-			if s.expStage == 1 {
-				if s.expRects[0].hit(x, y) {
-					s.expFocus = 0
-					return
-				}
-				if s.expRects[1].hit(x, y) {
-					s.toast = "export → " + s.expDest + " (fake)"
-					s.expStage = 0
-					return
-				}
-				if s.expRects[2].hit(x, y) {
-					s.expStage = 0
-					return
-				}
-			} else if s.expRects[1].hit(x, y) {
-				s.expStage = 1
-				s.expFocus = 0
-				return
-			}
+	// export pane
+	if s.expRects[0].hit(x, y) {
+		s.expFocus = 0
+		return
+	}
+	if s.expRects[1].hit(x, y) {
+		if s.expStage == 0 {
+			s.expStage = 1
+			s.expFocus = 0
 		} else {
-			for i, r := range s.backRects {
-				if r.hit(x, y) {
-					s.resSel = i
-					s.resFocus = 0
-					return
-				}
-			}
-			if s.resRects[1].hit(x, y) {
-				s.toast = "restore " + fakeBackups[s.resSel] + " (fake)"
-				return
-			}
+			s.toast = "export → " + s.expDest + " (fake)"
+			s.expStage = 0
 		}
+		return
 	}
-	if s.menu == 2 {
-		for i := 0; i < 3; i++ {
-			if s.unRects[i].hit(x, y) {
-				s.unOpts[i] = !s.unOpts[i]
-				s.unFocus = i
-				return
-			}
-		}
-		if s.unRects[3].hit(x, y) {
-			s.unFocus = 3
-			return
-		}
-		if s.unRects[4].hit(x, y) {
-			s.runUninstall()
+	if s.expStage == 1 && s.expRects[2].hit(x, y) {
+		s.expStage = 0
+		return
+	}
+	// restore pane
+	for i, r := range s.backRects {
+		if r.hit(x, y) {
+			s.resSel = i
+			s.resFocus = 0
 			return
 		}
 	}
-}
-
-func (s *settings71) menuItemLines(i int) []string {
-	if i == 1 {
-		return []string{"Export/Restore", "Sandbox Config"}
+	if s.sub == 2 {
+		if s.resRects[0].hit(x, y) {
+			s.resFocus = 0
+			return
+		}
+		if s.resRects[1].hit(x, y) {
+			s.toast = "restore " + fakeBackups[s.resSel] + " (fake)"
+			return
+		}
 	}
-	return []string{settingsMenuItems[i]}
+	// uninstall pane
+	for i := 0; i < 3; i++ {
+		if s.unRects[i].hit(x, y) {
+			s.unOpts[i] = !s.unOpts[i]
+			s.unFocus = i
+			return
+		}
+	}
+	if s.unRects[3].hit(x, y) {
+		s.unFocus = 3
+		return
+	}
+	if s.unRects[4].hit(x, y) {
+		s.runUninstall()
+		return
+	}
 }
 
 func textField(val string, cursor int, focused bool) string {
@@ -411,76 +395,51 @@ func optionRow(label string, on bool, focused bool) string {
 
 func (s *settings71) View(width, height int, h help.Model, k keyMap) string {
 	bodyH := height - 2
-	s.menuRects = nil
 	s.foldRects = nil
 	s.backRects = nil
 
-	// menu column lines with per-item spans
-	var menuLines []string
-	spans := [][2]int{} // start,end line per item
-	for i := range settingsMenuItems {
-		lines := s.menuItemLines(i)
-		spans = append(spans, [2]int{len(menuLines), len(menuLines) + len(lines) - 1})
-		for _, l := range lines {
-			st := lipgloss.NewStyle().Width(setMenuW).Padding(0, 1)
-			if i == s.menu {
-				st = st.Background(colAccent).Foreground(lipgloss.Color("0")).Bold(true)
-			} else {
-				st = st.Foreground(colCardFg)
-			}
-			menuLines = append(menuLines, st.Render(l))
-		}
+	// sub-menu under the header menu, over a separator line
+	xTabs := lipgloss.Width(styleHeaderTitle.Render("oc-sandbox"))
+	tabs, offs := subTabs(settingsTabs, s.sub)
+	tabsRow := strings.Repeat(" ", xTabs-1) + tabs
+	for i, o := range offs {
+		s.tabRects[i] = rect{x: xTabs + o, y: 2, w: lipgloss.Width(settingsTabs[i]) + 2, h: 1}
 	}
-	menuTitle := styleFieldLabel.Render("Settings")
-	menuBlock := append([]string{menuTitle, ""}, menuLines...)
 
-	// right pane rows
-	var right []string
-	title := []string{styleFieldLabel.Render(settingsMenuItems[s.menu]), ""}
-	switch s.menu {
+	// card (Variant C frame): rows inside a bordered box as wide as the
+	// widest content, pinned top-left under the tabs
+	var inner []string
+	switch s.sub {
 	case 0:
-		right = append(right, title...)
-		right = append(right, s.importPane()...)
+		inner = s.importPane()
 	case 1:
-		right = append(right, title...)
-		if s.sub == 0 {
-			right = append(right, s.exportPane()...)
-		} else {
-			right = append(right, s.restorePane()...)
-		}
+		inner = s.exportPane()
+	case 2:
+		inner = s.restorePane()
 	default:
-		right = append(right, title...)
-		right = append(right, s.uninstallPane()...)
+		inner = s.uninstallPane()
 	}
-
-	// assemble rows: menu col + gap + right col
-	n := max(len(menuBlock), len(right))
-	var rows []string
-	for i := 0; i < n; i++ {
-		var ml, rl string
-		if i < len(menuBlock) {
-			ml = menuBlock[i]
-		} else {
-			ml = strings.Repeat(" ", setMenuW)
-		}
-		if i < len(right) {
-			rl = right[i]
-		}
-		rows = append(rows, ml+"  "+rl)
+	maxw := 0
+	for _, r := range inner {
+		maxw = maxInt(maxw, lipgloss.Width(r))
 	}
-	// menu hit rects (body row i → screen y = 1+i)
-	for _, sp := range spans {
-		s.menuRects = append(s.menuRects, rect{x: 1, y: 3 + sp[0], w: setMenuW, h: sp[1] - sp[0] + 1})
-	}
-	// toast row always reserved so stored rects stay stable
-	rows = append(rows, styleWarn.Render(s.toast))
+	boxW := maxw + 4
+	s.boxX = 1
+	box := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(colAccent).
+		Width(boxW).MaxHeight(bodyH - 2).PaddingLeft(1).PaddingRight(1).
+		Render(strings.Join(inner, "\n"))
+	rows := []string{separatorRow(width), tabsRow, "", box, styleWarn.Render(s.toast)}
 	content := lipgloss.NewStyle().Width(width).Height(bodyH).MaxHeight(bodyH).PaddingLeft(1).
 		Render(strings.Join(rows, "\n"))
 	return shell(width, height, 3, content, h, k)
 }
 
-// paneX is the screen x of right-pane content column 0.
-func paneX() int { return 1 + setMenuW + 2 }
+// cardY maps an inner row index to its screen y (separator row 1, tabs
+// row 2, box top border row 4, first inner row row 5).
+func cardY(local int) int { return 5 + local }
+
+// cardX is the screen x of card content column 0 (box border + padding).
+func cardX() int { return 3 }
 
 func (s *settings71) importPane() []string {
 	rows := []string{
@@ -491,90 +450,63 @@ func (s *settings71) importPane() []string {
 	}
 	focused := s.impFocus == 0
 	rows = append(rows, "  "+textField(s.impPath, s.impCur, focused))
-	s.impRects[0] = rect{x: paneX() + 2, y: 7, w: max(30, lipgloss.Width(s.impPath)+2), h: 1}
+	s.impRects[0] = rect{x: cardX() + 2, y: cardY(4), w: max(30, lipgloss.Width(s.impPath)+2), h: 1}
 	rows = append(rows, "", styleFieldLabel.Render("Folders"))
+	areaY := cardY(len(rows))
 	for i, f := range fakeFolders {
 		rows = append(rows, chooserRow(f, i == s.impSel))
-		s.foldRects = append(s.foldRects, rect{x: paneX(), y: 10 + i, w: 60, h: 1})
+		s.foldRects = append(s.foldRects, rect{x: cardX(), y: cardY(7 + i), w: 60, h: 1})
 	}
 	btn := button71("Import Project", s.impFocus == 2)
 	rows = append(rows, "", "  "+btn)
-	s.impRects[1] = rect{x: paneX(), y: 10, w: 60, h: len(fakeFolders)}
-	s.impRects[2] = rect{x: paneX() + 2, y: 15, w: lipgloss.Width(btn), h: 1}
+	s.impArea = rect{x: cardX(), y: areaY, w: 60, h: len(fakeFolders)}
+	s.impRects[1] = rect{x: cardX() + 2, y: cardY(12), w: lipgloss.Width(btn), h: 1}
 	return rows
 }
 
 func (s *settings71) exportPane() []string {
-	// sub-tabs Export | Restore, aligned like the Container tabs
-	xTabs := lipgloss.Width(styleHeaderTitle.Render("oc-sandbox"))
-	l, r := "Export", "Restore"
-	st := lipgloss.NewStyle().Padding(0, 1)
-	sel := st.Background(colAccent).Foreground(lipgloss.Color("0")).Bold(true)
-	if s.sub == 0 {
-		l = sel.Render(l)
-		r = st.Render(r)
-	} else {
-		l = st.Render(l)
-		r = sel.Render(r)
-	}
-	tabs := strings.Repeat(" ", xTabs-1) + l + r
-	s.subRects[0] = rect{x: xTabs, y: 3, w: lipgloss.Width("Export") + 2, h: 1}
-	s.subRects[1] = rect{x: xTabs + lipgloss.Width("Export") + 2, y: 3, w: lipgloss.Width("Restore") + 2, h: 1}
-	rows := []string{tabs, ""}
 	if s.expStage == 0 {
-		rows = append(rows,
+		btn := button71("Export Config…", false)
+		s.expRects[1] = rect{x: cardX() + 2, y: cardY(3), w: lipgloss.Width(btn), h: 1}
+		return []string{
 			styleMutedAlt.Render("Copies the sandbox_config.json of a project"),
 			styleMutedAlt.Render("to a destination you pick (save-as)."),
 			"",
-			"  "+button("Export Config…", false))
-		s.expRects[1] = rect{x: paneX() + 2, y: 8, w: lipgloss.Width("Export Config…") + 4, h: 1}
-		return rows
+			"  " + btn,
+		}
 	}
-	rows = append(rows,
+	rows := []string{
 		styleMutedAlt.Render("Save-as: choose where the config copy goes."),
 		"",
 		styleFieldLabel.Render("Destination file"),
-	)
+	}
 	focused := s.expFocus == 0
 	rows = append(rows, "  "+textField(s.expDest, s.expCur, focused))
-	s.expRects[0] = rect{x: paneX() + 2, y: 8, w: max(30, lipgloss.Width(s.expDest)+2), h: 1}
+	s.expRects[0] = rect{x: cardX() + 2, y: cardY(3), w: max(30, lipgloss.Width(s.expDest)+2), h: 1}
 	save := button71("Save", s.expFocus == 1)
 	cancel := button71("Cancel", s.expFocus == 2)
 	rows = append(rows, "", "  "+save+"  "+cancel)
-	s.expRects[1] = rect{x: paneX() + 2, y: 10, w: lipgloss.Width(save), h: 1}
-	s.expRects[2] = rect{x: paneX() + 2 + lipgloss.Width(save) + 2, y: 10, w: lipgloss.Width(cancel), h: 1}
+	s.expRects[1] = rect{x: cardX() + 2, y: cardY(5), w: lipgloss.Width(save), h: 1}
+	s.expRects[2] = rect{x: cardX() + 2 + lipgloss.Width(save) + 2, y: cardY(5), w: lipgloss.Width(cancel), h: 1}
 	return rows
 }
 
 func (s *settings71) restorePane() []string {
-	xTabs := lipgloss.Width(styleHeaderTitle.Render("oc-sandbox"))
-	l, r := "Export", "Restore"
-	st := lipgloss.NewStyle().Padding(0, 1)
-	sel := st.Background(colAccent).Foreground(lipgloss.Color("0")).Bold(true)
-	if s.sub == 0 {
-		l = sel.Render(l)
-		r = st.Render(r)
-	} else {
-		l = st.Render(l)
-		r = sel.Render(r)
-	}
-	tabs := strings.Repeat(" ", xTabs-1) + l + r
-	s.subRects[0] = rect{x: xTabs, y: 3, w: lipgloss.Width("Export") + 2, h: 1}
-	s.subRects[1] = rect{x: xTabs + lipgloss.Width("Export") + 2, y: 3, w: lipgloss.Width("Restore") + 2, h: 1}
-	rows := []string{tabs, "",
+	rows := []string{
 		styleMutedAlt.Render("Pick a saved config backup to restore it over"),
 		styleMutedAlt.Render("the current sandbox_config.json."),
 		"",
 		styleFieldLabel.Render("Config backups"),
 	}
+	areaY := cardY(len(rows))
 	for i, b := range fakeBackups {
 		rows = append(rows, chooserRow(b, i == s.resSel))
-		s.backRects = append(s.backRects, rect{x: paneX(), y: 9 + i, w: 60, h: 1})
+		s.backRects = append(s.backRects, rect{x: cardX(), y: cardY(4 + i), w: 60, h: 1})
 	}
 	btn := button71("Restore", s.resFocus == 1)
 	rows = append(rows, "", "  "+btn)
-	s.resRects[0] = rect{x: paneX(), y: 9, w: 60, h: len(fakeBackups)}
-	s.resRects[1] = rect{x: paneX() + 2, y: 14, w: lipgloss.Width(btn), h: 1}
+	s.resRects[0] = rect{x: cardX(), y: areaY, w: 60, h: len(fakeBackups)}
+	s.resRects[1] = rect{x: cardX() + 2, y: cardY(9), w: lipgloss.Width(btn), h: 1}
 	return rows
 }
 
@@ -582,20 +514,20 @@ func (s *settings71) uninstallPane() []string {
 	rows := []string{
 		styleWarn.Render("This removes the oc-sandbox installation."),
 		styleMutedAlt.Render("Running containers must be stopped first"),
-		styleMutedAlt.Render("(see their stop commands in the Container view)."),
+		styleMutedAlt.Render("(stop them in the Container view)."),
 		"",
 		styleFieldLabel.Render("Options"),
 	}
 	labels := []string{"Create config backup", "Remove symlinks", "Remove desktop shortcuts"}
 	for i, l := range labels {
 		rows = append(rows, optionRow(l, s.unOpts[i], s.unFocus == i))
-		s.unRects[i] = rect{x: paneX(), y: 8 + i, w: 60, h: 1}
+		s.unRects[i] = rect{x: cardX(), y: cardY(5 + i), w: 60, h: 1}
 	}
 	rows = append(rows, "", styleFieldLabel.Render("Type \"uninstall\" to confirm"))
 	focused := s.unFocus == 3
 	rows = append(rows, "  "+textField(s.unConfirm, s.unCur, focused))
-	s.unRects[3] = rect{x: paneX() + 2, y: 13, w: max(20, lipgloss.Width(s.unConfirm)+2), h: 1}
-	armed := strings.TrimSpace(s.unConfirm) == "uninstall"
+	s.unRects[3] = rect{x: cardX() + 2, y: cardY(10), w: max(20, lipgloss.Width(s.unConfirm)+2), h: 1}
+	armed := strings.EqualFold(strings.TrimSpace(s.unConfirm), "uninstall")
 	var btn string
 	if armed {
 		btn = button71("Uninstall", s.unFocus == 4)
@@ -604,9 +536,6 @@ func (s *settings71) uninstallPane() []string {
 			Render("[ Uninstall ]")
 	}
 	rows = append(rows, "", "  "+btn)
-	s.unRects[4] = rect{x: paneX() + 2, y: 15, w: lipgloss.Width("Uninstall") + 4, h: 1}
-	if !armed {
-		s.toast = ""
-	}
+	s.unRects[4] = rect{x: cardX() + 2, y: cardY(12), w: lipgloss.Width("Uninstall") + 4, h: 1}
 	return rows
 }

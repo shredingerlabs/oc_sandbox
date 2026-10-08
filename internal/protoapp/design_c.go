@@ -372,12 +372,13 @@ func (d *designC) ViewCT(width, height int, h help.Model, k keyMap) string {
 	// printed width. PaddingLeft(1) already puts content at x=1; prepend the
 	// difference to the tab row only.
 	xTabs := lipgloss.Width(styleHeaderTitle.Render("oc-sandbox"))
-	tabs := strings.Repeat(" ", xTabs-1) + d.ctTabs(d.ctPane)
+	tabs, offs := subTabs([]string{"Build Container", "Stop Container"}, d.ctPane)
+	tabsRow := strings.Repeat(" ", xTabs-1) + tabs
 	d.ctTabsRects = [2]rect{
-		{x: xTabs, y: 1, w: lipgloss.Width("Build Container") + 2, h: 1},
-		{x: xTabs + lipgloss.Width("Build Container") + 2, y: 1, w: lipgloss.Width("Stop Container") + 2, h: 1},
+		{x: xTabs, y: 2, w: lipgloss.Width("Build Container") + 2, h: 1},
+		{x: xTabs + offs[1], y: 2, w: lipgloss.Width("Stop Container") + 2, h: 1},
 	}
-	rows := []string{tabs, ""}
+	rows := []string{separatorRow(width), tabsRow, ""}
 	rows = append(rows, d.ctContent(width)...)
 	// toast row always reserved so stored rects stay stable
 	rows = append(rows, styleWarn.Render(d.ct.toast))
@@ -410,7 +411,7 @@ func (d *designC) ctContent(width int) []string {
 			rowCards := cards[r*cols:end]
 			rows = append(rows, lipgloss.JoinHorizontal(lipgloss.Top, rowCards...))
 			for c := range rowCards {
-				d.chipRects = append(d.chipRects, rect{x: 1 + c*cardW, y: 3 + r*cardH, w: cardW, h: cardH})
+				d.chipRects = append(d.chipRects, rect{x: 1 + c*cardW, y: 4 + r*cardH, w: cardW, h: cardH})
 			}
 		}
 	} else {
@@ -420,29 +421,19 @@ func (d *designC) ctContent(width int) []string {
 			box = "☒"
 		}
 		rows = append(rows, " "+box+" select all")
-		d.selAll = rect{x: 1, y: 3, w: 2 + lipgloss.Width("select all"), h: 1}
+		d.selAll = rect{x: 1, y: 4, w: 2 + lipgloss.Width("select all"), h: 1}
 		for i, p := range running {
 			box = "☐"
 			if d.ct.selection[p.Name] {
 				box = "☒"
 			}
 			rows = append(rows, " "+box+" "+p.Name+"  "+styleStatusRun.Render("● running"))
-			d.stopRects = append(d.stopRects, rect{x: 1, y: 4 + i, w: width - 2, h: 1})
+			d.stopRects = append(d.stopRects, rect{x: 1, y: 5 + i, w: width - 2, h: 1})
 		}
 	}
 	return rows
 }
 
-func (d *designC) ctTabs(sel int) string {
-	l := lipgloss.NewStyle().Padding(0, 1).Render("Build Container")
-	r := lipgloss.NewStyle().Padding(0, 1).Render("Stop Container")
-	if sel == 0 {
-		l = lipgloss.NewStyle().Background(colAccent).Foreground(lipgloss.Color("0")).Bold(true).Padding(0, 1).Render("Build Container")
-	} else {
-		r = lipgloss.NewStyle().Background(colAccent).Foreground(lipgloss.Color("0")).Bold(true).Padding(0, 1).Render("Stop Container")
-	}
-	return l + r
-}
 
 func editionCard(title string, selected bool) string {
 	inner := []string{title, styleMutedAlt.Render("not built (fake)"), ""}
