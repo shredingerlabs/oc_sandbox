@@ -359,16 +359,29 @@ func textField(val string, cursor int, focused bool) string {
 	return styleSelectedRow.Render(string(rs[:cursor]) + "▌" + string(rs[cursor:]))
 }
 
-// button71 is a single-line button (row-assembled panes need one line
-// per row; the bordered button() renders three).
-func button71(label string, focused bool) string {
-	st := lipgloss.NewStyle().Padding(0, 1)
+// buttonBlock appends a bordered button (same style as Create Project /
+// Build) as its own rows below a blank spacer, and returns the button's
+// hit rect for its middle line.
+// buttonLines renders a bordered button as exactly 3 lines; focus dims in
+// as an accent-filled inner row (keeping the block geometry stable).
+func buttonLines(label string, focused bool) []string {
+	lines := strings.Split(button(label, false), "\n")
 	if focused {
-		st = st.Background(colAccent).Foreground(lipgloss.Color("0")).Bold(true)
-	} else {
-		st = st.Foreground(colCardFg)
+		inner := lipgloss.NewStyle().Background(colAccent).Foreground(lipgloss.Color("0")).Bold(true).
+			Width(lipgloss.Width(label) + 4).Align(lipgloss.Center).Render(label)
+		lines[1] = "│" + inner + "│"
 	}
-	return st.Render("[ " + label + " ]")
+	return lines
+}
+
+func buttonBlock(rows []string, label string, focused bool) ([]string, rect) {
+	lines := buttonLines(label, focused)
+	rows = append(rows, "")
+	midIdx := len(rows) + 1 // top, mid, bottom after the spacer
+	for _, l := range lines {
+		rows = append(rows, "  "+l)
+	}
+	return rows, rect{x: cardX(), y: cardY(midIdx), w: lipgloss.Width("  "+lines[1]), h: 1}
 }
 
 func chooserRow(label string, selected bool) string {
@@ -394,7 +407,7 @@ func optionRow(label string, on bool, focused bool) string {
 }
 
 func (s *settings71) View(width, height int, h help.Model, k keyMap) string {
-	bodyH := height - 2
+	bodyH := height - 3
 	s.foldRects = nil
 	s.backRects = nil
 
@@ -428,7 +441,7 @@ func (s *settings71) View(width, height int, h help.Model, k keyMap) string {
 	box := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(colAccent).
 		Width(boxW).MaxHeight(bodyH - 2).PaddingLeft(1).PaddingRight(1).
 		Render(strings.Join(inner, "\n"))
-	rows := []string{separatorRow(width), tabsRow, "", box, styleWarn.Render(s.toast)}
+	rows := []string{tabsRow, "", box, styleWarn.Render(s.toast)}
 	content := lipgloss.NewStyle().Width(width).Height(bodyH).MaxHeight(bodyH).PaddingLeft(1).
 		Render(strings.Join(rows, "\n"))
 	return shell(width, height, 3, content, h, k)
@@ -457,23 +470,19 @@ func (s *settings71) importPane() []string {
 		rows = append(rows, chooserRow(f, i == s.impSel))
 		s.foldRects = append(s.foldRects, rect{x: cardX(), y: cardY(7 + i), w: 60, h: 1})
 	}
-	btn := button71("Import Project", s.impFocus == 2)
-	rows = append(rows, "", "  "+btn)
 	s.impArea = rect{x: cardX(), y: areaY, w: 60, h: len(fakeFolders)}
-	s.impRects[1] = rect{x: cardX() + 2, y: cardY(12), w: lipgloss.Width(btn), h: 1}
+	rows, s.impRects[1] = buttonBlock(rows, "Import Project", s.impFocus == 2)
 	return rows
 }
 
 func (s *settings71) exportPane() []string {
 	if s.expStage == 0 {
-		btn := button71("Export Config…", false)
-		s.expRects[1] = rect{x: cardX() + 2, y: cardY(3), w: lipgloss.Width(btn), h: 1}
-		return []string{
+		rows0, rect0 := buttonBlock([]string{
 			styleMutedAlt.Render("Copies the sandbox_config.json of a project"),
 			styleMutedAlt.Render("to a destination you pick (save-as)."),
-			"",
-			"  " + btn,
-		}
+		}, "Export Config…", false)
+		s.expRects[1] = rect0
+		return rows0
 	}
 	rows := []string{
 		styleMutedAlt.Render("Save-as: choose where the config copy goes."),
@@ -483,11 +492,17 @@ func (s *settings71) exportPane() []string {
 	focused := s.expFocus == 0
 	rows = append(rows, "  "+textField(s.expDest, s.expCur, focused))
 	s.expRects[0] = rect{x: cardX() + 2, y: cardY(3), w: max(30, lipgloss.Width(s.expDest)+2), h: 1}
-	save := button71("Save", s.expFocus == 1)
-	cancel := button71("Cancel", s.expFocus == 2)
-	rows = append(rows, "", "  "+save+"  "+cancel)
-	s.expRects[1] = rect{x: cardX() + 2, y: cardY(5), w: lipgloss.Width(save), h: 1}
-	s.expRects[2] = rect{x: cardX() + 2 + lipgloss.Width(save) + 2, y: cardY(5), w: lipgloss.Width(cancel), h: 1}
+	// Save + Cancel side by side, bordered buttons like Create Project
+	b1 := buttonLines("Save", s.expFocus == 1)
+	b2 := buttonLines("Cancel", s.expFocus == 2)
+	w1 := lipgloss.Width("  " + b1[1])
+	midIdx := len(rows) + 2 // "", top, mid, bottom
+	rows = append(rows, "",
+		"  "+b1[0]+"  "+b2[0],
+		"  "+b1[1]+"  "+b2[1],
+		"  "+b1[2]+"  "+b2[2])
+	s.expRects[1] = rect{x: cardX(), y: cardY(midIdx), w: w1, h: 1}
+	s.expRects[2] = rect{x: cardX() + w1 + 2, y: cardY(midIdx), w: lipgloss.Width("  "+b2[1]), h: 1}
 	return rows
 }
 
@@ -503,10 +518,8 @@ func (s *settings71) restorePane() []string {
 		rows = append(rows, chooserRow(b, i == s.resSel))
 		s.backRects = append(s.backRects, rect{x: cardX(), y: cardY(4 + i), w: 60, h: 1})
 	}
-	btn := button71("Restore", s.resFocus == 1)
-	rows = append(rows, "", "  "+btn)
 	s.resRects[0] = rect{x: cardX(), y: areaY, w: 60, h: len(fakeBackups)}
-	s.resRects[1] = rect{x: cardX() + 2, y: cardY(9), w: lipgloss.Width(btn), h: 1}
+	rows, s.resRects[1] = buttonBlock(rows, "Restore", s.resFocus == 1)
 	return rows
 }
 
@@ -523,19 +536,11 @@ func (s *settings71) uninstallPane() []string {
 		rows = append(rows, optionRow(l, s.unOpts[i], s.unFocus == i))
 		s.unRects[i] = rect{x: cardX(), y: cardY(5 + i), w: 60, h: 1}
 	}
+	armed := strings.EqualFold(strings.TrimSpace(s.unConfirm), "uninstall")
 	rows = append(rows, "", styleFieldLabel.Render("Type \"uninstall\" to confirm"))
 	focused := s.unFocus == 3
 	rows = append(rows, "  "+textField(s.unConfirm, s.unCur, focused))
 	s.unRects[3] = rect{x: cardX() + 2, y: cardY(10), w: max(20, lipgloss.Width(s.unConfirm)+2), h: 1}
-	armed := strings.EqualFold(strings.TrimSpace(s.unConfirm), "uninstall")
-	var btn string
-	if armed {
-		btn = button71("Uninstall", s.unFocus == 4)
-	} else {
-		btn = lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Padding(0, 1).
-			Render("[ Uninstall ]")
-	}
-	rows = append(rows, "", "  "+btn)
-	s.unRects[4] = rect{x: cardX() + 2, y: cardY(12), w: lipgloss.Width("Uninstall") + 4, h: 1}
+	rows, s.unRects[4] = buttonBlock(rows, "Uninstall", armed)
 	return rows
 }

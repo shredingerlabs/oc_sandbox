@@ -18,7 +18,7 @@ func TestNPBehavior(t *testing.T) {
 	root.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
 	root.view = viewNew
 	root.View()
-	d := root.designs[0].(*designA)
+	d := root.npct
 	s := d.np
 	// type a name -> path auto-updates
 	typeRunes(root, "my_app")
@@ -61,38 +61,20 @@ func TestNPBehavior(t *testing.T) {
 	}
 }
 
-// B and C: mouse switches the source control / container tabs and clicks
-// a build chip.
-func TestDesignBAndCMouse(t *testing.T) {
+// design C: tabs under the header, build via Enter
+func TestDesignCMouse(t *testing.T) {
 	root := NewRoot()
 	root.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
 	root.view = viewNew
-
-	// design B: segmented control, right half = From URL
-	root.current = 1
-	root.Update(tea.MouseMsg{X: 70, Y: 1, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft})
-	if d := root.designs[1].(*designB); d.np.source != 1 {
-		t.Fatalf("B source=%d", d.np.source)
-	}
-	root.view = viewContainer
 	root.View()
-	// click the second edition chip (stored rects render-relative; click in
-	// the content column area, upper rows)
-	if d := root.designs[1].(*designB); len(d.chips) == 0 {
-		t.Fatal("B chips missing")
-	}
-
-	// design C: tabs, then build via enters
-	root.current = 2
-	root.view = viewNew
-	root.View()
-	root.Update(tea.MouseMsg{X: 22, Y: 3, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft})
-	if d := root.designs[2].(*designC); d.np.source != 1 {
+	// click the "From URL" sub-menu tab (body row 0 -> screen y=2)
+	root.Update(tea.MouseMsg{X: 28, Y: 2, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft})
+	if d := root.npct; d.np.source != 1 {
 		t.Fatalf("C source=%d", d.np.source)
 	}
 	root.view = viewContainer
 	root.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	if c := root.designs[2].(*designC); c.ct.building != editions[c.buildSel] {
+	if c := root.npct; c.ct.building != editions[c.buildSel] {
 		t.Fatalf("C build=%q", c.ct.building)
 	}
 }

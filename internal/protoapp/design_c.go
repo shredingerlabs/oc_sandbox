@@ -145,17 +145,33 @@ func (d *designC) npActivate(id int) {
 
 const boxW = 64
 
+func padLeft(n int, s string) string {
+	if n <= 0 {
+		return s
+	}
+	pad := strings.Repeat(" ", n)
+	lines := strings.Split(s, "\n")
+	for i := range lines {
+		lines[i] = pad + lines[i]
+	}
+	return strings.Join(lines, "\n")
+}
+
 func (d *designC) ViewNP(width, height int, h help.Model, k keyMap) string {
 	s := d.np
-	bodyH := height - 2
+	bodyH := height - 3
 	d.optionRects = nil
 	x0 := 1 // pinned top-left under the header, like the card grids
 	d.boxX = x0
-	rows := []string{"", d.dialogTabs(s.source)}
-	tabL, tabR := npTab("Blank project", s.source == 0), npTab("From URL", s.source == 1)
-	wL := lipgloss.Width(tabL)
-	d.tabsRects = [2]rect{{y: 3, w: wL, h: 1}, {y: 3, w: lipgloss.Width(tabR), h: 1}}
-	rows[1] = tabL + tabR
+	// source tabs in the sub-menu row under the header menu (feedback 3)
+	xTabs := lipgloss.Width(styleHeaderTitle.Render("oc-sandbox"))
+	tabs, offs := subTabs([]string{"Blank Project", "From URL"}, s.source)
+	tabsRow := strings.Repeat(" ", xTabs-1) + tabs
+	d.tabsRects = [2]rect{
+		{x: xTabs, y: 2, w: lipgloss.Width("Blank Project") + 2, h: 1},
+		{x: xTabs + offs[1], y: 2, w: lipgloss.Width("From URL") + 2, h: 1},
+	}
+	rows := []string{}
 	nf := 0
 	for _, id := range s.fields {
 		if id == fCreate {
@@ -175,26 +191,27 @@ func (d *designC) ViewNP(width, height int, h help.Model, k keyMap) string {
 		maxw = maxInt(maxw, lipgloss.Width(r))
 	}
 	boxW := maxw + 4
-	// tab/field/button rects in screen space (content x = x0+2)
-	d.tabsRects[0].x = x0 + 2
-	d.tabsRects[1].x = x0 + 2 + wL
+	// field/button rects in screen space (content x = x0+2, body starts
+	// at screen row 2)
 	d.fieldRects = d.fieldRects[:0]
 	nf = 0
 	for _, id := range s.fields {
 		if id == fCreate {
 			continue
 		}
-		d.fieldRects = append(d.fieldRects, rect{x: x0 + 2, y: 4 + 2*nf, w: boxW - 4, h: 2})
+		d.fieldRects = append(d.fieldRects, rect{x: x0 + 2, y: 5 + 2*nf, w: boxW - 4, h: 2})
 		nf++
 	}
 	btnX := x0 + 2 + (boxW - 4) - lipgloss.Width(btn)
-	d.npBtn = rect{x: btnX, y: 2 + len(rows) - 1, w: lipgloss.Width(btn), h: 3}
+	// button is a 3-line block as the last rows entry: box top border at
+	// screen 4, first inner row at 5, button top at 5 + len(rows)-1
+	d.npBtn = rect{x: btnX, y: 5 + len(rows), w: lipgloss.Width(btn), h: 1}
 	rows[len(rows)-1] = alignRight(maxw, btn)
 
 	inner := lipgloss.NewStyle().Width(boxW - 2).Padding(0, 1).Render(strings.Join(rows, "\n"))
 	box := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(colAccent).
 		Width(boxW).MaxHeight(bodyH).Render(inner)
-	body := padLeft(x0, box)
+	body := tabsRow + "\n\n" + padLeft(x0, box)
 	// anchor to the top: fill the rest of the body AFTER the box, so the
 	// shell's bottom-anchored padding can't push the dialog down
 	if fill := bodyH - lipgloss.Height(body); fill > 0 {
@@ -204,36 +221,6 @@ func (d *designC) ViewNP(width, height int, h help.Model, k keyMap) string {
 	return shell(width, height, 1, body, h, k)
 }
 
-func npTab(label string, selected bool) string {
-	st := lipgloss.NewStyle().Padding(0, 1)
-	if selected {
-		return st.Background(colAccent).Foreground(lipgloss.Color("0")).Bold(true).Render(label)
-	}
-	return st.Render(label)
-}
-
-func padLeft(n int, s string) string {
-	if n <= 0 {
-		return s
-	}
-	pad := strings.Repeat(" ", n)
-	lines := strings.Split(s, "\n")
-	for i := range lines {
-		lines[i] = pad + lines[i]
-	}
-	return strings.Join(lines, "\n")
-}
-
-func (d *designC) dialogTabs(sel int) string {
-	l := lipgloss.NewStyle().Padding(0, 1).Render("Blank project")
-	r := lipgloss.NewStyle().Padding(0, 1).Render("From URL")
-	if sel == 0 {
-		l = lipgloss.NewStyle().Background(colAccent).Foreground(lipgloss.Color("0")).Bold(true).Padding(0, 1).Render("Blank project")
-	} else {
-		r = lipgloss.NewStyle().Background(colAccent).Foreground(lipgloss.Color("0")).Bold(true).Padding(0, 1).Render("From URL")
-	}
-	return l + r
-}
 
 // dlgValue renders a field's value line; select fields render ALL options
 // in fixed order — ● current, ○ others, no reordering, no "·" separators —
@@ -269,7 +256,7 @@ func (d *designC) dlgValue(id, fi int) string {
 		// value line: every option, fixed order; current gets ●
 		var toks []string
 		off := 0
-		y := 4 + 2*fi + 1 // value line row in screen space
+		y := 6 + 2*fi // value line row in screen space (body starts row 2)
 		for _, opt := range optionList(id) {
 			var tok string
 			if opt == val {
@@ -366,7 +353,7 @@ func (d *designC) UpdateCT(msg tea.Msg, width, height int) {
 }
 
 func (d *designC) ViewCT(width, height int, h help.Model, k keyMap) string {
-	bodyH := height - 2
+	bodyH := height - 3
 	// align the Build/Stop sub-menu under "Open Project" in the top menu:
 	// the header starts with the padded "oc-sandbox" title, so xTabs is its
 	// printed width. PaddingLeft(1) already puts content at x=1; prepend the
@@ -378,17 +365,39 @@ func (d *designC) ViewCT(width, height int, h help.Model, k keyMap) string {
 		{x: xTabs, y: 2, w: lipgloss.Width("Build Container") + 2, h: 1},
 		{x: xTabs + offs[1], y: 2, w: lipgloss.Width("Stop Container") + 2, h: 1},
 	}
-	rows := []string{separatorRow(width), tabsRow, ""}
-	rows = append(rows, d.ctContent(width)...)
-	// toast row always reserved so stored rects stay stable
-	rows = append(rows, styleWarn.Render(d.ct.toast))
-	label := "Build"
-	if d.ctPane == 1 {
-		label = "Stop"
+	rows := []string{tabsRow, ""}
+	if d.ctPane == 0 {
+		rows = append(rows, d.ctContent(width)...)
+		// toast row always reserved so stored rects stay stable
+		rows = append(rows, styleWarn.Render(d.ct.toast))
+		btn := button("Build", false)
+		rows = append(rows, alignRight(width-1, btn))
+		// the button block is the last entry; count display lines before it
+		// (chip rows are multi-line strings) to find its top edge
+		linesBefore := 0
+		for _, rr := range rows[:len(rows)-1] {
+			linesBefore += strings.Count(rr, "\n") + 1
+		}
+		d.ctBtn = rect{x: width - lipgloss.Width(btn) - 1, y: 2 + linesBefore + 1, w: lipgloss.Width(btn), h: 1}
+	} else {
+		// Stop: checklist + Stop button inside a Variant C card frame
+		inner := d.ctContent(width)
+		btnBlock := buttonLines("Stop", false)
+		inner = append(inner, "")
+		midIdx := len(inner) + 1 // top, mid, bottom after the spacer
+		for _, l := range btnBlock {
+			inner = append(inner, "  "+l)
+		}
+		maxw := 0
+		for _, r := range inner {
+			maxw = maxInt(maxw, lipgloss.Width(r))
+		}
+		box := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(colAccent).
+			Width(maxw + 4).MaxHeight(bodyH - 2).PaddingLeft(1).PaddingRight(1).
+			Render(strings.Join(inner, "\n"))
+		d.ctBtn = rect{x: 3, y: 5 + midIdx, w: lipgloss.Width("  " + btnBlock[1]), h: 1}
+		rows = append(rows, box, styleWarn.Render(d.ct.toast))
 	}
-	btn := button(label, false)
-	rows = append(rows, alignRight(width-1, btn))
-	d.ctBtn = rect{x: width - lipgloss.Width(btn), y: 1 + len(rows) - 1, w: lipgloss.Width(btn), h: 3}
 	content := lipgloss.NewStyle().Width(width).Height(bodyH).MaxHeight(bodyH).PaddingLeft(1).
 		Render(strings.Join(rows, "\n"))
 	return shell(width, height, 2, content, h, k)
@@ -421,14 +430,14 @@ func (d *designC) ctContent(width int) []string {
 			box = "☒"
 		}
 		rows = append(rows, " "+box+" select all")
-		d.selAll = rect{x: 1, y: 4, w: 2 + lipgloss.Width("select all"), h: 1}
+		d.selAll = rect{x: 3, y: 5, w: 2 + lipgloss.Width("select all"), h: 1}
 		for i, p := range running {
 			box = "☐"
 			if d.ct.selection[p.Name] {
 				box = "☒"
 			}
 			rows = append(rows, " "+box+" "+p.Name+"  "+styleStatusRun.Render("● running"))
-			d.stopRects = append(d.stopRects, rect{x: 1, y: 5 + i, w: width - 2, h: 1})
+			d.stopRects = append(d.stopRects, rect{x: 3, y: 6 + i, w: 60, h: 1})
 		}
 	}
 	return rows

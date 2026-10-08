@@ -17,7 +17,6 @@ var headerMenuItems = []string{"Open Project", "New Project", "Container", "Sett
 var footerReserve int
 
 type keyMap struct {
-	SwitchVariant key.Binding
 	NextProject   key.Binding
 	PrevProject   key.Binding
 	Start         key.Binding
@@ -28,10 +27,6 @@ type keyMap struct {
 
 func newKeys() keyMap {
 	return keyMap{
-		SwitchVariant: key.NewBinding(
-			key.WithKeys("v"),
-			key.WithHelp("v", "cycle"),
-		),
 		NextProject: key.NewBinding(
 			key.WithKeys("down", "j"),
 			key.WithHelp("↓", "select"),
@@ -60,11 +55,11 @@ func newKeys() keyMap {
 }
 
 func (k keyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.SwitchVariant, k.NextProject, k.Start, k.Quit}
+	return []key.Binding{k.NextProject, k.Start, k.Quit}
 }
 
 func (k keyMap) FullHelp() [][]key.Binding {
-	return [][]key.Binding{{k.SwitchVariant, k.Menu, k.Quit}, {k.NextProject, k.Start, k.Help}}
+	return [][]key.Binding{{k.NextProject, k.Start, k.Quit}, {k.Menu, k.Help}}
 }
 
 // separatorRow renders a full-width rule row (between the header menu and
@@ -131,7 +126,7 @@ func shell(width, height int, menuFocus int, body string, h help.Model, k keyMap
 	// Footer: mouse/legend hint on the left (moved here from the header per
 	// user feedback), keyboard help right-aligned just before the variant
 	// pill (root.View reserves its width in footerReserve before rendering).
-	hint := styleFooter.Render("1 open · 2 new · 3 container · 4 settings · v design · m menu, ○/● status")
+	hint := styleFooter.Render("1 open · 2 new project · 3 container · 4 settings · m menu")
 	helpView := h.View(k)
 	avail := width - footerReserve
 	lead := avail - lipgloss.Width(hint) - lipgloss.Width(helpView)
@@ -141,8 +136,9 @@ func shell(width, height int, menuFocus int, body string, h help.Model, k keyMap
 	}
 	footer = lipgloss.NewStyle().MaxWidth(width).Render(footer)
 
-	// Vertical layout: clamp/fill body so header+body+footer == height.
-	maxBody := height - 2
+	// Vertical layout: header, separator rule, body, footer — body starts
+	// at screen row 2 (header row 0, separator row 1).
+	maxBody := height - 3
 	if lipgloss.Height(body) > maxBody {
 		body = lipgloss.NewStyle().MaxHeight(maxBody).Render(body)
 	}
@@ -152,6 +148,8 @@ func shell(width, height int, menuFocus int, body string, h help.Model, k keyMap
 	}
 	var b strings.Builder
 	b.WriteString(header)
+	b.WriteString("\n")
+	b.WriteString(separatorRow(width))
 	for i := 0; i < pad; i++ {
 		b.WriteString("\n")
 	}

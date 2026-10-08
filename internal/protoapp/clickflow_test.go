@@ -14,9 +14,8 @@ func TestCClickFlow(t *testing.T) {
 	root := NewRoot()
 	root.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
 	root.view = viewContainer
-	root.current = 2
 	root.View() // render -> rects stored as a mouse would see them
-	d := root.designs[2].(*designC)
+	d := root.npct
 	// select chip 0 on the Build pane
 	c0 := d.chipRects[0]
 	click(root, c0.x+2, c0.y+2)
@@ -29,7 +28,7 @@ func TestCClickFlow(t *testing.T) {
 		t.Fatal("double click did not build")
 	}
 	// Build button
-	if !d.ctBtn.hit(d.ctBtn.x+1, d.ctBtn.y+1) {
+	if !d.ctBtn.hit(d.ctBtn.x+1, d.ctBtn.y) {
 		t.Fatal("build button rect off")
 	}
 	// switch to Stop pane via stored tab rect
@@ -45,7 +44,7 @@ func TestCClickFlow(t *testing.T) {
 		t.Fatal("select-all rect off")
 	}
 	click(root, d.stopRects[0].x+2, d.stopRects[0].y)
-	click(root, d.ctBtn.x+1, d.ctBtn.y+1)
+	click(root, d.ctBtn.x+1, d.ctBtn.y)
 	names := d.ct.selectedNames(fakeRunning())
 	if len(names) != 0 {
 		t.Fatal("stop rows/select-all interaction broken")
@@ -57,10 +56,9 @@ func TestNPOptionClick(t *testing.T) {
 	root := NewRoot()
 	root.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
 	root.view = viewNew
-	root.current = 2
 	root.View() // 1st layout
 	root.View() // 2nd layout on top (previously accumulated rects -> panic)
-	d := root.designs[2].(*designC)
+	d := root.npct
 	s := d.np
 	// click "yes" in the Use proxy row (fixed order: no=●, yes=○)
 	for _, or := range d.optionRects {
@@ -92,9 +90,8 @@ func TestNPPathEditable(t *testing.T) {
 	root := NewRoot()
 	root.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
 	root.view = viewNew
-	root.current = 2
 	root.View()
-	d := root.designs[2].(*designC)
+	d := root.npct
 	s := d.np
 	s.focus = 1 // fPath
 	s.cursor = len(s.path)

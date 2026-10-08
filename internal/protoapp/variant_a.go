@@ -38,7 +38,7 @@ func (v *variantA) Name() string { return "A cards" }
 // geom mirrors exampleCards.go: fixed card size -> cols = gridW/cardW,
 // visible rows = bodyH/cardH.
 func (v *variantA) geom(width, height int) (gridW, cols, visRows int) {
-	bodyH := height - 2
+	bodyH := height - 3
 	gridW = maxInt(1, width-settingsPaneW)
 	cols = maxInt(1, gridW/cardW)
 	visRows = maxInt(1, bodyH/cardH)
@@ -77,18 +77,19 @@ func (v *variantA) Update(msg tea.Msg, width, height int) {
 }
 
 // hitCard maps screen coordinates to a card. Screen row 0 is the shell
-// header; the grid starts at screen row y=1 (body row 0), one card per
-// cardH lines, cards flow left-to-right, wrapping on cols.
+// header, row 1 the separator; the grid starts at screen row y=2 (body
+// row 0), one card per cardH lines, cards flow left-to-right, wrapping
+// on cols.
 func (v *variantA) hitCard(x, y, width, height int) (int, bool) {
 	_, cols, _ := v.geom(width, height)
-	if y < 1 {
+	if y < 2 {
 		return 0, false
 	}
 	col := x / cardW
 	if col >= cols {
 		return 0, false
 	}
-	localRow := (y - 1) / cardH
+	localRow := (y - 2) / cardH
 	idx := (v.offRow+localRow)*cols + col
 	if idx >= 0 && idx < len(v.projects) {
 		return idx, true
@@ -99,7 +100,7 @@ func (v *variantA) hitCard(x, y, width, height int) (int, bool) {
 func (v *variantA) View(width, height int, h help.Model, k keyMap) string {
 	gridW, cols, visRows := v.geom(width, height)
 	v.cols = cols
-	bodyH := height - 2
+	bodyH := height - 3
 	totalRows := (len(v.projects) + cols - 1) / cols
 	if v.offRow > totalRows-visRows {
 		v.offRow = maxInt(0, totalRows-visRows)
