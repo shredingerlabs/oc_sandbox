@@ -256,6 +256,18 @@ func TestMouseSubTabsAndBody(t *testing.T) {
 	}
 }
 
+func TestNavRequestMsgSwitchesView(t *testing.T) {
+	m := resized(newTestModel(), 100, 30)
+	m, _ = step(m, NavRequestMsg{Index: 1})
+	if m.Active() != 1 || !strings.Contains(m.View(), "BODY:two") {
+		t.Errorf("NavRequestMsg{1} did not switch to view 1 (active=%d)", m.Active())
+	}
+	m, _ = step(m, NavRequestMsg{Index: 99}) // out of range: ignored
+	if m.Active() != 1 {
+		t.Errorf("out-of-range NavRequestMsg switched views (active=%d)", m.Active())
+	}
+}
+
 func TestTooSmallGuardAsciiSnapshot(t *testing.T) {
 	saved := lipgloss.ColorProfile()
 	lipgloss.SetColorProfile(termenv.Ascii)

@@ -21,6 +21,12 @@ const (
 // its sub-menu tab pills (row SubTabRowY).
 type SubTabMsg struct{ Index int }
 
+// NavRequestMsg asks the root to switch the active center view (e.g. the
+// Settings import flow referring into the New Project wizard). Views emit
+// it as a tea.Cmd; the root consumes it so navigation stays a shell
+// concern, not a view-to-view call.
+type NavRequestMsg struct{ Index int }
+
 // CenterView is a center view (#77-#80) plugged into the shell. Update
 // receives every message the shell itself does not consume (all key
 // events after the shell's own handling, mouse events outside the
@@ -117,6 +123,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		return m, m.views[m.active].Update(msg)
+	case NavRequestMsg:
+		if msg.Index >= 0 && msg.Index < len(m.views) {
+			m.active = msg.Index
+		}
+		return m, nil
 	default:
 		return m, m.views[m.active].Update(msg)
 	}
