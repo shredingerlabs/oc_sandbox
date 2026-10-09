@@ -1,0 +1,17 @@
+{
+  "container_edition": "swdev",
+  "container_modes": [
+    "offline"
+  ],
+  "start_option": "console",
+  "cbm_auto_index": true,
+  "cbm_auto_watch": true,
+  "ai_provider": "none",
+  "project_source": "cloned",
+  "repo_url": "",
+  "setup_clone_complete": false,
+  "setup_cbm_complete": false,
+  "setup_skills_complete": false,
+  "setup_complete": false,
+  "version": "1.0"
+}
