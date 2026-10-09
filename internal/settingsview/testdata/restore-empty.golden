@@ -1,0 +1,10 @@
+  ╭─────────────────────────────────────────────────╮
+  │ No configuration backups yet.                   │
+  │ Config writes and the Export Config card create │
+  │ backups under ~/.config/oc-sandbox/backups.     │
+  │                                                 │
+  │   ╭────────╮                                    │
+  │   │  Back  │                                    │
+  │   ╰────────╯                                    │
+  │                                                 │
+  ╰─────────────────────────────────────────────────╯
