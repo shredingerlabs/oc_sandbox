@@ -18,13 +18,17 @@ import (
 	"github.com/shredingerlabs/oc-sandbox/internal/registry"
 	"github.com/shredingerlabs/oc-sandbox/internal/sandboxcfg"
 	"github.com/shredingerlabs/oc-sandbox/internal/shell"
+	"github.com/shredingerlabs/oc-sandbox/internal/taskmgr"
 )
 
 // Sub-menu tab items (approved layout record #72).
 var tabs = []string{"Import project", "Export Config", "Restore Config", "Uninstall"}
 
 // View is the Settings center view. Home is $HOME; the config layout,
-// registry, backups and the default install root hang off it.
+// registry, backups and the default install root hang off it. Tasks is
+// the shared background-task manager (#82): when wired, the uninstall /
+// export / restore ops run as queued tasks; without it they stay
+// synchronous through the Ops seam (legacy parity).
 type View struct {
 	home        string
 	installRoot string
@@ -32,6 +36,10 @@ type View struct {
 	run         cmdrun.Runner
 	now         func() time.Time
 	ops         Ops
+	Tasks       *taskmgr.Manager
+
+	opSeq        int // view-assigned task handles
+	queuePending map[int]func(err error) tea.Cmd
 
 	sub   int // 0 import, 1 export, 2 restore, 3 uninstall
 	toast string
@@ -84,12 +92,13 @@ type View struct {
 func New(home string) *View {
 	installRoot := home + "/.oc-sandbox"
 	v := &View{
-		home:        home,
-		installRoot: installRoot,
-		scriptPath:  installRoot + "/scripts/uninstall.sh",
-		run:         cmdrun.ExecRunner{},
-		now:         time.Now,
-		unOptSyml:   true,
+		home:         home,
+		installRoot:  installRoot,
+		scriptPath:   installRoot + "/scripts/uninstall.sh",
+		run:          cmdrun.ExecRunner{},
+		now:          time.Now,
+		unOptSyml:    true,
+		queuePending: map[int]func(err error) tea.Cmd{},
 	}
 	v.ops = DefaultOps{view: v}
 	return v
@@ -116,6 +125,8 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 			v.scroll = 0
 			v.enterPane()
 		}
+	case taskmgr.DoneMsg: // continuation of a queued op (#82)
+		return v.taskDone(msg)
 	case tea.KeyMsg:
 		return v.key(msg)
 	case tea.MouseMsg:
@@ -127,6 +138,20 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 		}
 	}
 	return nil
+}
+
+// taskDone runs a queued op's continuation; unknown ids are foreign
+// tasks (other views') and ignored.
+func (v *View) taskDone(msg taskmgr.DoneMsg) tea.Cmd {
+	after, ours := v.queuePending[msg.ID]
+	if !ours {
+		return nil
+	}
+	delete(v.queuePending, msg.ID)
+	if msg.Err != nil {
+		v.toast = msg.Err.Error()
+	}
+	return after(msg.Err)
 }
 
 // enterPane refreshes the pane's live data when its tab is entered:
@@ -361,3 +386,7 @@ func (v *View) registryView() *registry.Registry {
 }
 
 func (v *View) configPaths() config.Paths { return config.Paths{Home: v.home} }
+
+// Busy implements shell.BusyView: queued settings ops count as
+// background work (guarded exit, #82).
+func (v *View) Busy() bool { return v.Tasks != nil && v.Tasks.Busy() }

@@ -2,38 +2,32 @@ package openproject
 
 import (
 	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/shredingerlabs/oc-sandbox/internal/taskmgr"
 )
 
-// Op is one long-running operation (container start or image build)
-// launched through the Launcher seam. Run blocks until the operation
-// finishes, reporting output lines through line as they appear.
-type Op struct {
-	ID    int
-	Title string
-	Run   func(line func(string)) error
-}
+// Op is the canonical taskmgr.Op re-exported: one long-running
+// operation (container start or image build) launched through the
+// Launcher seam. Run blocks until the operation finishes, reporting
+// output lines through line as they appear; Key buckets the per-project
+// queue (container identity, #82).
+type Op = taskmgr.Op
 
-// OpDoneMsg reports a finished long operation. Lines carries the output
-// collected while it ran; a streaming upgrade replaces the batch with
-// LineMsgs as they occur (#82).
-type OpDoneMsg struct {
-	ID    int
-	Lines []string
-	Err   error
-}
+// OpDoneMsg = taskmgr.DoneMsg reports a finished long operation
+// (streamed lines went out as taskmgr.LineEvents while it ran; Lines
+// carries the whole output for batch launchers).
+type OpDoneMsg = taskmgr.DoneMsg
 
 // Launcher is the single seam through which long operations leave the
 // Open Project view (#77): every build/start runs through Launch, the
-// view itself never spawns goroutines. The returned tea.Cmd — executed
-// by the BubbleTea runtime — drives Op.Run and yields one OpDoneMsg.
-// The background-task manager (#82) swaps this seam for queued,
-// streaming, cancellable tasks without touching the view.
-type Launcher interface {
-	Launch(op Op) tea.Cmd
-}
+// view itself never spawns goroutines. The task manager (#82) implements
+// it for wires everywhere; without one DefaultLauncher keeps the
+// synchronous batch behavior.
+type Launcher = taskmgr.Launcher
 
 // DefaultLauncher runs Op.Run inside the returned tea.Cmd and reports
-// its result as one OpDoneMsg.
+// its result as one OpDoneMsg (the pre-#82 behavior, kept as the
+// fallback for one-off wiring and tests).
 type DefaultLauncher struct{}
 
 // Launch implements Launcher.

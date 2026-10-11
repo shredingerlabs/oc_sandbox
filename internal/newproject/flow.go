@@ -168,21 +168,25 @@ func (m *Model) createTail() tea.Cmd {
 	if m.source == srcURL {
 		initArgs = append(initArgs, "--repo_url", m.url)
 	}
-	if _, err := m.ops.Run(m.cfg.InitScript, initArgs...); err != nil {
-		m.toast = "Project initialization failed — no project state was registered."
-		return nil
-	}
-	cfgPath := sandboxcfg.Path(root)
-	if err := sandboxcfg.Create(m.cfg.Home, cfgPath, m.edition, m.modes, m.start, m.ai); err != nil {
-		m.toast = "sandbox_config.json could not be created: " + err.Error()
-		return nil
-	}
-	if err := m.patchConfig(cfgPath); err != nil {
-		m.toast = "sandbox_config.json could not be patched: " + err.Error()
-		return nil
-	}
-	m.buildCreds(root)
-	return m.runCreds()
+	return m.queueScript("Creating project "+m.name,
+		func() (string, error) { return m.ops.Run(m.cfg.InitScript, initArgs...) },
+		func(err error) tea.Cmd {
+			if err != nil {
+				m.toast = "Project initialization failed — no project state was registered."
+				return nil
+			}
+			cfgPath := sandboxcfg.Path(root)
+			if err := sandboxcfg.Create(m.cfg.Home, cfgPath, m.edition, m.modes, m.start, m.ai); err != nil {
+				m.toast = "sandbox_config.json could not be created: " + err.Error()
+				return nil
+			}
+			if err := m.patchConfig(cfgPath); err != nil {
+				m.toast = "sandbox_config.json could not be patched: " + err.Error()
+				return nil
+			}
+			m.buildCreds(root)
+			return m.runCreds()
+		})
 }
 
 // patchConfig applies the field patches via the atomic paths (data map:
@@ -286,11 +290,16 @@ func (m *Model) runCreds() tea.Cmd {
 			m.refresh()
 			return nil
 		}
-		if _, err := m.ops.Run(m.cfg.ConfigureScript, st.args...); err != nil {
-			m.toast = "Project configuration failed — " + err.Error()
-			return nil
-		}
-		m.credQueue = m.credQueue[1:]
+		return m.queueScript("Configuring credentials",
+			func() (string, error) { return m.ops.Run(m.cfg.ConfigureScript, st.args...) },
+			func(err error) tea.Cmd {
+				if err != nil {
+					m.toast = "Project configuration failed — " + err.Error()
+					return nil
+				}
+				m.credQueue = m.credQueue[1:]
+				return m.runCreds()
+			})
 	}
 	return m.finishCreate()
 }
@@ -314,6 +323,7 @@ func (m *Model) finishCreate() tea.Cmd {
 		m.toast = "Project not registered: " + err.Error()
 		return nil
 	}
+	m.created = true
 	m.toast = "Project created successfully."
 	return func() tea.Msg {
 		return CreatedMsg{Name: req.Name, Path: root, ConfigPath: sandboxcfg.Path(root)}
@@ -343,4 +353,3 @@ func (m *Model) needsConfirm(st credStep) bool {
 	}
 	return false
 }
-

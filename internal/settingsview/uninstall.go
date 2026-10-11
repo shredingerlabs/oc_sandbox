@@ -99,12 +99,16 @@ func (v *View) runUninstall() tea.Cmd {
 	if v.unOptCfg {
 		args = append(args, "--remove-config")
 	}
-	if err := v.ops.RunUninstall(v.scriptPath, args); err != nil {
-		v.toast = "Uninstall script reported an error — see the log: " + err.Error()
-		return nil
-	}
-	v.toast = "Uninstall script finished — see the log for details."
-	return nil
+	return v.queueOp("Uninstalling oc-sandbox",
+		func() (string, error) { return "", v.ops.RunUninstall(v.scriptPath, args) },
+		func(err error) tea.Cmd {
+			if err != nil {
+				v.toast = "Uninstall script reported an error — see the log: " + err.Error()
+				return nil
+			}
+			v.toast = "Uninstall script finished — see the log for details."
+			return nil
+		})
 }
 
 // uninstallActivate runs the focused item's action (keyboard parity for

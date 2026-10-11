@@ -16,6 +16,7 @@ import (
 	"github.com/shredingerlabs/oc-sandbox/internal/registry"
 	"github.com/shredingerlabs/oc-sandbox/internal/sandboxcfg"
 	"github.com/shredingerlabs/oc-sandbox/internal/shell"
+	"github.com/shredingerlabs/oc-sandbox/internal/taskmgr"
 )
 
 // Test harness: fake cmdrun runner (no podman), two registered projects
@@ -91,6 +92,7 @@ type env struct {
 	roots   map[string]string
 	ids     map[string]string
 	lastCmd tea.Cmd
+	mgr     *taskmgr.Manager
 	base    time.Time
 	seq     int
 }

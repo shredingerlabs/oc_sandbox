@@ -11,6 +11,7 @@ import (
 	"github.com/shredingerlabs/oc-sandbox/internal/cmdrun"
 	"github.com/shredingerlabs/oc-sandbox/internal/registry"
 	"github.com/shredingerlabs/oc-sandbox/internal/shell"
+	"github.com/shredingerlabs/oc-sandbox/internal/taskmgr"
 )
 
 const buildScript = "/install/scripts/build-container.sh"
@@ -172,11 +173,11 @@ func TestBuildTabDiscoveryErrorShownLoudly(t *testing.T) {
 
 func TestBuildCardClickSelectsThenDoubleClickBuilds(t *testing.T) {
 	m, fake, _, _ := newFixture(t)
-	m.Body(80, 22) // stores hit rects
+	m.Body(80, 22)             // stores hit rects
 	if len(m.cardRects) != 4 { // all, base, web, mycustom
 		t.Fatalf("card rects = %d, want 3", len(m.cardRects))
 	}
-	r := m.cardRects[2] // web
+	r := m.cardRects[2]                // web
 	m.Update(mousePress(r.X+2, r.Y+1)) // single click selects
 	if len(fake.Calls) != 0 {
 		t.Fatalf("single click already ran a build: %v", fake.Calls)
@@ -511,5 +512,83 @@ func TestHitRectsStableAcrossToasts(t *testing.T) {
 		if m.cardRects[i] != buildCards[i] {
 			t.Errorf("card rect %d shifted: %+v vs %+v", i, m.cardRects[i], buildCards[i])
 		}
+	}
+}
+
+// --- #82: shared queue-driven ops + streaming ---
+
+// driveQueue drains the launch cmd through the model seam exactly like
+// the shell: every event goes to the view and once to the shared queue.
+func driveQueue(t *testing.T, m *Model, cmd tea.Cmd) {
+	t.Helper()
+	for cmd != nil {
+		msg := cmd()
+		if msg == nil {
+			break
+		}
+		switch msg := msg.(type) {
+		case tea.BatchMsg:
+			cmd = nil
+			for _, c := range []tea.Cmd(msg) {
+				driveQueue(t, m, c)
+			}
+		default:
+			cmd = nil
+			if next := m.Queue.Update(msg); next != nil {
+				driveQueue(t, m, next)
+			}
+			m.Update(msg)
+		}
+	}
+}
+
+func TestBuildThroughSharedQueueStreamsAndFrees(t *testing.T) {
+	m, fake, _, _ := newFixture(t)
+	fake.Script = func(name string, args []string) (string, error) {
+		return "STEP 1/1\n", nil
+	}
+	m.Queue = taskmgr.New()
+	m.Body(80, 22)
+	cmd := m.Update(keyType(tea.KeyEnter))
+	if !m.Busy() || !m.Queue.BusyKey("cv-build:all") {
+		t.Fatal("op not busy / not visible on its queue key")
+	}
+	driveQueue(t, m, cmd)
+	if m.Busy() || m.Queue.BusyKey("cv-build:all") {
+		t.Fatal("queue did not free after completion")
+	}
+	got := body(m)
+	for _, want := range []string{"STEP 1/1", "Build successful"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("streamed build missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Count(got, "STEP 1/1") != 1 {
+		t.Fatalf("streamed line flushed twice:\n%s", got)
+	}
+}
+
+func TestBusyEditionCardShowsStillRunningIndicator(t *testing.T) {
+	m, fake, _, _ := newFixture(t)
+	release := make(chan struct{})
+	fake.Script = func(name string, args []string) (string, error) {
+		if name == "bash" {
+			<-release // keep building
+		}
+		return "", nil
+	}
+	m.Queue = taskmgr.New()
+	m.Body(80, 22)
+	cmd := m.Update(keyType(tea.KeyEnter)) // build "all"
+	if got := body(m); !strings.Contains(got, "all  ◌ running") {
+		t.Fatalf("still-running indicator missing while building:\n%s", got)
+	}
+	close(release)
+	driveQueue(t, m, cmd)
+	if got := body(m); strings.Contains(got, "◌ running") {
+		t.Fatalf("indicator stuck after completion:\n%s", got)
+	}
+	if !strings.Contains(body(m), "Build successful") {
+		t.Fatal("success toast missing after queued build")
 	}
 }

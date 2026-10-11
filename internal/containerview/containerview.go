@@ -25,6 +25,7 @@ import (
 	"github.com/shredingerlabs/oc-sandbox/internal/discovery"
 	"github.com/shredingerlabs/oc-sandbox/internal/registry"
 	"github.com/shredingerlabs/oc-sandbox/internal/shell"
+	"github.com/shredingerlabs/oc-sandbox/internal/taskmgr"
 )
 
 // bodyTop is the screen row where the shell places Body output (header
@@ -108,7 +109,10 @@ func description(edition string) string {
 
 // Model implements shell.CenterView with the Build and Stop sub-tabs.
 // All podman / script calls go through the injected runner; the
-// registry receives verified container_status updates only.
+// registry receives verified container_status updates only. Queue is
+// the shared background-task manager (#82): when wired, every op runs
+// through it (one op at a time per key, streaming lines); without it
+// the view falls back to the injected Launch function (SyncLauncher).
 type Model struct {
 	Run              cmdrun.Runner
 	Registry         *registry.Registry
@@ -116,10 +120,12 @@ type Model struct {
 	DockerfileCustom string
 	BuildScript      string
 	Launch           Launcher
+	Queue            *taskmgr.Manager
 
-	sub          int
-	buildSel     int
-	stopSel     int
+	opID  int // view-assigned handle echoed in DoneMsg/LineEvent filters
+	sub   int
+	buildSel int
+	stopSel  int
 	editions     []string
 	discoveryErr string
 	running      []string
@@ -198,6 +204,15 @@ func (m *Model) Update(msg tea.Msg) tea.Cmd {
 		if msg.Index < 0 || msg.Index >= len(subTabItems) {
 			return nil
 		}
+		if msg.Index != m.sub {
+			// cancel-on-navigate (#82): switching this view's tab drops the
+			// queued (not running) build ops of the edition keys
+			if m.Queue != nil {
+				for _, opt := range m.options() {
+					m.Queue.CancelQueued("cv-build:" + opt)
+				}
+			}
+		}
 		m.sub = msg.Index
 		if m.sub == TabStop {
 			return m.refreshRunning()
@@ -216,6 +231,18 @@ func (m *Model) Update(msg tea.Msg) tea.Cmd {
 		return nil
 	case OpDoneMsg:
 		return m.opDone(msg)
+	case taskmgr.DoneMsg:
+		if msg.ID == m.opID && m.opKind != "" { // this view's op only
+			return m.opDone(OpDoneMsg{Err: msg.Err, Lines: msg.Lines})
+		}
+		return nil
+	case taskmgr.LineEvent:
+		if msg.ID == m.opID && m.opKind != "" {
+			var cmd tea.Cmd
+			m.log, cmd = m.log.Update(shell.LineMsg(msg.Text))
+			return cmd
+		}
+		return nil
 	case tea.KeyMsg:
 		if m.opKind != "" {
 			m.log, _ = m.log.Update(msg) // log scrolling while the op runs
@@ -372,7 +399,7 @@ func (m *Model) startBuild(edition string) tea.Cmd {
 	m.log = shell.NewLogPane()
 	m.toast = "building " + edition + "…"
 	run, script := m.Run, m.BuildScript
-	return m.launch(func(emit func(string)) error {
+	return m.launch("building "+edition, "cv-build:"+edition, func(emit func(string)) error {
 		out, err := run.Output("bash", script, edition)
 		for _, l := range cmdrun.Lines(out) {
 			emit(l)
@@ -399,7 +426,7 @@ func (m *Model) startStop() tea.Cmd {
 	m.log = shell.NewLogPane()
 	m.toast = fmt.Sprintf("stopping %d container(s)…", len(names))
 	run, reg := m.Run, m.Registry
-	return m.launch(func(emit func(string)) error {
+	return m.launch(fmt.Sprintf("stopping %d container(s)", len(names)), "cv-stop", func(emit func(string)) error {
 		for _, name := range names {
 			out, err := run.Output("podman", "stop", name)
 			for _, l := range cmdrun.Lines(out) {
@@ -434,12 +461,26 @@ func (m *Model) startStop() tea.Cmd {
 	})
 }
 
-func (m *Model) launch(op Op) tea.Cmd {
-	launch := m.Launch
-	if launch == nil {
-		launch = SyncLauncher
+// launch turns the op into a tea.Cmd: through the shared background-task
+// manager (#82) when wired (queued per key, lines stream), else through
+// the injected Launcher func ((SyncLauncher fallback).
+func (m *Model) launch(title, key string, op Op) tea.Cmd {
+	m.opID++
+	var cmd tea.Cmd
+	if m.Queue != nil {
+		cmd = m.Queue.Launch(taskmgr.Op{
+			ID:    m.opID,
+			Key:   key,
+			Title: title,
+			Run:   op,
+		})
+	} else {
+		launch := m.Launch
+		if launch == nil {
+			launch = SyncLauncher
+		}
+		cmd = launch(op)
 	}
-	cmd := launch(op)
 	m.log = m.log.Run(true)
 	if spin := m.log.Spin(); spin != nil {
 		return tea.Batch(cmd, spin)
@@ -454,8 +495,11 @@ func (m *Model) opDone(msg OpDoneMsg) tea.Cmd {
 	if m.opKind == "" {
 		return nil
 	}
-	for _, l := range msg.Lines {
-		m.log, _ = m.log.Update(shell.LineMsg(l))
+	// Streaming transport already fed the pane; batch launchers flush here.
+	if len(m.log.Lines()) == 0 {
+		for _, l := range msg.Lines {
+			m.log, _ = m.log.Update(shell.LineMsg(l))
+		}
 	}
 	m.log = m.log.Run(false)
 	kind := m.opKind
@@ -513,7 +557,8 @@ func (m *Model) buildBody(width, height int) []string {
 		}
 		cards := make([]string, len(opts))
 		for i, opt := range opts {
-			cards[i] = editionCard(opt, i == m.buildSel)
+			busy := m.Queue != nil && m.Queue.BusyKey("cv-build:"+opt)
+			cards[i] = editionCard(opt, busy, i == m.buildSel)
 		}
 		rows := int(math.Ceil(float64(len(cards)) / float64(cols)))
 		for r := 0; r < rows; r++ {
@@ -538,8 +583,9 @@ func (m *Model) buildBody(width, height int) []string {
 }
 
 // editionCard renders one educational edition card (name + one-line
-// description), accent-bordered when selected.
-func editionCard(name string, selected bool) string {
+// description), accent-bordered when selected; busy marks a queued or
+// running op for that edition's queue key (still-running indicator #82).
+func editionCard(name string, busy, selected bool) string {
 	st := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(shell.ColBorder).
@@ -547,6 +593,9 @@ func editionCard(name string, selected bool) string {
 		Width(cardW - 2).Height(cardH - 2).MaxHeight(cardH)
 	if selected {
 		st = st.BorderForeground(shell.ColAccent)
+	}
+	if busy {
+		name += "  " + shell.StyleStatusRunning.Render("◌ running")
 	}
 	inner := shell.StyleFieldLabel.Render(name) + "\n" + shell.StyleMutedAlt.Render(description(name))
 	return st.Render(inner)
