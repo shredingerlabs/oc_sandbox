@@ -613,7 +613,10 @@ func (m *Model) buildPick(i int) tea.Cmd {
 		m.toast = "Build later — project stays stopped until the image is built"
 		m.state = stateList
 		return nil
-	default: // Go back
+	default: // Go back — cancel-on-navigate (#82): drop the queued build op
+		if m.deps.Tasks != nil {
+			m.deps.Tasks.CancelQueued(m.pending.ContainerID)
+		}
 		m.state = stateList
 		return nil
 	}

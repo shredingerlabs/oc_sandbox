@@ -386,3 +386,7 @@ func (v *View) registryView() *registry.Registry {
 }
 
 func (v *View) configPaths() config.Paths { return config.Paths{Home: v.home} }
+
+// Busy implements shell.BusyView: queued settings ops count as
+// background work (guarded exit, #82).
+func (v *View) Busy() bool { return v.Tasks != nil && v.Tasks.Busy() }

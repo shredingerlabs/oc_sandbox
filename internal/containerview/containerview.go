@@ -204,6 +204,15 @@ func (m *Model) Update(msg tea.Msg) tea.Cmd {
 		if msg.Index < 0 || msg.Index >= len(subTabItems) {
 			return nil
 		}
+		if msg.Index != m.sub {
+			// cancel-on-navigate (#82): switching this view's tab drops the
+			// queued (not running) build ops of the edition keys
+			if m.Queue != nil {
+				for _, opt := range m.options() {
+					m.Queue.CancelQueued("cv-build:" + opt)
+				}
+			}
+		}
 		m.sub = msg.Index
 		if m.sub == TabStop {
 			return m.refreshRunning()

@@ -323,6 +323,7 @@ func (m *Model) finishCreate() tea.Cmd {
 		m.toast = "Project not registered: " + err.Error()
 		return nil
 	}
+	m.created = true
 	m.toast = "Project created successfully."
 	return func() tea.Msg {
 		return CreatedMsg{Name: req.Name, Path: root, ConfigPath: sandboxcfg.Path(root)}
