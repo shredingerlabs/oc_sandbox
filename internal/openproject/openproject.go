@@ -49,8 +49,8 @@ type Deps struct {
 	BuildScript      string // dist/scripts/build-container.sh
 	Dockerfile       string
 	DockerfileCustom string
-	Ops              Launcher                      // default DefaultLauncher
-	Tasks            *taskmgr.Manager              // shared background-task manager (#82): handoff guard + still-running indicators
+	Ops              Launcher                                  // default DefaultLauncher
+	Tasks            *taskmgr.Manager                          // shared background-task manager (#82): handoff guard + still-running indicators
 	Exec             func(*exec.Cmd, tea.ExecCallback) tea.Cmd // default tea.ExecProcess
 	Now              func() time.Time
 }
