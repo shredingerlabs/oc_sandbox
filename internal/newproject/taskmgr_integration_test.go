@@ -10,38 +10,13 @@ import (
 	"github.com/shredingerlabs/oc-sandbox/internal/cmdrun"
 	"github.com/shredingerlabs/oc-sandbox/internal/registry"
 	"github.com/shredingerlabs/oc-sandbox/internal/taskmgr"
+	"github.com/shredingerlabs/oc-sandbox/internal/testutil"
 )
 
 // #82: with the shared task manager wired, every script op is a queued
 // task and the create flow advances via taskmgr.DoneMsg continuations
 // (navigation stays free meanwhile). Without the manager the legacy
 // synchronous path runs (all other tests in this package).
-
-// driveTask drains the cmd like the shell does: every event goes to the
-// view and once to the shared manager; the manager's chaining cmd keeps
-// the loop going (successor's first read).
-func driveTask(t *testing.T, m *Model, mgr *taskmgr.Manager, cmd tea.Cmd) {
-	t.Helper()
-	for cmd != nil {
-		msg := cmd()
-		if msg == nil {
-			break
-		}
-		switch msg := msg.(type) {
-		case tea.BatchMsg:
-			cmd = nil
-			for _, c := range []tea.Cmd(msg) {
-				driveTask(t, m, mgr, c)
-			}
-		default:
-			cmd = nil
-			if next := mgr.Update(msg); next != nil {
-				driveTask(t, m, mgr, next)
-			}
-			cmd = m.Update(msg)
-		}
-	}
-}
 
 func queuedCreateModel(t *testing.T, mods ...func(*recOps, *cmdrun.Fake)) (*Model, *recOps, *registry.Registry, *taskmgr.Manager) {
 	m, ops, reg := newTestModel(t, mods...)
@@ -65,7 +40,7 @@ func TestAsyncCreateFlowsThroughTaskQueue(t *testing.T) {
 	if !mgr.BusyKey("newproject") {
 		t.Fatal("init op not queued through the shared manager")
 	}
-	driveTask(t, m, mgr, cmd)
+	testutil.Drain(t, m, mgr, cmd)
 	settle(t)
 	if mgr.BusyKey("newproject") {
 		t.Fatal("queue key not freed after the create chain finished")
@@ -109,7 +84,7 @@ func TestAsyncBuildNowQueuesBuildThenContinues(t *testing.T) {
 	if !mgr.BusyKey("newproject") {
 		t.Fatal("build op not queued")
 	}
-	driveTask(t, m, mgr, cmd)
+	testutil.Drain(t, m, mgr, cmd)
 	settle(t)
 	if !ops.has("build-container.sh", "swdev") {
 		t.Fatalf("build op missing: %v", ops.Calls)

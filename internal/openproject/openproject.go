@@ -34,12 +34,9 @@ const BodyTop = shell.SubTabRowY + 1
 // Fixed card geometry (approved record #72): 30-wide cards with a one
 // column gutter; two content rows per card.
 const (
-	cardInnerW = 26 // content width → card total width 30
-	cardTotalW = 30
-	cardStride = 31 // card + gutter
+	cardInnerW = 26 // content width → shell.CardWidth 30 (border + 26)
 	cardRowsN  = 2
-	cardH      = 2 + cardRowsN // border + rows
-	rowStride  = cardH + 1     // card + gap
+	rowStride  = shell.CardHeight + 1 // card + gap
 )
 
 // Deps injects every external surface: the data layer (home dir),
@@ -52,8 +49,8 @@ type Deps struct {
 	BuildScript      string // dist/scripts/build-container.sh
 	Dockerfile       string
 	DockerfileCustom string
-	Ops              Launcher                      // default DefaultLauncher
-	Tasks            *taskmgr.Manager              // shared background-task manager (#82): handoff guard + still-running indicators
+	Ops              Launcher                                  // default DefaultLauncher
+	Tasks            *taskmgr.Manager                          // shared background-task manager (#82): handoff guard + still-running indicators
 	Exec             func(*exec.Cmd, tea.ExecCallback) tea.Cmd // default tea.ExecProcess
 	Now              func() time.Time
 }
@@ -760,13 +757,13 @@ func (m *Model) save() tea.Cmd {
 // --- layout ---
 
 func (m *Model) cardsPerRow() int {
-	return max(1, (leftWidth(m.width)-2)/cardStride)
+	return max(1, (leftWidth(m.width)-2)/shell.CardStride)
 }
 
 // paneWidth / leftWidth size the two panes: settings pane clamped to
 // 36..48 columns, the rest of the width goes to the wrapping card grid.
 func paneWidth(width int) int { return clamp(width/2, 36, 48) }
-func leftWidth(width int) int { return max(cardTotalW, width-paneWidth(width)-1) }
+func leftWidth(width int) int { return max(shell.CardWidth, width-paneWidth(width)-1) }
 
 // layout builds the settings-pane rows and navigable hit rects from the
 // last known size, so keyboard activation resolves a cursor to a row
@@ -968,21 +965,24 @@ func (m *Model) leftPane(w, h int) string {
 			m.gridScroll = selRow - visRows + 1
 		}
 		running := discovery.RunningContainers(m.deps.Runner)
-		var grid []string
+		idxs := []int{}
 		for r := m.gridScroll; r < totalRows && r-m.gridScroll < visRows; r++ {
 			for c := 0; c < cpr; c++ {
 				idx := r*cpr + c
 				if idx >= len(m.projects) {
 					break
 				}
-				card := strings.Split(shell.Card(m.cardRows(m.projects[idx], hasString(running, registry.ContainerName(m.projects[idx].ContainerID)))), "\n")
-				baseY := (r - m.gridScroll) * rowStride
-				grid = pasteLines(grid, 1+c*cardStride, baseY, card)
-				m.cardRects = append(m.cardRects, cardRect{
-					rect: shell.Rect{X: 1 + c*cardStride, Y: BodyTop + baseY, W: cardTotalW, H: cardH},
-					idx:  idx,
-				})
+				idxs = append(idxs, idx)
 			}
+		}
+		gridRects := shell.CardRects(1, BodyTop, len(idxs), cpr, 1)
+		var grid []string
+		for k, idx := range idxs {
+			card := strings.Split(shell.Card(m.cardRows(m.projects[idx], hasString(running, registry.ContainerName(m.projects[idx].ContainerID)))), "\n")
+			c, r := k%cpr, k/cpr
+			baseY := r * rowStride
+			grid = pasteLines(grid, 1+c*shell.CardStride, baseY, card)
+			m.cardRects = append(m.cardRects, cardRect{rect: gridRects[k], idx: idx})
 		}
 		lines = grid
 	}

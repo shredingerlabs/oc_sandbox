@@ -5,39 +5,13 @@ import (
 	"strings"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
-
 	"github.com/shredingerlabs/oc-sandbox/internal/taskmgr"
+	"github.com/shredingerlabs/oc-sandbox/internal/testutil"
 )
 
 // #82 behaviors: per-project queue key, shared streaming transport,
 // guarded terminal handoff, still-running indicator, container-gone
 // recovery.
-
-// drive drains the cmd like the shell does: every event to the view and
-// once to the shared manager; the manager's chaining cmd keeps draining.
-func drive(t *testing.T, m *Model, mgr *taskmgr.Manager, cmd tea.Cmd) {
-	t.Helper()
-	for cmd != nil {
-		msg := cmd()
-		if msg == nil {
-			break
-		}
-		switch msg := msg.(type) {
-		case tea.BatchMsg:
-			cmd = nil
-			for _, c := range []tea.Cmd(msg) {
-				drive(t, m, mgr, c)
-			}
-		default:
-			cmd = nil
-			if next := mgr.Update(msg); next != nil {
-				drive(t, m, mgr, next)
-			}
-			m.Update(msg)
-		}
-	}
-}
 
 // queuedEnv wires the harness view to a shared task manager.
 func queuedEnv(t *testing.T, hooks *runnerHooks) *env {
@@ -56,7 +30,7 @@ func TestStartThroughSharedQueueStreamsAndGrantsAccess(t *testing.T) {
 	if !e.mgr.BusyKey(e.ids["alpha"]) {
 		t.Fatal("start op not queued under the project's container identity")
 	}
-	drive(t, e.m, e.mgr, cmd)
+	testutil.Drain(t, e.m, e.mgr, cmd)
 	if e.mgr.BusyKey(e.ids["alpha"]) {
 		t.Fatal("queue key not freed after start finished")
 	}
@@ -84,7 +58,7 @@ func TestStillRunningIndicatorOnCardWhileTaskRuns(t *testing.T) {
 	if !found {
 		t.Fatalf("still-running indicator missing on the owning card:\n%s", strings.Join(lines, "\n"))
 	}
-	drive(t, e.m, e.mgr, cmd)
+	testutil.Drain(t, e.m, e.mgr, cmd)
 	if strings.Contains(strings.Join(lines, "\n"), "◌") {
 		return // final state asserted by the other test
 	}

@@ -6,43 +6,17 @@ import (
 	"testing"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
-
 	"github.com/shredingerlabs/oc-sandbox/internal/cmdrun"
 	"github.com/shredingerlabs/oc-sandbox/internal/config"
 	"github.com/shredingerlabs/oc-sandbox/internal/shell"
 	"github.com/shredingerlabs/oc-sandbox/internal/taskmgr"
+	"github.com/shredingerlabs/oc-sandbox/internal/testutil"
 )
 
 // #82: with the shared task manager wired, the uninstall / export /
 // restore ops run as queued tasks and their continuations fire from
 // taskmgr.DoneMsg. Without a manager they stay synchronous (all the
 // other tests in this package).
-
-// drive drains the cmd the way the shell does: every event to the view
-// and once to the shared manager.
-func drive(t *testing.T, v *View, mgr *taskmgr.Manager, cmd tea.Cmd) {
-	t.Helper()
-	for cmd != nil {
-		msg := cmd()
-		if msg == nil {
-			break
-		}
-		switch msg := msg.(type) {
-		case tea.BatchMsg:
-			cmd = nil
-			for _, c := range []tea.Cmd(msg) {
-				drive(t, v, mgr, c)
-			}
-		default:
-			cmd = nil
-			if next := mgr.Update(msg); next != nil {
-				drive(t, v, mgr, next)
-			}
-			cmd = v.Update(msg)
-		}
-	}
-}
 
 func queueSettings(t *testing.T, home string, run *cmdrun.Fake) (*View, *taskmgr.Manager) {
 	v := newSettings(t, home, run)
@@ -65,7 +39,7 @@ func TestUninstallThroughSharedQueue(t *testing.T) {
 	if !v.Busy() || !mgr.BusyKey("settings") {
 		t.Fatal("uninstall op not queued / not busy")
 	}
-	drive(t, v, mgr, cmd)
+	testutil.Drain(t, v, mgr, cmd)
 	time.Sleep(50 * time.Millisecond)
 	if v.Busy() || mgr.BusyKey("settings") {
 		t.Fatal("still busy after completion")
@@ -94,7 +68,7 @@ func TestExportThroughSharedQueue(t *testing.T) {
 	if !mgr.BusyKey("settings") {
 		t.Fatal("export op not queued")
 	}
-	drive(t, v, mgr, cmd)
+	testutil.Drain(t, v, mgr, cmd)
 	time.Sleep(50 * time.Millisecond)
 	if !strings.Contains(v.toast, "Exported") {
 		t.Fatalf("continuation toast missing: %q", v.toast)
@@ -117,7 +91,7 @@ func TestRestoreThroughSharedQueueWritesActiveFile(t *testing.T) {
 	if !mgr.BusyKey("settings") {
 		t.Fatal("restore op not queued")
 	}
-	drive(t, v, mgr, cmd)
+	testutil.Drain(t, v, mgr, cmd)
 	time.Sleep(50 * time.Millisecond)
 	if !strings.Contains(v.toast, "Restored") {
 		t.Fatalf("continuation toast missing: %q", v.toast)

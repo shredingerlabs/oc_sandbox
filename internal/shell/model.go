@@ -143,6 +143,14 @@ type BusyView interface {
 }
 
 // Update implements tea.Model.
+// menuViews is the number of view slots the header menu addresses: the
+// first four MenuItems map to them, Exit is fixed at the end. Views
+// beyond that (the appended first-run setup flow) are reachable only
+// through root-level handoff messages — no header item, no click.
+func menuViews(numViews int) int { return min(numViews, len(MenuItems)-1) }
+
+func (m Model) exitRectIndex() int { return len(MenuItems) - 1 }
+
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// Hooked views see every message first (post-create handoff and
 	// recovery routing); the first hook that consumes one wins. A
@@ -151,9 +159,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	for i, v := range m.views {
 		if h, ok := v.(Hook); ok {
 			if consumed, cmd := h.HookMsg(msg); consumed {
-				if _, isRec := msg.(RecoverMsg); isRec {
-					m.active = i
-				}
+				// A consumed handoff (RecoverMsg, CreatedMsg, …) also
+				// focuses the hooking view, so navigation stays a root
+				// concern.
+				m.active = i
 				return m, cmd
 			}
 		}
@@ -192,7 +201,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if msg.Y == 0 {
 				for i, r := range MenuRects() {
 					if r.Hit(msg.X, msg.Y) {
-						if i >= len(m.views) { // Exit (or beyond)
+						if i >= menuViews(len(m.views)) { // Exit (or beyond)
 							if m.workBusy() { // guarded exit: first click asks (#82)
 								m.exitPending = true
 								return m, nil
