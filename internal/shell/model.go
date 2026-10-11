@@ -29,6 +29,22 @@ type SubTabMsg struct{ Index int }
 // concern, not a view-to-view call.
 type NavRequestMsg struct{ Index int }
 
+// RecoverMsg asks the first-run setup flow to resume setup for the
+// project at Path: the resumable recovery entry other views emit (e.g.
+// Open Project details on a project with setup_complete false). Like
+// NavRequestMsg it is consumed at the root level so views never depend
+// on the setup flow's package.
+type RecoverMsg struct{ Path string }
+
+// Hook lets a center view see every message the root receives (before
+// the active view). The first-run setup flow uses it to catch the
+// post-create handoff (newproject.CreatedMsg) and RecoverMsg even when
+// another view is active: consumed=false passes the message through
+// unchanged, so hooks stay passive for everything they don't own.
+type Hook interface {
+	HookMsg(msg tea.Msg) (consumed bool, cmd tea.Cmd)
+}
+
 // CenterView is a center view (#77-#80) plugged into the shell. Update
 // receives every message the shell itself does not consume (all key
 // events after the shell's own handling, mouse events outside the
@@ -128,6 +144,20 @@ type BusyView interface {
 
 // Update implements tea.Model.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	// Hooked views see every message first (post-create handoff and
+	// recovery routing); the first hook that consumes one wins. A
+	// consumed RecoverMsg also focuses the hooking view, so navigation
+	// stays a root concern.
+	for i, v := range m.views {
+		if h, ok := v.(Hook); ok {
+			if consumed, cmd := h.HookMsg(msg); consumed {
+				if _, isRec := msg.(RecoverMsg); isRec {
+					m.active = i
+				}
+				return m, cmd
+			}
+		}
+	}
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height

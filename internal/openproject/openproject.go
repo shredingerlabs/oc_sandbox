@@ -647,6 +647,13 @@ func (m *Model) opDone(msg OpDoneMsg) tea.Cmd {
 			m.refresh()
 			m.selectByID(p.ContainerID)
 			m.enterAccess(p, m.pendingCfg)
+			// First-run setup resume (#81): on a start with
+			// setup_complete still false the shell's setup hook takes
+			// over (machine runs the pending stages; StageStart reuses
+			// the running container).
+			if !m.pendingCfg.SetupComplete {
+				return func() tea.Msg { return shell.RecoverMsg{Path: p.Path} }
+			}
 			return nil
 		}
 		m.toast = "Failed to start container"

@@ -300,3 +300,91 @@ func TestTooSmallGuardAsciiSnapshot(t *testing.T) {
 		t.Errorf("shrink did not re-arm the guard")
 	}
 }
+
+// hookedView implements Hook: it consumes a test-only probe message and
+// records what it saw (post-create handoff / recovery routing, #81).
+type hookedView struct {
+	fakeView
+	saw      []Msg
+	consumes func(typ string) bool
+}
+
+// Msg is the hook-specific probe message (declared inside the package to
+// keep the assertion self-contained).
+type Msg struct{ tag string }
+
+func (h *hookedView) HookMsg(msg tea.Msg) (bool, tea.Cmd) {
+	switch msg.(type) {
+	case Msg, RecoverMsg:
+		h.saw = append(h.saw, Msg{tag: "saw"})
+		return h.consumes != nil && h.consumes(fmt.Sprintf("%T", msg)), nil
+	}
+	return false, nil
+}
+
+func TestHookSeesMessagesBeforeActiveView(t *testing.T) {
+	hv := &hookedView{fakeView: fakeView{name: "hooked"}}
+	fv := &fakeView{name: "other"}
+	m := resized(New(hv, fv), 80, 24)
+
+	// Active view (other) receives a plain key normally; the hook sees
+	// everything first but only consumes its own probe type and Nav.
+	next, _ := step(m, keyMsg("enter"))
+	if len(next.views[0].(*hookedView).saw) != 0 {
+		t.Fatalf("hook should not capture plain keys")
+	}
+}
+
+func TestHookConsumesRecoverMsgAndFocuses(t *testing.T) {
+	hv := &hookedView{fakeView: fakeView{name: "hooked"}, consumes: func(typ string) bool { return typ == "shell.RecoverMsg" }}
+	fv := &fakeView{name: "other"}
+	m := resized(New(fv, hv), 80, 24)
+
+	// While view 0 is active, view 1's hook consumes RecoverMsg and the
+	// root focuses view 1 (index of the hook).
+	next, _ := step(m, RecoverMsg{Path: "/x/proj"})
+	if next.Active() != 1 {
+		t.Fatalf("active = %d, want 1 (hook consumed the recovery handoff)", next.Active())
+	}
+	// The active view must not also see the RecoverMsg.
+	found := false
+	for _, v := range next.views {
+		if fv, ok := v.(*fakeView); ok && strings.Contains(fv.lastMsg, "recover") {
+			found = true
+		}
+	}
+	if found {
+		t.Fatalf("RecoverMsg leaked to a non-hook view")
+	}
+}
+
+func TestRecoverMsgSwallowedByHookStillRoutes(t *testing.T) {
+	hv := &hookedView{fakeView: fakeView{name: "hooked"}, consumes: func(typ string) bool { return typ == "shell.RecoverMsg" }}
+	fv := &fakeView{name: "other"}
+	m := resized(New(hv, fv), 80, 24)
+
+	next, _ := step(m, NavRequestMsg{Index: 1})
+	if next.Active() != 1 {
+		t.Fatalf("active = %d, want 1", next.Active())
+	}
+	// Hook consumed the RecoverMsg for its view (active focus W same).
+	next2, _ := step(next, RecoverMsg{Path: "/x"})
+	if next2.Active() != 0 {
+		t.Fatalf("active = %d, want 0 (hook's own view)", next2.Active())
+	}
+}
+
+func TestHookPassiveForOtherViews(t *testing.T) {
+	hv := &hookedView{fakeView: fakeView{name: "hooked"}}
+	fv := &fakeView{name: "other"}
+	m := resized(New(hv, fv), 80, 24)
+
+	// A non-RecoverMsg reaches the ACTIVE view only; hook stays passive
+	// (returned consumed=false).
+	next, _ := step(m, keyMsg("enter"))
+	next2, _ := step(next, SubTabMsg{Index: 1})
+	next3, _ := step(next2, keyMsg("enter"))
+	if next3.Active() != 0 {
+		t.Fatalf("active = %d, want 0", next3.Active())
+	}
+}
