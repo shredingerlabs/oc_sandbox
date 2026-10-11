@@ -18,6 +18,7 @@ import (
 	"github.com/shredingerlabs/oc-sandbox/internal/cmdrun"
 	"github.com/shredingerlabs/oc-sandbox/internal/registry"
 	"github.com/shredingerlabs/oc-sandbox/internal/shell"
+	"github.com/shredingerlabs/oc-sandbox/internal/taskmgr"
 )
 
 // Config locates everything the view touches: the config home (registry,
@@ -110,6 +111,13 @@ type Model struct {
 	run cmdrun.Runner // discovery / podman queries (short)
 	ops Ops           // long operations (single seam)
 	reg *registry.Registry
+	// Tasks is the shared background-task manager (#82): when wired, every
+	// script op becomes a queued task and its continuation runs from the
+	// taskmgr.DoneMsg; without it the flow stays synchronous (legacy).
+	Tasks *taskmgr.Manager
+
+	opSeq   int                             // view-assigned op handles
+	pending map[int]func(err error) tea.Cmd // op id → continuation
 
 	source int // srcBlank / srcURL
 
@@ -167,13 +175,14 @@ var _ shell.CenterView = (*Model)(nil)
 // New returns the New Project view.
 func New(cfg Config, run cmdrun.Runner, ops Ops, reg *registry.Registry) *Model {
 	m := &Model{
-		cfg:   cfg,
-		run:   run,
-		ops:   ops,
-		reg:   reg,
-		start: startOptions[0],
-		vcs:   "none",
-		ai:    aiOptions[0],
+		cfg:     cfg,
+		run:     run,
+		ops:     ops,
+		reg:     reg,
+		start:   startOptions[0],
+		vcs:     "none",
+		ai:      aiOptions[0],
+		pending: map[int]func(err error) tea.Cmd{},
 	}
 	m.refresh()
 	return m
@@ -210,12 +219,53 @@ func (m *Model) Update(msg tea.Msg) tea.Cmd {
 			m.refresh()
 		}
 		return nil
+	case taskmgr.DoneMsg:
+		return m.taskDone(msg)
 	case tea.KeyMsg:
 		return m.key(msg)
 	case tea.MouseMsg:
 		return m.mouse(msg)
 	}
 	return nil
+}
+
+// taskDone runs the queued op's continuation in the shared-task-manager
+// mode (#82); unknown ids are foreign ops (other views') and ignored.
+func (m *Model) taskDone(msg taskmgr.DoneMsg) tea.Cmd {
+	after, ours := m.pending[msg.ID]
+	if !ours {
+		return nil
+	}
+	delete(m.pending, msg.ID)
+	if msg.Err != nil {
+		m.toast = msg.Err.Error()
+	}
+	return after(msg.Err)
+}
+
+// queueScript routes ONE script invocation through the shared task
+// manager when wired (#82): enqueue a queued task; its continuation runs
+// from the DoneMsg (navigation stays free until then). Without the
+// manager the flow runs synchronously (legacy parity).
+func (m *Model) queueScript(title string, run func() (string, error), after func(err error) tea.Cmd) tea.Cmd {
+	if m.Tasks == nil { // legacy synchronous flow
+		_, err := run()
+		return after(err)
+	}
+	m.opSeq++
+	m.pending[m.opSeq] = after
+	return m.Tasks.Launch(taskmgr.Op{
+		ID:    m.opSeq,
+		Key:   "newproject", // one create flow at a time
+		Title: title,
+		Run: func(emit func(string)) error {
+			out, err := run()
+			for _, l := range cmdrun.Lines(out) {
+				emit(l)
+			}
+			return err
+		},
+	})
 }
 
 // promptVals returns the option tokens of the current prompt row.
@@ -634,16 +684,19 @@ func (m *Model) resolvePrompt() tea.Cmd {
 	case phaseBuild:
 		switch vals[m.choice] {
 		case "Build now":
-			if _, err := m.ops.Run(m.cfg.BuildScript, m.edition); err != nil ||
-				!imageExistsLive(m.run, m.edition) {
-				m.toast = "Build failed — the " + m.edition + " image is still unavailable."
-				m.refresh()
-				return nil
-			}
-			m.phase = phaseForm
-			m.toast = ""
-			m.refresh()
-			return m.createTail()
+			return m.queueScript("Building image "+m.edition,
+				func() (string, error) { return m.ops.Run(m.cfg.BuildScript, m.edition) },
+				func(err error) tea.Cmd {
+					if err != nil || !imageExistsLive(m.run, m.edition) {
+						m.toast = "Build failed — the " + m.edition + " image is still unavailable."
+						m.refresh()
+						return nil
+					}
+					m.phase = phaseForm
+					m.toast = ""
+					m.refresh()
+					return m.createTail()
+				})
 		case "Build later":
 			m.phase = phaseForm
 			m.toast = ""

@@ -24,6 +24,7 @@ import (
 	"github.com/shredingerlabs/oc-sandbox/internal/registry"
 	"github.com/shredingerlabs/oc-sandbox/internal/sandboxcfg"
 	"github.com/shredingerlabs/oc-sandbox/internal/shell"
+	"github.com/shredingerlabs/oc-sandbox/internal/taskmgr"
 )
 
 // BodyTop is the screen row where center-view bodies start (header,
@@ -51,7 +52,8 @@ type Deps struct {
 	BuildScript      string // dist/scripts/build-container.sh
 	Dockerfile       string
 	DockerfileCustom string
-	Ops              Launcher                                  // default DefaultLauncher
+	Ops              Launcher                      // default DefaultLauncher
+	Tasks            *taskmgr.Manager              // shared background-task manager (#82): handoff guard + still-running indicators
 	Exec             func(*exec.Cmd, tea.ExecCallback) tea.Cmd // default tea.ExecProcess
 	Now              func() time.Time
 }
@@ -151,6 +153,9 @@ func New(deps Deps) *Model {
 	return m
 }
 
+// Busy implements shell.BusyView: a long operation runs (guarded exit).
+func (m *Model) Busy() bool { return m.state == stateBusy }
+
 // SubTabs implements shell.CenterView — the Open Project view has no
 // sub-menu tabs of its own.
 func (m *Model) SubTabs() ([]string, int) { return nil, 0 }
@@ -232,10 +237,15 @@ func (m *Model) Update(msg tea.Msg) tea.Cmd {
 		return m.mouse(msg)
 	case OpDoneMsg:
 		return m.opDone(msg)
-	case accessDoneMsg:
-		m.state = stateList
-		m.refresh()
+	case taskmgr.LineEvent:
+		if msg.ID == m.busyID { // streamed line of our op (the shared transport)
+			var cmd tea.Cmd
+			m.log, cmd = m.log.Update(shell.LineMsg(msg.Text))
+			return cmd
+		}
 		return nil
+	case accessDoneMsg:
+		return m.accessDone(msg)
 	case shell.LineMsg, spinner.TickMsg:
 		var cmd tea.Cmd
 		m.log, cmd = m.log.Update(msg)
@@ -245,7 +255,21 @@ func (m *Model) Update(msg tea.Msg) tea.Cmd {
 	}
 }
 
-type accessDoneMsg struct{}
+// accessDone finishes the terminal handoff: back to the list; an error
+// (most likely the container vanished between states) surfaces with a
+// recovery affordance (#82) — the refreshed card grid shows the stopped
+// state and the card remains startable.
+func (m *Model) accessDone(msg accessDoneMsg) tea.Cmd {
+	m.state = stateList
+	m.refresh()
+	if msg.Err != nil {
+		m.toast = "Container session ended: " + msg.Err.Error() +
+			" — is the container gone? Start it again from its card."
+	}
+	return nil
+}
+
+type accessDoneMsg struct{ Err error }
 
 func (m *Model) key(msg tea.KeyMsg) tea.Cmd {
 	k := msg.String()
@@ -548,6 +572,7 @@ func (m *Model) launchStart(p registry.Project, cfg sandboxcfg.Config) tea.Cmd {
 	run, script := m.deps.Runner, m.deps.StartScript
 	op := Op{
 		ID:    m.busyID,
+		Key:   p.ContainerID, // per-project queue bucket (#82)
 		Title: m.opTitle,
 		Run: func(line func(string)) error {
 			out, err := run.Output("bash", append([]string{script}, args...)...)
@@ -570,9 +595,10 @@ func (m *Model) buildPick(i int) tea.Cmd {
 		m.opTitle = "Building image " + m.pendingCfg.ContainerEdition
 		m.log = shell.NewLogPane().Run(true)
 		m.busyID++
-		ed, run, script := m.pendingCfg.ContainerEdition, m.deps.Runner, m.deps.BuildScript
+		ed, pid, run, script := m.pendingCfg.ContainerEdition, m.pending.ContainerID, m.deps.Runner, m.deps.BuildScript
 		op := Op{
 			ID:    m.busyID,
+			Key:   pid, // per-project queue bucket (#82)
 			Title: m.opTitle,
 			Run: func(line func(string)) error {
 				out, err := run.Output("bash", script, ed)
@@ -597,8 +623,11 @@ func (m *Model) opDone(msg OpDoneMsg) tea.Cmd {
 	if msg.ID != m.busyID || m.state != stateBusy {
 		return nil
 	}
-	for _, l := range msg.Lines {
-		m.log, _ = m.log.Update(shell.LineMsg(l))
+	// Streaming transport already fed the pane; batch launchers flush here.
+	if len(m.log.Lines()) == 0 {
+		for _, l := range msg.Lines {
+			m.log, _ = m.log.Update(shell.LineMsg(l))
+		}
 	}
 	m.log = m.log.Run(false)
 	m.refresh()
@@ -651,6 +680,13 @@ func (m *Model) accessPick(i int) tea.Cmd {
 		return nil
 	}
 	label := m.accessOpts[i]
+	// Handoff while background tasks run is guarded (#82): tea.ExecProcess
+	// suspends the whole UI; queuing would reconcile with the still-running
+	// container ops — the guard keeps them visible instead.
+	if m.hasOtherWork() {
+		m.toast = "Background tasks are running — wait for them, then retry"
+		return nil
+	}
 	name := registry.ContainerName(m.pending.ContainerID)
 	if label == "Show Web URL" {
 		port := discovery.WebPort(m.deps.Runner, name)
@@ -667,7 +703,14 @@ func (m *Model) accessPick(i int) tea.Cmd {
 		arg = "opencode"
 	}
 	cmd := exec.Command("podman", "exec", "-it", "--user", "dev", name, arg)
-	return m.deps.Exec(cmd, func(error) tea.Msg { return accessDoneMsg{} })
+	return m.deps.Exec(cmd, func(err error) tea.Msg { return accessDoneMsg{Err: err} })
+}
+
+// hasOtherWork reports whether the shared task manager runs work OTHER
+// than this view's own (guard for the terminal handoff — nil manager or
+// an idle key passes through).
+func (m *Model) hasOtherWork() bool {
+	return m.deps.Tasks != nil && m.deps.Tasks.Busy()
 }
 
 // --- change-settings surface (ADR 0018, #63) ---
@@ -944,12 +987,22 @@ func (m *Model) leftPane(w, h int) string {
 }
 
 func (m *Model) cardRows(p registry.Project, running bool) []string {
+	var name string
 	sym, st := shell.SymOff, shell.StyleStatusStopped
 	if running {
 		sym, st = shell.SymOn, shell.StyleStatusRunning
 	}
+	if m.deps.Tasks != nil {
+		if title, ok := m.deps.Tasks.RunningTitle(p.ContainerID); ok {
+			// still-running indicator for the owning project's op (#82)
+			name = truncate(p.Name+" ◌ "+title, cardInnerW)
+		}
+	}
+	if name == "" {
+		name = p.Name
+	}
 	rows := []string{
-		st.Render(sym) + " " + p.Name,
+		st.Render(sym) + " " + name,
 		truncate(p.Path, cardInnerW),
 	}
 	if m.selected == indexOfProject(m.projects, p.ContainerID) {

@@ -75,15 +75,23 @@ func (v *View) doRestore() tea.Cmd {
 		return nil
 	}
 	backup := v.resBackups[v.resSel]
-	target, err := v.ops.RestoreConfig(v.home, backupPath(v.home, backup))
-	switch {
-	case err == nil:
-		v.resBackups = nil // refreshed fresh on the next render
-		v.toast = fmt.Sprintf("Restored %s from %s (safety backup made first).", target, backup)
-	case errors.Is(err, ErrInvalidBackup):
-		v.toast = "Invalid configuration backup — the selected backup is not valid JSON."
-	default:
-		v.toast = "Restore failed — the active configuration was not changed: " + err.Error()
-	}
-	return nil
+	var target string
+	return v.queueOp("Restoring config backup",
+		func() (string, error) {
+			t, e := v.ops.RestoreConfig(v.home, backupPath(v.home, backup))
+			target = t
+			return t, e
+		},
+		func(err error) tea.Cmd {
+			switch {
+			case err == nil:
+				v.resBackups = nil // refreshed fresh on the next render
+				v.toast = fmt.Sprintf("Restored %s from %s (safety backup made first).", target, backup)
+			case errors.Is(err, ErrInvalidBackup):
+				v.toast = "Invalid configuration backup — the selected backup is not valid JSON."
+			default:
+				v.toast = "Restore failed — the active configuration was not changed: " + err.Error()
+			}
+			return nil
+		})
 }

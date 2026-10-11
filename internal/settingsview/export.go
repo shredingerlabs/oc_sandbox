@@ -139,10 +139,15 @@ func (v *View) doExport() tea.Cmd {
 		return nil
 	}
 	dest = registry.CanonicalPath(dest)
-	if err := v.ops.ExportSnapshot(v.home, src, dest); err != nil {
-		v.toast = "Export failed: " + err.Error()
-		return nil
-	}
-	v.toast = fmt.Sprintf("Exported %s to %s (backup made if the destination existed).", configBaseName(src), dest)
-	return nil
+	srcName := configBaseName(src)
+	return v.queueOp("Exporting config snapshot",
+		func() (string, error) { return "", v.ops.ExportSnapshot(v.home, src, dest) },
+		func(err error) tea.Cmd {
+			if err != nil {
+				v.toast = "Export failed: " + err.Error()
+				return nil
+			}
+			v.toast = fmt.Sprintf("Exported %s to %s (backup made if the destination existed).", srcName, dest)
+			return nil
+		})
 }

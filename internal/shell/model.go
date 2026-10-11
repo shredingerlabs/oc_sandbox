@@ -8,6 +8,8 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+
+	"github.com/shredingerlabs/oc-sandbox/internal/taskmgr"
 )
 
 // Minimum terminal size (terminal support matrix): below it the shell
@@ -45,19 +47,56 @@ type CenterView interface {
 }
 
 // Model is the root tea.Model: too-small guard, header menu (clicks and
-// 1–4), sub-menu row, body region, footer help.
+// 1–4), sub-menu row, body region, footer help. When Queue is wired, the
+// shell owns the shared background-task manager (#82): lifecycle
+// messages (taskmgr.DoneMsg / StatusMsg / LineEvent) are broadcast to
+// EVERY center view and handed to the manager exactly once, and quitting
+// is guarded: while any view reports busy work the first quit asks for
+// confirmation and any other key cancels it.
 type Model struct {
 	width, height int
 	views         []CenterView
 	active        int
 	keys          KeyMap
 	help          help.Model
+	Queue         *taskmgr.Manager
+	exitPending   bool
 }
 
 // New returns a shell around the given center views, ordered like
 // MenuItems (Open Project / New Project / Container / Settings).
 func New(views ...CenterView) Model {
 	return Model{views: views, keys: NewKeys(), help: help.New()}
+}
+
+// NewWithQueue returns a shell wired to the shared background-task
+// manager (#82).
+func NewWithQueue(q *taskmgr.Manager, views ...CenterView) Model {
+	m := New(views...)
+	m.Queue = q
+	return m
+}
+
+// ExitPending reports whether an exit confirmation is up (guarded exit).
+func (m Model) ExitPending() bool { return m.exitPending }
+
+// Quit is the guarded quit decision: false while background work runs
+// (the caller keeps the model and re-asks after the confirmation), true
+// when no work is in flight — mirroring Update's quit path.
+func (m Model) Quit() bool { return !m.workBusy() }
+
+// workBusy reports whether background work runs: the wired queue's state
+// or, without one, any view that implements the Busy query.
+func (m Model) workBusy() bool {
+	if m.Queue != nil {
+		return m.Queue.Busy()
+	}
+	for _, v := range m.views {
+		if b, ok := v.(BusyView); ok && b.Busy() {
+			return true
+		}
+	}
+	return false
 }
 
 // Init implements tea.Model.
@@ -81,23 +120,40 @@ func (m Model) SubTabRects() []Rect {
 	return rects
 }
 
+// BusyView is a center view that may have background work in flight;
+// center views with long ops implement it for the guarded exit (#82).
+type BusyView interface {
+	Busy() bool
+}
+
 // Update implements tea.Model.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 		return m, nil
+	case taskmgr.DoneMsg, taskmgr.StatusMsg, taskmgr.LineEvent:
+		return m, m.broadcastTaskMsg(msg)
 	case tea.KeyMsg:
 		if !m.views[m.active].TextFocused() {
+			if key.Matches(msg, m.keys.Quit) {
+				if m.workBusy() { // guarded exit (#82): ask once, cancel by doing anything else
+					m.exitPending = true
+				} else {
+					m.exitPending = false
+					return m, tea.Quit
+				}
+				return m, nil
+			}
 			switch msg.String() {
 			case "1", "2", "3", "4":
 				if i := int(msg.String()[0] - '1'); i < len(m.views) {
 					m.active = i
 				}
+				m.exitPending = false
 				return m, nil
-			}
-			if key.Matches(msg, m.keys.Quit) {
-				return m, tea.Quit
+			default:
+				m.exitPending = false
 			}
 		}
 		return m, m.views[m.active].Update(msg)
@@ -107,9 +163,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				for i, r := range MenuRects() {
 					if r.Hit(msg.X, msg.Y) {
 						if i >= len(m.views) { // Exit (or beyond)
+							if m.workBusy() { // guarded exit: first click asks (#82)
+								m.exitPending = true
+								return m, nil
+							}
+							m.exitPending = false
 							return m, tea.Quit
 						}
 						m.active = i
+						m.exitPending = false
 						return m, nil
 					}
 				}
@@ -133,6 +195,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 }
 
+// broadcastTaskMsg hands a task-manager message to the wired queue
+// exactly once and to every center view (the owner reacts, all others
+// ignore foreign ops) — navigation stays free (#82).
+func (m Model) broadcastTaskMsg(msg tea.Msg) tea.Cmd {
+	var cmds []tea.Cmd
+	if m.Queue != nil {
+		cmds = append(cmds, m.Queue.Update(msg))
+	}
+	for _, v := range m.views {
+		cmds = append(cmds, v.Update(msg))
+	}
+	return tea.Batch(cmds...)
+}
+
 // View implements tea.Model.
 func (m Model) View() string {
 	if m.TooSmall() {
@@ -153,6 +229,16 @@ func (m Model) View() string {
 	b.WriteString("\n")
 	b.WriteString(body)
 	b.WriteString("\n")
-	b.WriteString(FooterRow(m.width, m.help, m.keys))
+	b.WriteString(m.Footer())
 	return b.String()
+}
+
+// Footer renders the help row, or — while a guarded exit waits for
+// confirmation (#82) — the "ops running" strip.
+func (m Model) Footer() string {
+	if m.exitPending {
+		return strings.Join([]string{"", StyleWarn.Render(
+			"● background work running — press q again to quit, any other key cancels")}, "\n")
+	}
+	return FooterRow(m.width, m.help, m.keys)
 }
