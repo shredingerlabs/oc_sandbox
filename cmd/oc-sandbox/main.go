@@ -7,6 +7,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/shredingerlabs/oc-sandbox/internal/protoapp"
+	"github.com/shredingerlabs/oc-sandbox/internal/smoke"
 )
 
 // Version is set at build time via -ldflags "-X main.Version=<tag>".
@@ -23,6 +24,17 @@ func main() {
 			os.Exit(1)
 		}
 		return
+	}
+	// Smoke harness (issue #83): `oc-sandbox --smoke [root]` runs the A-list
+	// parity pre-check over the repo tree at root (default: cwd).
+	if len(os.Args) > 1 && os.Args[1] == "--smoke" {
+		root := "."
+		if len(os.Args) > 2 {
+			root = os.Args[2]
+		}
+		rep := smoke.Run(root)
+		fmt.Print(rep.Text())
+		os.Exit(rep.ExitCode())
 	}
 	fmt.Fprintf(os.Stdout, "oc-sandbox %s\n", Version)
 }
