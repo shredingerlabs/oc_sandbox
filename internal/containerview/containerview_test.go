@@ -12,6 +12,7 @@ import (
 	"github.com/shredingerlabs/oc-sandbox/internal/registry"
 	"github.com/shredingerlabs/oc-sandbox/internal/shell"
 	"github.com/shredingerlabs/oc-sandbox/internal/taskmgr"
+	"github.com/shredingerlabs/oc-sandbox/internal/testutil"
 )
 
 const buildScript = "/install/scripts/build-container.sh"
@@ -517,31 +518,6 @@ func TestHitRectsStableAcrossToasts(t *testing.T) {
 
 // --- #82: shared queue-driven ops + streaming ---
 
-// driveQueue drains the launch cmd through the model seam exactly like
-// the shell: every event goes to the view and once to the shared queue.
-func driveQueue(t *testing.T, m *Model, cmd tea.Cmd) {
-	t.Helper()
-	for cmd != nil {
-		msg := cmd()
-		if msg == nil {
-			break
-		}
-		switch msg := msg.(type) {
-		case tea.BatchMsg:
-			cmd = nil
-			for _, c := range []tea.Cmd(msg) {
-				driveQueue(t, m, c)
-			}
-		default:
-			cmd = nil
-			if next := m.Queue.Update(msg); next != nil {
-				driveQueue(t, m, next)
-			}
-			m.Update(msg)
-		}
-	}
-}
-
 func TestBuildThroughSharedQueueStreamsAndFrees(t *testing.T) {
 	m, fake, _, _ := newFixture(t)
 	fake.Script = func(name string, args []string) (string, error) {
@@ -553,7 +529,7 @@ func TestBuildThroughSharedQueueStreamsAndFrees(t *testing.T) {
 	if !m.Busy() || !m.Queue.BusyKey("cv-build:all") {
 		t.Fatal("op not busy / not visible on its queue key")
 	}
-	driveQueue(t, m, cmd)
+	testutil.Drain(t, m, m.Queue, cmd)
 	if m.Busy() || m.Queue.BusyKey("cv-build:all") {
 		t.Fatal("queue did not free after completion")
 	}
@@ -584,7 +560,7 @@ func TestBusyEditionCardShowsStillRunningIndicator(t *testing.T) {
 		t.Fatalf("still-running indicator missing while building:\n%s", got)
 	}
 	close(release)
-	driveQueue(t, m, cmd)
+	testutil.Drain(t, m, m.Queue, cmd)
 	if got := body(m); strings.Contains(got, "◌ running") {
 		t.Fatalf("indicator stuck after completion:\n%s", got)
 	}
