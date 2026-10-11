@@ -78,13 +78,6 @@ const (
 
 var subTabItems = []string{"Build Container", "Stop Container"}
 
-// Edition card geometry: two columns (single column when too narrow).
-const (
-	cardW = 30
-	cardH = 4
-	gap   = 1
-)
-
 // descriptions are the educational one-liners per known edition; unknown
 // stages get the generic line.
 var descriptions = map[string]string{
@@ -552,7 +545,7 @@ func (m *Model) buildBody(width, height int) []string {
 		lines = append(lines, shell.Toast(m.discoveryErr), "")
 	} else {
 		cols := 2
-		if padX+cols*cardW+(cols-1)*gap > width {
+		if padX+2*shell.CardStride > width {
 			cols = 1
 		}
 		cards := make([]string, len(opts))
@@ -561,14 +554,10 @@ func (m *Model) buildBody(width, height int) []string {
 			cards[i] = editionCard(opt, busy, i == m.buildSel)
 		}
 		rows := int(math.Ceil(float64(len(cards)) / float64(cols)))
+		m.cardRects = shell.CardRects(padX, bodyTop, len(opts), cols, 0)
 		for r := 0; r < rows; r++ {
 			end := min((r+1)*cols, len(cards))
 			lines = append(lines, lipgloss.JoinHorizontal(lipgloss.Top, cards[r*cols:end]...))
-			for c := r * cols; c < end; c++ {
-				m.cardRects = append(m.cardRects, shell.Rect{
-					X: padX + (c%cols)*(cardW+gap), Y: bodyTop + r*cardH, W: cardW, H: cardH,
-				})
-			}
 		}
 		lines = append(lines, shell.Toast(m.toast))
 	}
@@ -590,7 +579,7 @@ func editionCard(name string, busy, selected bool) string {
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(shell.ColBorder).
 		Padding(0, 1).
-		Width(cardW - 2).Height(cardH - 2).MaxHeight(cardH)
+		Width(shell.CardWidth - 2).Height(shell.CardHeight - 2).MaxHeight(shell.CardHeight)
 	if selected {
 		st = st.BorderForeground(shell.ColAccent)
 	}
