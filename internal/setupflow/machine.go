@@ -39,11 +39,11 @@ var ErrURLMatch = errors.New("setupflow: repository already cloned to target")
 // across stages (ADR 0011) — no flags are written once seen.
 var ErrAbort = errors.New("setupflow: user abort")
 
-// Stager executes one pipeline stage; the production adapter shells out
-// to start.sh / podman, tests inject fakes. Run streams progress lines
-// through emit (embedded log pane). ExecFor returns the argv of the
-// interactive command for a stage (nil for non-interactive stages); the
-// view hands it to its Exec seam (tea.ExecProcess handoff).
+// Stager executes one pipeline stage; the production PipelineStager
+// shells out to start.sh / podman, tests inject fakes. Run streams
+// progress lines through emit (embedded log pane). ExecFor returns the
+// argv of the interactive command for a stage (nil for non-interactive
+// stages); the view hands it to its Exec seam (tea.ExecProcess handoff).
 type Stager interface {
 	Name(stage Stage) string
 	Run(stage Stage, emit func(string)) error
@@ -106,6 +106,7 @@ type Machine struct {
 	plan    []Stage // remaining stages, plan[0] is the current one
 	phase   Phase
 	lastErr error
+	cloned  bool // project_source == "cloned" (checklist rendering)
 }
 
 // NewMachine builds the machine from the stored state (resumable
@@ -122,6 +123,7 @@ func NewMachine(d Deps) (*Machine, error) {
 		return m, nil
 	}
 	m.plan = m.buildPlan(cfg)
+	m.cloned = cfg.ProjectSource == "cloned"
 	if len(m.plan) == 0 { // defensively complete without stages
 		m.phase = PhaseReady
 		return m, nil
@@ -178,7 +180,11 @@ func (m *Machine) Title() string {
 // Err returns the error that stopped the flow (error phase).
 func (m *Machine) Err() error { return m.lastErr }
 
-// StageInfo describes the stage the machine will run next.
+// SourceCloned reports whether the project source is "cloned" (ADR 0016):
+// the checklist shows the clone stage row only then.
+func (m *Machine) SourceCloned() bool { return m.cloned }
+
+// Interactive reports whether the current stage needs a terminal handoff.
 func (m *Machine) Interactive() bool {
 	s := m.Stage()
 	return s != "" && m.stager.Interactive(s)
@@ -314,12 +320,20 @@ func (m *Machine) OptionLabel(i int) string {
 // deferred final setup_complete write.
 func (m *Machine) Retry() {
 	if m.Stage() == "" {
-		m.plan = nil // nothing left: jump straight to finish()
+		m.plan = nil   // nothing left: jump straight to finish()
 		_ = m.finish() // on failure the error phase stands; Retry repeats it
 		return
 	}
 	m.lastErr = nil
 	m.phase = PhaseReady
+}
+
+// BackToMenu leaves the Change URL input and returns to the retry menu
+// (ADR 0011: cancelling a settings adjustment never aborts the flow).
+func (m *Machine) BackToMenu() {
+	if m.phase == PhaseChangeURL {
+		m.phase = PhaseError
+	}
 }
 
 // ChangeURL updates repo_url in BOTH files (mirror sync:

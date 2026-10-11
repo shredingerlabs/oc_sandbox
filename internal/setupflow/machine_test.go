@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -19,8 +20,10 @@ func stamp() func() time.Time {
 }
 
 // fakeStager records stage runs; behavior is scripted per test
-// (podman-independent — no container operations).
+// (podman-independent — no container operations). Safe for concurrent
+// Run from the view's streaming goroutine.
 type fakeStager struct {
+	mu     sync.Mutex
 	runs   []Stage
 	script map[Stage]func(emit func(string)) error
 }
@@ -30,11 +33,30 @@ func newStager() *fakeStager {
 }
 
 func (f *fakeStager) Run(stage Stage, emit func(string)) error {
+	f.mu.Lock()
 	f.runs = append(f.runs, stage)
+	f.mu.Unlock()
 	if fn, ok := f.script[stage]; ok {
 		return fn(emit)
 	}
 	return nil
+}
+
+func (f *fakeStager) wasRun(s Stage) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, r := range f.runs {
+		if r == s {
+			return true
+		}
+	}
+	return false
+}
+
+func (f *fakeStager) runsOf() []Stage {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]Stage(nil), f.runs...)
 }
 
 func (f *fakeStager) Name(stage Stage) string { return stageTitles[stage] }
@@ -68,6 +90,9 @@ func fixture(t *testing.T, source string) (home, root string, reg *registry.Regi
 		t.Fatal(err)
 	}
 	if err := sandboxcfg.PatchString(home, cfgPath, "project_source", source); err != nil {
+		t.Fatal(err)
+	}
+	if err := sandboxcfg.PatchString(home, cfgPath, "repo_url", repoURL); err != nil {
 		t.Fatal(err)
 	}
 	return home, root, reg, newStager()
@@ -105,8 +130,8 @@ func drive(m *Machine, st *fakeStager) Phase {
 }
 
 func TestPlanEmptySourceRunsStartCBMSkills(t *testing.T) {
-	_, root, reg, st := fixture(t, "empty")
-	m := newMachine(t, st, "home", root, reg)
+	home, root, reg, st := fixture(t, "empty")
+	m := newMachine(t, st, home, root, reg)
 
 	if got, want := m.Plan(), []Stage{StageStart, StageCBM, StageSkills}; !equalStages(got, want) {
 		t.Fatalf("plan = %v, want %v", got, want)
@@ -117,8 +142,8 @@ func TestPlanEmptySourceRunsStartCBMSkills(t *testing.T) {
 }
 
 func TestPlanClonedSourceIncludesClone(t *testing.T) {
-	_, root, reg, st := fixture(t, "cloned")
-	m := newMachine(t, st, "home", root, reg)
+	home, root, reg, st := fixture(t, "cloned")
+	m := newMachine(t, st, home, root, reg)
 
 	want := []Stage{StageStart, StageClone, StageCBM, StageSkills}
 	if got := m.Plan(); !equalStages(got, want) {
@@ -127,15 +152,15 @@ func TestPlanClonedSourceIncludesClone(t *testing.T) {
 }
 
 func TestPlanResumeSkipsCompletedStages(t *testing.T) {
-	_, root, reg, st := fixture(t, "cloned")
+	home, root, reg, st := fixture(t, "cloned")
 	cfgPath := sandboxcfg.Path(root)
-	if err := sandboxcfg.PatchBool("home", cfgPath, "setup_clone_complete", true); err != nil {
+	if err := sandboxcfg.PatchBool(home, cfgPath, "setup_clone_complete", true); err != nil {
 		t.Fatal(err)
 	}
-	if err := sandboxcfg.PatchBool("home", cfgPath, "setup_cbm_complete", true); err != nil {
+	if err := sandboxcfg.PatchBool(home, cfgPath, "setup_cbm_complete", true); err != nil {
 		t.Fatal(err)
 	}
-	m := newMachine(t, st, "home", root, reg)
+	m := newMachine(t, st, home, root, reg)
 
 	want := []Stage{StageStart, StageSkills}
 	if got := m.Plan(); !equalStages(got, want) {
@@ -144,17 +169,17 @@ func TestPlanResumeSkipsCompletedStages(t *testing.T) {
 }
 
 func TestAlreadyCompleteMachineIsDoneImmediately(t *testing.T) {
-	_, root, reg, st := fixture(t, "cloned")
+	home, root, reg, st := fixture(t, "cloned")
 	cfgPath := sandboxcfg.Path(root)
-	if err := sandboxcfg.PatchBool("home", cfgPath, "setup_complete", true); err != nil {
+	if err := sandboxcfg.PatchBool(home, cfgPath, "setup_complete", true); err != nil {
 		t.Fatal(err)
 	}
-	m := newMachine(t, st, "home", root, reg)
+	m := newMachine(t, st, home, root, reg)
 
 	if m.Phase() != PhaseDone {
 		t.Fatalf("phase = %d, want done", m.Phase())
 	}
-	if len(st.runs) != 0 {
+	if len(st.runsOf()) != 0 {
 		t.Fatalf("stager ran %v, want no runs", st.runs)
 	}
 	if cfgOf(t, root).SetupComplete != true {
@@ -252,7 +277,6 @@ func TestErrorStopsPipelineAndOptionsMenu(t *testing.T) {
 func TestCloneFailureOffersChangeURL(t *testing.T) {
 	home, root, reg, st := fixture(t, "cloned")
 	m := newMachine(t, st, home, root, reg)
-	_ = home
 	// Start passes, clone fails.
 	drive2(m)
 	if err := m.Done(errors.New("git clone failed")); err == nil {
@@ -342,8 +366,8 @@ func TestURLMatchMarksCloneCompleteWithoutClone(t *testing.T) {
 }
 
 func TestChangeURLRejectsBlankAndWhitespace(t *testing.T) {
-	_, root, reg, st := fixture(t, "cloned")
-	m := newMachine(t, st, "home", root, reg)
+	home, root, reg, st := fixture(t, "cloned")
+	m := newMachine(t, st, home, root, reg)
 	if err := m.ChangeURL("   "); err == nil {
 		t.Fatal("blank URL must be rejected")
 	}
@@ -353,8 +377,8 @@ func TestChangeURLRejectsBlankAndWhitespace(t *testing.T) {
 }
 
 func TestPickBounds(t *testing.T) {
-	_, root, reg, st := fixture(t, "empty")
-	m := newMachine(t, st, "home", root, reg)
+	home, root, reg, st := fixture(t, "empty")
+	m := newMachine(t, st, home, root, reg)
 	m.Pick(-1)
 	m.Pick(99)
 	if m.Phase() != PhaseReady {
@@ -388,14 +412,7 @@ func equalStrings(a, b []string) bool {
 	return true
 }
 
-func ran(st *fakeStager, s Stage) bool {
-	for _, r := range st.runs {
-		if r == s {
-			return true
-		}
-	}
-	return false
-}
+func ran(st *fakeStager, s Stage) bool { return st.wasRun(s) }
 
 // drive2 advances the start stage (the first plan step common to all
 // cloned fixtures) and asserts the machine moved to clone.
