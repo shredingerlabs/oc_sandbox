@@ -32,6 +32,29 @@ func podmanStates(fake *cmdrun.Fake, names ...string) {
 	}
 }
 
+// NewStagerFor takes the script paths as constructor args — the wiring
+// decides the install layout, nothing is hardcoded here.
+func TestNewStagerForUsesConfiguredScriptPaths(t *testing.T) {
+	home, root, reg, _ := fixture(t, "cloned")
+	fake := &cmdrun.Fake{}
+	podmanStates(fake)
+	p := NewStagerFor(fake, home, reg, "/opt/oc/start.sh", "/opt/oc/configure-project.sh")(root)
+
+	var emitted []string
+	if err := p.Run(StageStart, func(l string) { emitted = append(emitted, l) }); err != nil {
+		t.Fatalf("start stage failed: %v", err)
+	}
+	found := false
+	for _, c := range fake.Calls {
+		if c.Name == "bash" && len(c.Args) > 0 && c.Args[0] == "/opt/oc/start.sh" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("start stage did not invoke the configured start script /opt/oc/start.sh (calls: %v)", fake.Calls)
+	}
+}
+
 func TestStartStageRunsStartShWithRebuiltArgs(t *testing.T) {
 	p, fake, root := stageFixture(t)
 	podmanStates(fake) // nothing running

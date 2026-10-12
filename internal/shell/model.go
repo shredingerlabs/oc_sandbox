@@ -75,9 +75,9 @@ type Model struct {
 	active        int
 	keys          KeyMap
 	help          help.Model
-	Queue        *taskmgr.Manager
-	exitPending  bool
-	exitStatus   int
+	Queue         *taskmgr.Manager
+	exitPending   bool
+	exitStatus    int
 }
 
 // ExitStatus reports how the shell quit: 0 clean (q/esc/menu Exit) or

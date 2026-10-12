@@ -104,7 +104,7 @@ func Compose(home string, run cmdrun.Runner, now func() time.Time) App {
 	flow := setupflow.NewView(setupflow.ViewDeps{
 		Home:      home,
 		Reg:       reg,
-		StagerFor: setupflow.NewStagerFor(run, home, reg),
+		StagerFor: setupflow.NewStagerFor(run, home, reg, layout.StartScript, layout.ConfigureScript),
 	})
 
 	return App{
