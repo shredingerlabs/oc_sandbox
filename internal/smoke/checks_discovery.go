@@ -9,8 +9,12 @@ import (
 	"strings"
 	"syscall"
 
+	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/shredingerlabs/oc-sandbox/internal/app"
 	"github.com/shredingerlabs/oc-sandbox/internal/cmdrun"
 	"github.com/shredingerlabs/oc-sandbox/internal/discovery"
+	"github.com/shredingerlabs/oc-sandbox/internal/shell"
 )
 
 // A2 — edition + mode discovery parity vs live bash output (issue #73 A2):
@@ -137,8 +141,23 @@ FROM scratch AS opencode-sandbox-ui_extra
 // (issue #73 A5): 0 clean, 1 general error, 2 user abort, 130 SIGINT; and
 // SIGINT discipline: tracked temp files cleaned up, configs intact.
 func checkExitCodeSeams(home, root string) Item {
-	p := newPhase("A5", "Exit codes 0/1/2/130 at the script delegation seams; SIGINT cleans temps, configs intact")
+	p := newPhase("A5", "Exit codes 0/1/2/130 at the script seams AND in the Go TUI exit mapping; SIGINT cleans temps, configs intact")
 	r := cmdrun.ExecRunner{}
+	// Go TUI story-28 mapping (app.ExitCode over the shell model).
+	if got := app.ExitCode(shell.New(passiveView{}), nil); got != 0 {
+		p.reasonf("Go mapping clean exit: got %d, want 0", got)
+	}
+	if got := app.ExitCode(shell.New(passiveView{}), app.ErrUserAbort); got != 2 {
+		p.reasonf("Go mapping user abort: got %d, want 2", got)
+	}
+	if got := app.ExitCode(shell.New(passiveView{}), errors.New("boom")); got != 1 {
+		p.reasonf("Go mapping general error: got %d, want 1", got)
+	}
+	if m, cmd := shell.New(passiveView{}).Update(tea.KeyMsg{Type: tea.KeyCtrlC}); cmd == nil {
+		p.reasonf("Go shell: ctrl+c did not quit")
+	} else if got := app.ExitCode(m.(shell.Model), nil); got != 130 {
+		p.reasonf("Go mapping ctrl+c quit: got %d, want 130", got)
+	}
 	cases := []struct {
 		name string
 		cmd  string
@@ -195,6 +214,14 @@ echo UNREACHABLE
 	}
 	return p.finish()
 }
+
+// passiveView is the minimal CenterView shell.New needs in this check.
+type passiveView struct{}
+
+func (passiveView) Update(tea.Msg) tea.Cmd   { return nil }
+func (passiveView) Body(int, int) string     { return "" }
+func (passiveView) SubTabs() ([]string, int) { return nil, 0 }
+func (passiveView) TextFocused() bool        { return false }
 
 // exitCodeOf maps a delegated-command error onto the bash TUI exit-code
 // policy (0 clean, 1 general, 2 abort, 130 for SIGINT-terminated children,
