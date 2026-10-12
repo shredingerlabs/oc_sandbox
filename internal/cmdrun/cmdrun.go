@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"os/exec"
 	"strings"
+	"sync"
 )
 
 // Runner runs an external command and returns its combined output.
@@ -27,10 +28,13 @@ func (ExecRunner) Output(name string, args ...string) (string, error) {
 }
 
 // Fake is a scriptable Runner for tests: every invocation is recorded in
-// Calls and answered by the Script function.
+// Calls and answered by the Script function. It is goroutine-safe: views
+// query the runner both on the event loop and from background cmds.
 type Fake struct {
 	Calls  []Call
 	Script func(name string, args []string) (string, error)
+
+	mu sync.Mutex
 }
 
 // Call records one invocation.
@@ -41,11 +45,14 @@ type Call struct {
 
 // Output implements Runner.
 func (f *Fake) Output(name string, args ...string) (string, error) {
+	f.mu.Lock()
 	f.Calls = append(f.Calls, Call{Name: name, Args: append([]string(nil), args...)})
-	if f.Script == nil {
+	script := f.Script // read under the lock, call outside
+	f.mu.Unlock()
+	if script == nil {
 		return "", nil
 	}
-	return f.Script(name, append([]string(nil), args...))
+	return script(name, append([]string(nil), args...))
 }
 
 // Lines splits runner output into non-empty trimmed lines.

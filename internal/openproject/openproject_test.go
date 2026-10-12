@@ -74,6 +74,9 @@ func TestGoldenSnapshotCardsAndSettingsPane(t *testing.T) {
 	e := newEnv(t, nil)
 	e.hooks.psOut = "opencode-sandbox-" + e.ids["alpha"]
 	e.rebuild(t)
+	// dots come from the background-polled cache; poll once
+	e.step(tea.WindowSizeMsg{Width: bodyW, Height: bodyH})
+	e.finishOps()
 
 	lines := bodyOf(t, e.m, bodyW, 42)
 	for _, needle := range []string{"● alpha", "○ beta", "Project Settings", "alpha"} {
@@ -129,6 +132,8 @@ func TestStoredStatusIsOnlyCacheForSymbols(t *testing.T) {
 		t.Fatal(err)
 	}
 	e.rebuild(t)
+	e.step(tea.WindowSizeMsg{Width: bodyW, Height: bodyH})
+	e.finishOps()
 	if !someLine(bodyOf(t, e.m, bodyW, bodyH), "○ beta") {
 		t.Error("beta shown as running though podman ps is empty")
 	}
@@ -138,6 +143,8 @@ func TestStoredStatusIsOnlyCacheForSymbols(t *testing.T) {
 	}
 	e.hooks.psOut = "opencode-sandbox-" + e.ids["beta"] + "\nopencode-sandbox-" + e.ids["alpha"]
 	e.rebuild(t)
+	e.step(tea.WindowSizeMsg{Width: bodyW, Height: bodyH})
+	e.finishOps()
 	lines := bodyOf(t, e.m, bodyW, bodyH)
 	for _, needle := range []string{"● beta", "● alpha"} {
 		if !someLine(lines, needle) {
@@ -459,6 +466,7 @@ func TestMissingImageBuildPromptAndBuildLater(t *testing.T) {
 	e := newEnv(t, &runnerHooks{imageErr: errors.New("no image")})
 	bodyOf(t, e.m, bodyW, bodyH)
 	e.step(keyMsg("enter"))
+	e.reconcileStart()
 	lines, ok := waitLines(t, e, func(lines []string) bool { return someLine(lines, "Build later") })
 	if !ok {
 		t.Fatalf("build prompt not rendered:\n%s", strings.Join(lines, "\n"))
@@ -484,6 +492,7 @@ func TestBuildNowFlowsIntoStart(t *testing.T) {
 	e.hooks.onBuild = func(args []string) { e.hooks.imageErr = nil }
 	bodyOf(t, e.m, bodyW, bodyH)
 	e.step(keyMsg("enter"))
+	e.reconcileStart()
 	if _, ok := waitLines(t, e, func(lines []string) bool { return someLine(lines, "Build now") }); !ok {
 		t.Fatal("build prompt did not appear")
 	}
@@ -516,6 +525,7 @@ func TestBuildGoBackAndBuildFailure(t *testing.T) {
 	e = newEnv(t, &runnerHooks{buildErr: errors.New("boom"), imageErr: errors.New("no image")})
 	bodyOf(t, e.m, bodyW, bodyH)
 	e.step(keyMsg("enter"))
+	e.reconcileStart()
 	if _, ok := waitLines(t, e, func(lines []string) bool { return someLine(lines, "Build now") }); !ok {
 		t.Fatal("build prompt did not appear")
 	}

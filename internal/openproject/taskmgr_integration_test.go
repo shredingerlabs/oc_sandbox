@@ -26,11 +26,14 @@ func queuedEnv(t *testing.T, hooks *runnerHooks) *env {
 
 func TestStartThroughSharedQueueStreamsAndGrantsAccess(t *testing.T) {
 	e := queuedEnv(t, &runnerHooks{psOut: ""})
-	cmd := e.step(keyMsg("enter"))
+	e.step(keyMsg("enter"))
+	e.reconcileStart()
 	if !e.mgr.BusyKey(e.ids["alpha"]) {
 		t.Fatal("start op not queued under the project's container identity")
 	}
-	testutil.Drain(t, e.m, e.mgr, cmd)
+	// the queued op cmd is drained by the shared manager, shell-parity
+	testutil.Drain(t, e.m, e.mgr, e.lastCmd)
+	e.lastCmd = nil
 	if e.mgr.BusyKey(e.ids["alpha"]) {
 		t.Fatal("queue key not freed after start finished")
 	}
@@ -47,7 +50,10 @@ func TestStartThroughSharedQueueStreamsAndGrantsAccess(t *testing.T) {
 
 func TestStillRunningIndicatorOnCardWhileTaskRuns(t *testing.T) {
 	e := queuedEnv(t, &runnerHooks{psOut: ""})
-	cmd := e.step(keyMsg("enter")) // op in flight, completion not yet drained
+	e.step(keyMsg("enter")) // op in flight, completion not yet drained
+	e.reconcileStart()
+	cmd := e.lastCmd
+	e.lastCmd = nil
 	lines := bodyOf(t, e.m, bodyW, bodyH)
 	found := false
 	for _, l := range lines {
@@ -85,8 +91,11 @@ func TestTerminalHandoffGuardedWhileTasksRun(t *testing.T) {
 	e.m.accessOpts = []string{"Console (bash)"}
 	e.m.accessSel = 0
 
-	if cmd := e.m.Update(keyMsg("enter")); cmd != nil {
-		t.Fatal("handoff started although tasks ran")
+	if cmd := e.m.Update(keyMsg("enter")); cmd != nil { // batch carries only the poll
+		e.finishKeyCmds(cmd)
+		if len(execed) != 0 {
+			t.Fatal("handoff started although tasks ran")
+		}
 	}
 	if !strings.Contains(e.m.toast, "Background tasks are running") {
 		t.Fatalf("guard toast missing: %q", e.m.toast)
@@ -97,8 +106,11 @@ func TestTerminalHandoffGuardedWhileTasksRun(t *testing.T) {
 	// idle again → handoff passes the guard (container-gone → recovery toast)
 	close(release)
 	e.mgr.Update(taskmgr.DoneMsg{ID: 900, Key: "other"})
-	if cmd := e.m.Update(keyMsg("enter")); cmd == nil {
-		t.Fatal("handoff still guarded after tasks finished")
+	if cmd := e.m.Update(keyMsg("enter")); cmd != nil {
+		e.finishKeyCmds(cmd)
+	}
+	if len(execed) != 1 {
+		t.Fatalf("handoff still guarded after tasks finished: %v", execed)
 	}
 }
 

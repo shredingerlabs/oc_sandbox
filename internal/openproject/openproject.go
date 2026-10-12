@@ -128,6 +128,15 @@ type Model struct {
 	dbl   shell.DblClick
 	toast string
 
+	// running is the cached live podman-ps list for the card dots. It is
+	// refreshed through a background cmd (runningMsg) — never queried on
+	// the event loop: a stalled podman (rootless lock contention, bridge
+	// bringup) would freeze the whole TUI when View ran it per paint.
+	running []string
+	// reconciling guards against double click triggering the start
+	// reconcile twice before the first one returns.
+	reconciling bool
+
 	layoutRows []paneRow
 
 	width, height int
@@ -229,11 +238,18 @@ func (m *Model) loadStaged() {
 func (m *Model) Update(msg tea.Msg) tea.Cmd {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
-		return m.key(msg)
+		return tea.Batch(m.key(msg), m.poll())
 	case tea.MouseMsg:
-		return m.mouse(msg)
+		return tea.Batch(m.mouse(msg), m.poll())
+	case tea.WindowSizeMsg:
+		return m.pollRunning() // fresh card dots on every (re)render pass
 	case OpDoneMsg:
 		return m.opDone(msg)
+	case reconcileMsg:
+		return m.applyReconcile(msg)
+	case runningMsg:
+		m.running = msg
+		return nil
 	case taskmgr.LineEvent:
 		if msg.ID == m.busyID { // streamed line of our op (the shared transport)
 			var cmd tea.Cmd
@@ -259,14 +275,18 @@ func (m *Model) Update(msg tea.Msg) tea.Cmd {
 func (m *Model) accessDone(msg accessDoneMsg) tea.Cmd {
 	m.state = stateList
 	m.refresh()
+	cmd := m.poll() // the session continued outside; re-check live state
 	if msg.Err != nil {
 		m.toast = "Container session ended: " + msg.Err.Error() +
 			" — is the container gone? Start it again from its card."
 	}
-	return nil
+	return cmd
 }
 
 type accessDoneMsg struct{ Err error }
+
+// runningMsg is the fresh podman ps result from a background poll.
+type runningMsg []string
 
 func (m *Model) key(msg tea.KeyMsg) tea.Cmd {
 	k := msg.String()
@@ -505,51 +525,105 @@ func (m *Model) mouse(msg tea.MouseMsg) tea.Cmd {
 }
 
 // --- start flow (data-map §3) ---
-
+//
+// beginStart does not touch podman on the event loop: the reconcile
+// (last_used bump, live status, image check) runs in a background cmd
+// and the flow continues from applyReconcile. A stalled podman keeps
+// the UI alive.
 func (m *Model) beginStart(idx int) tea.Cmd {
 	if idx < 0 || idx >= len(m.projects) {
 		return nil
 	}
+	if m.reconciling { // double click already in flight
+		return nil
+	}
 	p := m.projects[idx]
+	m.pending = p
+	m.reconciling = true
 	m.toast = ""
-	// 1. Bump last_used FIRST — recency moves even if the start fails.
-	if err := m.reg.UpdateLastUsed(p.Path); err != nil {
-		m.toast = "Could not update last_used: " + err.Error()
+	m.reg.UpdateLastUsed(p.Path) // bump BEFORE anything else (file write)
+	return m.reconcileCmd(p)
+}
+
+// reconcileMsg carries the reconcile result back to the model thread.
+type reconcileMsg struct {
+	p       registry.Project
+	live    bool
+	imageOK bool
+	cfg     sandboxcfg.Config
+	cfgErr  string
+	lastErr string
+}
+
+// reconcileCmd runs the event-loop-blocking part of the start flow
+// (podman ps, podman image exists, sandbox_config.json read) in a
+// background goroutine — podman stalls must never freeze the UI.
+func (m *Model) reconcileCmd(p registry.Project) tea.Cmd {
+	deps := m.deps
+	return func() tea.Msg {
+		msg := reconcileMsg{p: p}
+		// 2. Reconcile stored container_status against live podman ps.
+		running := discovery.RunningContainers(deps.Runner)
+		msg.live = hasString(running, registry.ContainerName(p.ContainerID))
+		if err := m.reg.UpdateStatus(p.Path, statusOf(msg.live)); err != nil {
+			msg.lastErr = "Could not update container status: " + err.Error()
+			return msg
+		}
+		cfg, err := sandboxcfg.Read(sandboxcfg.Path(p.Path))
+		if err != nil {
+			msg.cfgErr = "Cannot read sandbox_config.json: " + err.Error()
+			return msg
+		}
+		msg.cfg = cfg
+		// 3. Missing edition image → Build now / Build later / Go back.
+		msg.imageOK = discovery.ImageExists(deps.Runner, cfg.ContainerEdition)
+		return msg
+	}
+}
+
+// applyReconcile continues the start flow on the model thread.
+func (m *Model) applyReconcile(msg reconcileMsg) tea.Cmd {
+	m.reconciling = false
+	if msg.lastErr != "" {
+		m.toast = msg.lastErr
 		return nil
 	}
+	p := msg.p
 	m.refresh()
 	m.selectByID(p.ContainerID)
-	// 2. Reconcile stored container_status against live podman ps.
-	running := discovery.RunningContainers(m.deps.Runner)
-	live := hasString(running, registry.ContainerName(p.ContainerID))
-	status := "stopped"
-	if live {
-		status = "running"
+	dots := m.poll() // fresh dots from the reconcile's own podman result
+	if msg.cfgErr != "" {
+		m.toast = msg.cfgErr
+		return dots
 	}
-	if err := m.reg.UpdateStatus(p.Path, status); err != nil {
-		m.toast = "Could not update container status: " + err.Error()
-		return nil
+	if msg.live {
+		m.enterAccess(p, msg.cfg)
+		return dots
 	}
-	m.refresh()
-	m.selectByID(p.ContainerID)
-	cfg, err := sandboxcfg.Read(sandboxcfg.Path(p.Path))
-	if err != nil {
-		m.toast = "Cannot read sandbox_config.json: " + err.Error()
-		return nil
-	}
-	if live {
-		m.enterAccess(p, cfg)
-		return nil
-	}
-	// 3. Missing edition image → Build now / Build later / Go back.
-	if !discovery.ImageExists(m.deps.Runner, cfg.ContainerEdition) {
+	if !msg.imageOK {
 		m.state = stateBuild
 		m.buildSel = 0
-		m.pending = p
-		m.pendingCfg = cfg
-		return nil
+		m.pendingCfg = msg.cfg
+		return dots
 	}
-	return m.launchStart(p, cfg)
+	return tea.Batch(dots, m.launchStart(p, msg.cfg))
+}
+
+// pollRunning refreshes the cached running-container list off the event
+// loop; the result lands as runningMsg.
+func (m *Model) pollRunning() tea.Cmd {
+	run := m.deps.Runner
+	return func() tea.Msg { return runningMsg(discovery.RunningContainers(run)) }
+}
+
+// poll schedules a background refresh without blocking anything.
+func (m *Model) poll() tea.Cmd { return m.pollRunning() }
+
+func statusOf(live bool) string {
+	if live {
+		return "running"
+	}
+	return "stopped"
 }
 
 func (m *Model) launchStart(p registry.Project, cfg sandboxcfg.Config) tea.Cmd {
@@ -649,17 +723,19 @@ func (m *Model) opDone(msg OpDoneMsg) tea.Cmd {
 			// over (machine runs the pending stages; StageStart reuses
 			// the running container).
 			if !m.pendingCfg.SetupComplete {
-				return func() tea.Msg { return shell.RecoverMsg{Path: p.Path} }
+				return tea.Batch(m.poll(), func() tea.Msg { return shell.RecoverMsg{Path: p.Path} })
 			}
-			return nil
+			return m.poll()
 		}
 		m.toast = "Failed to start container"
 		m.state = stateList
-		return nil
+		return m.poll()
 	default: // opBuild
-		if msg.Err == nil && discovery.ImageExists(m.deps.Runner, m.pendingCfg.ContainerEdition) {
+		if msg.Err == nil {
+			// Image check off the event loop: re-reconcile; it launches
+			// the start when the image is really there.
 			m.toast = "Image built"
-			return m.launchStart(m.pending, m.pendingCfg)
+			return m.reconcileCmd(m.pending)
 		}
 		m.toast = "Build failed — image still unavailable"
 		m.state = stateList
@@ -964,7 +1040,7 @@ func (m *Model) leftPane(w, h int) string {
 		if selRow >= m.gridScroll+visRows {
 			m.gridScroll = selRow - visRows + 1
 		}
-		running := discovery.RunningContainers(m.deps.Runner)
+		running := m.running // cached (background-polled); never queried inline
 		idxs := []int{}
 		for r := m.gridScroll; r < totalRows && r-m.gridScroll < visRows; r++ {
 			for c := 0; c < cpr; c++ {

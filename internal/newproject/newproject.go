@@ -3,8 +3,7 @@
 // the project source (Blank Project / From URL), fixed-order option
 // tokens (● current / ○ alternatives) where a click activates just that
 // option, path autofill from the name until hand-edited, and the Create
-// Project button bottom-right (single click selects, double-click
-// activates). Long operations (init-project.sh, configure-project.sh,
+// Project button bottom-right (single click activates). Long operations (init-project.sh, configure-project.sh,
 // build-container.sh) launch through the single Ops seam — no goroutines
 // here — which the background-task manager (#82) swaps later. On success
 // the view emits CreatedMsg: the post-create handoff seam that the
@@ -148,7 +147,6 @@ type Model struct {
 	created bool
 
 	credQueue []credStep
-	dbl       shell.DblClick
 
 	// hit rects recorded during the last Body render (screen space).
 	optRects  []optRect
@@ -355,7 +353,6 @@ func (m *Model) presentOptions(f int) []string {
 }
 
 func (m *Model) mouse(msg tea.MouseMsg) tea.Cmd {
-	n := m.dbl.Press(msg)
 	if msg.Action != tea.MouseActionPress || msg.Button != tea.MouseButtonLeft {
 		return nil
 	}
@@ -364,20 +361,14 @@ func (m *Model) mouse(msg tea.MouseMsg) tea.Cmd {
 		for _, or := range m.optRects {
 			if or.field == fPrompt && or.r.Hit(msg.X, msg.Y) {
 				m.choice = indexOf(m.promptVals(), or.val)
-				if n == 2 {
-					return m.resolvePrompt()
-				}
-				return nil
+				return m.resolvePrompt() // one press = choose + resolve
 			}
 		}
 		return nil
 	}
 	if m.btnRect.Hit(msg.X, msg.Y) {
-		if n == 2 {
-			return m.create()
-		}
 		m.focusRow(fCreate)
-		return nil
+		return m.create() // one press = activate (issue: torn single/double click UX)
 	}
 	for _, or := range m.optRects {
 		if or.r.Hit(msg.X, msg.Y) {

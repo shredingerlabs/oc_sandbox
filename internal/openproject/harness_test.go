@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/muesli/termenv"
@@ -368,4 +369,73 @@ func (e *env) cfgEdition(t *testing.T, name string) string {
 		t.Fatal(err)
 	}
 	return cfg.ContainerEdition
+}
+
+// reconcileStart drains the beginStart plumbing (batched key op + poll +
+// reconcile cmd) until a start op is actually queued — without running
+// the op itself (tests can then inspect the in-flight / queued state) —
+// or until the cmd tree is empty (non-launch flows like the build
+// prompt). Running the op past the queue is finishOps' job.
+// finishKeyCmds drains the usual telemetry-free cmd remains of a key
+// step (poll refresh); done only for the guard tests.
+func (e *env) finishKeyCmds(cmd tea.Cmd) {
+	for cmd != nil {
+		msg := cmd()
+		if msg == nil {
+			return
+		}
+		switch msg := msg.(type) {
+		case tea.BatchMsg:
+			for _, c := range []tea.Cmd(msg) {
+				e.finishKeyCmds(c)
+			}
+			return
+		default:
+			if e.mgr != nil {
+				e.mgr.Update(msg)
+			}
+			_ = e.m.Update(msg)
+			return
+		}
+	}
+}
+
+func (e *env) reconcileStart() {
+	// drains the start plumbing far enough for the flow to stand still:
+	// stops while an op is queued/running (queue tests assert that state),
+	// otherwise runs to the end (non-launch flows land on prompts).
+	var out []tea.Cmd
+	out = append(out, e.lastCmd)
+	wasBusy := e.mgr != nil && e.mgr.Busy()
+	for len(out) > 0 {
+		if len(e.launch.ops) > 0 || (e.mgr != nil && e.mgr.Busy() && !wasBusy) {
+			break // op left the seam — leave its cmd for the caller
+		}
+		cmd := out[0]
+		out = out[1:]
+		if cmd == nil {
+			continue
+		}
+		msg := cmd()
+		switch msg := msg.(type) {
+		case nil:
+		case tea.BatchMsg:
+			out = append(out, []tea.Cmd(msg)...)
+		case spinner.TickMsg:
+		default:
+			if e.mgr != nil {
+				if next := e.mgr.Update(msg); next != nil {
+					out = append(out, next)
+				}
+			}
+			if c := e.m.Update(msg); c != nil {
+				out = append(out, c)
+			}
+		}
+	}
+	if len(out) > 0 {
+		e.lastCmd = tea.Batch(out...)
+	} else {
+		e.lastCmd = nil
+	}
 }

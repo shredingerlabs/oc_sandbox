@@ -207,10 +207,9 @@ func click(t *testing.T, m *Model, token string) tea.Cmd {
 	return nil
 }
 
-// dblClick: two presses in a row (double-click activation, like elsewhere).
+// dblClick: the pre-fix two-press semantic. Single click activates now,
+// so one press suffices (helper kept while the prompt tests migrate).
 func dblClick(t *testing.T, m *Model, token string) tea.Cmd {
-	t.Helper()
-	click(t, m, token)
 	return click(t, m, token)
 }
 
@@ -243,7 +242,7 @@ func isWordByte(b byte) bool {
 }
 
 // createViaKeyboard tabs to the Create Project button and presses Enter
-// (keyboard parity for the double-click activation).
+// (keyboard parity for the single-click activation).
 func createViaKeyboard(t *testing.T, m *Model) {
 	t.Helper()
 	m.tabToField(t, "Create Project")
@@ -864,5 +863,38 @@ func TestGoldenBlankForm(t *testing.T) {
 	}, "\n")
 	if got != want {
 		t.Fatalf("golden mismatch:\n got:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+// Single left click on the Create Project button must activate the create
+// flow (focus + action in one press); before the fix it only focused and
+// the flow needed a double click.
+func TestCreateButtonSingleClickActivates(t *testing.T) {
+	m, ops, _ := newTestModel(t)
+	typeKeys(t, m, "singleclick")
+	if cmd := click(t, m, "Create Project"); cmd == nil {
+		t.Fatal("single click on Create Project produced no command at all")
+	}
+	if !ops.has("init-project.sh") {
+		t.Fatalf("single click did not activate the create flow: %v", ops.Calls)
+	}
+}
+
+// An init failure must tell the user WHY — not just that a project state
+// was not registered (runners surface only "exit status N", so the exit
+// reason must be part of the toast).
+func TestCreateInitFailureToastCarriesReason(t *testing.T) {
+	m, _, _ := newTestModel(t, func(ops *recOps, run *cmdrun.Fake) {
+		ops.Fake = func(call []string) error {
+			if call[0] == "init-project.sh" {
+				return fmt.Errorf("exit status 1")
+			}
+			return nil
+		}
+	})
+	typeKeys(t, m, "failing")
+	createViaKeyboard(t, m)
+	if toast := m.ToastText(); !strings.Contains(toast, "exit status 1") {
+		t.Fatalf("toast misses the underlying reason: %q", toast)
 	}
 }

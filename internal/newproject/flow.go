@@ -172,7 +172,8 @@ func (m *Model) createTail() tea.Cmd {
 		func() (string, error) { return m.ops.Run(m.cfg.InitScript, initArgs...) },
 		func(err error) tea.Cmd {
 			if err != nil {
-				m.toast = "Project initialization failed — no project state was registered."
+				m.toast = "Project initialization failed: " + err.Error() +
+					" — no project state was registered."
 				return nil
 			}
 			cfgPath := sandboxcfg.Path(root)
