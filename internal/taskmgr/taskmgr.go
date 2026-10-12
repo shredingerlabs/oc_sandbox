@@ -49,19 +49,21 @@ type Op struct {
 // LineEvents while it ran; Lines again carries the full output for
 // batch launchers (a view flushes them only when its pane is empty).
 type DoneMsg struct {
-	ID    int
-	Key   string
-	Err   error
-	Lines []string
+	ID     int
+	Key    string
+	Err    error
+	Lines  []string
+	Serial int // manager-internal task handle; views filter by ID only
 }
 
 // StatusMsg surfaces a lifecycle state change for the reserved
 // status/toast rows.
 type StatusMsg struct {
-	ID    int
-	Key   string
-	Title string
-	State State
+	ID     int
+	Key    string
+	Title  string
+	State  State
+	Serial int // manager-internal task handle; views filter by ID only
 }
 
 // LineEvent is one streamed output line of the op with the given ID.
@@ -69,8 +71,10 @@ type StatusMsg struct {
 // shell.LineMsg for their log pane — one shared streaming transport
 // across build/start/stop/first-run screens.
 type LineEvent struct {
-	ID   int
-	Text string
+	ID     int
+	Text   string
+	Serial int // manager-internal task handle; views filter by ID only
+	Key    string
 }
 
 // Launcher is the single seam long operations leave the views through
@@ -81,10 +85,10 @@ type Launcher interface {
 
 // Manager launches, tracks and cancels background ops.
 type Manager struct {
-	nextID int
-	tasks  map[int]*task      // internal serial → task
-	perKey map[string][]*task // head runs, tail queues
-	byID   map[int]*task      // caller-owned Op.ID → task
+	nextID   int
+	tasks    map[int]*task // internal serial → task
+	perKey   map[string][]*task
+	bySerial map[int]*task // internal serial → task (message routing)
 }
 
 // task is one enqueued or running operation.
@@ -99,9 +103,9 @@ type task struct {
 // New returns an empty manager.
 func New() *Manager {
 	return &Manager{
-		tasks:  map[int]*task{},
-		perKey: map[string][]*task{},
-		byID:   map[int]*task{},
+		tasks:    map[int]*task{},
+		perKey:   map[string][]*task{},
+		bySerial: map[int]*task{},
 	}
 }
 
@@ -145,7 +149,7 @@ func (m *Manager) CancelQueued(key string) {
 			continue
 		}
 		delete(m.tasks, t.id)
-		delete(m.byID, t.op.ID)
+		delete(m.bySerial, t.id)
 	}
 	m.perKey[key] = keep
 }
@@ -161,10 +165,10 @@ func (m *Manager) Launch(op Op) tea.Cmd {
 		op.ID = m.nextID
 	}
 	m.nextID++
-	id := m.nextID // unique internal serial
+	id := m.nextID // unique internal serial — the ONLY routing key
 	t := &task{op: op, id: id, state: StateQueued}
 	m.tasks[id] = t
-	m.byID[op.ID] = t
+	m.bySerial[id] = t
 
 	key := op.Key
 	first := len(m.perKey[key]) == 0
@@ -176,7 +180,7 @@ func (m *Manager) Launch(op Op) tea.Cmd {
 	}
 	m.perKey[key] = append(m.perKey[key], t)
 	if !first {
-		return statusCmd(op.ID, key, op.Title, StateQueued)
+		return statusCmd(op.ID, key, op.Title, StateQueued, id)
 	}
 	return m.start(t)
 }
@@ -190,12 +194,12 @@ func (m *Manager) start(t *task) tea.Cmd {
 	go func() {
 		err := t.op.Run(func(line string) {
 			t.lines = append(t.lines, line)
-			t.out <- LineEvent{ID: t.op.ID, Text: line}
+			t.out <- LineEvent{ID: t.op.ID, Text: line, Serial: t.id, Key: t.op.Key}
 		})
-		t.out <- DoneMsg{ID: t.op.ID, Key: t.op.Key, Err: err, Lines: t.lines}
+		t.out <- DoneMsg{ID: t.op.ID, Key: t.op.Key, Err: err, Lines: t.lines, Serial: t.id}
 		close(t.out)
 	}()
-	return tea.Batch(statusCmd(t.op.ID, t.op.Key, t.op.Title, StateRunning), func() tea.Msg {
+	return tea.Batch(statusCmd(t.op.ID, t.op.Key, t.op.Title, StateRunning, t.id), func() tea.Msg {
 		if msg, ok := <-t.out; ok {
 			return msg
 		}
@@ -210,7 +214,7 @@ func (m *Manager) start(t *task) tea.Cmd {
 func (m *Manager) Update(msg tea.Msg) tea.Cmd {
 	switch msg := msg.(type) {
 	case LineEvent: // one more streaming event: wait for the next one
-		t := m.byID[msg.ID]
+		t := m.bySerial[msg.Serial]
 		if t == nil {
 			return nil
 		}
@@ -235,7 +239,7 @@ func waitNext(t *task) tea.Cmd {
 // done marks the task terminal and starts the queued successor (the
 // batch carries its Running StatusMsg plus its first streamed event).
 func (m *Manager) done(done DoneMsg) tea.Cmd {
-	t := m.byID[done.ID]
+	t := m.bySerial[done.Serial]
 	if t == nil {
 		return nil
 	}
@@ -256,12 +260,15 @@ func (m *Manager) done(done DoneMsg) tea.Cmd {
 		}
 	}
 	m.perKey[key] = q
+	delete(m.bySerial, t.id)
 	if len(q) > 0 && q[0].state == StateQueued {
 		return m.start(q[0])
 	}
 	return nil
 }
 
-func statusCmd(id int, key, title string, state State) tea.Cmd {
-	return func() tea.Msg { return StatusMsg{ID: id, Key: key, Title: title, State: state} }
+func statusCmd(id int, key, title string, state State, serial int) tea.Cmd {
+	return func() tea.Msg {
+		return StatusMsg{ID: id, Key: key, Title: title, State: state, Serial: serial}
+	}
 }

@@ -97,6 +97,15 @@ func (r *podmanRunner) Output(name string, args ...string) (string, error) {
 			time.Sleep(d)
 		}
 		switch {
+		case args[0] == "build": // fake build: mark the -t target as built
+			r.mu.Lock()
+			for i, a := range args {
+				if a == "-t" && i+1 < len(args) {
+					r.images[args[i+1]] = true
+				}
+			}
+			r.mu.Unlock()
+			return "", nil
 		case args[0] == "image" && args[1] == "exists":
 			if r.images[args[2]] {
 				return "", nil
@@ -173,7 +182,7 @@ func (rec *recorder) contents() []byte {
 
 // newTUI composes the production app with the fake podman and starts it
 // headlessly at 120x40.
-func newTUI(t *testing.T, home string, run *podmanRunner) (*teatest.TestModel, *recorder) {
+func newTUI(t *testing.T, home string, run cmdrun.Runner) (*teatest.TestModel, *recorder) {
 	t.Helper()
 	a := app.Compose(home, run, time.Now)
 	tm := teatest.NewTestModel(t, a.Model, teatest.WithInitialTermSize(120, 40))

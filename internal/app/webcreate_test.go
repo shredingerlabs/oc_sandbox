@@ -1,0 +1,86 @@
+package app_test
+
+// Repro for the production report: creating a project with edition "web"
+// whose image is not built. Flow under test: click the web edition token,
+// click Create Project (Build-now prompt appears), click Build now — the
+// build tail must hand over to the create tail: registry entry written,
+// sandbox_config.json present, and the first-run setup handoff must NOT
+// report a missing sandbox_config.json.
+
+import (
+	"path/filepath"
+	"testing"
+	"time"
+
+	"github.com/shredingerlabs/oc-sandbox/internal/cmdrun"
+	"github.com/shredingerlabs/oc-sandbox/internal/registry"
+	"github.com/shredingerlabs/oc-sandbox/internal/sandboxcfg"
+)
+
+func TestE2EWebEditionBuildNowCreatesProject(t *testing.T) {
+	home := installHome(t)
+	installFakePodman(t)
+
+	tm, rec := newTUI(t, home, cmdrun.ExecRunner{})
+	defer tm.Quit()
+
+	if !waitScreen(t, rec, false, "oc-sandbox") {
+		t.Fatal("TUI never rendered the header")
+	}
+	openNewProjectView(t, tm, rec)
+	for _, r := range "webproj" {
+		press(t, tm, r)
+	}
+	if !waitScreen(t, rec, false, "webproj") {
+		t.Fatal("name did not reach the form:\n" + screenOf(t, rec))
+	}
+
+	g := renderScreen(120, 40, string(rec.contents()))
+	// Click the web edition token.
+	webR, webC, ok := g.find("○ web")
+	if !ok {
+		t.Fatal("web edition token not rendered:\n" + g.String())
+	}
+	tm.Send(mousePress(webC+1, webR))
+
+	// Click Create Project — must show the Build-now prompt.
+	btnR, btnC, ok2 := g.find("Create Project")
+	if !ok2 {
+		t.Fatal("Create Project button not rendered:\n" + g.String())
+	}
+	tm.Send(mousePress(btnC+2, btnR))
+	if !waitScreen(t, rec, false, "Build the web image now?") {
+		t.Fatalf("build prompt missing after Create click:\n%s", screenOf(t, rec))
+	}
+
+	// Click "Build now".
+	g2 := renderScreen(120, 40, string(rec.contents()))
+	bnR, bnC, ok3 := g2.find("Build now")
+	if !ok3 {
+		t.Fatal("Build now option not rendered:\n" + g2.String())
+	}
+	tm.Send(mousePress(bnC+2, bnR))
+
+	// Build runs through the fake podman; afterwards the create tail must
+	// run and register the project.
+	deadline := time.Now().Add(30 * time.Second)
+	registered := false
+	for time.Now().Before(deadline) {
+		reg := &registry.Registry{Home: home, Now: time.Now}
+		if _, err := reg.ByName("webproj"); err == nil {
+			registered = true
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	if !registered {
+		t.Fatalf("project never registered; screen:\n%s", screenOf(t, rec))
+	}
+	root := filepath.Join(home, "projects", "webproj")
+	if _, err := sandboxcfg.Read(sandboxcfg.Path(root)); err != nil {
+		t.Fatalf("sandbox_config.json missing after create: %v", err)
+	}
+	if waitScreenAny(t, rec, "Could not load sandbox_config.json") {
+		t.Fatalf("setup handoff reported missing sandbox_config.json:\n%s", screenOf(t, rec))
+	}
+}

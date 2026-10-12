@@ -120,6 +120,7 @@ type Model struct {
 	opTitle    string
 
 	busyID     int
+	busyKey    string // queue key of the in-flight op (id-disambiguation)
 	busyKind   opKind
 	pending    registry.Project
 	pendingCfg sandboxcfg.Config
@@ -251,7 +252,7 @@ func (m *Model) Update(msg tea.Msg) tea.Cmd {
 		m.running = msg
 		return nil
 	case taskmgr.LineEvent:
-		if msg.ID == m.busyID { // streamed line of our op (the shared transport)
+		if msg.ID == m.busyID && (msg.Key == "" || msg.Key == m.busyKey) { // our op only (Key disambiguates reused numeric ids)
 			var cmd tea.Cmd
 			m.log, cmd = m.log.Update(shell.LineMsg(msg.Text))
 			return cmd
@@ -639,6 +640,7 @@ func (m *Model) launchStart(p registry.Project, cfg sandboxcfg.Config) tea.Cmd {
 	m.opTitle = "Starting container"
 	m.log = shell.NewLogPane().Run(true)
 	m.busyID++
+	m.busyKey = p.ContainerID
 	args := StartArgs(p.Path, cfg.ContainerEdition, p.ContainerID, cfg.ContainerModes, cfg.StartOption, cfg.UseProxy)
 	run, script := m.deps.Runner, m.deps.StartScript
 	op := Op{
@@ -666,6 +668,7 @@ func (m *Model) buildPick(i int) tea.Cmd {
 		m.opTitle = "Building image " + m.pendingCfg.ContainerEdition
 		m.log = shell.NewLogPane().Run(true)
 		m.busyID++
+		m.busyKey = m.pending.ContainerID
 		ed, pid, run, script := m.pendingCfg.ContainerEdition, m.pending.ContainerID, m.deps.Runner, m.deps.BuildScript
 		op := Op{
 			ID:    m.busyID,
@@ -696,6 +699,9 @@ func (m *Model) buildPick(i int) tea.Cmd {
 func (m *Model) opDone(msg OpDoneMsg) tea.Cmd {
 	if msg.ID != m.busyID || m.state != stateBusy {
 		return nil
+	}
+	if d, ok := any(msg).(taskmgr.DoneMsg); ok && d.Key != "" && d.Key != m.busyKey {
+		return nil // foreign view's op reusing this view's numeric id
 	}
 	// Streaming transport already fed the pane; batch launchers flush here.
 	if len(m.log.Lines()) == 0 {

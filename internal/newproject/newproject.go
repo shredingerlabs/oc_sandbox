@@ -118,8 +118,7 @@ type Model struct {
 	opSeq   int                             // view-assigned op handles
 	pending map[int]func(err error) tea.Cmd // op id → continuation
 
-	source int // srcBlank / srcURL
-
+	source          int // srcBlank / srcURL
 	name, path, url string
 	pathManual      bool // autofill stops once the path is hand-edited
 	nameManual      bool // URL prefill stops once the name is hand-edited
@@ -229,9 +228,11 @@ func (m *Model) Update(msg tea.Msg) tea.Cmd {
 
 // taskDone runs the queued op's continuation in the shared-task-manager
 // mode (#82); unknown ids are foreign ops (other views') and ignored.
+// The Key guard disambiguates another view's op that reuses this view's
+// numeric id (every view numbers from its own counter).
 func (m *Model) taskDone(msg taskmgr.DoneMsg) tea.Cmd {
 	after, ours := m.pending[msg.ID]
-	if !ours {
+	if !ours || (msg.Key != "" && msg.Key != "newproject") {
 		return nil
 	}
 	delete(m.pending, msg.ID)

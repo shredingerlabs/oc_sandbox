@@ -73,7 +73,7 @@ func TestStillRunningIndicatorOnCardWhileTaskRuns(t *testing.T) {
 func TestTerminalHandoffGuardedWhileTasksRun(t *testing.T) {
 	e := queuedEnv(t, &runnerHooks{psOut: ""})
 	release := make(chan struct{})
-	e.mgr.Launch(taskmgr.Op{
+	foreignCmd := e.mgr.Launch(taskmgr.Op{
 		ID:    900,
 		Key:   "other",
 		Title: "building foreign",
@@ -105,7 +105,10 @@ func TestTerminalHandoffGuardedWhileTasksRun(t *testing.T) {
 	}
 	// idle again → handoff passes the guard (container-gone → recovery toast)
 	close(release)
-	e.mgr.Update(taskmgr.DoneMsg{ID: 900, Key: "other"})
+	testutil.Drain(t, e.m, e.mgr, foreignCmd)
+	if e.mgr.BusyKey("other") {
+		t.Fatal("foreign task key not freed after completion")
+	}
 	if cmd := e.m.Update(keyMsg("enter")); cmd != nil {
 		e.finishKeyCmds(cmd)
 	}

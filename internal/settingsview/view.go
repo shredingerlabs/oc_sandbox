@@ -141,10 +141,12 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 }
 
 // taskDone runs a queued op's continuation; unknown ids are foreign
-// tasks (other views') and ignored.
+// tasks (other views') and ignored. The Key guard disambiguates another
+// view's op that reuses this view's numeric id (every view numbers from
+// its own counter).
 func (v *View) taskDone(msg taskmgr.DoneMsg) tea.Cmd {
 	after, ours := v.queuePending[msg.ID]
-	if !ours {
+	if !ours || (msg.Key != "" && msg.Key != "settings") {
 		return nil
 	}
 	delete(v.queuePending, msg.ID)

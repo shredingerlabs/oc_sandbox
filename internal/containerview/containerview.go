@@ -115,10 +115,11 @@ type Model struct {
 	Launch           Launcher
 	Queue            *taskmgr.Manager
 
-	opID  int // view-assigned handle echoed in DoneMsg/LineEvent filters
-	sub   int
-	buildSel int
-	stopSel  int
+	opID         int    // view-assigned handle echoed in DoneMsg/LineEvent filters
+	opKey        string // queue key of the in-flight op (id-disambiguation)
+	sub          int
+	buildSel     int
+	stopSel      int
 	editions     []string
 	discoveryErr string
 	running      []string
@@ -225,12 +226,12 @@ func (m *Model) Update(msg tea.Msg) tea.Cmd {
 	case OpDoneMsg:
 		return m.opDone(msg)
 	case taskmgr.DoneMsg:
-		if msg.ID == m.opID && m.opKind != "" { // this view's op only
+		if msg.ID == m.opID && m.opKind != "" && (msg.Key == "" || msg.Key == m.opKey) { // this view's op only (Key disambiguates reused numeric ids)
 			return m.opDone(OpDoneMsg{Err: msg.Err, Lines: msg.Lines})
 		}
 		return nil
 	case taskmgr.LineEvent:
-		if msg.ID == m.opID && m.opKind != "" {
+		if msg.ID == m.opID && m.opKind != "" && (msg.Key == "" || msg.Key == m.opKey) {
 			var cmd tea.Cmd
 			m.log, cmd = m.log.Update(shell.LineMsg(msg.Text))
 			return cmd
@@ -459,6 +460,7 @@ func (m *Model) startStop() tea.Cmd {
 // the injected Launcher func ((SyncLauncher fallback).
 func (m *Model) launch(title, key string, op Op) tea.Cmd {
 	m.opID++
+	m.opKey = key
 	var cmd tea.Cmd
 	if m.Queue != nil {
 		cmd = m.Queue.Launch(taskmgr.Op{
