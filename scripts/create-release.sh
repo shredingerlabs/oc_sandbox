@@ -28,6 +28,8 @@ show_help() {
 Usage: ./scripts/create-release.sh [FLAGS]
 
 Create GitHub releases from dist/ folder contents.
+Also cross-compiles the Go TUI (cmd/oc-sandbox) into dist/bin/, so Go
+source outside dist/ never has to be committed to the release branch.
 
 Interactive Mode (no flags):
   ./scripts/create-release.sh
@@ -37,11 +39,15 @@ Flag-based Mode:
   --title TITLE           Release title (default: "Release VERSION")
   --pre-release           Mark as pre-release instead of regular
   --draft                 Create as draft instead of published
+  --build-tui             Build Go TUI into dist/bin and exit (no release)
   --help, -h              Show this help message
 
 Examples:
   # Interactive mode
   ./scripts/create-release.sh
+
+  # Build only the Go TUI binaries
+  ./scripts/create-release.sh --build-tui
 
   # Published release with explicit version
   ./scripts/create-release.sh --version v1.2.3
@@ -60,6 +66,36 @@ Notes:
 - Use --draft for review before publishing
 - Release notes are only collected in interactive mode
 EOF
+}
+
+# Cross-compile Go TUI into dist/bin (CGO off, 4-target matrix).
+# Statically broken old builds and platform-specific junk are excluded so a
+# darwin build never carries a stray Linux-arm64 binary.
+build_go_tui() {
+    # Go source lives at repo root, outside dist/ (see ADR-0020); the orphan
+    # release branch carries only dist/ contents, so the binary must already
+    # exist in dist/bin/ before the branch is cut.
+    command -v go >/dev/null 2>&1 || error "Go toolchain not found. Install Go 1.22+ and retry."
+    go version
+    mkdir -p dist/bin
+    
+    local version_flags=()
+    if [[ -n "${version:-}" ]]; then
+        version_flags=(-ldflags "-X main.Version=$version")
+    fi
+    
+    for os in linux darwin; do
+        for arch in amd64 arm64; do
+            local out="dist/bin/oc-sandbox_${os}_${arch}"
+            if (CGO_ENABLED=0 GOOS=$os GOARCH=$arch \
+                go build -trimpath "${version_flags[@]}" -o "$out" ./cmd/oc-sandbox); then
+                chmod +x "$out"
+                success "Built dist/bin/$(basename "$out")"
+            else
+                error "Failed to cross-compile oc-sandbox for ${os}/${arch}"
+            fi
+        done
+    done
 }
 
 # Check gh CLI authentication
@@ -244,6 +280,10 @@ create_release() {
     check_dist_folder
     check_git_status
     
+    # Build Go TUI binaries into dist/bin (before the orphan branch is cut,
+    # so they land in the commit — no git off dist/)
+    build_go_tui
+
     # Check for existing tags
     local existing_tags=$(git tag --list | grep "^$version$" || true)
     if [ -n "$existing_tags" ]; then
@@ -265,6 +305,7 @@ create_release() {
     echo "Pre-release: $is_pre_release"
     echo "Draft: $is_draft"
     echo "Source: dist/ folder"
+    echo "Go TUI: $(ls dist/bin 2>/dev/null || echo 'not built')"
     echo ""
     
     read -p "Proceed with release creation? (y/N): " confirm
@@ -402,11 +443,24 @@ parse_flags() {
                 show_help
                 exit 0
                 ;;
+            --build-tui)
+                is_build_only=true
+                shift
+                ((flag_count+=1))
+                ;;
             *)
                 error "Unknown option: $1. Use --help for available options."
                 ;;
         esac
     done
+    
+    # Build-only: run cross-compile and exit; no release follows
+    if [ "${is_build_only:-false}" = true ]; then
+        trap cleanup_on_exit EXIT
+        build_go_tui
+        success "Go TUI build complete"
+        exit 0
+    fi
     
     # Return flag_count via global variable for reliability
     FLAG_COUNT=$flag_count

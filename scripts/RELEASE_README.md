@@ -79,9 +79,11 @@ Prompts for:
     gh auth login
     ```
 
-2. **Git repository** with `dist/` folder present
+2. **Go toolchain** 1.22+ (cross-compiles the Go TUI into `dist/bin/`)
 
-3. **Clean dist folder** (recommended but not required)
+3. **Git repository** with `dist/` folder present
+
+4. **Clean dist folder** (recommended but not required)
 
 ## Script Workflow
 
@@ -94,18 +96,25 @@ Prompts for:
     - Semantic version format check: `v` + numbers + `.` + numbers + `.` + numbers
     - Existing tag verification
 
-3. **Release Creation**
+3. **Go TUI Cross-Compilation**
+    - Builds `dist/bin/oc-sandbox_<os>_<arch>` for linux/amd64+arm64 and
+      darwin/amd64+arm64 (CGO off, tag injected via `-X main.Version`)
+    - Requires `go.mod` + `cmd/oc-sandbox` at the repo root
+    - Only `dist/bin` lands in the release branch; Go source stays out
+    - Standalone build without release: `./scripts/create-release.sh --build-tui`
+
+4. **Release Creation**
     - Create temporary orphan branch: `release-dist-v<version>`
     - Move dist/ contents to root
     - Commit with release message
     - Create version tag
 
-4. **GitHub Operations**
+5. **GitHub Operations**
     - Push branch and tag to GitHub
     - Create GitHub release (published or draft based on --draft flag)
     - Auto-cleanup local temporary branch
 
-5. **Cleanup**
+6. **Cleanup**
     - Return to original branch
     - Clean up old release branches
     - Display release URL

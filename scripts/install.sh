@@ -24,6 +24,51 @@ VERBOSE=false
 DOWNLOADED_VERSION=""
 USER_AGENT="opencode-sandbox-install-script"
 PRESERVE_ALLOWLIST=true
+# Go TUI binary: when true, symlink/desktop shortcut point at the oc-sandbox
+# binary in <install>/bin instead of the bash start-tui.sh (bash TUI remains
+# default until the Go TUI parity gate passes — see issue #68 / #60).
+BINARY_TUI=false
+BINARY_NAME="oc-sandbox"
+
+# --- Go TUI Binary Selection ---------------------------------------------------
+# Liefert den Dateinamen des plattform passenden Release-Binary nach dem
+# Matrix-Schema oc-sandbox_<goos>_<goarch> (linux/darwin × amd64/arm64),
+# nicht die PLATFORM_*-Werte (Linux/x86_64).
+go_binary_platform_name() {
+  local goos goarch
+  case "$PLATFORM_OS" in
+    Linux*)  goos="linux" ;;
+    Darwin*) goos="darwin" ;;
+    *)       return 1 ;;
+  esac
+  case "$PLATFORM_ARCH" in
+    x86_64|amd64)   goarch="amd64" ;;
+    arm64|aarch64)  goarch="arm64" ;;
+    *)              return 1 ;;
+  esac
+  printf 'oc-sandbox_%s_%s\n' "$goos" "$goarch"
+}
+
+# Quelle: plattform passendes Binary im Release-Auspackverzeichnis.
+install_dir_binary() {
+  local install_dir="$1"
+  local subpath="bin"
+  if [[ ! -d "${install_dir}/bin" && -d "${install_dir}/dist/bin" ]]; then
+    subpath="dist/bin"
+  fi
+  printf '%s/%s/%s\n' "$install_dir" "$subpath" "$(go_binary_platform_name)"
+}
+
+# Entry-Point-Pfad: das Go-Binary hinter --bin, sonst die Bash-TUI
+# (Default bis der Parity-Gate-Flip kommt).
+entry_point_path() {
+  local install_dir="$1"
+  if $BINARY_TUI; then
+    printf '%s/bin/%s\n' "$install_dir" "$BINARY_NAME"
+  else
+    printf '%s/scripts/start-tui.sh\n' "$install_dir"
+  fi
+}
 
 # --- Gum Configuration ---------------------------------------------------------
 GUM_VERSION="${GUM_VERSION:-0.17.0}"
@@ -531,6 +576,38 @@ install_files() {
   fi
 }
 
+# Plattform passendes oc-sandbox-Binary nach <install>/bin/oc-sandbox
+# kopieren — unabhängig von --bin, damit ein späterer Flag-Flip den Entry-
+# Point ohne Neuinstallation umschalten kann. Nur bei --bin ist ein fehlendes
+# Binary ein Fehler (Symlink/Shortcut könnten sonst ins Leere zeigen).
+extract_go_binary() {
+  local install_dir="$1"
+  local source_binary
+  
+  if [[ ! -d "${install_dir}/bin" && ! -d "${install_dir}/dist/bin" ]]; then
+    # Release ohne Go-Binaries (vor dem Parity-Gate): nur bei --bin ein Fehler
+    if $BINARY_TUI; then
+      exit_with_error "Kein Go-Binary im Release (bin/ fehlt). --bin weglassen, um die Bash-TUI zu installieren."
+    fi
+    log_verbose "Kein bin/ im Release – Go-Binary-Extraktion übersprungen."
+    return 0
+  fi
+  
+  source_binary=$(install_dir_binary "$install_dir")
+  if [[ ! -f "$source_binary" ]]; then
+    if $BINARY_TUI; then
+      exit_with_error "Go-Binary für Plattform fehlt im Release: ${source_binary} (--bin weglassen, um die Bash-TUI zu installieren)"
+    fi
+    log_verbose "Kein Binary für Plattform (${source_binary}) – übersprungen."
+    return 0
+  fi
+  
+  mkdir -p "${install_dir}/bin"
+  cp "$source_binary" "${install_dir}/bin/${BINARY_NAME}"
+  chmod +x "${install_dir}/bin/${BINARY_NAME}"
+  log_verbose "Go-Binary installiert: ${install_dir}/bin/${BINARY_NAME}"
+}
+
 set_executable_permissions() {
   local install_dir="$1"
   
@@ -560,11 +637,13 @@ create_symlinks() {
     fi
   done < <(find "$bin_dir" -maxdepth 1 -type l -print0 2>/dev/null)
   
-  # Erzeuge einzelnen Entry-Point-Symlink
-  local script="${install_dir}/scripts/start-tui.sh"
+  # Erzeuge einzelnen Entry-Point-Symlink (Go-Binary hinter --bin,
+  # sonst Bash-TUI)
+  local script
+  script=$(entry_point_path "$install_dir")
   
-  if [[ ! -f "$script" ]]; then
-    log_error "Skript nicht gefunden: $script"
+  if [[ ! -e "$script" ]]; then
+    log_error "Entry-Point nicht gefunden: $script"
     return 1
   fi
   
@@ -651,10 +730,11 @@ create_shortcut_linux() {
   local install_dir="$1"
   local apps_dir="$HOME/.local/share/applications"
   local desktop_file="${apps_dir}/oc-sandbox.desktop"
-  local script="${install_dir}/scripts/start-tui.sh"
+  local script
+  script=$(entry_point_path "$install_dir")
 
-  if [[ ! -f "$script" ]]; then
-    log_warn "Desktop-Shortcut übersprungen: Skript nicht gefunden: $script"
+  if [[ ! -e "$script" ]]; then
+    log_warn "Desktop-Shortcut übersprungen: Entry-Point nicht gefunden: $script"
     return 1
   fi
 
@@ -750,10 +830,11 @@ install_icon_windows_side() {
 
 create_shortcut_wsl() {
   local install_dir="$1"
-  local script="${install_dir}/scripts/start-tui.sh"
+  local script
+  script=$(entry_point_path "$install_dir")
 
-  if [[ ! -f "$script" ]]; then
-    log_warn "Desktop-Shortcut übersprungen: Skript nicht gefunden: $script"
+  if [[ ! -e "$script" ]]; then
+    log_warn "Desktop-Shortcut übersprungen: Entry-Point nicht gefunden: $script"
     return 1
   fi
 
@@ -808,7 +889,12 @@ create_shortcut_wsl() {
     log_verbose "Kein Icon gefunden (${icon_file}) – Shortcut wird ohne Icon erstellt."
   fi
   local ps_block
-  ps_block='$sc = (New-Object -ComObject WScript.Shell).CreateShortcut('"'"''"${lnk_path_win}"''"'"'); $sc.TargetPath = '"'"'%SystemRoot%\System32\wsl.exe'"'"'; $sc.Arguments = '"'"'-e bash '"${script}"''"'"'; '"$icon_block"'$sc.Save()'
+  if $BINARY_TUI; then
+    # Go-Binary: direkt ausführen (bash <elf> würde fehlschlagen)
+    ps_block='$sc = (New-Object -ComObject WScript.Shell).CreateShortcut('"'"''"${lnk_path_win}"''"'"'); $sc.TargetPath = '"'"'%SystemRoot%\System32\wsl.exe'"'"'; $sc.Arguments = '"'"'-e '"${script}"''"'"'; '"$icon_block"'$sc.Save()'
+  else
+    ps_block='$sc = (New-Object -ComObject WScript.Shell).CreateShortcut('"'"''"${lnk_path_win}"''"'"'); $sc.TargetPath = '"'"'%SystemRoot%\System32\wsl.exe'"'"'; $sc.Arguments = '"'"'-e bash '"${script}"''"'"'; '"$icon_block"'$sc.Save()'
+  fi
 
   log_verbose "Erstelle .lnk über powershell.exe: $lnk_path_win"
   if ! powershell.exe -NoProfile -Command "$ps_block" 2>/dev/null; then
@@ -822,12 +908,13 @@ create_shortcut_wsl() {
 
 create_shortcut_macos() {
   local install_dir="$1"
-  local script="${install_dir}/scripts/start-tui.sh"
+  local script
+  script=$(entry_point_path "$install_dir")
   local app_dir="$HOME/Applications/OC Sandbox.app"
   local contents="${app_dir}/Contents"
 
-  if [[ ! -f "$script" ]]; then
-    log_warn "Desktop-Shortcut übersprungen: Skript nicht gefunden: $script"
+  if [[ ! -e "$script" ]]; then
+    log_warn "Desktop-Shortcut übersprungen: Entry-Point nicht gefunden: $script"
     return 1
   fi
 
@@ -952,6 +1039,7 @@ validate_installation() {
     "scripts/build-container.sh"
     "scripts/init-project.sh"
     "scripts/start-tui.sh"
+    "scripts/configure-project.sh"
     "scripts/uninstall.sh"
     "Dockerfile"
   )
@@ -966,6 +1054,15 @@ validate_installation() {
       ((errors++))
     fi
   done
+  
+  # Go-Binary prüfen, wenn --bin gesetzt ist
+  if $BINARY_TUI; then
+    local binary="${install_dir}/bin/${BINARY_NAME}"
+    if [[ ! -x "$binary" ]]; then
+      log_error "Go-Binary fehlt oder ist nicht ausführbar: ${binary}"
+      ((errors++))
+    fi
+  fi
   
   if [[ $errors -gt 0 ]]; then
     exit_with_error "Validierung fehlgeschlagen: $errors Fehler gefunden"
@@ -1034,6 +1131,9 @@ Optionen:
   --symlinks             Symlinks in \$HOME/.local/bin erstellen
   --shortcut             Desktop-Shortcut für die TUI erstellen (Linux: .desktop,
                          WSL: Windows-Startmenu .lnk, macOS: .app in ~/Applications)
+  --bin                  Entry-Points (Symlink/Shortcut) auf das Go-Binary
+                         oc-sandbox in <install>/bin richten statt auf die
+                         Bash-TUI (start-tui.sh bleibt Default)
   --verbose              Detaillierte Ausgabe aktivieren
   --help                 Diese Hilfe anzeigen und beenden
 
@@ -1098,6 +1198,10 @@ parse_arguments() {
         SHORTCUT=true
         shift
         ;;
+      --bin)
+        BINARY_TUI=true
+        shift
+        ;;
       --verbose)
         VERBOSE=true
         shift
@@ -1150,6 +1254,9 @@ main() {
   # Installiere Dateien
   echo "Installiere nach: $INSTALL_PATH"
   install_files "$source_dir" "$INSTALL_PATH"
+  
+  # Go-Binary extrahieren (--bin), vor Validierung
+  extract_go_binary "$INSTALL_PATH"
   
   # Setze Berechtigungen
   set_executable_permissions "$INSTALL_PATH"
@@ -1210,6 +1317,12 @@ main() {
     echo "Symlink erstellt in \$HOME/.local/bin/."
     echo "Sie können die Sandbox jetzt von überall starten:"
     echo "  oc-sandbox"
+  fi
+
+  if $BINARY_TUI; then
+    echo ""
+    echo "Go-TUI-Binary aktiviert (--bin): Entry-Points zeigen auf"
+    echo "  ${INSTALL_PATH}/bin/${BINARY_NAME}"
   fi
 
   if $SHORTCUT_CREATED; then

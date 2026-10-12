@@ -68,7 +68,7 @@
 
 **disk space check** — Validates minimum 500MB available disk space before starting installation.
 
-**symlinks** — Optional `--symlinks` flag creates a single symlink `oc-sandbox` → `scripts/start-tui.sh` in `$HOME/.local/bin` for easier command access.
+**symlinks** — Optional `--symlinks` flag creates a single symlink `oc-sandbox` → `scripts/start-tui.sh` in `$HOME/.local/bin` for easier command access. With `--bin`, symlink and desktop shortcut point at the Go binary `<install>/bin/oc-sandbox` instead (bash TUI stays default until the parity gate flips the default; ADR-0020).
 
 **color output** — Install script output uses plain text only for maximum compatibility. The TUI may use color through gum (e.g. the red `UNINSTALL` confirmation prompt), with plain-text fallback.
 
@@ -94,7 +94,7 @@
 
 **signal handling** — Handles SIGINT (Ctrl+C) gracefully to clean up temporary files before exiting.
 
-**symlink creation** — Creates a single entry-point symlink `oc-sandbox` → `scripts/start-tui.sh` when `--symlinks` flag is used; removes stale symlinks in `$HOME/.local/bin` pointing into the install path first.
+**symlink creation** — Creates a single entry-point symlink `oc-sandbox` → `scripts/start-tui.sh` when `--symlinks` flag is used; removes stale symlinks in `$HOME/.local/bin` pointing into the install path first. With `--bin`, the symlink targets the extracted Go binary `<install>/bin/oc-sandbox` instead (ADR-0020).
 
 **symlink overwriting** — Overwrites existing symlinks without prompting when using `--symlinks` flag.
 
@@ -169,3 +169,13 @@
 **proxy toggle** — Per-project yes/no setting recorded as `use_proxy` in sandbox_config.json, passed to start.sh as `--use_proxy` on next start. Governs container-level proxy use only; the global `oc-proxy` container's lifecycle and the allowlist remain start.sh/start.sh-built-image concerns, never edited here. _Avoid_: allowlist editor, proxy settings.
 
 **next-start apply** — Contract that any settings change (including edition switch) is only recorded and never reconfigures a running container; applying requires a later stop/start, where a missing edition image gets the existing Build now / Build later / Go back prompt at start time. _Avoid_: live apply, hot reload.
+
+**BubbleTea TUI** — The upcoming GUI replacement for start-tui.sh: full-window, mouse-first, keyboard-available, single Go binary. Built on Charm libraries: BubbleTea (application/controller), Bubbles (components), Lip Gloss (styling). Replaces gum dependency once migrated. _Avoid_: GPU TUI.
+
+**release-time build** — Cross-compilation of the Go TUI happens in create-release.sh before the orphan release branch is cut: `dist/bin/oc-sandbox_<goos>_<goarch>` (linux/darwin × amd64/arm64, CGO off), tag injected via `-X main.Version`. Go source lives at repo root outside `dist/` and never enters the release branch. `dist/bin/` is gitignored. _Avoid_: committing binaries, duplicating Go source into dist/.
+
+**terminal handoff** — Full-screen terminal suspension where the TUI pauses, releases the grid to a child process (e.g. `podman exec` console via tea.ExecProcess), and re-renders the window on return. Core event for interactive sessions (console/OpenCode); used for long-running external commands that need raw terminal I/O.
+
+**embedded log pane** — TUI layout region streaming live output of long-running container operations (build/start/stop/first-run) while the app stays interactive elsewhere, replacing the current bash "simple status messages" UX.
+
+**background task** — Long-running operation (build/start/stop/export) running in a Go goroutine with progress/status surfaced via footer/health indicators, allowing free navigation while it runs. Completes asynchronously with an inline notification at completion point; queued one-at-a-time per project.

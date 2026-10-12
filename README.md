@@ -151,6 +151,10 @@ Das Skript:
   Windows-Startmenü, macOS: minimal `OC Sandbox.app` in `~/Applications`.
   Fehler beim Erstellen warnen nur und brechen die Installation nie ab
   (siehe [ADR-0015](docs/adr/0015-desktop-shortcuts-via-shortcut-flag.md))
+- `--bin` – Entry-Points (Symlink/Shortcut) auf das Go-Binary
+  `oc-sandbox` in `<install>/bin` richten statt auf die Bash-TUI.
+  Default bleibt `start-tui.sh`, bis das Go-TUI den Parity-Gate passiert
+  (siehe [ADR-0020](docs/adr/0020-go-tui-built-at-release-time.md))
 - `--verbose` – Detaillierte Ausgabe
 - `--help` – Hilfe anzeigen und beenden
 
@@ -179,6 +183,11 @@ Ohne Symlink direkt über den Installationspfad:
 ```bash
 ~/.oc-sandbox/scripts/start-tui.sh
 ```
+
+Mit `--bin` zeigt der Symlink (und der Desktop-Shortcut) stattdessen direkt
+auf das Go-Binary `~/.oc-sandbox/bin/oc-sandbox` (siehe
+[ADR-0020](docs/adr/0020-go-tui-built-at-release-time.md)); die Bash-TUI
+bleibt bis zum Parity-Gate der Default.
 
 Die TUI nutzt `gum` (wird von `install.sh` automatisch installiert) und fällt
 ohne `gum` auf einen einfachen Textmodus zurück.
