@@ -22,15 +22,15 @@ const SetupModel = "opencode/big-pickle"
 // sweeps this factory).
 type RunnerFactory func(root string) Stager
 
-// NewStagerFor returns the production stage runner for a project root:
-// script paths follow the install layout (scripts/start.sh,
-// scripts/configure-project.sh — served from dist/ in production).
-func NewStagerFor(run cmdrun.Runner, home string, reg *registry.Registry) RunnerFactory {
+// NewStagerFor returns the production stage runner for a project root.
+// The script paths are constructor args so the wiring decides the
+// install layout (app.LayoutFor), not this package.
+func NewStagerFor(run cmdrun.Runner, home string, reg *registry.Registry, startScript, configureScript string) RunnerFactory {
 	return func(root string) Stager {
 		return &PipelineStager{
 			Home: home, Root: root, Reg: reg, Runner: run,
-			StartScript:     "dist/scripts/start.sh",
-			ConfigureScript: "dist/scripts/configure-project.sh",
+			StartScript:     startScript,
+			ConfigureScript: configureScript,
 		}
 	}
 }

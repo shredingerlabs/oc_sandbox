@@ -77,7 +77,13 @@ type Model struct {
 	help          help.Model
 	Queue         *taskmgr.Manager
 	exitPending   bool
+	exitStatus    int
 }
+
+// ExitStatus reports how the shell quit: 0 clean (q/esc/menu Exit) or
+// ExitSigint (ctrl+c, story 28 bash parity); read the final model after
+// tea.Program.Run.
+func (m Model) ExitStatus() int { return m.exitStatus }
 
 // New returns a shell around the given center views, ordered like
 // MenuItems (Open Project / New Project / Container / Settings).
@@ -175,6 +181,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.broadcastTaskMsg(msg)
 	case tea.KeyMsg:
 		if !m.views[m.active].TextFocused() {
+			if msg.Type == tea.KeyCtrlC { // ctrl+c = SIGINT discipline (story 28): exit 130
+				m.exitStatus = ExitSigint
+				return m, tea.Quit
+			}
 			if key.Matches(msg, m.keys.Quit) {
 				if m.workBusy() { // guarded exit (#82): ask once, cancel by doing anything else
 					m.exitPending = true
