@@ -1035,8 +1035,10 @@ func (m *Model) promptPane(indent, paneW, height int, head []string, opts []stri
 	for i, o := range opts {
 		for j, bl := range shell.ButtonLines(o, i == sel) {
 			if j == 1 {
+				// The block lands at paneX (left pane is leftWidth wide,
+				// then the indent prefix); the rect must be screen-space.
 				m.promptRects = append(m.promptRects, shell.Rect{
-					X: paneWidth(m.width) + indent + 1, Y: BodyTop + len(lines), W: min(paneW, shell.Width(bl)), H: 1,
+					X: leftWidth(m.width) + indent, Y: BodyTop + len(lines), W: min(paneW, shell.Width(bl)), H: 1,
 				})
 			}
 			lines = append(lines, bl)
