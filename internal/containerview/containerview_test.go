@@ -48,6 +48,16 @@ func key(s string) tea.Msg { return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune
 
 func keyType(t tea.KeyType) tea.Msg { return tea.KeyMsg{Type: t} }
 
+// confirmPopup steps through the build confirmation popup (ADR-0021):
+// the trigger shows it; tab focuses the Confirm button, enter runs.
+func confirmPopup(m *Model) tea.Cmd {
+	if !m.confirm.IsOpen() {
+		return nil
+	}
+	m.Update(keyType(tea.KeyTab))
+	return m.Update(keyType(tea.KeyEnter))
+}
+
 // runCmd executes a tea.Cmd and feeds its message back into the view
 // (message in → rendered state out).
 func runCmd(t *testing.T, m *Model, cmd tea.Cmd) {
@@ -185,7 +195,8 @@ func TestBuildCardClickSelectsThenDoubleClickBuilds(t *testing.T) {
 		t.Fatalf("single click already ran a build: %v", fake.Calls)
 	}
 	// observable selection: Enter builds the clicked edition
-	cmd := m.Update(keyType(tea.KeyEnter))
+	cmd := m.Update(keyType(tea.KeyEnter)) // popup (ADR-0021)
+	cmd = confirmPopup(m)
 	runCmds(t, m, cmd)
 	wantCall := cmdrun.Call{Name: "bash", Args: []string{buildScript, "web"}}
 	if !lastCall(fake, wantCall.Name, wantCall.Args...) {
@@ -198,7 +209,8 @@ func TestBuildDoubleClickSameCardStartsBuild(t *testing.T) {
 	m.Body(80, 22)
 	r := m.cardRects[1] // base
 	m.Update(mousePress(r.X+2, r.Y+1))
-	cmd := m.Update(mousePress(r.X+2, r.Y+1)) // second press within the window
+	cmd := m.Update(mousePress(r.X+2, r.Y+1)) // second press within the window → popup (ADR-0021)
+	cmd = confirmPopup(m)
 	runCmds(t, m, cmd)
 	wantCall := cmdrun.Call{Name: "bash", Args: []string{buildScript, "base"}}
 	if !lastCall(fake, wantCall.Name, wantCall.Args...) {
@@ -209,7 +221,8 @@ func TestBuildDoubleClickSameCardStartsBuild(t *testing.T) {
 func TestBuildButtonInvokesScript(t *testing.T) {
 	m, fake, _, _ := newFixture(t)
 	m.Body(80, 22)
-	cmd := m.Update(mousePress(m.buildBtn.X+2, m.buildBtn.Y))
+	cmd := m.Update(mousePress(m.buildBtn.X+2, m.buildBtn.Y)) // popup (ADR-0021)
+	cmd = confirmPopup(m)
 	runCmds(t, m, cmd)
 	wantCall := cmdrun.Call{Name: "bash", Args: []string{buildScript, "all"}}
 	if !lastCall(fake, wantCall.Name, wantCall.Args...) {
@@ -223,7 +236,8 @@ func TestBuildStreamsOutputAndWritesNoConfig(t *testing.T) {
 		return "==> Baue opencode-sandbox-all\nSTEP 1/3\nSTEP 2/3\n", nil
 	}
 	m.Body(80, 22)
-	cmd := m.Update(keyType(tea.KeyEnter))
+	cmd := m.Update(keyType(tea.KeyEnter)) // popup (ADR-0021)
+	cmd = confirmPopup(m)
 	if !m.Busy() {
 		t.Fatal("build op not marked busy")
 	}
@@ -252,7 +266,8 @@ func TestBuildFailureToastsError(t *testing.T) {
 		return "podman build failed", os.ErrPermission
 	}
 	m.Body(80, 22)
-	cmd := m.Update(keyType(tea.KeyEnter))
+	cmd := m.Update(keyType(tea.KeyEnter)) // popup (ADR-0021)
+	cmd = confirmPopup(m)
 	runCmds(t, m, cmd)
 	if got := body(m); !strings.Contains(got, "build failed") {
 		t.Errorf("failure toast missing:\n%s", got)
@@ -268,7 +283,8 @@ func TestOneOpAtATimeAndGuardedExit(t *testing.T) {
 		go func() { op(func(string) {}) }() // never returns: op stays in flight
 		return func() tea.Msg { return <-release }
 	}
-	cmd := m.Update(keyType(tea.KeyEnter))
+	cmd := m.Update(keyType(tea.KeyEnter)) // popup (ADR-0021)
+	cmd = confirmPopup(m)
 	if cmd == nil || !m.Busy() {
 		t.Fatal("first op did not start")
 	}
@@ -457,7 +473,8 @@ func TestKeyboardParity(t *testing.T) {
 	m.Body(80, 22)
 	// down moves the edition selection: 0=all, 1=base, 2=web
 	m.Update(key("j"))
-	cmd := m.Update(keyType(tea.KeyEnter))
+	cmd := m.Update(keyType(tea.KeyEnter)) // popup (ADR-0021)
+	cmd = confirmPopup(m)
 	runCmds(t, m, cmd)
 	wantCall := cmdrun.Call{Name: "bash", Args: []string{buildScript, "base"}}
 	if !lastCall(fake, wantCall.Name, wantCall.Args...) {
@@ -526,7 +543,8 @@ func TestBuildThroughSharedQueueStreamsAndFrees(t *testing.T) {
 	}
 	m.Queue = taskmgr.New()
 	m.Body(80, 22)
-	cmd := m.Update(keyType(tea.KeyEnter))
+	cmd := m.Update(keyType(tea.KeyEnter)) // popup (ADR-0021)
+	cmd = confirmPopup(m)
 	if !m.Busy() || !m.Queue.BusyKey("cv-build:all") {
 		t.Fatal("op not busy / not visible on its queue key")
 	}
@@ -556,7 +574,8 @@ func TestBusyEditionCardShowsStillRunningIndicator(t *testing.T) {
 	}
 	m.Queue = taskmgr.New()
 	m.Body(80, 22)
-	cmd := m.Update(keyType(tea.KeyEnter)) // build "all"
+	cmd := m.Update(keyType(tea.KeyEnter)) // build "all" → popup (ADR-0021)
+	cmd = confirmPopup(m)
 	if got := body(m); !strings.Contains(got, "all  ◌ running") {
 		t.Fatalf("still-running indicator missing while building:\n%s", got)
 	}

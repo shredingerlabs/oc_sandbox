@@ -456,7 +456,9 @@ func TestRestoreOrderedWriteIsNoBackup(t *testing.T) {
 	v.Update(shell.SubTabMsg{Index: 2})
 	key(v, "down") // focus backup row 1 (older backup)
 	key(v, "enter")
-	key(v, "down") // focus the Restore button
+	key(v, "down") // focus the Restore button → popup (ADR-0021)
+	key(v, "enter")
+	key(v, "tab") // popup: switch to the Confirm button
 	key(v, "enter")
 
 	if got := readFile(t, pp); got != backup1 {
@@ -484,7 +486,9 @@ func TestRestoreInvalidJSONLeavesActiveUntouched(t *testing.T) {
 
 	v := newSettings(t, home, nil)
 	v.Update(shell.SubTabMsg{Index: 2})
-	key(v, "down") // backup row → Restore button
+	key(v, "down")  // backup row → Restore button
+	key(v, "enter") // popup (ADR-0021)
+	key(v, "tab")
 	key(v, "enter")
 
 	if got := readFile(t, pp); got != before {
@@ -525,7 +529,9 @@ func TestUninstallInvocationMapsFlags(t *testing.T) {
 	}
 	typeText(v, "UnInStAlL")
 	key(v, "enter") // confirm field → button
-	key(v, "enter") // run
+	key(v, "enter") // popup (ADR-0021)
+	key(v, "tab")   // popup: switch to the Confirm button
+	key(v, "enter")
 	calls := bashCalls(run)
 	if len(calls) != 1 {
 		t.Fatalf("uninstall invocations = %d, want 1 (%v)", len(calls), run.Calls)
@@ -568,6 +574,8 @@ func TestUninstallFlagCombos(t *testing.T) {
 	key(v, "down")
 	typeText(v, "uninstall")
 	key(v, "enter")
+	key(v, "enter") // popup (ADR-0021)
+	key(v, "tab")
 	key(v, "enter")
 
 	want := []string{v.scriptPath, "--force", "--no-symlinks", "--remove-shortcuts", "--remove-config"}

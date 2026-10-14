@@ -309,7 +309,10 @@ func TestE2ECreateSingleClickActivates(t *testing.T) {
 		t.Fatal("Create Project button not rendered:\n" + g.String())
 	}
 	btnR, btnC, _ := g.find("Create Project")
-	tm.Send(mousePress(btnC+2, btnR)) // single click: focus + activate
+	tm.Send(mousePress(btnC+2, btnR)) // single click: focus + popup (ADR-0021)
+	// Create confirmation popup: tab to Create, enter runs.
+	tm.Send(tea.KeyMsg{Type: tea.KeyTab})
+	tm.Send(tea.KeyMsg{Type: tea.KeyEnter})
 	// The create chain runs real scripts. Either the registry entry
 	// appears (success), or the chain reaches a settled failure screen —
 	// both prove the click ran the flow.

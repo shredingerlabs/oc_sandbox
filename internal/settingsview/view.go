@@ -86,6 +86,7 @@ type View struct {
 	rects        []shell.Rect
 	acts         []func() tea.Cmd
 	pending      tea.Cmd
+	confirm      shell.Confirm // shared confirmation popup (ADR-0021)
 }
 
 // New returns the Settings view for home, wiring the default Ops (real
@@ -118,6 +119,9 @@ func (v *View) TextFocused() bool { return v.focusedField() != nil }
 // out by the last Body render (regression-tested geometry).
 func (v *View) Rects() []shell.Rect { return v.rects }
 
+// ConfirmOpen implements shell.ConfirmView (ADR-0021): the popup is up.
+func (v *View) ConfirmOpen() bool { return v.confirm.IsOpen() }
+
 // Update implements shell.CenterView.
 func (v *View) Update(msg tea.Msg) tea.Cmd {
 	v.toast = ""
@@ -132,9 +136,17 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 	case taskmgr.DoneMsg: // continuation of a queued op (#82)
 		return v.taskDone(msg)
 	case tea.KeyMsg:
+		if v.confirm.IsOpen() { // the popup consumes keys (ADR-0021)
+			return v.confirm.Key(msg)
+		}
 		return v.key(msg)
 	case tea.MouseMsg:
 		if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft {
+			if v.confirm.IsOpen() { // popup buttons & outside-cancel first
+				if cmd, ok := v.confirm.Click(msg.X, msg.Y); ok {
+					return cmd
+				}
+			}
 			v.click(msg.X, msg.Y)
 			cmd := v.pending
 			v.pending = nil
@@ -224,7 +236,11 @@ func (v *View) Body(width, height int) string {
 		v.rects = append(v.rects, shell.Rect{X: h.x, Y: 4 + h.row - v.scroll, W: h.w, H: 1})
 		v.acts = append(v.acts, h.act)
 	}
-	return shell.PadLeft(2, shell.Card(rows[v.scroll:end]))
+	body := shell.PadLeft(2, shell.Card(rows[v.scroll:end]))
+	if v.confirm.IsOpen() { // the popup overlays the pane card (ADR-0021)
+		body = v.confirm.Overlay(width, height, shell.BodyTop)
+	}
+	return body
 }
 
 // hitRow is an interactive row of a pane: row indexes into the pane's

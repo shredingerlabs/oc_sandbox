@@ -28,6 +28,11 @@ func queuedCreateModel(t *testing.T, mods ...func(*recOps, *cmdrun.Fake)) (*Mode
 func createCmd(t *testing.T, m *Model) tea.Cmd {
 	t.Helper()
 	m.tabToField(t, "Create Project")
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter}) // confirm popup (ADR-0021)
+	if !m.confirm.IsOpen() {
+		t.Fatalf("create popup missing:\n%s", plain(t, m))
+	}
+	m.Update(tea.KeyMsg{Type: tea.KeyTab}) // popup: switch to Create
 	return m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 }
 

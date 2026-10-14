@@ -135,6 +135,7 @@ type Model struct {
 	opKind       string // "" idle, "build" / "stop" while an op runs
 	toast        string
 	dbl          shell.DblClick
+	confirm      shell.Confirm // shared confirmation popup (ADR-0021)
 
 	// Hit rects, stored at render time in screen space (regression
 	// tests pin them).
@@ -176,6 +177,9 @@ func (m *Model) SubTabs() ([]string, int) { return subTabItems, m.sub }
 
 // TextFocused implements shell.CenterView (no text inputs here).
 func (m *Model) TextFocused() bool { return false }
+
+// ConfirmOpen implements shell.ConfirmView (ADR-0021): the build popup.
+func (m *Model) ConfirmOpen() bool { return m.confirm.IsOpen() }
 
 // options returns the buildable editions incl. the "all" pseudo-option
 // (bash build-wizard parity).
@@ -253,6 +257,9 @@ func (m *Model) Update(msg tea.Msg) tea.Cmd {
 		}
 		return nil
 	case tea.KeyMsg:
+		if m.confirm.IsOpen() { // the popup consumes keys (ADR-0021)
+			return m.confirm.Key(msg)
+		}
 		if m.opKind != "" {
 			m.log, _ = m.log.Update(msg) // log scrolling while the op runs
 			return nil
@@ -262,6 +269,11 @@ func (m *Model) Update(msg tea.Msg) tea.Cmd {
 		return m.key(msg)
 	case tea.MouseMsg:
 		if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft {
+			if m.confirm.IsOpen() { // popup buttons & outside-cancel first
+				if cmd, ok := m.confirm.Click(msg.X, msg.Y); ok {
+					return cmd
+				}
+			}
 			return m.click(msg)
 		}
 		if msg.Button == tea.MouseButtonWheelUp || msg.Button == tea.MouseButtonWheelDown {
@@ -436,9 +448,22 @@ func (m *Model) toastLine() string {
 	return m.toast
 }
 
-// startBuild launches the build op through the Launcher seam (one op at
-// a time; no config writes).
+// startBuild opens the confirmation popup (ADR-0021) for a launch when
+// nothing runs (idle fires only); the popup confirm calls launchBuild.
+// A running op — this view's or a queued one — skips the popup and
+// toasts, keeping the existing busy priority.
 func (m *Model) startBuild(edition string) tea.Cmd {
+	if m.opKind != "" || (m.Queue != nil && m.Queue.Busy()) {
+		return m.launchBuild(edition)
+	}
+	m.confirm.Open("Build the "+edition+" image?", "Build", "Cancel",
+		[]string{"edition: " + edition}, false, func() tea.Cmd { return m.launchBuild(edition) })
+	return nil
+}
+
+// launchBuild runs the build op through the Launcher seam (one op at a
+// time; no config writes).
+func (m *Model) launchBuild(edition string) tea.Cmd {
 	if m.opKind != "" {
 		m.toast = "operation already in progress"
 		return nil
@@ -590,7 +615,11 @@ func (m *Model) Body(width, height int) string {
 	} else {
 		lines = m.stopBody(width, height)
 	}
-	return shell.PadLeft(padX, strings.Join(lines, "\n"))
+	body := shell.PadLeft(padX, strings.Join(lines, "\n"))
+	if m.confirm.IsOpen() { // the popup overlays the cards (ADR-0021)
+		body = m.confirm.Overlay(width, height, shell.BodyTop)
+	}
+	return body
 }
 
 // buildBody renders the two-column edition cards, the reserved toast

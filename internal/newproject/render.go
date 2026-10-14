@@ -299,5 +299,9 @@ func (m *Model) Body(width, height int) string {
 	m.btnRect = btnRect
 
 	card := shell.Card(vis)
-	return shell.PadLeft(BodyPad, card)
+	body := shell.PadLeft(BodyPad, card)
+	if m.confirm.IsOpen() { // the popup overlays the form card (ADR-0021)
+		body = m.confirm.Overlay(width, height, shell.BodyTop)
+	}
+	return body
 }

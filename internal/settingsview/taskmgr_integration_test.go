@@ -35,7 +35,9 @@ func TestUninstallThroughSharedQueue(t *testing.T) {
 	}
 	typeText(v, "UnInStAlL")
 	cmd := key(v, "enter")
-	cmd = key(v, "enter") // confirm field → button; then run
+	cmd = key(v, "enter") // confirm field → button → popup (ADR-0021)
+	cmd = key(v, "tab")   // popup: switch to the Confirm button
+	cmd = key(v, "enter")
 	if !v.Busy() || !mgr.BusyKey("settings") {
 		t.Fatal("uninstall op not queued / not busy")
 	}

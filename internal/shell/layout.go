@@ -20,6 +20,9 @@ const (
 	SubTabRowY = 2
 	// BodyRows is the line count passed to CenterView.Body: rows 3..h-2.
 	BodyRows = 4
+	// BodyTop is the first body-relative screen row (the body region's
+	// top border; overlays paint over rows BodyTop..BodyTop+h-1).
+	BodyTop = SubTabRowY + 1
 )
 
 // TitleWidth is the printed header title width; the first menu item and

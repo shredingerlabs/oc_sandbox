@@ -12,6 +12,8 @@ import (
 	"testing"
 	"time"
 
+	tea "github.com/charmbracelet/bubbletea"
+
 	"github.com/shredingerlabs/oc-sandbox/internal/cmdrun"
 	"github.com/shredingerlabs/oc-sandbox/internal/registry"
 	"github.com/shredingerlabs/oc-sandbox/internal/sandboxcfg"
@@ -49,6 +51,9 @@ func TestE2EWebEditionBuildNowCreatesProject(t *testing.T) {
 		t.Fatal("Create Project button not rendered:\n" + g.String())
 	}
 	tm.Send(mousePress(btnC+2, btnR))
+	// Create confirmation popup (ADR-0021): tab to Create, enter runs.
+	tm.Send(tea.KeyMsg{Type: tea.KeyTab})
+	tm.Send(tea.KeyMsg{Type: tea.KeyEnter})
 	if !waitScreen(t, rec, false, "Build the web image now?") {
 		t.Fatalf("build prompt missing after Create click:\n%s", screenOf(t, rec))
 	}

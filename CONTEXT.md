@@ -179,3 +179,6 @@
 **embedded log pane** — TUI layout region streaming live output of long-running container operations (build/start/stop/first-run) while the app stays interactive elsewhere, replacing the current bash "simple status messages" UX.
 
 **background task** — Long-running operation (build/start/stop/export) running in a Go goroutine with progress/status surfaced via footer/health indicators, allowing free navigation while it runs. Completes asynchronously with an inline notification at completion point; queued one-at-a-time per project.
+
+**confirmation popup** — Shared centered modal (shell package) shown over the dimmed card to confirm a triggered action before it runs. Keyboard: ←/→/Tab switch buttons, Enter activates the focused button, esc/q cancels anytime. Pointer: click outside cancels; default focus is Cancel. One-line title + one context line per action; fires only when no op is queued/running. Applied to Create Project (content summary with Confirm/Back), Restore Config, Build (Container view button/card double-click), and Uninstall (after the typed confirm, on button click, red Confirm). Quit keeps the existing guarded-exit footer prompt; start-time Build-now prompt (Build now / Build later / Go back) stays separate. _Avoid_: yes/no dialog (.Create Project uses Confirm/Back), exit prompt (reserved for guarded exit).
+

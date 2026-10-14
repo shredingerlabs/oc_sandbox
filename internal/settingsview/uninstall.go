@@ -55,7 +55,7 @@ func (v *View) uninstallPane() ([]string, []hitRow, int) {
 		act: func() tea.Cmd { v.unFocus = 3; return nil }})
 
 	armed := uninstallArmed(v.unConfirm)
-	rows, h := buttonBlock(rows, "Uninstall", armed, v.runUninstall)
+	rows, h := buttonBlock(rows, "Uninstall", armed, v.askUninstall)
 	if v.unFocus == 4 {
 		return rows, append(hits, h), h.row
 	}
@@ -82,9 +82,36 @@ func (v *View) toggleUninstallOpt(i int) {
 // button; case-insensitive, surrounding whitespace ignored.
 func uninstallArmed(s string) bool { return strings.EqualFold(strings.TrimSpace(s), "uninstall") }
 
+// askUninstall opens the confirmation popup (ADR-0021) after the typed
+// confirm: red danger confirm, the currently toggled options echoed
+// below the removal warning. Confirm runs uninstall.sh via the Ops seam.
+func (v *View) askUninstall() tea.Cmd {
+	if !uninstallArmed(v.unConfirm) {
+		v.toast = `Type "uninstall" to confirm.`
+		return nil
+	}
+	lines := []string{
+		shell.StyleWarn.Render("This removes the oc-sandbox installation."),
+		echoOpt("Remove config", v.unOptCfg) + " (backup is made first)",
+		echoOpt("Remove symlinks", v.unOptSyml),
+		echoOpt("Remove desktop shortcuts", v.unOptScut),
+	}
+	v.confirm.Open("Uninstall oc-sandbox?", "Uninstall", "Cancel", lines, true,
+		func() tea.Cmd { return v.runUninstall() })
+	return nil
+}
+
+// echoOpt renders one uninstall option's current state.
+func echoOpt(label string, on bool) string {
+	if on {
+		return label + ": yes"
+	}
+	return shell.StyleMutedAlt.Render(label + ": no")
+}
+
 // runUninstall maps the option toggles onto uninstall.sh flags (always
 // --force, matching the bash uninstall wizard) and invokes the script
-// through the Ops seam.
+// through the Ops seam; runs only after the popup confirm.
 func (v *View) runUninstall() tea.Cmd {
 	if !uninstallArmed(v.unConfirm) {
 		v.toast = `Type "uninstall" to confirm.`
@@ -118,7 +145,7 @@ func (v *View) runUninstall() tea.Cmd {
 func (v *View) uninstallActivate() tea.Cmd {
 	switch v.unFocus {
 	case 4:
-		return v.runUninstall()
+		return v.askUninstall()
 	case 3:
 		v.unFocus = 4
 		return nil

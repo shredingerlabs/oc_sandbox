@@ -40,7 +40,7 @@ func (v *View) restorePane() ([]string, []hitRow, int) {
 		hits = append(hits, hitRow{row: len(rows) - 1, x: cardX, w: wideChoice(name),
 			act: v.resChooserAct(j)})
 	}
-	rows, h := buttonBlock(rows, "Restore", v.resFocus == len(v.resBackups), v.doRestore)
+	rows, h := buttonBlock(rows, "Restore", v.resFocus == len(v.resBackups), v.askRestore)
 	if v.resFocus == len(v.resBackups) {
 		return rows, append(hits, h), h.row
 	}
@@ -55,6 +55,22 @@ func (v *View) resChooserAct(j int) func() tea.Cmd {
 	}
 }
 
+// askRestore opens the confirmation popup (ADR-0021) with the selected
+// backup and its target file as context; confirm runs doRestore.
+func (v *View) askRestore() tea.Cmd {
+	if v.resSel >= len(v.resBackups) {
+		v.toast = "No backup selected."
+		return nil
+	}
+	backup := v.resBackups[v.resSel]
+	target := restoreTarget(backupPath(v.home, backup))
+	v.confirm.Open("Restore this config backup?", "Restore", "Cancel",
+		[]string{fmt.Sprintf("%s → %s", backup, target),
+			"A safety backup of the active file is made first."},
+		false, func() tea.Cmd { return v.doRestore() })
+	return nil
+}
+
 // restoreActivate runs the focused item's action in the restore pane.
 func (v *View) restoreActivate() tea.Cmd {
 	if len(v.resBackups) == 0 {
@@ -64,7 +80,7 @@ func (v *View) restoreActivate() tea.Cmd {
 	if v.resFocus < len(v.resBackups) {
 		return v.resChooserAct(v.resFocus)()
 	}
-	return v.doRestore()
+	return v.askRestore()
 }
 
 // doRestore runs the ordered restore: validate → safety backup →

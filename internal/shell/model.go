@@ -148,6 +148,21 @@ type BusyView interface {
 	Busy() bool
 }
 
+// ConfirmView is a center view with a confirmation popup open right now
+// (ADR-0021). While true the shell routes esc/q/1–4 to the view so the
+// popup consumes them instead of quitting or switching.
+type ConfirmView interface {
+	ConfirmOpen() bool
+}
+
+// confirmOpen polls the active view's confirmation-popup state.
+func (m Model) confirmOpen() bool {
+	if cv, ok := m.views[m.active].(ConfirmView); ok {
+		return cv.ConfirmOpen()
+	}
+	return false
+}
+
 // ActivableView is a center view that refreshes external state when it
 // becomes active. The shell reuses view instances across switches, so a
 // view whose data lives outside the model (e.g. the Open Project view's
@@ -206,6 +221,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if msg.Type == tea.KeyCtrlC { // ctrl+c = SIGINT discipline (story 28): exit 130
 				m.exitStatus = ExitSigint
 				return m, tea.Quit
+			}
+			// Confirmation popup (ADR-0021): while the active view has
+			// one open it consumes q/esc/1–4 itself — routing them to
+			// the shell would quit or switch on the popup's q/esc. The
+			// popup's cancel counts as "any other key" for the guarded
+			// exit, so a pending confirmation is dropped.
+			if cv, ok := m.views[m.active].(ConfirmView); ok && cv.ConfirmOpen() {
+				m.exitPending = false
+				return m, m.views[m.active].Update(msg)
 			}
 			if key.Matches(msg, m.keys.Quit) {
 				if m.workBusy() { // guarded exit (#82): ask once, cancel by doing anything else

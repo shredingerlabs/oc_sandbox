@@ -31,6 +31,7 @@ var (
 	ColHeaderBg = lipgloss.Color("235")
 	ColFooterFg = lipgloss.Color("244")
 	ColBorder   = lipgloss.Color("240") // unfocused card/button borders
+	ColDanger   = lipgloss.Color("196") // red destructive confirm (uninstall)
 )
 
 // Shared styles. Pre-styled lipgloss.Style values compose (Render output

@@ -12,6 +12,8 @@
 package newproject
 
 import (
+	"strings"
+
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/shredingerlabs/oc-sandbox/internal/cmdrun"
@@ -152,9 +154,10 @@ type Model struct {
 	fieldRect map[int]fieldHit
 	btnRect   shell.Rect
 
-	npScroll int          // card scroll offset
-	follow   shell.Follow // wheel + focus-follow of the card
-	btnRow   int          // Create button row from the last render (unwindowed)
+	npScroll int           // card scroll offset
+	follow   shell.Follow  // wheel + focus-follow of the card
+	btnRow   int           // Create button row from the last render (unwindowed)
+	confirm  shell.Confirm // shared confirmation popup (ADR-0021)
 }
 
 // credStep is one configure-project.sh invocation in the credential
@@ -201,6 +204,9 @@ func (m *Model) SubTabs() ([]string, int) {
 
 // TextFocused implements shell.CenterView.
 func (m *Model) TextFocused() bool {
+	if m.confirm.IsOpen() { // popup keys override the form
+		return false
+	}
 	f := m.fields[m.focus]
 	switch f {
 	case fName, fPath, fURL, fGitName, fGitEmail, fVCSToken, fVCSHost, fGWDGToken:
@@ -208,6 +214,9 @@ func (m *Model) TextFocused() bool {
 	}
 	return false
 }
+
+// ConfirmOpen implements shell.ConfirmView (ADR-0021): the create popup.
+func (m *Model) ConfirmOpen() bool { return m.confirm.IsOpen() }
 
 // Update implements shell.CenterView.
 func (m *Model) Update(msg tea.Msg) tea.Cmd {
@@ -225,6 +234,9 @@ func (m *Model) Update(msg tea.Msg) tea.Cmd {
 	case taskmgr.DoneMsg:
 		return m.taskDone(msg)
 	case tea.KeyMsg:
+		if m.confirm.IsOpen() { // the popup consumes keys (ADR-0021)
+			return m.confirm.Key(msg)
+		}
 		return m.key(msg)
 	case tea.MouseMsg:
 		if msg.Button == tea.MouseButtonWheelUp || msg.Button == tea.MouseButtonWheelDown {
@@ -233,6 +245,11 @@ func (m *Model) Update(msg tea.Msg) tea.Cmd {
 				dir = -1
 			}
 			m.follow.Wheel(&m.npScroll, dir)
+		}
+		if m.confirm.IsOpen() && msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft {
+			if cmd, ok := m.confirm.Click(msg.X, msg.Y); ok { // popup buttons & outside-cancel first
+				return cmd
+			}
 		}
 		return m.mouse(msg)
 	}
@@ -382,7 +399,7 @@ func (m *Model) mouse(msg tea.MouseMsg) tea.Cmd {
 	}
 	if m.btnRect.Hit(msg.X, msg.Y) {
 		m.focusRow(fCreate)
-		return m.create() // one press = activate (issue: torn single/double click UX)
+		return m.askCreate() // one press = activate (issue: torn single/double click UX)
 	}
 	for _, or := range m.optRects {
 		if or.r.Hit(msg.X, msg.Y) {
@@ -434,10 +451,45 @@ func (m *Model) activate(f int) tea.Cmd {
 		}
 		m.toggleMode(opts[m.modeCur])
 	case fCreate:
-		return m.create()
+		return m.askCreate()
 	}
 	m.refresh()
 	return nil
+}
+
+// askCreate opens the confirmation popup (ADR-0021) with the current
+// config summary (name/path/edition/modes/start/VCS) and Confirm/Back;
+// confirm runs create() — its credential replacement confirms stay in
+// the flow afterwards.
+func (m *Model) askCreate() tea.Cmd {
+	if toast := m.validateInputs(); toast != "" {
+		m.toast = toast
+		return nil
+	}
+	if m.edition == "" {
+		m.toast = "No container editions found in Dockerfile/Dockerfile.custom."
+		return nil
+	}
+	lines := []string{
+		"name: " + m.name,
+		"path: " + m.path,
+	}
+	lines = append(lines,
+		"edition: "+m.edition,
+		"modes: "+joinModes(m.modes),
+		"start: "+m.start,
+		"VCS tracking: "+m.vcs)
+	m.confirm.Open("Create this project?", "Create", "Back", lines, false,
+		func() tea.Cmd { return m.create() })
+	return nil
+}
+
+// joinModes renders the selected modes or "none".
+func joinModes(modes []string) string {
+	if len(modes) == 0 {
+		return "none"
+	}
+	return strings.Join(modes, ", ")
 }
 
 // setOption activates just the clicked option.

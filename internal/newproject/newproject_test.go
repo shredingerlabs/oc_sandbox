@@ -253,11 +253,18 @@ func isWordByte(b byte) bool {
 	return b >= 'a' && b <= 'z' || b >= 'A' && b <= 'Z' || b >= '0' && b <= '9' || b == '_'
 }
 
-// createViaKeyboard tabs to the Create Project button and presses Enter
-// (keyboard parity for the single-click activation).
+// createViaKeyboard tabs to the Create Project button, presses Enter
+// (keyboard parity for the single-click activation) and steps through
+// the confirmation popup (ADR-0021): tab focuses Create, enter runs.
+// Validation refuses without a popup (toast path).
 func createViaKeyboard(t *testing.T, m *Model) {
 	t.Helper()
 	m.tabToField(t, "Create Project")
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if !m.confirm.IsOpen() {
+		return // refused by validation (toast carries the reason)
+	}
+	m.Update(tea.KeyMsg{Type: tea.KeyTab})
 	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 }
 
@@ -895,9 +902,12 @@ func TestGoldenBlankForm(t *testing.T) {
 func TestCreateButtonSingleClickActivates(t *testing.T) {
 	m, ops, _ := newTestModel(t)
 	typeKeys(t, m, "singleclick")
-	if cmd := click(t, m, "Create Project"); cmd == nil {
-		t.Fatal("single click on Create Project produced no command at all")
+	click(t, m, "Create Project") // popup (ADR-0021)
+	if !m.confirm.IsOpen() {
+		t.Fatal("single click on Create Project did not open the confirm popup")
 	}
+	m.Update(tea.KeyMsg{Type: tea.KeyTab}) // popup: switch to Create
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	if !ops.has("init-project.sh") {
 		t.Fatalf("single click did not activate the create flow: %v", ops.Calls)
 	}
