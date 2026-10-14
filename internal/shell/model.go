@@ -321,10 +321,10 @@ func (m Model) View() string {
 	b.WriteString(body)
 	b.WriteString("\n")
 	b.WriteString(m.Footer())
-	// Full-window black background: the screen paint fills every cell the
-	// app covers, even behind cards and padding the views leave plain.
-	return lipgloss.NewStyle().Background(ColWindowBg).
-		Width(m.width).Height(m.height).MaxHeight(m.height).Render(b.String())
+	// Full-window background (paint.go): painted per line so inner SGR
+	// resets (card borders, pill menus) cannot drop the black paint — a
+	// single wrapping style stops at the first element.
+	return paintLines(b.String(), lipgloss.NewStyle().Background(ColWindowBg), m.width)
 }
 
 // Footer renders the help row, or — while a guarded exit waits for

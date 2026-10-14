@@ -163,15 +163,17 @@ func (c *Confirm) Overlay(width, height, top int) string {
 	c.okRect = Rect{X: innerX + (maxw - btnW) + cancelW + gap, Y: buttonY, W: okW, H: 1}
 
 	// the border chords the padded rows together; card colors make the
-	// panel read as a separate layer over the body
+	// panel read as a separate layer over the body. Painted per line
+	// (paint.go): the buttons' SGR resets would drop a wrapping style's
+	// card background halfway through the panel.
 	b := lipgloss.RoundedBorder()
 	bordered := []string{b.TopLeft + strings.Repeat(b.Top, maxw+2) + b.TopRight}
 	for _, row := range rows {
 		bordered = append(bordered, b.Left+row+b.Right)
 	}
 	bordered = append(bordered, b.BottomLeft+strings.Repeat(b.Bottom, maxw+2)+b.BottomRight)
-	panel := lipgloss.NewStyle().Background(ColCardBg).Foreground(ColCardFg).
-		Render(strings.Join(bordered, "\n"))
+	panel := paintLines(strings.Join(bordered, "\n"),
+		lipgloss.NewStyle().Background(ColCardBg).Foreground(ColCardFg), maxw+2)
 
 	// compose the body block: the panel centered, everything else blank
 	panelLines := strings.Split(panel, "\n")
