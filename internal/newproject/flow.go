@@ -127,9 +127,8 @@ func (m *Model) create() tea.Cmd {
 		return nil
 	}
 	if !imageExistsLive(m.run, m.edition) {
-		m.phase = phaseBuild
+		m.setPhase(phaseBuild)
 		m.choice = 0
-		m.refresh()
 		return nil
 	}
 	return m.createTail()
@@ -286,9 +285,8 @@ func (m *Model) runCreds() tea.Cmd {
 	for len(m.credQueue) > 0 {
 		st := m.credQueue[0]
 		if !st.replace && m.needsConfirm(st) {
-			m.phase = phaseConfirm
+			m.setPhase(phaseConfirm)
 			m.choice = 0
-			m.refresh()
 			return nil
 		}
 		return m.queueScript("Configuring credentials",

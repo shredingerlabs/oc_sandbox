@@ -655,6 +655,17 @@ func (m *Model) prefillFromURL() {
 	m.refresh()
 }
 
+// setPhase is the deliberate phase transition: the flip re-lands the
+// cursor on a different row (fPrompt inserted/dropped before fCreate)
+// without changing the focus index, so the follow's move-detection would
+// never fire — Force makes the next Pull re-land the window on the new
+// cursor row (build/confirm prompt stays reachable at scroll heights).
+func (m *Model) setPhase(p int) {
+	m.phase = p
+	m.follow.Force()
+	m.refresh()
+}
+
 // refresh rebuilds the visible field list and clamps selections against
 // the live option lists (editions/modes are detected fresh; a selected
 // edition that no longer exists live falls back to the first).
@@ -746,28 +757,24 @@ func (m *Model) resolvePrompt() tea.Cmd {
 				func(err error) tea.Cmd {
 					if err != nil || !imageExistsLive(m.run, m.edition) {
 						m.toast = "Build failed — the " + m.edition + " image is still unavailable."
-						m.refresh()
+						m.refresh() // stays on the prompt: retry or go back
 						return nil
 					}
-					m.phase = phaseForm
+					m.setPhase(phaseForm)
 					m.toast = ""
-					m.refresh()
 					return m.createTail()
 				})
 		case "Build later":
-			m.phase = phaseForm
+			m.setPhase(phaseForm)
 			m.toast = ""
-			m.refresh()
 			return m.createTail()
 		default: // Go back
-			m.phase = phaseForm
+			m.setPhase(phaseForm)
 			m.toast = ""
-			m.refresh()
 			return nil
 		}
 	case phaseConfirm:
-		m.phase = phaseForm
-		m.refresh()
+		m.setPhase(phaseForm)
 		switch vals[m.choice] {
 		case "Replace":
 			if len(m.credQueue) > 0 {
