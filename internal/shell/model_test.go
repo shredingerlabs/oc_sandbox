@@ -179,6 +179,56 @@ func TestKeyTableViewSwitch(t *testing.T) {
 	}
 }
 
+// activatingView implements ActivableView: it counts how often the shell
+// activated it (refresh-on-view-activation).
+type activatingView struct {
+	fakeView
+	activated int
+}
+
+func (a *activatingView) Activate() tea.Cmd {
+	a.activated++
+	return nil
+}
+
+func TestActivateOnViewSwitch(t *testing.T) {
+	av := &activatingView{fakeView: fakeView{name: "one", subTabs: []string{"Alpha Tab"}}}
+	fv := &fakeView{name: "two"}
+	m := resized(New(av, fv), 100, 30)
+	if av.activated != 0 {
+		t.Fatalf("Activate ran before any switch (count=%d)", av.activated)
+	}
+
+	rects := MenuRects()
+	// Key switch
+	m, _ = step(m, keyMsg("2"))
+	if av.activated != 0 {
+		t.Errorf("Activate ran on switch away from view (count=%d)", av.activated)
+	}
+	m, _ = step(m, keyMsg("1"))
+	if av.activated != 1 {
+		t.Errorf("key switch did not activate target view (count=%d)", av.activated)
+	}
+	// Mouse menu switch
+	m, _ = step(m, press(rects[1].X+1, 0))
+	if av.activated != 1 {
+		t.Errorf("mouse click on non-target view re-activated (count=%d)", av.activated)
+	}
+	m, _ = step(m, press(rects[0].X+1, 0))
+	if av.activated != 2 {
+		t.Errorf("mouse menu click did not activate target view (count=%d)", av.activated)
+	}
+	// NavRequestMsg switch
+	m, _ = step(m, NavRequestMsg{Index: 1})
+	if av.activated != 2 {
+		t.Errorf("NavRequestMsg away re-activated (count=%d)", av.activated)
+	}
+	m, _ = step(m, NavRequestMsg{Index: 0})
+	if av.activated != 3 {
+		t.Errorf("NavRequestMsg did not activate target view (count=%d)", av.activated)
+	}
+}
+
 func TestViewSwitchSuppressedWhileTextFocused(t *testing.T) {
 	views := []*fakeView{
 		{name: "one", textFocused: true, subTabs: []string{"Alpha Tab"}},

@@ -148,6 +148,28 @@ type BusyView interface {
 	Busy() bool
 }
 
+// ActivableView is a center view that refreshes external state when it
+// becomes active. The shell reuses view instances across switches, so a
+// view whose data lives outside the model (e.g. the Open Project view's
+// registry read) implements this to stay fresh without polling.
+type ActivableView interface {
+	Activate() tea.Cmd
+}
+
+// setActive switches the active view to i and activates the newly-active
+// view, returning its activation cmd. Pointer receiver: Update's value
+// copy calls it and then returns the mutated model.
+func (m *Model) setActive(i int) tea.Cmd {
+	if i < 0 || i >= len(m.views) {
+		return nil
+	}
+	m.active = i
+	if av, ok := m.views[i].(ActivableView); ok {
+		return av.Activate()
+	}
+	return nil
+}
+
 // Update implements tea.Model.
 // menuViews is the number of view slots the header menu addresses: the
 // first four MenuItems map to them, Exit is fixed at the end. Views
@@ -168,7 +190,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// A consumed handoff (RecoverMsg, CreatedMsg, …) also
 				// focuses the hooking view, so navigation stays a root
 				// concern.
-				m.active = i
+				m.setActive(i)
 				return m, cmd
 			}
 		}
@@ -196,11 +218,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			switch msg.String() {
 			case "1", "2", "3", "4":
-				if i := int(msg.String()[0] - '1'); i < len(m.views) {
-					m.active = i
-				}
 				m.exitPending = false
-				return m, nil
+				act := m.setActive(int(msg.String()[0] - '1'))
+				return m, act
 			default:
 				m.exitPending = false
 			}
@@ -211,17 +231,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if msg.Y == 0 {
 				for i, r := range MenuRects() {
 					if r.Hit(msg.X, msg.Y) {
-						if i >= menuViews(len(m.views)) { // Exit (or beyond)
-							if m.workBusy() { // guarded exit: first click asks (#82)
-								m.exitPending = true
-								return m, nil
-							}
-							m.exitPending = false
-							return m, tea.Quit
+					if i >= menuViews(len(m.views)) { // Exit (or beyond)
+						if m.workBusy() { // guarded exit: first click asks (#82)
+							m.exitPending = true
+							return m, nil
 						}
-						m.active = i
 						m.exitPending = false
-						return m, nil
+						return m, tea.Quit
+					}
+					m.exitPending = false
+					act := m.setActive(i)
+					return m, act
 					}
 				}
 			}
@@ -235,10 +255,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, m.views[m.active].Update(msg)
 	case NavRequestMsg:
-		if msg.Index >= 0 && msg.Index < len(m.views) {
-			m.active = msg.Index
-		}
-		return m, nil
+		act := m.setActive(msg.Index)
+		return m, act
 	default:
 		return m, m.views[m.active].Update(msg)
 	}

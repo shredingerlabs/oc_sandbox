@@ -68,6 +68,28 @@ func (e *env) finishOps() {
 	}
 }
 
+// Activate must re-read the registry: projects created in other views
+// (New Project wizard, setup flow) register in projects.json while this
+// view is alive; without the activation refresh they only appear after a
+// restart.
+func TestActivateRefreshesProjectList(t *testing.T) {
+	e := newEnv(t, nil)
+	e.rebuild(t)
+
+	// Simulate a wizard-created project while the view is already alive.
+	e.addProject(t, "gamma", "base", "console")
+	if someLine(bodyOf(t, e.m, bodyW, 42), "gamma") {
+		t.Fatalf("gamma visible before Activate")
+	}
+
+	e.m.Activate()
+
+	if !someLine(bodyOf(t, e.m, bodyW, 42), "gamma") {
+		t.Errorf("Activate did not refresh the project list:\n%s",
+			strings.Join(bodyOf(t, e.m, bodyW, 42), "\n"))
+	}
+}
+
 // --- golden-snapshot renders from fake data ---
 
 func TestGoldenSnapshotCardsAndSettingsPane(t *testing.T) {

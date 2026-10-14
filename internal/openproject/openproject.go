@@ -163,6 +163,14 @@ func New(deps Deps) *Model {
 // Busy implements shell.BusyView: a long operation runs (guarded exit).
 func (m *Model) Busy() bool { return m.state == stateBusy }
 
+// Activate implements shell.ActivableView: re-read the project registry
+// when the view becomes active so projects created in other views (New
+// Project wizard, setup flow) show up without a restart.
+func (m *Model) Activate() tea.Cmd {
+	m.refresh()
+	return m.poll()
+}
+
 // SubTabs implements shell.CenterView — the Open Project view has no
 // sub-menu tabs of its own.
 func (m *Model) SubTabs() ([]string, int) { return nil, 0 }
