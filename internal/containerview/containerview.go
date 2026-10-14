@@ -150,6 +150,26 @@ type Model struct {
 	stopIdx []int
 }
 
+// truncate cuts s to n display cells, appending an ellipsis when the
+// rune-counting path drops visible content (wide runes bypass the pure
+// rune-counting fast path).
+func truncate(s string, n int) string {
+	if len(s) <= n { // fast path: pure-ASCII short strings
+		return s
+	}
+	r := []rune(s)
+	if len(r) <= n { // rune count fits but may still be too wide
+		if w := lipgloss.Width(string(r)); w <= n {
+			return s
+		}
+	}
+	out := []rune(s)
+	for lipgloss.Width(string(out)) > max(0, n-1) && len(out) > 0 {
+		out = out[:len(out)-1]
+	}
+	return string(out) + "…"
+}
+
 // New returns the Container view: live edition discovery from the
 // Dockerfiles, build-container.sh as the build entry point, and the
 // registry that receives verified container_status updates. launch may
@@ -657,22 +677,28 @@ func (m *Model) buildBody(width, height int) []string {
 	return lines
 }
 
-// editionCard renders one educational edition card (name + one-line
-// description), accent-bordered when selected; busy marks a queued or
-// running op for that edition's queue key (still-running indicator #82).
+// editionCard renders one educational edition card (name + description
+// that wraps inside the fixed frame), accent-bordered when selected;
+// busy marks a queued or running op for that edition's queue key
+// (still-running indicator #82).
 func editionCard(name string, busy, selected bool) string {
+	suffix := ""
+	if busy {
+		// "  ◌ running" measures 11 cells: the name line always stays
+		// one row inside the frame.
+		suffix = "  " + shell.StyleStatusRunning.Render("◌ running")
+	}
+	name = truncate(name, shell.CardWidth-6-shell.Width(suffix))
 	st := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(shell.ColBorder).
+		Background(shell.ColCardBg).
 		Padding(0, 1).
-		Width(shell.CardWidth - 2).Height(shell.CardHeight - 2).MaxHeight(shell.CardHeight)
+		Width(shell.CardWidth - 2).Height(shell.CardHeight - 2)
 	if selected {
 		st = st.BorderForeground(shell.ColAccent)
 	}
-	if busy {
-		name += "  " + shell.StyleStatusRunning.Render("◌ running")
-	}
-	inner := shell.StyleFieldLabel.Render(name) + "\n" + shell.StyleMutedAlt.Render(description(name))
+	inner := shell.StyleFieldLabel.Render(name+suffix) + "\n" + shell.StyleMutedAlt.Render(description(name))
 	return st.Render(inner)
 }
 
