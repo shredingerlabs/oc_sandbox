@@ -80,10 +80,12 @@ type View struct {
 	unConfirm string
 	unCur     int
 
-	scroll  int
-	rects   []shell.Rect
-	acts    []func() tea.Cmd
-	pending tea.Cmd
+	scroll       int
+	follow       bool // scroll follows the focused row; wheel turns it off
+	focusChanged bool
+	rects        []shell.Rect
+	acts         []func() tea.Cmd
+	pending      tea.Cmd
 }
 
 // New returns the Settings view for home, wiring the default Ops (real
@@ -123,6 +125,7 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 		if msg.Index >= 0 && msg.Index < len(tabs) && msg.Index != v.sub {
 			v.sub = msg.Index
 			v.scroll = 0
+			v.follow = true
 			v.enterPane()
 		}
 	case taskmgr.DoneMsg: // continuation of a queued op (#82)
@@ -135,6 +138,14 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 			cmd := v.pending
 			v.pending = nil
 			return cmd
+		}
+		if msg.Button == tea.MouseButtonWheelUp {
+			v.scroll = max(0, v.scroll-3)
+			v.follow = false
+		}
+		if msg.Button == tea.MouseButtonWheelDown {
+			v.follow = false
+			v.scroll = max(0, v.scroll+3)
 		}
 	}
 	return nil
@@ -189,20 +200,31 @@ func (v *View) Body(width, height int) string {
 		rows, hits, focusRow = v.uninstallPane()
 	}
 	rows = append(rows, shell.Toast(v.toast))
+	if v.focusChanged {
+		v.focusChanged = false
+		v.follow = true // the focused row pulls the scroll again
+	}
 
-	// Pane scroll at narrow heights: keep the focused row on screen.
+	// Pane scroll at narrow heights: the focused row pulls the scroll
+	// only when follow mode is on (wheel scrolling turns it off); the
+	// scroll is otherwise clamped to the row count.
 	avail := height - 2 // card borders
 	if avail < 1 {
 		avail = 1
 	}
-	if focusRow < v.scroll {
-		v.scroll = focusRow
+	if v.follow {
+		if focusRow < v.scroll {
+			v.scroll = focusRow
+		}
+		if focusRow >= v.scroll+avail {
+			v.scroll = focusRow - avail + 1
+		}
 	}
-	if focusRow >= v.scroll+avail {
-		v.scroll = focusRow - avail + 1
-	}
-	if maxScroll := max(0, len(rows)-avail); v.scroll > maxScroll {
-		v.scroll = maxScroll
+	if maxScroll := max(0, len(rows)-avail); v.scroll > maxScroll || v.follow {
+		v.scroll = min(maxScroll, v.scroll)
+		if v.follow && focusRow >= v.scroll+avail {
+			v.scroll = focusRow - avail + 1
+		}
 	}
 	end := min(len(rows), v.scroll+avail)
 
@@ -283,6 +305,12 @@ func (v *View) focusCount() int {
 }
 
 func (v *View) moveFocus(d int) {
+	v.applyMoveFocus(d)
+	v.focusChanged = true
+}
+
+// applyMoveFocus steps the current pane's focus cursor with wraparound.
+func (v *View) applyMoveFocus(d int) {
 	switch v.sub {
 	case 0:
 		v.impFocus = (v.impFocus + d + v.focusCount()) % v.focusCount()
@@ -315,6 +343,7 @@ func (v *View) key(msg tea.KeyMsg) tea.Cmd {
 		} else {
 			v.sub = (v.sub + len(tabs) - 1) % len(tabs)
 			v.scroll = 0
+			v.follow = true
 			v.enterPane()
 		}
 	case "right":
@@ -325,6 +354,7 @@ func (v *View) key(msg tea.KeyMsg) tea.Cmd {
 		} else {
 			v.sub = (v.sub + 1) % len(tabs)
 			v.scroll = 0
+			v.follow = true
 			v.enterPane()
 		}
 	case "enter":
@@ -345,6 +375,7 @@ func (v *View) click(x, y int) {
 	for i, r := range v.rects {
 		if r.Hit(x, y) {
 			v.pending = v.acts[i]()
+			v.focusChanged = false
 			return
 		}
 	}

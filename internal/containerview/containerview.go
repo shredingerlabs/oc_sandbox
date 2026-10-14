@@ -120,6 +120,8 @@ type Model struct {
 	sub          int
 	buildSel     int
 	stopSel      int
+	stopScroll   int // checklist scroll offset (count of hidden head rows)
+	stopFollow   bool
 	editions     []string
 	discoveryErr string
 	running      []string
@@ -136,6 +138,10 @@ type Model struct {
 	selAll    shell.Rect
 	rowRects  []shell.Rect
 	stopBtn   shell.Rect
+
+	// stopIdx maps stop-tab rowRects to indices into m.running (the
+	// checklist scrolls off head rows).
+	stopIdx []int
 }
 
 // New returns the Container view: live edition discovery from the
@@ -209,6 +215,7 @@ func (m *Model) Update(msg tea.Msg) tea.Cmd {
 		}
 		m.sub = msg.Index
 		if m.sub == TabStop {
+			m.stopScroll = 0
 			return m.refreshRunning()
 		}
 		return nil
@@ -222,6 +229,7 @@ func (m *Model) Update(msg tea.Msg) tea.Cmd {
 		if m.stopSel >= len(msg) {
 			m.stopSel = max(0, len(msg)-1)
 		}
+		m.stopFollow = true // keep the selection visible in the new list
 		return nil
 	case OpDoneMsg:
 		return m.opDone(msg)
@@ -248,6 +256,21 @@ func (m *Model) Update(msg tea.Msg) tea.Cmd {
 	case tea.MouseMsg:
 		if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft {
 			return m.click(msg)
+		}
+		if msg.Button == tea.MouseButtonWheelUp || msg.Button == tea.MouseButtonWheelDown {
+			if m.opKind != "" {
+				var cmd tea.Cmd
+				m.log, cmd = m.log.Update(msg)
+				return cmd
+			}
+			if m.sub == TabStop && len(m.running) > 0 {
+				step := 3
+				if msg.Button == tea.MouseButtonWheelUp {
+					step = -3
+				}
+				m.stopScroll = max(0, m.stopScroll+step)
+			}
+			return nil
 		}
 		m.log, _ = m.log.Update(msg)
 		return m.log.Spin()
@@ -280,6 +303,7 @@ func (m *Model) key(msg tea.KeyMsg) tea.Cmd {
 			}
 		} else if m.stopSel > 0 {
 			m.stopSel--
+			m.stopFollow = true
 		}
 	case "down", "j":
 		if m.sub == TabBuild {
@@ -288,6 +312,7 @@ func (m *Model) key(msg tea.KeyMsg) tea.Cmd {
 			}
 		} else if m.stopSel < len(m.running)-1 {
 			m.stopSel++
+			m.stopFollow = true
 		}
 	case " ":
 		if m.sub == TabStop && m.stopSel < len(m.running) {
@@ -341,7 +366,11 @@ func (m *Model) click(msg tea.MouseMsg) tea.Cmd {
 	}
 	for i, r := range m.rowRects {
 		if r.Hit(msg.X, msg.Y) {
-			name := m.running[i]
+			idx := i
+			if i < len(m.stopIdx) {
+				idx = m.stopIdx[i]
+			}
+			name := m.running[idx]
 			m.selection[name] = !m.selection[name]
 			return nil
 		}
@@ -543,6 +572,7 @@ func (m *Model) Body(width, height int) string {
 	m.refreshEditions()
 	m.cardRects = nil
 	m.rowRects = nil
+	m.stopIdx = nil
 	m.selAll = shell.Rect{}
 	m.stopBtn = shell.Rect{}
 	m.buildBtn = shell.Rect{}
@@ -611,8 +641,28 @@ func editionCard(name string, busy, selected bool) string {
 }
 
 // stopBody renders the running-container checklist card (select-all,
-// rows, Stop button, reserved toast row) and the log pane below.
+// rows, Stop button, reserved toast row) and the log pane below. When
+// the checklist exceeds the card height it scrolls: head rows are
+// dropped and the recorded rects shift up by the scroll offset.
 func (m *Model) stopBody(width, height int) []string {
+	avail := height - 2 // card borders
+	fixed := 6          // select-all row, blank row, 3 button lines, toast
+	visible := max(1, avail-fixed)
+	maxScroll := max(0, len(m.running)-visible)
+	if m.stopFollow {
+		if m.stopSel < m.stopScroll {
+			m.stopScroll = m.stopSel
+		}
+		if m.stopSel >= m.stopScroll+visible {
+			m.stopScroll = m.stopSel - visible + 1
+		}
+	}
+	m.stopFollow = false
+	m.stopScroll = min(m.stopScroll, maxScroll)
+	if m.stopScroll < 0 {
+		m.stopScroll = 0
+	}
+
 	var inner []string
 	lineY := bodyTop + 1 // first row inside the card border
 	if len(m.running) == 0 {
@@ -626,7 +676,8 @@ func (m *Model) stopBody(width, height int) []string {
 		inner = append(inner, box+" select all")
 		m.selAll = shell.Rect{X: padX + 2, Y: lineY, W: 2 + shell.Width("select all"), H: 1}
 		lineY++
-		for i, name := range m.running {
+		for i := m.stopScroll; i < len(m.running) && i < m.stopScroll+visible; i++ {
+			name := m.running[i]
 			box := "☐"
 			if m.selection[name] {
 				box = "☒"
@@ -639,6 +690,7 @@ func (m *Model) stopBody(width, height int) []string {
 			m.rowRects = append(m.rowRects, shell.Rect{
 				X: padX + 2, Y: lineY, W: 2 + shell.Width(name) + 2 + shell.Width(shell.SymOn+" running"), H: 1,
 			})
+			m.stopIdx = append(m.stopIdx, i)
 			lineY++
 		}
 		inner = append(inner, "")

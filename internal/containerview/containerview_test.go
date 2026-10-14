@@ -1,6 +1,7 @@
 package containerview
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -566,5 +567,42 @@ func TestBusyEditionCardShowsStillRunningIndicator(t *testing.T) {
 	}
 	if !strings.Contains(body(m), "Build successful") {
 		t.Fatal("success toast missing after queued build")
+	}
+}
+
+// TestStopChecklistScrolls keeps the focused row visible at a height too
+// small for the whole checklist, and wheel-scroll pulls head rows off.
+func TestStopChecklistScrolls(t *testing.T) {
+	m, fake, _, _ := newFixture(t)
+	names := ""
+	for i := 0; i < 12; i++ {
+		names += fmt.Sprintf("opencode-sandbox-%012d\n", i)
+	}
+	names = strings.TrimSuffix(names, "\n")
+	fake.Script = func(n string, args []string) (string, error) {
+		if n == "podman" && args[0] == "ps" {
+			return names, nil
+		}
+		return "", nil
+	}
+	runCmds(t, m, m.Update(shell.SubTabMsg{Index: TabStop}))
+	m.Body(80, 22) // avail ≈ 16 rows inside the card
+	// focus the last container: head rows must scroll off
+	for i := 0; i < 11; i++ {
+		m.Update(keyType(tea.KeyDown))
+		m.Body(80, 22)
+	}
+	last := fmt.Sprintf("opencode-sandbox-%012d", 11)
+	if got := shell.StripANSI(m.Body(80, 22)); !strings.Contains(got, last) {
+		t.Fatalf("focused last container not visible after scroll:\n%s", got)
+	}
+	if got := shell.StripANSI(m.Body(80, 22)); strings.Contains(got, "opencode-sandbox-000000000001\n") {
+		t.Fatalf("head rows should be scrolled off:\n%s", got)
+	}
+	// wheel up pulls the head rows back without moving the focus
+	m.Update(tea.MouseMsg{Button: tea.MouseButtonWheelUp})
+	got := shell.StripANSI(m.Body(80, 22))
+	if !strings.Contains(got, "opencode-sandbox-000000000000") {
+		t.Fatalf("wheel up did not unscroll:\n%s", got)
 	}
 }

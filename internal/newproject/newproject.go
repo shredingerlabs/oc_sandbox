@@ -151,6 +151,11 @@ type Model struct {
 	optRects  []optRect
 	fieldRect map[int]fieldHit
 	btnRect   shell.Rect
+
+	npScroll   int  // card scroll offset
+	btnRow     int  // Create button row from the last render (unwindowed)
+	prevFocus  int  // focus of the last Body pass
+	scrollSeen bool // at least one Body pass ran
 }
 
 // credStep is one configure-project.sh invocation in the credential
@@ -221,6 +226,13 @@ func (m *Model) Update(msg tea.Msg) tea.Cmd {
 	case tea.KeyMsg:
 		return m.key(msg)
 	case tea.MouseMsg:
+		if msg.Button == tea.MouseButtonWheelUp || msg.Button == tea.MouseButtonWheelDown {
+			step := 3
+			if msg.Button == tea.MouseButtonWheelUp {
+				step = -3
+			}
+			m.npScroll = max(0, m.npScroll+step)
+		}
 		return m.mouse(msg)
 	}
 	return nil

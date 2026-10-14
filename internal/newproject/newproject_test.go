@@ -125,10 +125,11 @@ func typeKeys(t *testing.T, m *Model, s string) {
 	}
 }
 
-// plain renders the current body with ANSI stripped.
+// plain renders the current body with ANSI stripped. The height fits the
+// full form so layout tests stay scroll-free; scrolling has its own tests.
 func plain(t *testing.T, m *Model) string {
 	t.Helper()
-	return shell.StripANSI(m.Body(80, 20))
+	return shell.StripANSI(m.Body(80, 30))
 }
 
 // rowOf returns the whole body line containing label.
@@ -169,12 +170,13 @@ func valueLine(t *testing.T, m *Model, label string) string {
 // focus marker (▸ prefix, 4 bytes before the ASCII label).
 func focusedField(t *testing.T, m *Model, label string) bool {
 	t.Helper()
-	line := rowOf(t, m, label)
-	loc := strings.Index(line, label)
-	if loc < 0 {
-		return false
+	for _, l := range strings.Split(shell.StripANSI(m.Body(80, 30)), "\n") {
+		loc := strings.Index(l, label)
+		if loc >= 0 && strings.HasSuffix(l[:loc], "▸ ") {
+			return true
+		}
 	}
-	return strings.HasSuffix(line[:loc], "▸ ")
+	return false
 }
 
 // tabToField tabs forward until the named field row is focused.
@@ -917,5 +919,80 @@ func TestCreateInitFailureToastCarriesReason(t *testing.T) {
 	createViaKeyboard(t, m)
 	if toast := m.ToastText(); !strings.Contains(toast, "exit status 1") {
 		t.Fatalf("toast misses the underlying reason: %q", toast)
+	}
+}
+
+// --- card scroll at small window heights ---------------------------------------
+
+const scrollH = 22 // small body: the form must scroll, not clip
+
+func cardLines(t *testing.T, m *Model, h int) []string {
+	t.Helper()
+	return strings.Split(shell.StripANSI(m.Body(80, h)), "\n")
+}
+
+// TestCreateButtonReachableAtSmallHeight: tabbing focus to the Create
+// button scrolls the card so the button is visible (before the fix the
+// tall form was silently clipped past the window).
+func TestCreateButtonReachableAtSmallHeight(t *testing.T) {
+	m, _, _ := newTestModel(t)
+	typeKeys(t, m, "scrollproj")
+	cardLines(t, m, scrollH)
+	for i := 0; i < 20; i++ {
+		m.Update(tea.KeyMsg{Type: tea.KeyTab})
+		if focusedField(t, m, "Create Project") {
+			break
+		}
+	}
+	found := false
+	for _, l := range cardLines(t, m, scrollH) {
+		if strings.Contains(l, "Create Project") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("Create button not reachable at height %d:\n%s", scrollH, strings.Join(cardLines(t, m, scrollH), "\n"))
+	}
+}
+
+// TestWheelScrollsCard freely scrolls the card without moving focus;
+// the scroll returns to the top after wheel-up notches.
+func TestWheelScrollsCard(t *testing.T) {
+	m, _, _ := newTestModel(t)
+	typeKeys(t, m, "wheeler")
+	top := strings.Join(cardLines(t, m, scrollH), "\n")
+	m.Update(tea.MouseMsg{Button: tea.MouseButtonWheelDown})
+	scrolled := strings.Join(cardLines(t, m, scrollH), "\n")
+	if scrolled == top || m.npScroll < 1 {
+		t.Fatalf("wheel down did not move the card (scroll %d):\n%s", m.npScroll, scrolled)
+	}
+	for i := 0; i < 3; i++ {
+		m.Update(tea.MouseMsg{Button: tea.MouseButtonWheelUp})
+	}
+	if back := strings.Join(cardLines(t, m, scrollH), "\n"); back != top {
+		t.Fatalf("scrolling back did not restore:\nwant\n%s\ngot\n%s", top, back)
+	}
+}
+
+// TestClickedTokenWhileScrolled: a token scrolled into view stays
+// clickable through the shifted hit rects.
+func TestClickedTokenWhileScrolled(t *testing.T) {
+	m, _, _ := newTestModel(t)
+	typeKeys(t, m, "wheeler")
+	m.Update(tea.MouseMsg{Button: tea.MouseButtonWheelDown})
+	b := plain(t, m)
+	if !strings.Contains(b, "○ web") {
+		t.Fatalf("web token not visible after wheel down:\n%s", b)
+	}
+	click(t, m, "○ web")
+	act := false
+	for _, l := range strings.Split(plain(t, m), "\n") {
+		if strings.Contains(l, "console") && strings.Contains(l, "web") &&
+			strings.Contains(l, "● web") {
+			act = true
+		}
+	}
+	if !act {
+		t.Fatalf("click on the scrolled option row did not activate web:\n%s", plain(t, m))
 	}
 }

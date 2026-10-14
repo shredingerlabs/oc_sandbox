@@ -67,17 +67,16 @@ func (m *Model) HasToast() bool { return m.toast != "" }
 // ToastText returns the current toast message ("" when none).
 func (m *Model) ToastText() string { return m.toast }
 
-// Body implements shell.CenterView: the merged single view card. Editions
-// and modes are detected fresh at each render; hit rects are recorded in
-// screen space.
-func (m *Model) Body(width, height int) string {
+// fullRows builds the unwindowed card rows (body-relative geometry) and
+// the Create button rect.
+func (m *Model) fullRows(width int) ([]string, shell.Rect) {
 	m.optRects = nil
 	m.fieldRect = map[int]fieldHit{}
 	m.btnRect = shell.Rect{}
 
 	valX := BodyPad + CardInset + labelWidth + 1
 	rows := []string{}
-	y := 4 // screen row of the first field row (card border at body line 0)
+	y := 4 // row of the first field row (card border at row 0)
 
 	for i, f := range m.fields {
 		focused := m.focus == i
@@ -149,11 +148,36 @@ func (m *Model) Body(width, height int) string {
 		for _, l := range btn {
 			rows = append(rows, l)
 		}
-		m.btnRect = shell.Rect{X: btnX, Y: btnY, W: shell.Width(btn[1]), H: 1}
+		m.btnRow = btnY
+		return rows, shell.Rect{X: btnX, Y: btnY, W: shell.Width(btn[1]), H: 1}
 	}
+	return rows, shell.Rect{}
 
-	card := shell.Card(rows)
-	return shell.PadLeft(BodyPad, card)
+}
+
+func (m *Model) focusFirstRow(avail int) int {
+	best := -1
+	f := m.fields[m.focus]
+	if f == fCreate && m.btnRow > 0 {
+		best = m.btnRow // the Create button's unwindowed row
+	}
+	for _, fh := range m.fieldRect {
+		if m.fields[fh.idx] != f {
+			continue
+		}
+		if best < 0 || fh.rect.Y < best {
+			best = fh.rect.Y
+		}
+	}
+	for _, or := range m.optRects {
+		if or.field != f {
+			continue
+		}
+		if best < 0 || or.r.Y-1 < best { // label row sits one above the token row
+			best = or.r.Y - 1
+		}
+	}
+	return best
 }
 
 // padCell zero-pads a label cell to the label column width.
@@ -226,4 +250,86 @@ func (m *Model) optionIsCurrent(f int, o string) bool {
 		return m.ai == o
 	}
 	return false
+}
+
+// clamp bounds v to [lo, hi].
+func clamp(v, lo, hi int) int {
+	return min(hi, max(lo, v))
+}
+
+// focusChanged reports whether the focused row moved since the last Body
+// pass (the scroll follows the focus only then — wheel scrolling never
+// moves the focus, so it never triggers the pull).
+func (m *Model) focusChanged() bool {
+	return m.scrollSeen && m.focus != m.prevFocus
+}
+
+// newScrollFollow pulls the scroll so the row of the newly focused field
+// stays inside the visible card window.
+func (m *Model) newScrollFollow(avail, rows int) {
+	row := m.focusFirstRow(avail)
+	if row < 0 {
+		return
+	}
+	if row < m.npScroll {
+		m.npScroll = row - 3
+		if m.npScroll < 0 {
+			m.npScroll = 0
+		}
+		return
+	}
+	maxScroll := max(0, rows-avail)
+	if row >= m.npScroll+avail-2 {
+		m.npScroll = min(maxScroll, row-avail+3)
+	}
+}
+
+// Body implements shell.CenterView: the merged single view card. Editions
+// and modes are detected fresh at each render; hit rects are recorded in
+// screen space. When rows exceed height the card scrolls: rows outside
+// the scroll window are dropped and all recorded rects shift up by the
+// scroll offset.
+func (m *Model) Body(width, height int) string {
+	rows, btnRect := m.fullRows(width)
+	// Scroll bookkeeping: windowed rows inside the card border (the
+	// border consumes 2 rows of the body region).
+	avail := max(1, height-2)
+	maxScroll := max(0, len(rows)-avail)
+	if m.focusChanged() {
+		m.newScrollFollow(avail, len(rows))
+	}
+	m.prevFocus = m.focus
+	m.scrollSeen = true
+	m.npScroll = clamp(m.npScroll, 0, maxScroll)
+	end := min(len(rows), m.npScroll+avail)
+	vis := rows[m.npScroll:end]
+
+	// Shift every recorded rect up by the scroll offset and drop off-
+	// window rects (rects keep their body-relative Y so clicks stay
+	// body-line-mapped).
+	off := m.npScroll
+	var keep []optRect
+	for _, or := range m.optRects {
+		or.r.Y -= off
+		if or.r.Y >= 4 && or.r.Y < 4+avail { // body line 4.. = first card row
+			keep = append(keep, or)
+		}
+	}
+	m.optRects = keep
+	fields := map[int]fieldHit{}
+	for rowY, fh := range m.fieldRect {
+		fh.rect.Y -= off
+		if rowY-off >= 4 && rowY-off < 4+avail {
+			fields[rowY-off] = fh
+		}
+	}
+	m.fieldRect = fields
+	btnRect.Y -= off
+	if btnRect.W > 0 && !(btnRect.Y >= 4 && btnRect.Y < 4+avail) {
+		btnRect = shell.Rect{}
+	}
+	m.btnRect = btnRect
+
+	card := shell.Card(vis)
+	return shell.PadLeft(BodyPad, card)
 }

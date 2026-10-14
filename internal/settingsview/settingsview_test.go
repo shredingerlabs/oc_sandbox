@@ -672,3 +672,23 @@ func TestKeyboardParityScroll(t *testing.T) {
 		t.Fatalf("focused uninstall button not in view at height 9:\n%s", got)
 	}
 }
+
+// TestWheelScrollsPane lets wheel messages move the pane's scroll
+// window without moving the focus; scrolling back up restores the view.
+func TestWheelScrollsPaneRestores(t *testing.T) {
+	home := homeFixture(t)
+	v := newSettings(t, home, fakeRunner())
+	v.Update(shell.SubTabMsg{Index: 3})
+	top := shell.StripANSI(v.Body(76, 12))
+	v.Update(tea.MouseMsg{Button: tea.MouseButtonWheelDown})
+	moved := shell.StripANSI(v.Body(76, 12))
+	if moved == top {
+		t.Fatalf("wheel down did not move the scroll window:\n%s", moved)
+	}
+	for i := 0; i < 3; i++ {
+		v.Update(tea.MouseMsg{Button: tea.MouseButtonWheelUp})
+	}
+	if back := shell.StripANSI(v.Body(76, 12)); back != top {
+		t.Fatalf("scrolling back did not restore the top:\n want:\n%s\ngot:\n%s", top, back)
+	}
+}
