@@ -1105,11 +1105,13 @@ func (m *Model) cardRows(p registry.Project, running bool) []string {
 	if m.deps.Tasks != nil {
 		if title, ok := m.deps.Tasks.RunningTitle(p.ContainerID); ok {
 			// still-running indicator for the owning project's op (#82)
-			name = truncate(p.Name+" ◌ "+title, cardInnerW)
+			name = truncate(p.Name+" ◌ "+title, cardInnerW-2)
 		}
 	}
 	if name == "" {
-		name = p.Name
+		// Leave 2 cells for the status symbol + space so the row fits
+		// cardInnerW and the card frame measures exactly CardWidth.
+		name = truncate(p.Name, cardInnerW-2)
 	}
 	rows := []string{
 		st.Render(sym) + " " + name,
@@ -1158,7 +1160,9 @@ func clamp(v, lo, hi int) int {
 }
 
 func padTo(w int, s string) string {
-	return lipgloss.NewStyle().Width(w).Render(s)
+	// MaxWidth clips wide runes that bypass Width's minimum, so rows
+	// never exceed w and the card frame always wraps its content.
+	return lipgloss.NewStyle().Width(w).MaxWidth(w).Render(s)
 }
 
 // padLines pads each line to paneW (prefixing paneX columns), pads the

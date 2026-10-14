@@ -3,6 +3,7 @@ package openproject
 import (
 	"strings"
 
+	"github.com/mattn/go-runewidth"
 	"github.com/shredingerlabs/oc-sandbox/internal/shell"
 )
 
@@ -66,19 +67,30 @@ func hasMode(modes []string, mode string) bool {
 	return false
 }
 
-// truncate cuts s to at most n cells, appending an ellipsis when cut.
+// truncate cuts s to at most n cells (display width, ANSI- and
+// wide-rune-aware), appending an ellipsis when cut.
 func truncate(s string, n int) string {
 	if n <= 0 {
 		return ""
 	}
-	rs := []rune(s)
-	if len(rs) <= n {
+	if shell.Width(s) <= n {
 		return s
 	}
 	if n == 1 {
 		return "…"
 	}
-	return string(rs[:n-1]) + "…"
+	// Cut rune by rune, tracking cell width, so wide runes never
+	// overflow the budget. Reserve one cell for the ellipsis.
+	rs := []rune(s)
+	w := 0
+	for i, r := range rs {
+		rw := runewidth.RuneWidth(r)
+		if w+rw > n-1 {
+			return string(rs[:i]) + "…"
+		}
+		w += rw
+	}
+	return s
 }
 
 // divider renders a ────── rule n cells wide.
