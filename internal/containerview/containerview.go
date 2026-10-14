@@ -313,7 +313,9 @@ func (m *Model) key(msg tea.KeyMsg) tea.Cmd {
 // rows, select-all, and the Stop button.
 func (m *Model) click(msg tea.MouseMsg) tea.Cmd {
 	n := m.dbl.Press(msg)
-	m.toast = ""
+	if m.opKind == "" { // a running op's toast ("building XYZ…") stays
+		m.toast = ""
+	}
 	if m.sub == TabBuild {
 		for i, r := range m.cardRects {
 			if r.Hit(msg.X, msg.Y) {
@@ -382,6 +384,22 @@ func (m *Model) selected() []string {
 	return out
 }
 
+// toastLine renders the reserved toast row. While an op runs, the
+// spinner rides the same row behind "building XYZ…" (user feedback: the
+// spinner must not sit low on the log-pane head, and the yellow text
+// stays visible until the job is done — clicks never clear it then).
+func (m *Model) toastLine() string {
+	if m.toast == "" {
+		return ""
+	}
+	if m.opKind != "" {
+		if frame := m.log.SpinFrame(); frame != "" {
+			return frame + " " + m.toast
+		}
+	}
+	return m.toast
+}
+
 // startBuild launches the build op through the Launcher seam (one op at
 // a time; no config writes).
 func (m *Model) startBuild(edition string) tea.Cmd {
@@ -390,7 +408,7 @@ func (m *Model) startBuild(edition string) tea.Cmd {
 		return nil
 	}
 	m.opKind = "build"
-	m.log = shell.NewLogPane()
+	m.log = shell.NewLogPane().HideHead() // the spinner rides the toast row
 	m.toast = "building " + edition + "…"
 	run, script := m.Run, m.BuildScript
 	return m.launch("building "+edition, "cv-build:"+edition, func(emit func(string)) error {
@@ -417,7 +435,7 @@ func (m *Model) startStop() tea.Cmd {
 		return nil
 	}
 	m.opKind = "stop"
-	m.log = shell.NewLogPane()
+	m.log = shell.NewLogPane().HideHead() // spinner rides the toast row
 	m.toast = fmt.Sprintf("stopping %d container(s)…", len(names))
 	run, reg := m.Run, m.Registry
 	return m.launch(fmt.Sprintf("stopping %d container(s)", len(names)), "cv-stop", func(emit func(string)) error {
@@ -561,7 +579,7 @@ func (m *Model) buildBody(width, height int) []string {
 			end := min((r+1)*cols, len(cards))
 			lines = append(lines, lipgloss.JoinHorizontal(lipgloss.Top, cards[r*cols:end]...))
 		}
-		lines = append(lines, shell.Toast(m.toast))
+		lines = append(lines, shell.Toast(m.toastLine()))
 	}
 	btn := shell.Button("Build", false)
 	m.buildBtn = shell.Rect{X: width - shell.Width(btn), Y: bodyTop + len(lines), W: shell.Width(btn), H: 1}
@@ -634,7 +652,7 @@ func (m *Model) stopBody(width, height int) []string {
 		}
 		lineY++
 	}
-	inner = append(inner, shell.Toast(m.toast))
+	inner = append(inner, shell.Toast(m.toastLine()))
 	card := shell.Card(inner)
 	lines := []string{card}
 	if rest := height - lipgloss.Height(card); rest > 1 {

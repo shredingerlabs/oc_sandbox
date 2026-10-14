@@ -152,17 +152,24 @@ func (v *View) bodyChangeURL(width, height int) string {
 	v.clicks = nil
 	okTxt := shell.Button("Apply", true)
 	cancelTxt := shell.Button("Back to menu", false)
+	var urlRows []string
+	for _, l := range strings.Split(shell.TextFieldBox(truncText(v.url.View(), max(width-ind, 10)), -1, true), "\n") {
+		urlRows = append(urlRows, padLeft(ind, width, l))
+	}
 	rows := []string{
 		padLeft(ind, width, bold("Change repository URL")),
 		padLeft(ind, width, "Applies to sandbox_config.json and projects.json."),
-		padLeft(ind, width, truncText(v.url.View(), max(width-ind, 10))),
+	}
+	rows = append(rows, urlRows...)
+	rows = append(rows,
 		strings.Repeat(" ", width),
 		padLeft(ind, width, okTxt),
 		padLeft(ind, width, cancelTxt),
-	}
+	)
+	btnRow := len(rows) - 2 // Apply button row
 	v.clicks = []clickSpot{
-		{rect: shell.Rect{X: ind, Y: BodyTop + 4, W: shell.Width(okTxt), H: 1}, action: "apply"},
-		{rect: shell.Rect{X: ind, Y: BodyTop + 5, W: shell.Width(cancelTxt), H: 1}, action: "cancel"},
+		{rect: shell.Rect{X: ind, Y: BodyTop + btnRow, W: shell.Width(okTxt), H: 1}, action: "apply"},
+		{rect: shell.Rect{X: ind, Y: BodyTop + btnRow + 1, W: shell.Width(cancelTxt), H: 1}, action: "cancel"},
 	}
 	if v.toast != "" {
 		rows = append(rows, padLeft(ind, width, shell.Toast(v.toast)))

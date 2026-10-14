@@ -106,11 +106,12 @@ func (v *View) importPane() ([]string, []hitRow, int) {
 		"",
 		focusLabel("Project folder path"),
 	}
+	rows = appendInput(rows, textField(&field{&v.impPath, &v.impCur}, v.impFocus == 0))
+	pathRow := inputRow(rows)
 	if v.impFocus == 0 {
-		focusRow = len(rows)
+		focusRow = pathRow
 	}
-	rows = append(rows, "  "+textField(&field{&v.impPath, &v.impCur}, v.impFocus == 0))
-	hits = append(hits, hitRow{row: len(rows) - 1, x: cardX + 2, w: 40,
+	hits = append(hits, hitRow{row: pathRow, x: cardX + 2, w: 40,
 		act: func() tea.Cmd { v.impFocus = 0; return nil }})
 
 	rows = append(rows, "", focusLabel("Folders — "+v.impDir))
@@ -171,8 +172,12 @@ func (v *View) importSummaryPane() ([]string, []hitRow, int) {
 		focusLabel("Project name"),
 	}
 	focusRow := len(rows)
-	rows = append(rows, "  "+textField(&field{&v.impName, &v.impNameCur}, v.impFocus == 0))
-	nameHit := hitRow{row: len(rows) - 1, x: cardX + 2, w: 40, act: func() tea.Cmd { v.impFocus = 0; return nil }}
+	rows = appendInput(rows, textField(&field{&v.impName, &v.impNameCur}, v.impFocus == 0))
+	nameRow := inputRow(rows)
+	if v.impFocus == 0 {
+		focusRow = nameRow
+	}
+	nameHit := hitRow{row: nameRow, x: cardX + 2, w: 40, act: func() tea.Cmd { v.impFocus = 0; return nil }}
 	rows = append(rows,
 		"",
 		kv("Path", v.impRoot),

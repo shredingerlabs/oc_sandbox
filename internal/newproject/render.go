@@ -108,11 +108,18 @@ func (m *Model) Body(width, height int) string {
 		if optOpts := m.optionsFor(f); optOpts != nil {
 			rows = append(rows, labelCell+" "+m.optionRow(f, optOpts, y, &m.optRects))
 		} else {
-			val := m.textVal(f)
-			if focused {
-				val = shell.StyleCurrentVal.Render(val)
-			}
-			rows = append(rows, labelCell+" "+val)
+			// text fields render as a boxed text area: label row, then the
+			// 3-line input box (border / value / border)
+			rows = append(rows, labelCell)
+			top, content, bottom := shell.TextFieldBoxLines(m.textVal(f), m.cursor, focused)
+			yTop := y + 1 // box top border
+			rows = append(rows, top, content, bottom)
+			y += 3 // label + top border + content consumed; bottom counts as its own row below
+			contentY := yTop + 1
+			// value column: box border + inner padding (column 0 = card content)
+			m.fieldRect[contentY] = fieldHit{idx: i, valX: BodyPad + CardInset + 2, rect: shell.Rect{X: BodyPad + CardInset, Y: contentY, W: width - BodyPad - CardInset, H: 1}}
+			y++ // bottom border row
+			continue
 		}
 		m.fieldRect[y] = fieldHit{idx: i, valX: valX, rect: shell.Rect{X: BodyPad + CardInset, Y: y, W: width - BodyPad - CardInset, H: 1}}
 		y++

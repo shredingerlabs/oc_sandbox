@@ -114,7 +114,7 @@ func Compose(home string, run cmdrun.Runner, now func() time.Time) App {
 }
 
 // defaultProjectPath mirrors the bash TUI: default_project_path from
-// global_config.json, "" (→ home/projects) when unreadable.
+// global_config.json, "" (→ home/oc-sandbox) when unreadable.
 func defaultProjectPath(home string) string {
 	gc, err := config.ReadGlobalConfig(home)
 	if err != nil {

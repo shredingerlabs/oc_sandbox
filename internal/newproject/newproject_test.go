@@ -143,15 +143,25 @@ func rowOf(t *testing.T, m *Model, label string) string {
 	return ""
 }
 
-// valueLine returns the value cell (everything after the label column) of
-// the row bearing label — text fields show their text, option rows show
-// the "● current ○ alt …" token list (trailing card border trimmed).
+// valueLine returns the value cell of the row bearing label — text
+// fields show their value inside the boxed text-area input (the content
+// row two lines below the label row), option rows show the
+// "● current ○ alt …" token list inline (trailing card border trimmed).
 func valueLine(t *testing.T, m *Model, label string) string {
 	t.Helper()
-	line := rowOf(t, m, label)
-	if loc := strings.Index(line, label); loc >= 0 {
-		return strings.TrimRight(strings.TrimLeft(line[loc+len(label):], " "), " │")
+	lines := strings.Split(plain(t, m), "\n")
+	for idx, line := range lines {
+		if !strings.Contains(line, label) {
+			continue
+		}
+		loc := strings.Index(line, label)
+		rest := strings.TrimLeft(line[loc+len(label):], " ")
+		if rest == "" || strings.HasPrefix(rest, "│") {
+			return strings.Trim(lines[idx+2], "│╭╮╰╯ ▌")
+		}
+		return strings.TrimRight(rest, " │")
 	}
+	t.Fatalf("row %q missing:\n%s", label, plain(t, m))
 	return ""
 }
 
@@ -845,16 +855,27 @@ func TestGoldenBlankForm(t *testing.T) {
 	}, run, &recOps{}, reg)
 	typeKeys(t, m, "demo")
 	got := plain(t, m)
+	// blank form with the boxed text-area inputs (name focused showing
+	// the caret, path unfocused, token placeholder) and inline option rows
 	want := strings.Join([]string{
 		"  ╭─────────────────────────────────────────────────────────────────────────╮",
-		"  │ ▸ Project name   demo                                                   │",
-		"  │   Project path   /home/dev/oc-sandbox/demo                              │",
+		"  │ ▸ Project name                                                          │",
+		"  │ ╭──────────────────────────────╮                                        │",
+		"  │ │ demo▌                        │                                        │",
+		"  │ ╰──────────────────────────────╯                                        │",
+		"  │   Project path                                                          │",
+		"  │ ╭──────────────────────────────╮                                        │",
+		"  │ │ /home/dev/oc-sandbox/demo    │                                        │",
+		"  │ ╰──────────────────────────────╯                                        │",
 		"  │   Edition        ● swdev ○ webdev                                       │",
 		"  │   Modes          ● none ○ offline ○ cbm_ui ○ hil_mode                   │",
 		"  │   Start          ● console ○ opencode ○ web                             │",
 		"  │   VCS tracking   ● none ○ github.com ○ gitlab.com ○ own GitLab ○ others │",
 		"  │   AI provider    ● gwdg-saia ○ none                                     │",
 		"  │   GWDG token                                                            │",
+		"  │ ╭──────────────────────────────╮                                        │",
+		"  │ │ …                            │                                        │",
+		"  │ ╰──────────────────────────────╯                                        │",
 		"  │                                                                         │",
 		"  │                                                    ╭──────────────────╮ │",
 		"  │                                                    │  Create Project  │ │",

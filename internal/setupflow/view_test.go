@@ -2,7 +2,9 @@ package setupflow
 
 import (
 	"flag"
+	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -179,7 +181,69 @@ func TestHookRoutesCreatedMsgAndRunsPipelineToDone(t *testing.T) {
 	f.assertBody("Setup complete")
 }
 
-// Resumable recovery (Open Project details seam): the project with
+// ---------------------------------------------------------------------------
+// exec handoff mouse restore.
+
+// execStager makes the skills stage interactive with a stub ExecFor
+// (fakeStager reports no interactive stages and no exec argv).
+type execStager struct{ *fakeStager }
+
+func (e execStager) Interactive(s Stage) bool { return s == StageSkills }
+func (e execStager) ExecFor(Stage, string) []string {
+	return []string{"true"}
+}
+
+// TestExecHandoffRestoresMouse: the skills stage runs via tea.ExecProcess;
+// a returning session leaves the terminal mouse-dead (bubbletea's
+// RestoreTerminal never re-enables mouse mode), so the arrival command
+// must carry the mouse-enable sequences.
+func TestExecHandoffRestoresMouse(t *testing.T) {
+	home, root, reg, st := fixture(t, "empty")
+	es := execStager{st}
+	var cb tea.ExecCallback
+	var fired bool
+	v := NewView(ViewDeps{Home: home, Reg: reg, StagerFor: func(string) Stager { return es },
+		Exec: func(c *exec.Cmd, ECB tea.ExecCallback) tea.Cmd {
+			cb, fired = ECB, true
+			return nil // hold the resume msg: we deliver it ourselves
+		}})
+	f := &flow{t: t, home: home, root: root, v: v, st: st}
+
+	f.hookup(root)
+	if !fired || cb == nil {
+		t.Fatal("skills stage did not fire the exec handoff")
+	}
+	if v.machine.Phase() != PhaseReady || v.machine.Stage() != StageSkills {
+		t.Fatalf("phase/stage = %d/%q, want ready/skills", v.machine.Phase(), v.machine.Stage())
+	}
+
+	// The session returns: the arrival cmd must re-enable mouse mode and
+	// settle the pipeline (done — the stub argv "succeeds").
+	f.step(cb(nil))
+	topMsg := f.cmd() // run once; re-running Cmds would double-deliver
+	var sawMouse bool
+	if topMsg != nil {
+		if batch, ok := topMsg.(tea.BatchMsg); ok {
+			for _, c := range []tea.Cmd(batch) {
+				if fmt.Sprintf("%T", c()) == "tea.enableMouseCellMotionMsg" {
+					sawMouse = true
+				}
+			}
+		} else if fmt.Sprintf("%T", topMsg) == "tea.enableMouseCellMotionMsg" {
+			sawMouse = true
+		}
+	}
+	if !sawMouse {
+		t.Fatalf("exec-handoff arrival shipped no mouse-enable command; top msg %T", topMsg)
+	}
+	// Feed the rest of the arrival (other batch children) to settle.
+	f.cmd = f.v.Update(topMsg)
+	f.drain()
+	if v.machine.Phase() != PhaseDone {
+		t.Fatalf("phase = %d, want done after exec arrival", v.machine.Phase())
+	}
+}
+
 // setup_clone_complete true skips the clone — partial progress preserved.
 func TestHookRoutesRecoverMsgSkippingDoneStages(t *testing.T) {
 	home, root, reg, _ := fixture(t, "cloned")
@@ -344,9 +408,10 @@ func TestMouseParityErrorMenu(t *testing.T) {
 		t.Fatalf("phase = %d, want change-url after menu click", f.v.machine.Phase())
 	}
 	_ = f.body()
-	// Apply (Apply row at BodyTop+4): clicking applies the empty URL —
-	// invalid input shows the toast instead of writing anything.
-	f.step(tea.MouseMsg{X: 4, Y: BodyTop + 4, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft})
+	// Apply (Apply row at BodyTop+6 below the 3-line input box): clicking
+	// applies the empty URL — invalid input shows the toast instead of
+	// writing anything.
+	f.step(tea.MouseMsg{X: 4, Y: BodyTop + 6, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft})
 	f.drain()
 	if f.v.machine.Phase() != PhaseChangeURL {
 		t.Fatalf("phase = %d, want change-url (blank URL blocked)", f.v.machine.Phase())

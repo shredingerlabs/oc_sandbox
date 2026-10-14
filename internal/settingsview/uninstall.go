@@ -46,11 +46,12 @@ func (v *View) uninstallPane() ([]string, []hitRow, int) {
 			act: v.uninstallToggle(i)})
 	}
 	rows = append(rows, "", focusLabel(`Type "uninstall" to confirm`))
-	rows = append(rows, "  "+textField(&field{&v.unConfirm, &v.unCur}, v.unFocus == 3))
+	rows = appendInput(rows, textField(&field{&v.unConfirm, &v.unCur}, v.unFocus == 3))
+	unRow := inputRow(rows)
 	if v.unFocus == 3 {
-		focusRow = len(rows) - 1
+		focusRow = unRow
 	}
-	hits = append(hits, hitRow{row: len(rows) - 1, x: cardX + 2, w: 40,
+	hits = append(hits, hitRow{row: unRow, x: cardX + 2, w: 40,
 		act: func() tea.Cmd { v.unFocus = 3; return nil }})
 
 	armed := uninstallArmed(v.unConfirm)

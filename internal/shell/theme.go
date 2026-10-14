@@ -19,6 +19,7 @@ const (
 // color profile (TrueColor → ANSI256 → ANSI16 → Ascii) and respects
 // NO_COLOR; never branch manually on TERM.
 var (
+	ColWindowBg = lipgloss.Color("0") // full-window background (black paint)
 	ColRunning  = lipgloss.Color("46")
 	ColStopped  = lipgloss.Color("245")
 	ColAccent   = lipgloss.Color("39")  // selection / focus

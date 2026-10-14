@@ -114,7 +114,7 @@ func TestViewRendersChrome(t *testing.T) {
 	if !strings.Contains(lines[0], "oc-sandbox") || !strings.Contains(lines[0], "Open Project") {
 		t.Errorf("header row = %q", lines[0])
 	}
-	if lines[1] != strings.Repeat("─", 99) {
+	if strings.TrimRight(lines[1], " ") != strings.Repeat("─", 99) { // full-window bg pads the last cell
 		t.Errorf("separator row not full-width: %q", lines[1])
 	}
 	if !strings.Contains(lines[2], "Alpha Tab") || !strings.Contains(lines[2], "Beta Tab") {

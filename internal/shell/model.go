@@ -231,17 +231,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if msg.Y == 0 {
 				for i, r := range MenuRects() {
 					if r.Hit(msg.X, msg.Y) {
-					if i >= menuViews(len(m.views)) { // Exit (or beyond)
-						if m.workBusy() { // guarded exit: first click asks (#82)
-							m.exitPending = true
-							return m, nil
+						if i >= menuViews(len(m.views)) { // Exit (or beyond)
+							if m.workBusy() { // guarded exit: first click asks (#82)
+								m.exitPending = true
+								return m, nil
+							}
+							m.exitPending = false
+							return m, tea.Quit
 						}
 						m.exitPending = false
-						return m, tea.Quit
-					}
-					m.exitPending = false
-					act := m.setActive(i)
-					return m, act
+						act := m.setActive(i)
+						return m, act
 					}
 				}
 			}
@@ -297,7 +297,10 @@ func (m Model) View() string {
 	b.WriteString(body)
 	b.WriteString("\n")
 	b.WriteString(m.Footer())
-	return b.String()
+	// Full-window black background: the screen paint fills every cell the
+	// app covers, even behind cards and padding the views leave plain.
+	return lipgloss.NewStyle().Background(ColWindowBg).
+		Width(m.width).Height(m.height).MaxHeight(m.height).Render(b.String())
 }
 
 // Footer renders the help row, or — while a guarded exit waits for

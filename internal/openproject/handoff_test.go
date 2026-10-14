@@ -1,6 +1,7 @@
 package openproject
 
 import (
+	"fmt"
 	"os/exec"
 	"strings"
 	"testing"
@@ -112,5 +113,53 @@ func TestConsoleHandoffErrorSurfacesRecoveryToast(t *testing.T) {
 	}
 	if !strings.Contains(e.m.toast, "Container session ended") {
 		t.Errorf("recovery toast missing: %q", e.m.toast)
+	}
+}
+
+// A console/opencode session returning via tea.ExecProcess leaves the
+// terminal without mouse support: bubbletea's RestoreTerminal never
+// re-enables mouse mode after releasing it for the child process. The
+// handoff-resume command must re-send the mouse-enable sequences.
+func TestConsoleHandoffRestoresMouse(t *testing.T) {
+	e := newEnv(t, nil)
+	var h execHarness
+	e.m = New(Deps{
+		Home:             e.home,
+		Runner:           e.run,
+		StartScript:      e.startScript(),
+		BuildScript:      e.home + "/build-container.sh",
+		Dockerfile:       e.home + "/Dockerfile",
+		DockerfileCustom: "",
+		Exec: func(c *exec.Cmd, cb tea.ExecCallback) tea.Cmd {
+			h.cmd, h.cb, h.fired = c, cb, true
+			return func() tea.Msg { return nil }
+		},
+	})
+	bodyOf(t, e.m, bodyW, bodyH)
+	e.step(keyMsg("enter"))
+	e.finishOps()
+	e.step(keyMsg("enter"))
+	if !h.fired || h.cb == nil {
+		t.Fatal("exec handoff did not fire")
+	}
+	cmd := e.step(h.cb(nil))
+	if cmd == nil {
+		t.Fatal("handoff resume produced no commands")
+	}
+	var sawMouse bool
+	var types []string
+	switch msg := cmd(); msg := msg.(type) {
+	case tea.BatchMsg:
+		for _, c := range []tea.Cmd(msg) {
+			m := c()
+			types = append(types, fmt.Sprintf("%T", m))
+			if fmt.Sprintf("%T", m) == "tea.enableMouseCellMotionMsg" {
+				sawMouse = true
+			}
+		}
+	}
+	if !sawMouse {
+		t.Errorf("handoff resume did not re-enable mouse mode; msgs = %v",
+			strings.Join(types, ", "))
 	}
 }

@@ -57,8 +57,12 @@ func (v *View) exportPane() ([]string, []hitRow, int) {
 		focusLabel("Destination file"),
 	}
 	focusRow := len(rows)
-	rows = append(rows, "  "+textField(&field{&v.expDest, &v.expCur}, v.expFocus == 0))
-	destHit := hitRow{row: len(rows) - 1, x: cardX + 2, w: 40,
+	rows = appendInput(rows, textField(&field{&v.expDest, &v.expCur}, v.expFocus == 0))
+	destRow := inputRow(rows)
+	if v.expFocus == 0 {
+		focusRow = destRow
+	}
+	destHit := hitRow{row: destRow, x: cardX + 2, w: 40,
 		act: func() tea.Cmd { v.expFocus = 0; return nil }}
 	rows, save, cancel := buttonPair(rows, "Save", v.expFocus == 1, v.doExport,
 		"Cancel", v.expFocus == 2, v.exportCancel)

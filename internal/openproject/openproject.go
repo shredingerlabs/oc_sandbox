@@ -284,12 +284,15 @@ func (m *Model) Update(msg tea.Msg) tea.Cmd {
 func (m *Model) accessDone(msg accessDoneMsg) tea.Cmd {
 	m.state = stateList
 	m.refresh()
-	cmd := m.poll() // the session continued outside; re-check live state
+	// bubbletea's RestoreTerminal (fired by the ExecProcess handoff) does
+	// not re-enable mouse mode, so the terminal comes back mouse-dead:
+	// `tea.EnableMouseCellMotion` re-sends the enable sequences now that
+	// the terminal is ours.
 	if msg.Err != nil {
 		m.toast = "Container session ended: " + msg.Err.Error() +
 			" — is the container gone? Start it again from its card."
 	}
-	return cmd
+	return tea.Batch(tea.EnableMouseCellMotion, m.poll()) // the session continued outside; re-check live state
 }
 
 type accessDoneMsg struct{ Err error }
@@ -917,6 +920,7 @@ func (m *Model) settingsRows(paneW int) []paneRow {
 		}
 		return rows
 	}
+	add(shell.StyleMutedAlt.Render(divider(min(paneW-2, 30)))) // separate the pane from the options above
 	add(shell.StyleFieldLabel.Render("Project Settings — " + s.name))
 	editions, edErr := discovery.Editions(m.deps.Dockerfile, m.deps.DockerfileCustom)
 	modes, modeErr := discovery.Modes(m.deps.Runner, m.deps.StartScript)

@@ -76,7 +76,7 @@ func TestE2EWebEditionBuildNowCreatesProject(t *testing.T) {
 	if !registered {
 		t.Fatalf("project never registered; screen:\n%s", screenOf(t, rec))
 	}
-	root := filepath.Join(home, "projects", "webproj")
+	root := filepath.Join(home, "oc-sandbox", "webproj")
 	if _, err := sandboxcfg.Read(sandboxcfg.Path(root)); err != nil {
 		t.Fatalf("sandbox_config.json missing after create: %v", err)
 	}

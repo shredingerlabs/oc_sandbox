@@ -25,7 +25,7 @@ import (
 // scripts (production serves them from dist/).
 type Config struct {
 	Home               string
-	DefaultProjectPath string // base dir for path autofill; "" => Home/projects
+	DefaultProjectPath string // base dir for path autofill; "" => Home/oc-sandbox
 	Dockerfile         string // dist/Dockerfile
 	DockerfileCustom   string // dist/Dockerfile.custom ("" = none)
 	StartScript        string // scripts/start.sh (modes discovery)
@@ -38,7 +38,7 @@ func (c Config) projectBase() string {
 	if c.DefaultProjectPath != "" {
 		return c.DefaultProjectPath
 	}
-	return c.Home + "/projects"
+	return c.Home + "/oc-sandbox"
 }
 
 // Ops is the single seam through which the view launches long-running

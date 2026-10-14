@@ -9,23 +9,26 @@ import (
 	"github.com/shredingerlabs/oc-sandbox/internal/shell"
 )
 
-// textField renders a text input row: focused shows the caret ▌ on a
-// selection background; unfocused shows the current value.
+// textField renders a text input as the boxed text area (shell.TextFieldBox
+// provides the shared input-area look; switches take the sibling helpers):
+// focused shows the caret ▌ in an accent box; unfocused shows the current
+// value (or the muted "…" placeholder).
 func textField(f *field, focused bool) string {
-	val := *f.val
-	if !focused {
-		if val == "" {
-			return shell.StyleMutedAlt.Render("…")
-		}
-		return shell.StyleCurrentVal.Render(val)
-	}
-	rs := []rune(val)
-	cur := *f.cur
-	if cur > len(rs) {
-		cur = len(rs)
-	}
-	return shell.StyleSelectedRow.Render(string(rs[:cur]) + "▌" + string(rs[cur:]))
+	return shell.TextFieldBox(*f.val, *f.cur, focused)
 }
+
+// appendInput appends the boxed text-input block (3 lines: borders + value
+// row) to pane rows and returns the content-row index for hit registration.
+func appendInput(rows []string, box string) []string {
+	for _, l := range strings.Split(box, "\n") {
+		rows = append(rows, "  "+l)
+	}
+	return rows
+}
+
+// inputRow is the hit-row index of an appendInput'd box: last-1 (between
+// the borders).
+func inputRow(rows []string) int { return len(rows) - 2 }
 
 // chooserRow renders a picker row; the selected row carries the ▶ marker.
 func chooserRow(label string, selected bool) string {

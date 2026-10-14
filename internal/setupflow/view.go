@@ -29,8 +29,13 @@ type ViewDeps struct {
 }
 
 // arriveMsg settles one stage: the funneled stream end (channel closed)
-// or the Exec-seam callback result.
-type arriveMsg struct{ err error }
+// or the Exec-seam callback result (viaExec — that handoff released the
+// terminal to the child and bubbletea's RestoreTerminal never re-enables
+// mouse mode, so the resume command must send it back).
+type arriveMsg struct {
+	err     error
+	viaExec bool
+}
 
 // clickSpot is one clickable screen region: hit rect plus the action of
 // the option row it covers.
@@ -156,7 +161,7 @@ func (v *View) stageCmd() tea.Cmd {
 		if argv := v.machine.ExecFor(); len(argv) > 0 {
 			cmd := exec.Command(argv[0], argv[1:]...)
 			parts = append(parts, v.deps.Exec(cmd, func(err error) tea.Msg {
-				return arriveMsg{err: err}
+				return arriveMsg{err: err, viaExec: true}
 			}))
 			return tea.Batch(parts...)
 		}
@@ -200,8 +205,17 @@ func (v *View) arrive(msg arriveMsg) tea.Cmd {
 		return nil
 	}
 	verr := v.machine.Done(msg.err)
+	var resumeMouse tea.Cmd
+	if msg.viaExec {
+		// Terminal handoff: re-send the mouse-enable sequences the child
+		// session took away (RestoreTerminal does not).
+		resumeMouse = tea.EnableMouseCellMotion
+	}
 	switch v.machine.Phase() {
 	case PhaseReady:
+		if resumeMouse != nil {
+			return tea.Batch(resumeMouse, v.stageCmd())
+		}
 		return v.stageCmd()
 	case PhaseError:
 		v.choice = 0
@@ -212,7 +226,7 @@ func (v *View) arrive(msg arriveMsg) tea.Cmd {
 		v.toast = "Setup aborted — partial progress is preserved."
 	}
 	_ = verr
-	return nil
+	return resumeMouse
 }
 
 // --- shell.CenterView ---

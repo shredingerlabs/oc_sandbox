@@ -28,6 +28,7 @@ type LogPane struct {
 	content string
 	running bool
 	follow  bool
+	noHead  bool // HideHead: the owner renders the spinner itself
 }
 
 // NewLogPane returns an empty, idle log pane that follows new lines.
@@ -40,10 +41,14 @@ func NewLogPane() LogPane {
 }
 
 // SetSize resizes the pane; the first row is the spinner row, the rest
-// is the viewport.
+// is the viewport (the full height when the head is hidden).
 func (l LogPane) SetSize(width, height int) LogPane {
 	l.vp.Width = width
-	l.vp.Height = max(0, height-1)
+	if l.noHead {
+		l.vp.Height = max(0, height)
+	} else {
+		l.vp.Height = max(0, height-1)
+	}
 	if l.follow {
 		l.vp.GotoBottom()
 	}
@@ -59,6 +64,23 @@ func (l LogPane) Run(on bool) LogPane {
 
 // Spinning reports whether the spinner is running.
 func (l LogPane) Spinning() bool { return l.running }
+
+// HideHead moves spinner ownership to the caller: the pane drops its
+// own spinner row (and keeps the full size for the viewport), because
+// the view rides the frame next to its status text (toast row).
+func (l LogPane) HideHead() LogPane {
+	l.noHead = true
+	return l
+}
+
+// SpinFrame returns the spinner's current frame ("" when idle) so a view
+// can place it behind its own status text instead of the pane's head row.
+func (l LogPane) SpinFrame() string {
+	if !l.running {
+		return ""
+	}
+	return l.spin.View()
+}
 
 // Spin returns the tea.Cmd that advances the spinner one frame (nil
 // when idle); Update schedules the next tick itself.
@@ -112,10 +134,11 @@ func (l LogPane) scrolledUp(msg tea.Msg) bool {
 	return false
 }
 
-// View renders the spinner row (when running) above the viewport.
+// View renders the spinner row (when running) above the viewport; the
+// owner of a hidden head renders the frame itself (toast row).
 func (l LogPane) View() string {
 	head := ""
-	if l.running {
+	if l.running && !l.noHead {
 		head = " " + l.spin.View()
 	}
 	return head + "\n" + l.vp.View()

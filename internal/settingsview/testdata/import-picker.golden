@@ -3,7 +3,9 @@
   │ (strict structure check, nothing is moved). │
   │                                             │
   │ Project folder path                         │
-  │   ~▌           │
+  │   ╭─────────────────────────────────╮       │
+  │   │ ~▌ │       │
+  │   ╰─────────────────────────────────╯       │
   │                                             │
   │ Folders — ~    │
   │  ▶ .. (up one level)                        │

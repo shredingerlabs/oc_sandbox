@@ -251,7 +251,7 @@ func mousePress(x, y int) tea.MouseMsg {
 // create flow (a "project exists after restart" starting point).
 func seedProject(t *testing.T, home, name string) string {
 	t.Helper()
-	root := filepath.Join(home, "projects", name)
+	root := filepath.Join(home, "oc-sandbox", name)
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		t.Fatal(err)
 	}
