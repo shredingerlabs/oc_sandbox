@@ -152,10 +152,9 @@ type Model struct {
 	fieldRect map[int]fieldHit
 	btnRect   shell.Rect
 
-	npScroll   int  // card scroll offset
-	btnRow     int  // Create button row from the last render (unwindowed)
-	prevFocus  int  // focus of the last Body pass
-	scrollSeen bool // at least one Body pass ran
+	npScroll int          // card scroll offset
+	follow   shell.Follow // wheel + focus-follow of the card
+	btnRow   int          // Create button row from the last render (unwindowed)
 }
 
 // credStep is one configure-project.sh invocation in the credential
@@ -186,6 +185,8 @@ func New(cfg Config, run cmdrun.Runner, ops Ops, reg *registry.Registry) *Model 
 		ai:      aiOptions[0],
 		pending: map[int]func(err error) tea.Cmd{},
 	}
+	m.follow = shell.NewFollow(false, true)
+	m.follow.Arm()
 	m.refresh()
 	return m
 }
@@ -227,11 +228,11 @@ func (m *Model) Update(msg tea.Msg) tea.Cmd {
 		return m.key(msg)
 	case tea.MouseMsg:
 		if msg.Button == tea.MouseButtonWheelUp || msg.Button == tea.MouseButtonWheelDown {
-			step := 3
+			dir := 1
 			if msg.Button == tea.MouseButtonWheelUp {
-				step = -3
+				dir = -1
 			}
-			m.npScroll = max(0, m.npScroll+step)
+			m.follow.Wheel(&m.npScroll, dir)
 		}
 		return m.mouse(msg)
 	}

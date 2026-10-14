@@ -93,6 +93,11 @@ var descriptions = map[string]string{
 
 const defaultDescription = "container edition from the Dockerfile stage"
 
+// checklistFixedRows is the row budget of the stop checklist that is
+// fixed regardless of the container count: select-all row, blank row,
+// 3 button lines, toast.
+const checklistFixedRows = 6
+
 func description(edition string) string {
 	if d, ok := descriptions[edition]; ok {
 		return d
@@ -120,8 +125,8 @@ type Model struct {
 	sub          int
 	buildSel     int
 	stopSel      int
-	stopScroll   int // checklist scroll offset (count of hidden head rows)
-	stopFollow   bool
+	stopScroll   int          // hidden head rows of the stop checklist
+	stopFollow   shell.Follow // wheel + selection-follow of the stop checklist
 	editions     []string
 	discoveryErr string
 	running      []string
@@ -157,6 +162,7 @@ func New(run cmdrun.Runner, reg *registry.Registry, dockerfile, dockerfileCustom
 		BuildScript:      buildScript,
 		Launch:           launch,
 		selection:        map[string]bool{},
+		stopFollow:       shell.NewFollow(false, false),
 		log:              shell.NewLogPane(),
 	}
 }
@@ -229,7 +235,8 @@ func (m *Model) Update(msg tea.Msg) tea.Cmd {
 		if m.stopSel >= len(msg) {
 			m.stopSel = max(0, len(msg)-1)
 		}
-		m.stopFollow = true // keep the selection visible in the new list
+		m.stopFollow.Arm() // keep the selection visible in the new list
+		m.stopFollow.Force()
 		return nil
 	case OpDoneMsg:
 		return m.opDone(msg)
@@ -264,11 +271,11 @@ func (m *Model) Update(msg tea.Msg) tea.Cmd {
 				return cmd
 			}
 			if m.sub == TabStop && len(m.running) > 0 {
-				step := 3
+				dir := 1
 				if msg.Button == tea.MouseButtonWheelUp {
-					step = -3
+					dir = -1
 				}
-				m.stopScroll = max(0, m.stopScroll+step)
+				m.stopFollow.Wheel(&m.stopScroll, dir)
 			}
 			return nil
 		}
@@ -303,7 +310,7 @@ func (m *Model) key(msg tea.KeyMsg) tea.Cmd {
 			}
 		} else if m.stopSel > 0 {
 			m.stopSel--
-			m.stopFollow = true
+			m.stopFollow.Arm()
 		}
 	case "down", "j":
 		if m.sub == TabBuild {
@@ -312,7 +319,7 @@ func (m *Model) key(msg tea.KeyMsg) tea.Cmd {
 			}
 		} else if m.stopSel < len(m.running)-1 {
 			m.stopSel++
-			m.stopFollow = true
+			m.stopFollow.Arm()
 		}
 	case " ":
 		if m.sub == TabStop && m.stopSel < len(m.running) {
@@ -646,22 +653,8 @@ func editionCard(name string, busy, selected bool) string {
 // dropped and the recorded rects shift up by the scroll offset.
 func (m *Model) stopBody(width, height int) []string {
 	avail := height - 2 // card borders
-	fixed := 6          // select-all row, blank row, 3 button lines, toast
-	visible := max(1, avail-fixed)
-	maxScroll := max(0, len(m.running)-visible)
-	if m.stopFollow {
-		if m.stopSel < m.stopScroll {
-			m.stopScroll = m.stopSel
-		}
-		if m.stopSel >= m.stopScroll+visible {
-			m.stopScroll = m.stopSel - visible + 1
-		}
-	}
-	m.stopFollow = false
-	m.stopScroll = min(m.stopScroll, maxScroll)
-	if m.stopScroll < 0 {
-		m.stopScroll = 0
-	}
+	visible := max(1, avail-checklistFixedRows)
+	m.stopFollow.Pull(&m.stopScroll, m.stopSel, m.stopSel, len(m.running), visible)
 
 	var inner []string
 	lineY := bodyTop + 1 // first row inside the card border

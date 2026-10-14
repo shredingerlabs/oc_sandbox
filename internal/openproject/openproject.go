@@ -106,16 +106,15 @@ type Model struct {
 
 	projects      []registry.Project
 	selected      int
-	gridScroll    int
-	prevSel       int // selected index of the last layout pass (scroll-follow on change)
-	paneScrollMax int // settings-pane scroll clamped to this (computed in layout)
-	focus         int // 0 card grid, 1 settings pane
+	gridScroll    int          // card-grid scroll (hidden card rows)
+	gridFollow    shell.Follow // the selected card pulls the grid on change
+	paneScrollMax int          // settings-pane scroll clamped to this (computed in layout)
+	focus         int          // 0 card grid, 1 settings pane
 
 	staged  staged
-	cursor  int  // index into the settings pane's navigable rows
-	prevCur int  // cursor of the last layout pass (scroll-follow on change)
-	pscroll int  // settings pane scroll offset
-	follow  bool // pane scroll follows the cursor; wheel scrolling pauses it
+	cursor  int          // index into the settings pane's navigable rows
+	pscroll int          // settings pane scroll offset
+	follow  shell.Follow // the cursor pulls the pane; wheel scrolling pauses it
 
 	state      viewState
 	buildSel   int
@@ -159,7 +158,9 @@ func New(deps Deps) *Model {
 	if deps.Exec == nil {
 		deps.Exec = tea.ExecProcess
 	}
-	m := &Model{deps: deps, reg: &registry.Registry{Home: deps.Home, Now: deps.Now}, follow: true}
+	m := &Model{deps: deps, reg: &registry.Registry{Home: deps.Home, Now: deps.Now}, follow: shell.NewFollow(true, false), gridFollow: shell.NewFollow(false, false)}
+	m.follow.Arm()
+	m.gridFollow.Arm()
 	m.refresh()
 	return m
 }
@@ -332,8 +333,8 @@ func (m *Model) key(msg tea.KeyMsg) tea.Cmd {
 		}
 		return nil
 	}
-	m.layout()      // refresh navigable rows from the last known size
-	m.follow = true // keys re-engage the pull that wheel scrolling paused
+	m.layout()     // refresh navigable rows from the last known size
+	m.follow.Arm() // keys re-engage the pull that wheel scrolling paused
 	switch m.focus {
 	case 0:
 		cpr := m.cardsPerRow()
@@ -494,16 +495,16 @@ func (m *Model) mouse(msg tea.MouseMsg) tea.Cmd {
 		return cmd
 	}
 	if msg.Button == tea.MouseButtonWheelUp || msg.Button == tea.MouseButtonWheelDown {
-		step := 3
+		dir := 1
 		if msg.Button == tea.MouseButtonWheelUp {
-			step = -3
+			dir = -1
 		}
 		switch m.state {
 		case stateList:
-			m.follow = false // wheel scrolling pauses the cursor pull
 			m.layout()
-			m.pscroll = clamp(m.pscroll+step, 0, m.paneScrollMax)
-			m.gridScroll += step
+			m.follow.Wheel(&m.pscroll, dir)
+			m.pscroll = min(m.pscroll, m.paneScrollMax) // paneScrollMax is fresh from layout
+			m.gridFollow.Wheel(&m.gridScroll, dir)
 		}
 		return nil
 	}
@@ -902,21 +903,7 @@ func (m *Model) layout() []paneRow {
 	if len(m.navRows) > 0 {
 		m.cursor = clamp(m.cursor, 0, len(m.navRows)-1)
 		focused := m.navRows[m.cursor]
-		if m.pscroll > len(rows)-m.height {
-			m.pscroll = max(0, len(rows)-m.height)
-		}
-		if m.pscroll < 0 {
-			m.pscroll = 0
-		}
-		if m.follow && m.cursor != m.prevCur { // the focus pull only on a cursor change
-			for focused < m.pscroll {
-				m.pscroll--
-			}
-			for focused > m.pscroll+m.height-1 {
-				m.pscroll++
-			}
-		}
-		m.prevCur = m.cursor
+		m.follow.Pull(&m.pscroll, m.cursor, focused, len(rows), m.height) // the focus pull only on a cursor change
 		m.navRects = make([]shell.Rect, len(m.navRows))
 		for i, rowIdx := range m.navRows {
 			if rowIdx >= m.pscroll && rowIdx < m.pscroll+m.height {
@@ -1074,18 +1061,9 @@ func (m *Model) leftPane(w, h int) string {
 		cpr := m.cardsPerRow()
 		totalRows := (len(m.projects) + cpr - 1) / cpr
 		visRows := max(1, (h-1)/rowStride)
-		maxScroll := max(0, totalRows-visRows)
-		m.gridScroll = clamp(m.gridScroll, 0, maxScroll)
 		selRow := m.selected / cpr
-		if m.selected != m.prevSel { // the selected row pulls the scroll only on a selection change
-			if selRow < m.gridScroll {
-				m.gridScroll = selRow
-			}
-			if selRow >= m.gridScroll+visRows {
-				m.gridScroll = selRow - visRows + 1
-			}
-		}
-		m.prevSel = m.selected
+		// the selected row pulls the scroll only on a selection change
+		m.gridFollow.Pull(&m.gridScroll, m.selected, selRow, totalRows, visRows)
 		running := m.running // cached (background-polled); never queried inline
 		idxs := []int{}
 		for r := m.gridScroll; r < totalRows && r-m.gridScroll < visRows; r++ {

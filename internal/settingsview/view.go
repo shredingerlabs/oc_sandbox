@@ -81,7 +81,7 @@ type View struct {
 	unCur     int
 
 	scroll       int
-	follow       bool // scroll follows the focused row; wheel turns it off
+	follow       shell.Follow // the focused row pulls the scroll; wheel turns it off
 	focusChanged bool
 	rects        []shell.Rect
 	acts         []func() tea.Cmd
@@ -101,6 +101,7 @@ func New(home string) *View {
 		now:          time.Now,
 		unOptSyml:    true,
 		queuePending: map[int]func(err error) tea.Cmd{},
+		follow:       shell.NewFollow(true, false),
 	}
 	v.ops = DefaultOps{view: v}
 	return v
@@ -125,7 +126,7 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 		if msg.Index >= 0 && msg.Index < len(tabs) && msg.Index != v.sub {
 			v.sub = msg.Index
 			v.scroll = 0
-			v.follow = true
+			v.follow.Arm()
 			v.enterPane()
 		}
 	case taskmgr.DoneMsg: // continuation of a queued op (#82)
@@ -139,13 +140,12 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 			v.pending = nil
 			return cmd
 		}
-		if msg.Button == tea.MouseButtonWheelUp {
-			v.scroll = max(0, v.scroll-3)
-			v.follow = false
-		}
-		if msg.Button == tea.MouseButtonWheelDown {
-			v.follow = false
-			v.scroll = max(0, v.scroll+3)
+		if msg.Button == tea.MouseButtonWheelUp || msg.Button == tea.MouseButtonWheelDown {
+			dir := 1
+			if msg.Button == tea.MouseButtonWheelUp {
+				dir = -1
+			}
+			v.follow.Wheel(&v.scroll, dir)
 		}
 	}
 	return nil
@@ -202,7 +202,7 @@ func (v *View) Body(width, height int) string {
 	rows = append(rows, shell.Toast(v.toast))
 	if v.focusChanged {
 		v.focusChanged = false
-		v.follow = true // the focused row pulls the scroll again
+		v.follow.Arm() // the focused row pulls the scroll again
 	}
 
 	// Pane scroll at narrow heights: the focused row pulls the scroll
@@ -212,20 +212,7 @@ func (v *View) Body(width, height int) string {
 	if avail < 1 {
 		avail = 1
 	}
-	if v.follow {
-		if focusRow < v.scroll {
-			v.scroll = focusRow
-		}
-		if focusRow >= v.scroll+avail {
-			v.scroll = focusRow - avail + 1
-		}
-	}
-	if maxScroll := max(0, len(rows)-avail); v.scroll > maxScroll || v.follow {
-		v.scroll = min(maxScroll, v.scroll)
-		if v.follow && focusRow >= v.scroll+avail {
-			v.scroll = focusRow - avail + 1
-		}
-	}
+	v.follow.Pull(&v.scroll, focusRow, focusRow, len(rows), avail)
 	end := min(len(rows), v.scroll+avail)
 
 	v.rects = v.rects[:0]
@@ -343,7 +330,7 @@ func (v *View) key(msg tea.KeyMsg) tea.Cmd {
 		} else {
 			v.sub = (v.sub + len(tabs) - 1) % len(tabs)
 			v.scroll = 0
-			v.follow = true
+			v.follow.Arm()
 			v.enterPane()
 		}
 	case "right":
@@ -354,7 +341,7 @@ func (v *View) key(msg tea.KeyMsg) tea.Cmd {
 		} else {
 			v.sub = (v.sub + 1) % len(tabs)
 			v.scroll = 0
-			v.follow = true
+			v.follow.Arm()
 			v.enterPane()
 		}
 	case "enter":
