@@ -117,6 +117,41 @@ func TestTerminalHandoffGuardedWhileTasksRun(t *testing.T) {
 	}
 }
 
+func TestBuildNowThroughSharedQueueRace(t *testing.T) {
+	e := queuedEnv(t, &runnerHooks{imageErr: errors.New("no image")})
+	e.hooks.onBuild = func(args []string) { e.hooks.imageErr = nil }
+
+	// Reach the Build-now prompt the same way a user does.
+	e.step(keyMsg("enter"))
+	e.reconcileStart()
+	if _, ok := waitLines(t, e, func(lines []string) bool { return someLine(lines, "Build now") }); !ok {
+		t.Fatal("build prompt did not appear")
+	}
+
+	// Pick Build now and run the queued build through the shared manager
+	// exactly as the running shell would.
+	e.step(keyMsg("enter"))
+	if len(e.launch.ops) != 0 {
+		t.Fatalf("build op bypassed the shared manager: %v", e.launch.ops)
+	}
+	if !e.mgr.BusyKey(e.ids["alpha"]) {
+		t.Fatal("build op not queued under the project's container identity")
+	}
+	testutil.Drain(t, e.m, e.mgr, e.lastCmd)
+	e.lastCmd = nil
+
+	// After the build finished, the queued start that follows must be
+	// delivered (or the flow visibly settled into a busy dead-end).
+	if len(e.startCalls(t)) == 0 {
+		lines := bodyOf(t, e.m, bodyW, bodyH)
+		t.Fatalf("build finished but the start never queued — stuck in busy dead-end with the build log:\n%s",
+			strings.Join(lines, "\n"))
+	}
+	if e.startStatus(t, "alpha") != "running" {
+		t.Error("post-build start did not mark running")
+	}
+}
+
 func TestContainerGoneBetweenStatesShowsRecovery(t *testing.T) {
 	e := queuedEnv(t, &runnerHooks{psOut: ""})
 	var execed []string
