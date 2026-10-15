@@ -25,7 +25,7 @@ const (
 
 // Item is one A-list checkbox result.
 type Item struct {
-	Box   string // A1…A6
+	Box   string // A1…A7
 	Title string
 	Status
 	Note string // what was verified / why failed or skipped

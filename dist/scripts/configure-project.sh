@@ -15,8 +15,8 @@
 #   vcs-credentials github <project-root> --token <t>
 #   vcs-credentials gitlab <project-root> --token <t> [--host <h>]
 #   vcs-credentials custom <project-root> --token <t> --host <h>
-#   ai-provider gwdg <project-root> --token <t>
-#   opencode-config gwdg <project-root>
+#   ai-provider <project-root> --name <n> --endpoint <u> --token <t> [--replace]
+#   opencode-config <project-root> --id <i> --name <n> --endpoint <u>
 #
 # Exit codes: 0 success, 1 error, 2 usage error.
 #
@@ -177,74 +177,141 @@ cmd_vcs_credentials() {
   write_secret_file "$git_credentials_file" "https://${git_user}:${token}@${host}"
 }
 
-# ai-provider gwdg: merges the GWDG SAIA token into the project-local
-# auth.json, then wires the GWDG OpenCode config template. Passing
-# --replace overwrites an existing gwdg-saia entry (the calling TUI
-# confirms replacement with the user first; without --replace an
-# existing entry is refused).
+# slugify_provider_id derives the provider id from the typed display name:
+# lowercase, every run of non-[a-z0-9] becomes '-', leading/trailing '-' trimmed.
+slugify_provider_id() {
+  local name="$1"
+  local id
+  id=$(printf '%s' "$name" | tr '[:upper:]' '[:lower:]' | sed -e 's/[^a-z0-9]\+/-/g' -e 's/^-\+//' -e 's/-\+$//')
+  printf '%s' "$id"
+}
+
+# Validates provider inputs shared by ai-provider/opencode-config.
+validate_provider_name() {
+  local name="$1"
+  [[ -n "$name" ]] || die "Provider name must not be empty" 2
+  [[ "$name" == *[a-zA-Z0-9]* ]] || die "Provider name must contain at least one letter or digit" 2
+  [[ "$name" != *$'\n'* ]] || die "Provider name must not contain newlines" 2
+}
+
+validate_provider_endpoint() {
+  local endpoint="$1"
+  [[ "$endpoint" =~ ^https?://[^[:space:]]+$ ]] ||
+    die "Endpoint must be an http:// or https:// URL without whitespace (e.g. https://api.example.com/v1)" 2
+}
+
+validate_provider_token() {
+  local token="$1"
+  [[ -n "$token" ]] || die "Missing --token" 2
+  [[ "$token" != *[[:space:]]* && "$token" != *$'\n'* ]] || die "Token must not contain whitespace or newlines" 2
+}
+
+# ai-provider: writes the OpenAI-compatible provider's credential into the
+# project-local auth.json under the slugified provider id. --replace is
+# required when the id already has an entry (the calling TUI confirms
+# replacement with the user first).
 cmd_ai_provider() {
-  local target="${1:-}"
-  shift 2>/dev/null || true
-
-  [[ "$target" == "gwdg" ]] || die "Unknown provider: ${target:-<none>} (use gwdg)" 2
-
-  local project_path="" token="" replace=false
+  local project_path="" name="" endpoint="" token="" replace=false
   while [[ $# -gt 0 ]]; do
     case "$1" in
+      --name) [[ $# -ge 2 ]] || die "--name requires a value" 2; name="$2"; shift 2 ;;
+      --endpoint) [[ $# -ge 2 ]] || die "--endpoint requires a value" 2; endpoint="$2"; shift 2 ;;
       --token) [[ $# -ge 2 ]] || die "--token requires a value" 2; token="$2"; shift 2 ;;
-      --host) [[ $# -ge 2 ]] || die "--host requires a value" 2; host="$2"; shift 2 ;;
       --replace) replace=true; shift ;;
+      *) [[ -z "$project_path" ]] || die "Unexpected argument: $1" 2; project_path="$1"; shift ;;
+    esac
+  done
+
+  [[ -n "$project_path" ]] || die "Usage: $0 ai-provider <project-root> --name <n> --endpoint <u> --token <t> [--replace]" 2
+  [[ -n "$name" ]] || die "Missing --name" 2
+  [[ -n "$endpoint" ]] || die "Missing --endpoint" 2
+  validate_provider_name "$name"
+  validate_provider_endpoint "$endpoint"
+  validate_provider_token "$token"
+
+  local provider_id
+  provider_id=$(slugify_provider_id "$name")
+  [[ -n "$provider_id" ]] || die "Provider name has no usable characters: ${name}" 2
+
+  local auth_file="${project_path}/.opencode_data/auth.json"
+  local existing='' config
+
+  if [[ -e "$auth_file" ]]; then
+    existing=$(jq -c . "$auth_file") || die "Existing auth.json is not valid JSON"
+    if jq -e --arg id "$provider_id" 'has($id)' <<< "$existing" >/dev/null && [[ "$replace" != "true" ]]; then
+      die "auth.json already contains a ${provider_id} entry; pass --replace to overwrite" 2
+    fi
+  fi
+
+  if [[ -n "$existing" ]]; then
+    config=$(PROVIDER_ID="$provider_id" PROVIDER_TOKEN="$token" jq \
+      'del(.[$ENV.PROVIDER_ID]) | . + {($ENV.PROVIDER_ID): {type: "api", key: $ENV.PROVIDER_TOKEN}}' <<< "$existing")
+  else
+    config=$(PROVIDER_ID="$provider_id" PROVIDER_TOKEN="$token" jq -n \
+      '{($ENV.PROVIDER_ID): {type: "api", key: $ENV.PROVIDER_TOKEN}}')
+  fi
+  write_secret_file "$auth_file" "$config"
+}
+
+# opencode-config: merges the models-discovery plugin entry plus a generated
+# provider.<id> block into the project-local opencode.json; when the file
+# does not exist it is built from the basic template plus plugin plus the
+# provider block. The modelsDiscovery options keep the unchanged GWDG-era
+# settings.
+cmd_opencode_config() {
+  local project_path="" p_id="" name="" endpoint=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --id) [[ $# -ge 2 ]] || die "--id requires a value" 2; p_id="$2"; shift 2 ;;
+      --name) [[ $# -ge 2 ]] || die "--name requires a value" 2; name="$2"; shift 2 ;;
+      --endpoint) [[ $# -ge 2 ]] || die "--endpoint requires a value" 2; endpoint="$2"; shift 2 ;;
       -*) die "Unknown argument: $1" 2 ;;
       *) [[ -z "$project_path" ]] || die "Unexpected argument: $1" 2; project_path="$1"; shift ;;
     esac
   done
 
-  [[ -n "$project_path" ]] || die "Usage: $0 ai-provider gwdg <project-root> --token <t> [--replace]" 2
-  [[ -n "$token" ]] || die "Missing --token" 2
-  [[ "$token" != *[[:space:]]* ]] || die "Token must not contain whitespace or newlines" 2
-
-  local auth_file="${project_path}/.opencode_data/auth.json"
-  local existing=''
-  local config
-
-  if [[ -e "$auth_file" ]]; then
-    existing=$(jq -c . "$auth_file") || die "Existing auth.json is not valid JSON"
-    if jq -e 'has("gwdg-saia")' <<< "$existing" >/dev/null && [[ "$replace" != "true" ]]; then
-      die "auth.json already contains a gwdg-saia entry; pass --replace to overwrite"
-    fi
-  fi
-
-  if [[ -n "$existing" ]]; then
-    config=$(GWDG_TOKEN="$token" jq 'del(."gwdg-saia") | . + {"gwdg-saia": {type: "api", key: $ENV.GWDG_TOKEN}}' <<< "$existing")
-  else
-    config=$(GWDG_TOKEN="$token" jq -n '{"gwdg-saia": {type: "api", key: $ENV.GWDG_TOKEN}}')
-  fi
-  write_secret_file "$auth_file" "$config"
-}
-
-# opencode-config gwdg: merges the shipped GWDG template into the
-# project-local opencode.json.
-cmd_opencode_config() {
-  local target="${1:-}"
-  shift
-
-  [[ "$target" == "gwdg" ]] || die "Unknown target: ${target:-<none>} (use gwdg)" 2
-
-  [[ $# -ge 1 ]] || die "Usage: $0 opencode-config gwdg <project-root>" 2
-  local project_path="$1"
+  [[ -n "$project_path" ]] || die "Usage: $0 opencode-config <project-root> --id <i> --name <n> --endpoint <u>" 2
+  [[ -n "$p_id" ]] || die "Missing --id" 2
+  [[ -n "$name" ]] || die "Missing --name" 2
+  [[ -n "$endpoint" ]] || die "Missing --endpoint" 2
+  validate_provider_endpoint "$endpoint"
 
   local config_file="${project_path}/.opencode_config/opencode.json"
-  local template="${SCRIPT_DIR}/../templates/opencode/opencode-gwdg.json"
-  [[ -f "$template" ]] || return 0
-
+  local basic_template="${SCRIPT_DIR}/../templates/opencode/opencode-basic.json"
   local config
+  local provider_block
+  provider_block=$(PROVIDER_ID="$p_id" PROVIDER_NAME="$name" PROVIDER_ENDPOINT="$endpoint" jq -n '
+    {plugin: ["opencode-models-discovery@1.5.3"],
+     provider: {($ENV.PROVIDER_ID): {
+       npm: "@ai-sdk/openai-compatible",
+       name: $ENV.PROVIDER_NAME,
+       options: {
+         baseURL: $ENV.PROVIDER_ENDPOINT,
+         timeout: false,
+         modelsDiscovery: {
+           enabled: true,
+           smartModelName: true,
+           models: {
+             excludeBy: [
+               {field: "id", match: "embed|e5-|bge-|gte-|nomic-|instructor|rerank"}
+             ]
+           },
+           cache: {enabled: true, ttlSeconds: 3600}
+         }
+       }
+     }}}')
+
   if [[ -f "$config_file" ]]; then
-    config=$(jq --slurpfile gwdg "$template" \
-      'reduce ($gwdg[0] | keys[]) as $key (.; if $key == "provider" then
-        .provider = ((.provider // {}) * $gwdg[0].provider) else .[$key] = $gwdg[0][$key] end)' \
-      "$config_file") || die "Merging GWDG template into opencode.json failed"
+    config=$(jq --argjson block "$provider_block" '
+      .plugin = ((.plugin // []) + $block.plugin | unique) |
+      .provider = ((.provider // {}) * $block.provider)
+    ' "$config_file") || die "Merging provider block into opencode.json failed"
   else
-    config=$(<"$template")
+    if [[ ! -f "$basic_template" ]]; then
+      die "Basic OpenCode template not found: ${basic_template}"
+    fi
+    config=$(jq -c '. * $block' --argjson block "$provider_block" "$basic_template") ||
+      die "Merging provider block into opencode.json failed"
   fi
   write_config_without_backup "$config_file" "$config"
 }

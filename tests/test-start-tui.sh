@@ -247,13 +247,121 @@ fi
 [[ ! -e "$cancelled_project/.git_local/gh-cli/hosts.yml" ]]
 [[ ! -e "$cancelled_project/.git_local/credentials" ]]
 
-prompt_for_secret() { printf '%s\n' 'ai-secret'; }
-show_menu() { printf '%s\n' 'Keep existing'; }
-setup_gwdg_provider "$credentials_project" >/dev/null
-[[ "$(jq -r '."gwdg-saia".key' "$credentials_project/.opencode_data/auth.json")" == 'ai-secret' ]]
-[[ "$(jq -r '.provider."gwdg-saia".options.baseURL' "$credentials_project/.opencode_config/opencode.json")" == 'https://chat-ai.academiccloud.de/v1' ]]
-[[ "$(stat -c '%a' "$credentials_project/.opencode_data")" == '700' ]]
-[[ "$(stat -c '%a' "$credentials_project/.opencode_data/auth.json")" == '600' ]]
+# AI provider backend (ticket #101): the two configure-project.sh
+# subcommands are asserted directly; prompts stay in the calling TUI.
+configure_script="$PROJECT_ROOT/dist/scripts/configure-project.sh"
+ai_project="$test_home/ai-provider-project"
+mkdir -p "$ai_project"
+
+"$configure_script" ai-provider "$ai_project" \
+  --name 'My Cool API (v2)' \
+  --endpoint 'https://api.example.com/v1' \
+  --token 'ai-secret'
+auth_file="$ai_project/.opencode_data/auth.json"
+[[ "$(jq -r '."my-cool-api-v2".type' "$auth_file")" == 'api' ]]
+[[ "$(jq -r '."my-cool-api-v2".key' "$auth_file")" == 'ai-secret' ]]
+[[ "$(jq -c 'keys' "$auth_file")" == '["my-cool-api-v2"]' ]]
+[[ "$(stat -c '%a' "$ai_project/.opencode_data")" == '700' ]]
+[[ "$(stat -c '%a' "$auth_file")" == '600' ]]
+
+# A second provider coexists (multi-key container untouched).
+"$configure_script" ai-provider "$ai_project" \
+  --name 'other-api' \
+  --endpoint 'http://localhost:11434/v1' \
+  --token 'other-secret'
+[[ "$(jq -r '."my-cool-api-v2".key' "$auth_file")" == 'ai-secret' ]]
+[[ "$(jq -r '."other-api".key' "$auth_file")" == 'other-secret' ]]
+
+# An existing id is refused without --replace; --replace overwrites it.
+set +e
+ai_refuse_out="$test_home/ai-refuse-out"
+"$configure_script" ai-provider "$ai_project" \
+  --name 'My Cool API (v2)' \
+  --endpoint 'https://api.example.com/v1' \
+  --token 'ai-secret' >"$ai_refuse_out" 2>&1
+ai_refuse_rc=$?
+set -e
+[[ "$ai_refuse_rc" -eq 2 ]]
+grep -q -- '--replace' "$ai_refuse_out"
+[[ "$(jq -r '."my-cool-api-v2".key' "$auth_file")" == 'ai-secret' ]]
+
+"$configure_script" ai-provider "$ai_project" \
+  --name 'My Cool API (v2)' \
+  --endpoint 'https://api.example.com/v1' \
+  --token 'ai-secret-replaced' \
+  --replace
+[[ "$(jq -r '."my-cool-api-v2".key' "$auth_file")" == 'ai-secret-replaced' ]]
+[[ "$(jq -r '."other-api".key' "$auth_file")" == 'other-secret' ]]
+
+# Invalid name / nothing-sluggable name / bad endpoint / whitespace token
+# each fail with a clear message and exit code 2.
+ai_input=$test_home/ai-input
+ai_input_out="$test_home/ai-input-out"
+for ai_bad in \
+  "ai-provider $ai_project --name '' --endpoint 'https://api.example.com/v1' --token t1" \
+  "ai-provider $ai_project --name '---' --endpoint 'https://api.example.com/v1' --token t2" \
+  "ai-provider $ai_project --name 'x' --endpoint 'ftp://example.com' --token t3" \
+  "ai-provider $ai_project --name 'x' --endpoint 'api.example.com' --token t4" \
+  "ai-provider $ai_project --name 'x' --endpoint 'https://exa mple.com' --token t5" \
+  "ai-provider $ai_project --name 'x' --endpoint 'https://example.com' --token 'two words'" \
+  "ai-provider $ai_project --endpoint 'https://example.com' --token t7"; do
+  set +e
+  eval '"$configure_script" $ai_bad' >"$ai_input_out" 2>&1
+  ai_input_rc=$?
+  set -e
+  if [[ "$ai_input_rc" -ne 2 ]]; then
+    printf 'invalid input was accepted: %s\n' "$ai_bad" >&2
+    exit 1
+  fi
+  grep -q 'Error:' "$ai_input_out"
+done
+[[ "$(jq 'keys | length' "$auth_file")" -eq 2 ]]
+
+# opencode-config: generates the provider.<id> block and merges the plugin
+# entry into an existing opencode.json without touching other sections.
+mkdir -p "$ai_project/.opencode_config"
+printf '%s\n' '{"permission": {"external_directory": {"/tmp/**": "allow"}}}' \
+  > "$ai_project/.opencode_config/opencode.json"
+"$configure_script" opencode-config "$ai_project" \
+  --id 'my-cool-api-v2' \
+  --name 'My Cool API (v2)' \
+  --endpoint 'https://api.example.com/v1'
+openjson="$ai_project/.opencode_config/opencode.json"
+[[ "$(jq -r '.provider."my-cool-api-v2".npm' "$openjson")" == '@ai-sdk/openai-compatible' ]]
+[[ "$(jq -r '.provider."my-cool-api-v2".name' "$openjson")" == 'My Cool API (v2)' ]]
+[[ "$(jq -r '.provider."my-cool-api-v2".options.baseURL' "$openjson")" == 'https://api.example.com/v1' ]]
+[[ "$(jq '.provider."my-cool-api-v2".options.timeout' "$openjson")" == false ]]
+models_discovery='.provider."my-cool-api-v2".options.modelsDiscovery'
+[[ "$(jq "$models_discovery.enabled" "$openjson")" == true ]]
+[[ "$(jq "$models_discovery.smartModelName" "$openjson")" == true ]]
+[[ "$(jq -r "$models_discovery.models.excludeBy[0].match" "$openjson")" == 'embed|e5-|bge-|gte-|nomic-|instructor|rerank' ]]
+[[ "$(jq "$models_discovery.cache.enabled" "$openjson")" == true ]]
+[[ "$(jq "$models_discovery.cache.ttlSeconds" "$openjson")" == 3600 ]]
+[[ "$(jq -r '.plugin[0]' "$openjson")" == opencode-models-discovery@1.5.3 ]]
+[[ "$(jq -r '.permission.external_directory."/tmp/**"' "$openjson")" == 'allow' ]]
+
+# opencode.json absent: built from the basic template plus plugin plus the
+# provider block.
+fresh_openjson="$test_home/fresh-provider-project"
+mkdir -p "$fresh_openjson"
+"$configure_script" opencode-config "$fresh_openjson" \
+  --id 'gwdg-clone' \
+  --name 'GWDG Clone' \
+  --endpoint 'https://chat-ai.academiccloud.de/v1'
+fresh_openjson_file="$fresh_openjson/.opencode_config/opencode.json"
+[[ "$(jq -r '.provider."gwdg-clone".options.baseURL' "$fresh_openjson_file")" == 'https://chat-ai.academiccloud.de/v1' ]]
+[[ "$(jq '.provider."gwdg-clone".options.timeout' "$fresh_openjson_file")" == false ]]
+[[ "$(jq '.provider."gwdg-clone".options.modelsDiscovery.enabled' "$fresh_openjson_file")" == true ]]
+[[ "$(jq '.provider."gwdg-clone".options.modelsDiscovery.cache.ttlSeconds' "$fresh_openjson_file")" == 3600 ]]
+[[ "$(jq -r '.plugin[0]' "$fresh_openjson_file")" == opencode-models-discovery@1.5.3 ]]
+[[ "$(jq -r '.permission.external_directory."/home/dev/**"' "$fresh_openjson_file")" == 'allow' ]]
+[[ "$(jq -r '.mcp."codebase-memory-mcp".type' "$fresh_openjson_file")" == 'local' ]]
+
+# The GWDG preset is gone from the shipped scripts and templates.
+[[ ! -e "$PROJECT_ROOT/dist/templates/opencode/opencode-gwdg.json" ]]
+
+[[ "$(stat -c '%a' "$ai_project/.opencode_data")" == '700' ]]
+[[ "$(stat -c '%a' "$auth_file")" == '600' ]]
 
 printf '%s\n' 'credential-output-safety' > "$HOME/.config/oc-sandbox/projects.json"
 if grep -R --exclude='test-start-tui.sh' -Fq 'ai-secret' "$HOME/.config/oc-sandbox"; then

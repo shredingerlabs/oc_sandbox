@@ -599,8 +599,7 @@ rm -rf ~/projects/kunde-x/.opencode_config/* ~/projects/kunde-x/.opencode_data/*
 │       ├── bash/
 │       │   └── bash_profile      <- Vorlage für .bash_local/bash_profile
 │       ├── opencode/
-│       │   ├── opencode-gwdg.json    <- GWDG-spezifische Config
-│       │   ├── opencode-basic.json   <- Minimale Config
+│       │   ├── opencode-basic.json   <- Basis-Config (Provider section erzeugt configure-project.sh)
 │       │   ├── AGENTS.md             <- Agent-Config (wird kopiert)
 │       │   └── skills/               <- Skill-Vorlagen (wird von init-project.sh befüllt)
 ├── docs/
