@@ -1028,7 +1028,7 @@ func (m *Model) save() tea.Cmd {
 // config and the setup flag untouched).
 func (m *Model) saveCustom(p registry.Project) tea.Cmd {
 	if !providerid.ValidName(m.aiName) {
-		m.toast = "Provider name must not be empty and needs at least one letter or digit."
+		m.toast = "Name must not be empty and needs at least one letter or digit."
 		return nil
 	}
 	if !providerid.ValidEndpoint(m.aiEndpoint) {

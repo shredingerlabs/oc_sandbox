@@ -432,6 +432,26 @@ flow_openjson="$flow_project/.opencode_config/opencode.json"
 grep -q 'PAGE: AI provider My Cool API (v2)' "$flow_pages"
 grep -Fq 'Select AI provider none Custom' "$menu_log"
 
+# (a2) Wizard Custom with an id already present in auth.json: the Keep
+# existing / Replace confirm gates the token write. Keep existing skips the
+# credential write but still re-merges opencode.json; Replace overwrites.
+wizard_confirm_project="$test_home/ai-wizard-confirm"
+mkdir -p "$wizard_confirm_project/.opencode_data"
+printf '%s\n' '{"my-cool-api-v2": {"type": "api", "key": "old-secret"}}' \
+  > "$wizard_confirm_project/.opencode_data/auth.json"
+flow_pages_log_reset
+printf '%s\n' 'Custom' 'My Cool API (v2)' 'https://api.example.com/v1' 'wizard-secret-keep' 'Keep existing' > "$TUI_ANSWERS"
+select_ai_provider "$wizard_confirm_project" AiFlowKeep full '' console console none
+[[ "$(jq -r '."my-cool-api-v2".key' "$wizard_confirm_project/.opencode_data/auth.json")" == 'old-secret' ]]
+[[ "$(jq -r '.provider."my-cool-api-v2".options.baseURL' "$wizard_confirm_project/.opencode_config/opencode.json")" == 'https://api.example.com/v1' ]]
+[[ "$(jq -r '.provider."my-cool-api-v2".name' "$wizard_confirm_project/.opencode_config/opencode.json")" == 'My Cool API (v2)' ]]
+grep -Fq 'Credentials already exist Keep existing' "$menu_log"
+! grep -Fq 'wizard-secret-keep' "$wizard_confirm_project/.opencode_data/auth.json"
+printf '%s\n' 'Custom' 'My Cool API (v2)' 'https://api.example.com/v1' 'wizard-secret-replace' 'Replace' > "$TUI_ANSWERS"
+select_ai_provider "$wizard_confirm_project" AiFlowReplace full '' console console none
+[[ "$(jq -r '."my-cool-api-v2".key' "$wizard_confirm_project/.opencode_data/auth.json")" == 'wizard-secret-replace' ]]
+! grep -Fq 'old-secret' "$wizard_confirm_project/.opencode_data/auth.json"
+
 # (b) Wizard none flow: no provider files, no token prompt.
 printf '%s\n' 'none' > "$TUI_ANSWERS"
 flow_none_project="$test_home/ai-wizard-none"
@@ -448,7 +468,7 @@ mkdir -p "$flow_refusal_project"
 select_ai_provider "$flow_refusal_project" AiFlowRefusal full '' console console none
 [[ "$(jq -r '.ai_provider' "$flow_refusal_project/.opencode_config/sandbox_config.json")" == 'my-cool-api-v2' ]]
 [[ "$(jq -r '."my-cool-api-v2".key' "$flow_refusal_project/.opencode_data/auth.json")" == 'ai-secret' ]]
-[[ "$(grep -c 'PAGE: Invalid provider name' "$flow_pages")" == 1 ]]
+[[ "$(grep -c 'PAGE: Invalid name' "$flow_pages")" == 1 ]]
 [[ "$(grep -c 'PAGE: Invalid endpoint' "$flow_pages")" == 1 ]]
 [[ "$(grep -c 'PAGE: Invalid token' "$flow_pages")" == 1 ]]
 
@@ -496,7 +516,7 @@ flow_pages_log_reset
 printf '%s\n' 'Custom' 'GWDG SAIA' 'https://chat-ai.academiccloud.de/v1' 'new-legacy-secret' 'Replace' > "$TUI_ANSWERS"
 revisit_project_settings "$legacy_project"
 grep -q 'PAGE: Stored AI provider no longer offered' "$flow_pages"
-grep -Fq 'Provider name:|GWDG SAIA' "$prompt_log"
+grep -Fq 'Name:|GWDG SAIA' "$prompt_log"
 grep -Fq 'Endpoint URL:|https://chat-ai.academiccloud.de/v1' "$prompt_log"
 [[ "$(jq -r '.ai_provider' "$legacy_config")" == 'gwdg-saia' ]]
 [[ "$(jq -r '."gwdg-saia".key' "$legacy_auth")" == 'new-legacy-secret' ]]

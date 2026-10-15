@@ -836,16 +836,17 @@ select_ai_provider() {
     return
   fi
 
-  # Custom collects Name/Endpoint up front so the slugified provider id can be
-  # recorded in sandbox_config.json (before provider setup, same order as the
-  # former gwdg flow); the token is prompted later in the provider-setup path.
-  local provider_name="" provider_endpoint=""
+  # Custom collects Name/Endpoint/Token as one coherent block up front so
+  # the slugified provider id can be recorded in sandbox_config.json (before
+  # provider setup, same order as the former gwdg flow).
+  local provider_name="" provider_endpoint="" provider_token=""
   local ai_provider="$ai_choice"
   if [[ "$ai_choice" == "Custom" ]]; then
     local provider_fields
-    provider_fields=$(custom_ai_provider_fields) || return 0
+    provider_fields=$(custom_ai_provider_fields "" "" "1") || return 0
     provider_name="${provider_fields%%$'\n'*}"
-    provider_endpoint="${provider_fields#*$'\n'}"
+    provider_endpoint=$(printf '%s\n' "$provider_fields" | sed -n 2p)
+    provider_token=$(printf '%s\n' "$provider_fields" | sed -n 3p)
     ai_provider=$(slugify_provider_id "$provider_name")
   fi
 
@@ -891,7 +892,7 @@ select_ai_provider() {
 
   local ai_provider_label="none"
   if [[ "$ai_choice" == "Custom" ]]; then
-    setup_custom_ai_provider "$project_path" "$provider_name" "$provider_endpoint" || return 0
+    setup_custom_ai_provider "$project_path" "$provider_name" "$provider_endpoint" "$provider_token" || return 0
     ai_provider_label="$provider_name"
   fi
   show_page "AI provider" "This project will use the AI provider: ${ai_provider_label}."
@@ -1119,16 +1120,19 @@ auth_json_has_id() {
   jq -e --arg id "$provider_id" 'has($id)' "$auth_file" >/dev/null 2>&1
 }
 
-# custom_ai_provider_fields shows the Name/Endpoint block (in that order) for
-# a Custom AI provider and validates both values with per-field re-prompts.
+# custom_ai_provider_fields shows the Name/Endpoint/Token block (in that
+# order) for a Custom AI provider and validates the values with per-field
+# re-prompts; the empty-but-unset third return marks "no token captured"
+# (revisit path — it applies its own empty-token semantics).
 custom_ai_provider_fields() {
   local prefill_name="${1:-}"
   local prefill_endpoint="${2:-}"
+  local capture_token="${3:-0}"
   while true; do
     local name
-    name=$(prompt_for_text "Provider name:" "$prefill_name") || return 1
+    name=$(prompt_for_text "Name:" "$prefill_name") || return 1
     [[ -n "$name" && "$name" != *$'\n'* && "$name" == *[a-zA-Z0-9]* ]] && break
-    show_page "Invalid provider name" \
+    show_page "Invalid name" \
       "The name must not be empty and must contain at least one letter or digit."
     prefill_name="$name"
   done
@@ -1140,30 +1144,45 @@ custom_ai_provider_fields() {
       "Endpoint must be an http:// or https:// URL without whitespace (for example https://api.example.com/v1)."
     prefill_endpoint="$endpoint"
   done
-  printf '%s\n%s\n' "$name" "$endpoint"
+  local token=""
+  if [[ "$capture_token" == "1" ]]; then
+    show_page "AI provider $name" "Enter the API token for the $name provider endpoint $endpoint."
+    while true; do
+      token=$(prompt_for_secret "Token:") || return 1
+      validate_provider_token "$token" && break
+      show_page "Invalid token" "The token must not be empty and must not contain whitespace or newlines."
+    done
+  fi
+  printf '%s\n%s\n%s\n' "$name" "$endpoint" "$token"
 }
 
 # setup_custom_ai_provider runs the provider setup for a New Project wizard:
-# the token prompt (with the empty/whitespace-token refusal re-prompting) plus
-# the provider-neutral configure-project.sh subcommands. Name/Endpoint were
-# already captured — the slugified id went into sandbox_config.json first.
+# the provider-neutral configure-project.sh subcommands. Name/Endpoint/Token
+# were already captured as one block — the slugified id went into
+# sandbox_config.json first. When the derived id already exists in auth.json
+# the Keep existing / Replace confirm gates the token write; Keep existing
+# skips the credential write but still re-merges opencode.json.
 setup_custom_ai_provider() {
   local project_path="$1"
   local name="$2"
   local endpoint="$3"
+  local token="$4"
   local provider_id
   provider_id=$(slugify_provider_id "$name")
+  local auth_file="${project_path}/.opencode_data/auth.json"
 
-  show_page "AI provider $name" "Enter the API token for the $name provider endpoint $endpoint."
-  local token
-  while true; do
-    token=$(prompt_for_secret "Token:") || return 1
-    validate_provider_token "$token" && break
-    show_page "Invalid token" "The token must not be empty and must not contain whitespace or newlines."
-  done
+  local replace_flag=()
+  if auth_json_has_id "$auth_file" "$provider_id"; then
+    if ! confirm_credential_replacement "$auth_file"; then
+      run_configure_project opencode-config "$project_path" \
+        --id "$provider_id" --name "$name" --endpoint "$endpoint"
+      return
+    fi
+    replace_flag=(--replace)
+  fi
 
   run_configure_project ai-provider "$project_path" \
-      --name "$name" --endpoint "$endpoint" --token "$token" --replace && \
+      --name "$name" --endpoint "$endpoint" --token "$token" "${replace_flag[@]}" && \
     run_configure_project opencode-config "$project_path" \
       --id "$provider_id" --name "$name" --endpoint "$endpoint"
 }
@@ -1209,7 +1228,7 @@ setup_ai_provider_from_captured() {
 # prefills and applies it (revisit = same semantics as wizard capture, but
 # an empty token is allowed when the slugified id already has a credential
 # entry in auth.json — it re-merges only; a missing entry refuses). The
-# captured id is returned via the REVISIT_PROVIDER_NAME/ID globals.
+# captured id is returned via the REVISIT_PROVIDER_ID global.
 setup_ai_provider_revisit() {
   local project_path="$1"
   local stored_id="$2"
@@ -1225,7 +1244,8 @@ setup_ai_provider_revisit() {
   local input
   input=$(custom_ai_provider_fields "$prefill_name" "$prefill_endpoint") || return 1
   local name="${input%%$'\n'*}"
-  local endpoint="${input#*$'\n'}"
+  local endpoint
+  endpoint=$(printf '%s\n' "$input" | sed -n 2p)
 
   local provider_id
   provider_id=$(slugify_provider_id "$name")
@@ -1245,7 +1265,6 @@ setup_ai_provider_revisit() {
     show_page "Invalid token" "The token must not contain whitespace or newlines."
   done
 
-  REVISIT_PROVIDER_NAME="$name"
   REVISIT_PROVIDER_ID="$provider_id"
   setup_ai_provider_from_captured "$project_path" "$name" "$endpoint" "$token"
 }
@@ -1479,13 +1498,14 @@ revisit_project_settings() {
   [[ "$ai_choice" != "← Go Back" ]] || return 1
 
   local recorded_ai="$ai_choice"
-  REVISIT_RECORDED_AI="$ai_choice"
   if [[ "$ai_choice" == "Custom" ]]; then
     if ! setup_ai_provider_revisit "$project_path" "$current_ai"; then
       return 1
     fi
     recorded_ai="$REVISIT_PROVIDER_ID"
     REVISIT_RECORDED_AI="$REVISIT_PROVIDER_ID"
+  else
+    REVISIT_RECORDED_AI="$ai_choice"
   fi
 
   local proxy_label="no"
