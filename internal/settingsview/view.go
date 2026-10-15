@@ -209,7 +209,7 @@ func (v *View) Body(width, height int) string {
 	case 2:
 		rows, hits, focusRow = v.restorePane()
 	default:
-		rows, hits, focusRow = v.uninstallPane()
+		rows, hits, focusRow = v.uninstallPane(width)
 	}
 	rows = append(rows, shell.Toast(v.toast))
 	if v.focusChanged {

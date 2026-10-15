@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/shredingerlabs/oc-sandbox/internal/discovery"
 	"github.com/shredingerlabs/oc-sandbox/internal/shell"
@@ -12,7 +13,10 @@ import (
 // uninstallPane renders the Uninstall card: the warning block (running
 // containers fresh per entry, with their stop commands), the three
 // option rows, the typed confirmation and the muted Uninstall button.
-func (v *View) uninstallPane() ([]string, []hitRow, int) {
+// width is the window width; container rows clip to the card's content
+// budget so a long podman-ps name cannot stretch the frame past the
+// window (containerview parity, 5fbd141).
+func (v *View) uninstallPane(width int) ([]string, []hitRow, int) {
 	if !v.unSeen { // first entry (shell key switch never routes a SubTabMsg)
 		v.unSeen = true
 		v.unRunning = discovery.RunningContainers(v.run)
@@ -24,9 +28,12 @@ func (v *View) uninstallPane() ([]string, []hitRow, int) {
 	}
 	if len(v.unRunning) > 0 {
 		rows = append(rows, shell.StyleWarn.Render("Running containers:"))
+		// body budget: window minus PadLeft(2), card border(2), card
+		// padding(2); the podman-stop suggestion repeats the name.
+		budget := max(1, width-6)
 		for _, c := range v.unRunning {
 			rows = append(rows,
-				" "+shell.SymOn+" "+c+" — stop it first: podman stop "+c)
+				ansi.Truncate(" "+shell.SymOn+" "+c+" — stop it first: podman stop "+c, budget, "…"))
 		}
 		rows = append(rows, "")
 	} else {

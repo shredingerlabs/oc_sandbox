@@ -514,8 +514,11 @@ func TestUninstallGoldenWithRunningContainers(t *testing.T) {
 	v := newSettings(t, home, fakeRunner("opencode-sandbox-alpha", "opencode-sandbox-beta"))
 	v.Update(shell.SubTabMsg{Index: 3})
 	golden(t, "uninstall-running", home, v.Body(76, 26))
-	if !strings.Contains(body(v), "podman stop opencode-sandbox-alpha") {
-		t.Errorf("stop command missing from the warning block")
+	// clipped rows must keep the warning + container hints visible
+	// (ellipsis marks a clipped podman-stop suggestion).
+	bb := body(v)
+	if !strings.Contains(bb, "stop it first") || !strings.Contains(bb, "podman stop") {
+		t.Errorf("stop hint missing from the warning block:\n%s", bb)
 	}
 }
 
@@ -698,5 +701,24 @@ func TestWheelScrollsPaneRestores(t *testing.T) {
 	}
 	if back := shell.StripANSI(v.Body(76, 12)); back != top {
 		t.Fatalf("scrolling back did not restore the top:\n want:\n%s\ngot:\n%s", top, back)
+	}
+}
+
+// Regression (feedback 3): long running-container rows must clip to the
+// window width — the podman-stop suggestion repeats the container name,
+// so a long name overflowed the 77-col uninstall frame left of 80 cols.
+func TestUninstallRunningRowClipsToWindowWidth(t *testing.T) {
+	home := homeFixture(t)
+	name := "opencode-sandbox-a-very-long-registry-style-web-container-name"
+	v := newSettings(t, home, fakeRunner(name))
+	v.Update(shell.SubTabMsg{Index: 3})
+	b := v.Body(76, 26)
+	for _, l := range strings.Split(b, "\n") {
+		if w := shell.Width(l); w > 76 {
+			t.Fatalf("uninstall card row exceeds the 76-col window (%d cells):\n%s", w, l)
+		}
+	}
+	if !strings.Contains(body(v), "…") || !strings.Contains(body(v), name[:20]) {
+		t.Errorf("clipped row lost the container name / ellipsis:\n%s", body(v))
 	}
 }
