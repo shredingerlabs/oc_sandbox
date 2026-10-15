@@ -151,7 +151,7 @@ func (m *Model) create() tea.Cmd {
 // validateInputs checks the slug name, required URL, path, and registry
 // uniqueness (duplicate name / canonical path).
 // aiSummary is the create-confirm popup's "AI provider" line value:
-// the provider name for Custom, or "none" (spec user story 9).
+// the display name for Custom, or "none" (spec user story 9).
 func (m *Model) aiSummary() string {
 	if m.ai == "Custom" {
 		return m.aiName
@@ -187,7 +187,7 @@ func (m *Model) validateInputs() string {
 	}
 	if m.ai == "Custom" {
 		if !providerid.ValidName(m.aiName) {
-			return "Provider name must not be empty and needs at least one letter or digit."
+			return "Name must not be empty and needs at least one letter or digit."
 		}
 		if !providerid.ValidEndpoint(m.aiEndpoint) {
 			return "Endpoint must be an http:// or https:// URL without whitespace (e.g. https://api.example.com/v1)."

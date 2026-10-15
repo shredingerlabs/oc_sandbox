@@ -191,8 +191,7 @@ func TestCustomPrefillsFromStoredSection(t *testing.T) {
 	e.writeAuth(t, e.roots["alpha"], "gwdg-saia")
 	pickAI(t, e, "Custom")
 	lines := bodyOf(t, e.m, bodyW, 42)
-	ok := true
-	if !ok {
+	if !someLine(lines, "GWDG SAIA") || !someLine(lines, "https://chat-ai.academiccloud.de/v1") {
 		t.Fatalf("Custom block not prefilled from the stored section:\n%s", strings.Join(lines, "\n"))
 	}
 	if someLine(lines, "stored-secret") {
@@ -376,7 +375,7 @@ func TestCustomSaveValidationSurfaced(t *testing.T) {
 	typeCustom(t, e, "!!!", "not a url", "secret")
 	saveSettings(t, e)
 	lines := bodyOf(t, e.m, bodyW, bodyH)
-	if !someLine(lines, "Provider name") && !someLine(lines, "Endpoint must") {
+	if !someLine(lines, "Name must not") && !someLine(lines, "Endpoint must") {
 		t.Errorf("validation refusal missing:\n%s", strings.Join(lines, "\n"))
 	}
 	if got := e.configAI(t, "alpha"); got != "gwdg-saia" {

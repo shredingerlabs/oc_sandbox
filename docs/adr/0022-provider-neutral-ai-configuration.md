@@ -30,12 +30,14 @@ models-discovery plugin) from the basic template.
   `options.baseURL`, unchanged models-discovery settings), so a
   generation subcommand needs no template and cannot drift from the
   basic template's provider-agnostic keys.
+- **What to store in sandbox_config.json**: chosen — the `ai_provider`
+  string keeps its role, now holding the provider id (`my-api`, `none`,
+  or `gwdg-saia` for legacy projects). The record stays a pointer, not a
+  secret store.
 - **Store the endpoint or full credentials in sandbox_config.json**:
   rejected — the recorded settings are a pointer, not a secret store;
   secrets stay in `auth.json` behind the existing atomic
-  secret-file mechanism. **Stored (chosen)**: the `ai_provider` string
-  keeps its role, now holding the provider id (`my-api`, `none`, or
-  `gwdg-saia` for legacy projects).
+  secret-file mechanism.
 - **Legacy storage cleanup / hidden preset for old `gwdg-saia` values**:
   rejected — deleting recorded ids would cascade into project files;
   re-adding the preset as a hidden option would resurrect the vendor
