@@ -11,7 +11,7 @@ import (
 var (
 	startOptions = []string{"console", "opencode", "web"}
 	vcsOptions   = []string{"none", "github.com", "gitlab.com", "own GitLab", "others"}
-	aiOptions    = []string{"gwdg-saia", "none"}
+	aiOptions    = []string{"none", "Custom"}
 )
 
 // StartArgs rebuilds the start.sh argument vector from stored fields
