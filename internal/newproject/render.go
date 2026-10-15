@@ -55,11 +55,11 @@ func fieldLabel(f int) string {
 	case fAI:
 		return "AI provider"
 	case fAIName:
-		return "AI name"
+		return "Provider name"
 	case fAIEndpoint:
-		return "AI endpoint"
+		return "Provider endpoint"
 	case fAIToken:
-		return "AI token"
+		return "Provider token"
 	case fPrompt:
 		return ""
 	case fCreate:

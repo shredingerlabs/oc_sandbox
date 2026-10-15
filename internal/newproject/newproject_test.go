@@ -744,7 +744,7 @@ func TestAIProviderOptionsNoneFirstCustomSecond(t *testing.T) {
 	if strings.Contains(b, "gwdg") {
 		t.Errorf("gwdg preset must vanish:\n%s", b)
 	}
-	if strings.Contains(b, "AI name") || strings.Contains(b, "AI endpoint") || strings.Contains(b, "AI token") {
+	if strings.Contains(b, "Provider name") || strings.Contains(b, "Provider endpoint") || strings.Contains(b, "Provider token") {
 		t.Errorf("Custom fields must stay hidden while none is selected:\n%s", b)
 	}
 }
@@ -755,9 +755,9 @@ func TestAICustomRevealsFieldBlockInOrder(t *testing.T) {
 	m, _, _ := newTestModel(t)
 	click(t, m, "○ Custom")
 	b := plain(t, m)
-	nameIdx := strings.Index(b, "AI name")
-	epIdx := strings.Index(b, "AI endpoint")
-	tokIdx := strings.Index(b, "AI token")
+	nameIdx := strings.Index(b, "Provider name")
+	epIdx := strings.Index(b, "Provider endpoint")
+	tokIdx := strings.Index(b, "Provider token")
 	if nameIdx < 0 || epIdx < 0 || tokIdx < 0 || !(nameIdx < epIdx && epIdx < tokIdx) {
 		t.Fatalf("Custom fields missing or out of order (name %d, endpoint %d, token %d):\n%s", nameIdx, epIdx, tokIdx, b)
 	}
@@ -765,12 +765,12 @@ func TestAICustomRevealsFieldBlockInOrder(t *testing.T) {
 	m2, _, _ := newTestModel(t)
 	m2.tabToField(t, "AI provider")
 	m2.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	if !strings.Contains(plain(t, m2), "AI token") {
+	if !strings.Contains(plain(t, m2), "Provider token") {
 		t.Fatalf("enter on AI row must toggle the Custom block:\n%s", plain(t, m2))
 	}
 	// cycling back to none hides the block again
 	m2.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	if strings.Contains(plain(t, m2), "AI token") {
+	if strings.Contains(plain(t, m2), "Provider token") {
 		t.Fatalf("cycling off Custom must hide the block:\n%s", plain(t, m2))
 	}
 }
@@ -793,15 +793,15 @@ func TestCustomProviderValidationRefusals(t *testing.T) {
 		typeKeys(t, m, "validname") // project name valid
 		click(t, m, "○ Custom")
 		if v.name != "" {
-			m.tabToField(t, "AI name")
+			m.tabToField(t, "Provider name")
 			overwriteLine(t, m, v.name)
 		}
-		m.tabToField(t, "AI endpoint")
+		m.tabToField(t, "Provider endpoint")
 		if v.endpoint != "" {
 			overwriteLine(t, m, v.endpoint)
 		}
 		if v.token != "" {
-			m.tabToField(t, "AI token")
+			m.tabToField(t, "Provider token")
 			overwriteLine(t, m, v.token)
 		}
 		createViaKeyboard(t, m)
@@ -830,11 +830,11 @@ func TestCustomProviderSubcommands(t *testing.T) {
 	m, ops, _ := newTestModel(t)
 	typeKeys(t, m, "aiuser")
 	click(t, m, "○ Custom")
-	m.tabToField(t, "AI name")
+	m.tabToField(t, "Provider name")
 	overwriteLine(t, m, "My API")
-	m.tabToField(t, "AI endpoint")
+	m.tabToField(t, "Provider endpoint")
 	overwriteLine(t, m, "https://api.example.com/v1")
-	m.tabToField(t, "AI token")
+	m.tabToField(t, "Provider token")
 	overwriteLine(t, m, "secret1")
 	// the scripted fake writes the credential files (fixture-based
 	// post-write assertions, same pattern as the legacy gwdg tests)
@@ -920,11 +920,11 @@ func TestCreatePopupShowsAIProviderLine(t *testing.T) {
 	}
 	m.Update(tea.KeyMsg{Type: tea.KeyEsc})
 	click(t, m, "○ Custom")
-	m.tabToField(t, "AI name")
+	m.tabToField(t, "Provider name")
 	overwriteLine(t, m, "My API")
-	m.tabToField(t, "AI endpoint")
+	m.tabToField(t, "Provider endpoint")
 	overwriteLine(t, m, "https://api.example.com/v1")
-	m.tabToField(t, "AI token")
+	m.tabToField(t, "Provider token")
 	overwriteLine(t, m, "tok")
 	m.tabToField(t, "Create Project")
 	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
@@ -940,11 +940,11 @@ func TestCustomProviderExistingIDConfirm(t *testing.T) {
 	m, ops, reg := newTestModel(t)
 	typeKeys(t, m, "confirmai")
 	click(t, m, "○ Custom")
-	m.tabToField(t, "AI name")
+	m.tabToField(t, "Provider name")
 	overwriteLine(t, m, "GWDG-SAIA") // slug → gwdg-saia (legacy id fixture)
-	m.tabToField(t, "AI endpoint")
+	m.tabToField(t, "Provider endpoint")
 	overwriteLine(t, m, "https://api.example.com/v1")
-	m.tabToField(t, "AI token")
+	m.tabToField(t, "Provider token")
 	overwriteLine(t, m, "GWT0K")
 	ops.Fake = func(call []string) error {
 		if call[0] == "init-project.sh" {
@@ -975,11 +975,11 @@ func TestCustomProviderKeepExistingSkipsBothSteps(t *testing.T) {
 	m, ops, reg := newTestModel(t)
 	typeKeys(t, m, "keepai")
 	click(t, m, "○ Custom")
-	m.tabToField(t, "AI name")
+	m.tabToField(t, "Provider name")
 	overwriteLine(t, m, "My API")
-	m.tabToField(t, "AI endpoint")
+	m.tabToField(t, "Provider endpoint")
 	overwriteLine(t, m, "https://api.example.com/v1")
-	m.tabToField(t, "AI token")
+	m.tabToField(t, "Provider token")
 	overwriteLine(t, m, "NEWT0K")
 	ops.Fake = func(call []string) error {
 		if call[0] == "init-project.sh" {
@@ -1007,11 +1007,11 @@ func TestCustomProviderUnknownIDRunsDirectly(t *testing.T) {
 	m, ops, _ := newTestModel(t)
 	typeKeys(t, m, "freshai")
 	click(t, m, "○ Custom")
-	m.tabToField(t, "AI name")
+	m.tabToField(t, "Provider name")
 	overwriteLine(t, m, "Fresh API")
-	m.tabToField(t, "AI endpoint")
+	m.tabToField(t, "Provider endpoint")
 	overwriteLine(t, m, "https://api.example.com/v1")
-	m.tabToField(t, "AI token")
+	m.tabToField(t, "Provider token")
 	overwriteLine(t, m, "tok")
 	ops.Fake = func(call []string) error {
 		if call[0] == "init-project.sh" {
@@ -1038,11 +1038,11 @@ func TestCredentialReplacementConfirm(t *testing.T) {
 	m.tabToField(t, "VCS token")
 	typeKeys(t, m, "T0K")
 	click(t, m, "○ Custom")
-	m.tabToField(t, "AI name")
+	m.tabToField(t, "Provider name")
 	typeKeys(t, m, "My API")
-	m.tabToField(t, "AI endpoint")
+	m.tabToField(t, "Provider endpoint")
 	typeKeys(t, m, "https://api.example.com/v1")
-	m.tabToField(t, "AI token")
+	m.tabToField(t, "Provider token")
 	typeKeys(t, m, "GWT0K")
 	// ops fake writes existing credential files during the fake init
 	ops.Fake = func(call []string) error {
