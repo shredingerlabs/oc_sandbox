@@ -76,6 +76,7 @@ func Compose(home string, run cmdrun.Runner, now func() time.Time) App {
 		Runner:           run,
 		StartScript:      layout.StartScript,
 		BuildScript:      layout.BuildScript,
+		ConfigureScript:  layout.ConfigureScript,
 		Dockerfile:       layout.Dockerfile,
 		DockerfileCustom: layout.DockerfileCustom,
 		Ops:              mgr,
