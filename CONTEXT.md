@@ -38,7 +38,13 @@
 
 **VCS integration** — Version Control System setup (GitHub, GitLab, or custom host) creating host token files (`gh-cli/hosts.yml`, `glab-cli/config.yml` with a `hosts:` block — glab ignores a separate `hosts.yml`, or `vcs/hosts.yml`) in `.git_local/` subdirectories, separate from AI provider configuration.
 
-**AI provider** — LLM API service configuration like GWDG, stored in auth.json within `.opencode_data/` with provider sections for OpenCode integration.
+**AI provider** — The OpenCode model backend a project runs against, selected from `none` or `Custom` in both TUIs. A configured provider enters OpenCode as an `@ai-sdk/openai-compatible` section in `opencode.json`, its credential in `auth.json` (`.opencode_data/`), and its provider id recorded in sandbox_config.json. _Avoid_: GWDG preset (removed; `gwdg-saia` only survives as a legacy stored id, shown read-only with a reconfigure hint), vendor preset.
+
+**custom provider** — The `Custom` choice on the AI provider row: Name / Endpoint / Token captured as one block (wizard and settings alike, both TUIs). Name is display name and id source; Endpoint is the OpenAI-compatible baseURL; Token is the API key. Stored without any vendor preset. _Avoid_: GWDG flow, preset provider.
+
+**provider id** — Slugified key derived from the typed provider name (lowercase, non-alphanumeric runs → `-`, trimmed) used as the JSON key in `auth.json` and the `provider.<id>` section in `opencode.json`, and recorded as the `ai_provider` value in sandbox_config.json. Legacy projects record `gwdg-saia`. _Avoid_: provider name (the display name is separate), auth key.
+
+**provider endpoint** — The OpenAI-compatible API base URL (scheme `http://`/`https://`, no whitespace, path allowed) offered by a custom provider, mapped to OpenCode `options.baseURL`. _Avoid_: provider URL (ambiguity with the recorded provider id), host (no scheme/path implied).
 
 **install script** — Script that downloads and sets up the opencode-sandbox files to a designated installation directory.
 
