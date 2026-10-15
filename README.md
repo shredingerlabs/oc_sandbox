@@ -226,7 +226,10 @@ ohne `gum` auf einen einfachen Textmodus zurück.
    unvollständigen Schritt. **OpenCode** muss **unbeding über /exit beendet** werden.
 4. **Open Project / Start last used project** – Projekt später erneut starten;
    laufende Container werden per `podman exec` wiederverwendet statt neu
-   gestartet. Die Modus-Auswahl (Proxy, Offline, HIL, CBM-UI, …) entspricht den
+   gestartet. Jede Projektkarte zeigt Start-Buttons **Console / OpenCode / Web**
+   (Start + Zugriff in einem Klick; die konfigurierte Start-Option ist
+   vorbelegt, Doppelklick startet mit ihr) – die Modus-Auswahl (Proxy, Offline,
+   HIL, CBM-UI, …) entspricht den
    Flags von `start.sh` – siehe [Flag-Referenz](#legacy-direkte-skript-nutzung).
 
 Projekte werden in `~/.config/oc-sandbox/projects.json` registriert (kanonischer

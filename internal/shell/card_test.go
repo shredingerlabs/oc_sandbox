@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/termenv"
 )
 
 func TestCardWidthIsWidestContent(t *testing.T) {
@@ -29,6 +30,29 @@ func TestCardGeometryStableWithAndWithoutToast(t *testing.T) {
 	}
 	if lipgloss.Height(empty) != lipgloss.Height(full) {
 		t.Errorf("toast changed card height: %d vs %d", lipgloss.Height(empty), lipgloss.Height(full))
+	}
+}
+
+// The muted frame only swaps the border color — geometry and content
+// are identical to the accent card.
+func TestCardMutedOnlyChangesBorder(t *testing.T) {
+	rows := []string{"alpha", "/proj/alpha"}
+	saved := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.ANSI256)
+	t.Cleanup(func() { lipgloss.SetColorProfile(saved) })
+	a, m := Card(rows), CardMuted(rows)
+	if Width(a) != Width(m) || lipgloss.Height(a) != lipgloss.Height(m) {
+		t.Errorf("CardMuted changed geometry: %dx%d vs %dx%d",
+			Width(a), lipgloss.Height(a), Width(m), lipgloss.Height(m))
+	}
+	if StripANSI(a) != StripANSI(m) {
+		t.Error("CardMuted changed the content")
+	}
+	if !strings.Contains(a, "\x1b[38;5;39m") {
+		t.Errorf("accent card lost its accent border: %q", a)
+	}
+	if !strings.Contains(m, "\x1b[38;5;240m") {
+		t.Errorf("muted card lost its unfocused border: %q", m)
 	}
 }
 

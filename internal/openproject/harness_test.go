@@ -96,6 +96,7 @@ type env struct {
 	mgr     *taskmgr.Manager
 	base    time.Time
 	seq     int
+	execed  []string // exec-handoff command vectors (fake Exec seam)
 }
 
 func newEnv(t *testing.T, hooks *runnerHooks) *env {
@@ -137,6 +138,10 @@ func (e *env) build(t *testing.T) *Model {
 		Dockerfile:       filepath.Join(e.home, "Dockerfile"),
 		DockerfileCustom: "",
 		Ops:              e.launch,
+		Exec: func(c *exec.Cmd, cb tea.ExecCallback) tea.Cmd { // no real handoff in tests
+			e.execed = append(e.execed, strings.Join(c.Args, " "))
+			return func() tea.Msg { return accessDoneMsg{} }
+		},
 	})
 }
 

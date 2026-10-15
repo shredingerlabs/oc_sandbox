@@ -10,7 +10,14 @@ import (
 // a rounded accent border around rows, pinned top-left by the caller,
 // width set by the widest row. Callers keep the toast row (Toast) always
 // present — possibly empty — so recorded hit rects never shift.
-func Card(rows []string) string {
+func Card(rows []string) string { return cardFrame(rows, ColAccent) }
+
+// CardMuted renders the same frame with the unfocused border color:
+// unselected cards (project grid, build view) get a muted frame while
+// the selected card keeps the accent border.
+func CardMuted(rows []string) string { return cardFrame(rows, ColBorder) }
+
+func cardFrame(rows []string, border lipgloss.Color) string {
 	maxw := 0
 	for _, r := range rows {
 		maxw = max(maxw, Width(r))
@@ -18,7 +25,7 @@ func Card(rows []string) string {
 	inner := lipgloss.NewStyle().Width(maxw+2).Height(len(rows)).MaxHeight(len(rows)).
 		Padding(0, 1).Render(strings.Join(rows, "\n"))
 	return lipgloss.NewStyle().Background(ColCardBg).
-		Border(lipgloss.RoundedBorder()).BorderForeground(ColAccent).
+		Border(lipgloss.RoundedBorder()).BorderForeground(border).
 		Render(inner)
 }
 

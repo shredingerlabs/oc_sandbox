@@ -58,10 +58,9 @@ type Deps struct {
 type viewState int
 
 const (
-	stateList   viewState = iota // card grid + settings pane
-	stateBuild                   // Build now / Build later / Go back prompt
-	stateAccess                  // running-container access prompt
-	stateBusy                    // long op runs, embedded log pane
+	stateList  viewState = iota // card grid + settings pane
+	stateBuild                  // Build now / Build later / Go back prompt
+	stateBusy                   // long op runs, embedded log pane
 )
 
 type opKind int
@@ -111,22 +110,28 @@ type Model struct {
 	paneScrollMax int          // settings-pane scroll clamped to this (computed in layout)
 	focus         int          // 0 card grid, 1 settings pane
 
+	startSel      string       // preselected start variant of the selected card (console/opencode/web)
+	startBtnRects []shell.Rect // start-button hit rects on the selected visible card
+
 	staged  staged
 	cursor  int          // index into the settings pane's navigable rows
 	pscroll int          // settings pane scroll offset
 	follow  shell.Follow // the cursor pulls the pane; wheel scrolling pauses it
 
-	state      viewState
-	buildSel   int
-	accessSel  int
-	accessOpts []string
-	opTitle    string
+	state    viewState
+	buildSel int
+	opTitle  string
 
 	busyID     int
 	busyKey    string // queue key of the in-flight op (id-disambiguation)
 	busyKind   opKind
 	pending    registry.Project
 	pendingCfg sandboxcfg.Config
+	variant    string // start variant of the start in flight (console/opencode/web)
+	// resumeRecover queues the first-run recovery shell hook for after
+	// the access handoff returns: tea.Batch does not sequence, so the
+	// setup machine must not race a suspended TUI.
+	resumeRecover string
 
 	log   shell.LogPane
 	dbl   shell.DblClick
@@ -246,6 +251,10 @@ func (m *Model) loadStaged() {
 		proxy:       cfg.UseProxy,
 		editionGone: edErr != nil || !hasString(editions, cfg.ContainerEdition),
 	}
+	// the configured start option is the card's preselected start variant
+	if hasString(startOptions, cfg.StartOption) {
+		m.startSel = cfg.StartOption
+	}
 }
 
 // Update implements shell.CenterView.
@@ -293,11 +302,17 @@ func (m *Model) accessDone(msg accessDoneMsg) tea.Cmd {
 	// not re-enable mouse mode, so the terminal comes back mouse-dead:
 	// `tea.EnableMouseCellMotion` re-sends the enable sequences now that
 	// the terminal is ours.
+	cmds := []tea.Cmd{tea.EnableMouseCellMotion, m.poll()}
 	if msg.Err != nil {
 		m.toast = "Container session ended: " + msg.Err.Error() +
 			" — is the container gone? Start it again from its card."
 	}
-	return tea.Batch(tea.EnableMouseCellMotion, m.poll()) // the session continued outside; re-check live state
+	if m.resumeRecover != "" { // first-run setup resumes after the session returns
+		path := m.resumeRecover
+		m.resumeRecover = ""
+		cmds = append(cmds, func() tea.Msg { return shell.RecoverMsg{Path: path} })
+	}
+	return tea.Batch(cmds...) // the session continued outside; re-check live state
 }
 
 type accessDoneMsg struct{ Err error }
@@ -322,16 +337,6 @@ func (m *Model) key(msg tea.KeyMsg) tea.Cmd {
 			return m.buildPick(m.buildSel)
 		}
 		return nil
-	case stateAccess:
-		switch k {
-		case "up", "k":
-			m.accessSel = max(0, m.accessSel-1)
-		case "down", "j":
-			m.accessSel = min(len(m.accessOpts)-1, m.accessSel+1)
-		case "enter", " ":
-			return m.accessPick(m.accessSel)
-		}
-		return nil
 	}
 	m.layout()     // refresh navigable rows from the last known size
 	m.follow.Arm() // keys re-engage the pull that wheel scrolling paused
@@ -344,15 +349,15 @@ func (m *Model) key(msg tea.KeyMsg) tea.Cmd {
 		case "down", "j":
 			m.moveSel(cpr)
 		case "left", "h":
-			m.moveSel(-1)
+			m.cyclePreselect(false)
 		case "right", "l":
-			m.moveSel(1)
+			m.cyclePreselect(true)
 		case "tab", "shift+tab":
 			if len(m.navRows) > 0 {
 				m.focus = 1
 			}
 		case "enter":
-			return m.beginStart(m.selected)
+			return m.beginStart(m.selected, m.startSel)
 		}
 	default:
 		n := len(m.navRows)
@@ -384,6 +389,23 @@ func (m *Model) moveSel(d int) {
 	}
 	m.selected = clamp(m.selected+d, 0, len(m.projects)-1)
 	m.loadStaged()
+}
+
+// cyclePreselect steps the card grid's preselected start variant. It
+// only moves the visual preselection — the configured start option
+// (settings pane) is untouched; double-click keeps starting with it.
+func (m *Model) cyclePreselect(forward bool) {
+	step := 1
+	if !forward {
+		step = -1
+	}
+	for i, o := range startOptions {
+		if o == m.startSel {
+			m.startSel = startOptions[(i+step+len(startOptions))%len(startOptions)]
+			return
+		}
+	}
+	m.startSel = startOptions[0] // unknown/empty: land on the first variant
 }
 
 func (m *Model) activateNav(i int) tea.Cmd {
@@ -479,6 +501,7 @@ func (m *Model) applyOption(section, value string) {
 		}
 	case "start":
 		s.start = value
+		m.startSel = value // settings change re-preselects the card
 	case "vcs":
 		s.vcs = value
 	case "ai":
@@ -523,25 +546,24 @@ func (m *Model) mouse(msg tea.MouseMsg) tea.Cmd {
 			}
 		}
 		return nil
-	case stateAccess:
-		for i, r := range m.promptRects {
-			if r.Hit(msg.X, msg.Y) {
-				return m.accessPick(i)
-			}
-		}
-		return nil
 	}
 	m.layout()
 	n := m.dbl.Press(msg)
 	for _, cr := range m.cardRects {
 		if cr.rect.Hit(msg.X, msg.Y) {
-			if n == 2 && cr.idx == m.selected {
-				return m.beginStart(cr.idx)
-			}
 			if cr.idx != m.selected {
 				m.selected = cr.idx
 				m.focus = 0
 				m.loadStaged()
+				return nil
+			}
+			// selected card: a button click starts with that variant,
+			// double click with the configured one
+			if v, ok := m.hitStartButton(msg.X, msg.Y); ok {
+				return m.beginStart(cr.idx, v)
+			}
+			if n == 2 {
+				return m.beginStart(cr.idx, m.staged.start)
 			}
 			return nil
 		}
@@ -560,9 +582,10 @@ func (m *Model) mouse(msg tea.MouseMsg) tea.Cmd {
 //
 // beginStart does not touch podman on the event loop: the reconcile
 // (last_used bump, live status, image check) runs in a background cmd
-// and the flow continues from applyReconcile. A stalled podman keeps
-// the UI alive.
-func (m *Model) beginStart(idx int) tea.Cmd {
+// and the flow continues from applyReconcile. The variant picks the
+// access the start resolves to (card button click, Enter preselection,
+// or the configured start option); empty falls back to the config.
+func (m *Model) beginStart(idx int, variant string) tea.Cmd {
 	if idx < 0 || idx >= len(m.projects) {
 		return nil
 	}
@@ -571,6 +594,7 @@ func (m *Model) beginStart(idx int) tea.Cmd {
 	}
 	p := m.projects[idx]
 	m.pending = p
+	m.variant = variant
 	m.reconciling = true
 	m.toast = ""
 	m.reg.UpdateLastUsed(p.Path) // bump BEFORE anything else (file write)
@@ -625,12 +649,13 @@ func (m *Model) applyReconcile(msg reconcileMsg) tea.Cmd {
 	m.selectByID(p.ContainerID)
 	dots := m.poll() // fresh dots from the reconcile's own podman result
 	if msg.cfgErr != "" {
+		m.variant = ""
 		m.toast = msg.cfgErr
 		return dots
 	}
+	variant := m.variant // empty falls back to the configured option in access
 	if msg.live {
-		m.enterAccess(p, msg.cfg)
-		return dots
+		return tea.Batch(dots, m.access(p, msg.cfg, variant, false))
 	}
 	if !msg.imageOK {
 		m.state = stateBuild
@@ -638,7 +663,7 @@ func (m *Model) applyReconcile(msg reconcileMsg) tea.Cmd {
 		m.pendingCfg = msg.cfg
 		return dots
 	}
-	return tea.Batch(dots, m.launchStart(p, msg.cfg))
+	return tea.Batch(dots, m.launchStart(p, msg.cfg, variant))
 }
 
 // pollRunning refreshes the cached running-container list off the event
@@ -658,12 +683,13 @@ func statusOf(live bool) string {
 	return "stopped"
 }
 
-func (m *Model) launchStart(p registry.Project, cfg sandboxcfg.Config) tea.Cmd {
+func (m *Model) launchStart(p registry.Project, cfg sandboxcfg.Config, variant string) tea.Cmd {
 	if !ValidModes(cfg.ContainerModes) {
 		m.toast = "offline and cbm_ui are mutually exclusive — fix settings first"
 		m.state = stateList
 		return nil
 	}
+	m.variant = variant
 	m.state = stateBusy
 	m.busyKind = opStart
 	m.pending = p
@@ -672,7 +698,7 @@ func (m *Model) launchStart(p registry.Project, cfg sandboxcfg.Config) tea.Cmd {
 	m.log = shell.NewLogPane().Run(true)
 	m.busyID++
 	m.busyKey = p.ContainerID
-	args := StartArgs(p.Path, cfg.ContainerEdition, p.ContainerID, cfg.ContainerModes, cfg.StartOption, cfg.UseProxy)
+	args := StartArgs(p.Path, cfg.ContainerEdition, p.ContainerID, cfg.ContainerModes, variant, cfg.UseProxy)
 	run, script := m.deps.Runner, m.deps.StartScript
 	op := Op{
 		ID:    m.busyID,
@@ -754,16 +780,14 @@ func (m *Model) opDone(msg OpDoneMsg) tea.Cmd {
 			}
 			m.refresh()
 			m.selectByID(p.ContainerID)
-			m.enterAccess(p, m.pendingCfg)
+			m.state = stateList
 			// First-run setup resume (#81): on a start with
 			// setup_complete still false the shell's setup hook takes
-			// over (machine runs the pending stages; StageStart reuses
-			// the running container).
-			if !m.pendingCfg.SetupComplete {
-				return tea.Batch(m.poll(), func() tea.Msg { return shell.RecoverMsg{Path: p.Path} })
-			}
-			return m.poll()
+			// over after the access lands (machine runs the pending
+			// stages; StageStart reuses the running container).
+			return tea.Batch(m.poll(), m.access(p, m.pendingCfg, m.variant, !m.pendingCfg.SetupComplete))
 		}
+		m.variant = ""
 		m.toast = "Failed to start container"
 		m.state = stateList
 		return m.poll()
@@ -774,56 +798,55 @@ func (m *Model) opDone(msg OpDoneMsg) tea.Cmd {
 			m.toast = "Image built"
 			return m.reconcileCmd(m.pending)
 		}
+		m.variant = ""
 		m.toast = "Build failed — image still unavailable"
 		m.state = stateList
 		return nil
 	}
 }
 
-func (m *Model) enterAccess(p registry.Project, cfg sandboxcfg.Config) {
-	m.state = stateAccess
-	m.accessSel = 0
-	m.pending = p
-	m.pendingCfg = cfg
-	switch cfg.StartOption {
-	case "opencode":
-		m.accessOpts = []string{"OpenCode (configured)", "Console (bash)"}
-	case "web":
-		m.accessOpts = []string{"Show Web URL", "Console (bash)"}
-	default:
-		m.accessOpts = []string{"Console (bash)"}
+// access resolves the chosen start variant directly (card flow, no
+// access prompt): console/OpenCode via terminal handoff, Web as the
+// published-URL toast (the server must have been started with web).
+// An empty variant falls back to the configured start option. The
+// first-run recovery shell hook fires with the access — after a
+// handoff (path queued for accessDone), otherwise inline.
+func (m *Model) access(p registry.Project, cfg sandboxcfg.Config, variant string, firstRun bool) tea.Cmd {
+	if variant == "" {
+		variant = cfg.StartOption
 	}
-}
-
-func (m *Model) accessPick(i int) tea.Cmd {
-	if i < 0 || i >= len(m.accessOpts) {
-		return nil
-	}
-	label := m.accessOpts[i]
-	// Handoff while background tasks run is guarded (#82): tea.ExecProcess
-	// suspends the whole UI; queuing would reconcile with the still-running
-	// container ops — the guard keeps them visible instead.
-	if m.hasOtherWork() {
-		m.toast = "Background tasks are running — wait for them, then retry"
-		return nil
-	}
-	name := registry.ContainerName(m.pending.ContainerID)
-	if label == "Show Web URL" {
-		port := discovery.WebPort(m.deps.Runner, name)
-		if port != "" {
-			m.toast = "OpenCode Web: http://" + port
-		} else {
-			m.toast = "OpenCode Web is not published for this project"
+	if variant == "opencode" || variant == "console" {
+		// Handoff while background tasks run is guarded (#82):
+		// tea.ExecProcess suspends the whole UI; queuing would
+		// reconcile with the still-running container ops — the guard
+		// keeps them visible instead.
+		if m.hasOtherWork() {
+			m.toast = "Background tasks are running — wait for them, then retry"
+			return nil
 		}
-		m.state = stateList
-		return nil
+		m.pending = p
+		m.pendingCfg = cfg
+		if firstRun && !cfg.SetupComplete {
+			m.resumeRecover = p.Path
+		}
+		arg := "bash"
+		if variant == "opencode" {
+			arg = "opencode"
+		}
+		cmd := exec.Command("podman", "exec", "-it", "--user", "dev", registry.ContainerName(p.ContainerID), arg)
+		return m.deps.Exec(cmd, func(err error) tea.Msg { return accessDoneMsg{Err: err} })
 	}
-	arg := "bash"
-	if label == "OpenCode (configured)" {
-		arg = "opencode"
+	// web: show the published URL (never open a browser)
+	port := discovery.WebPort(m.deps.Runner, registry.ContainerName(p.ContainerID))
+	if port != "" {
+		m.toast = "OpenCode Web: http://" + port
+	} else {
+		m.toast = "OpenCode Web is not published for this project"
 	}
-	cmd := exec.Command("podman", "exec", "-it", "--user", "dev", name, arg)
-	return m.deps.Exec(cmd, func(err error) tea.Msg { return accessDoneMsg{Err: err} })
+	if firstRun && !cfg.SetupComplete { // no handoff here — recover right away
+		return func() tea.Msg { return shell.RecoverMsg{Path: p.Path} }
+	}
+	return nil
 }
 
 // hasOtherWork reports whether the shared task manager runs work OTHER
@@ -987,16 +1010,6 @@ func (m *Model) Body(width, height int) string {
 				"",
 			},
 			buildPromptOptions, m.buildSel)
-	case stateAccess:
-		head := []string{
-			shell.StyleFieldLabel.Render("Container running — " + m.pending.Name),
-		}
-		if !m.pendingCfg.SetupComplete {
-			head = append(head, shell.StyleWarn.Render("First-run setup pending"))
-		}
-		head = append(head, "")
-		indent := paneX - leftW
-		right = m.promptPane(indent, paneW, height, head, m.accessOpts, m.accessSel)
 	default:
 		rows := m.layout()
 		indent := paneX - leftW
@@ -1051,6 +1064,7 @@ func (m *Model) promptPane(indent, paneW, height int, head []string, opts []stri
 // with the pinned toast row last; card hit rects are recorded here.
 func (m *Model) leftPane(w, h int) string {
 	m.cardRects = nil
+	m.startBtnRects = nil
 	var lines []string
 	if len(m.projects) == 0 {
 		card := shell.Card([]string{
@@ -1080,11 +1094,20 @@ func (m *Model) leftPane(w, h int) string {
 		gridRects := shell.CardRects(1, BodyTop, len(idxs), cpr, 1)
 		var grid []string
 		for k, idx := range idxs {
-			card := strings.Split(shell.Card(m.cardRows(m.projects[idx], hasString(running, registry.ContainerName(m.projects[idx].ContainerID)))), "\n")
+			p := m.projects[idx]
+			rows := m.cardRows(p, hasString(running, registry.ContainerName(p.ContainerID)))
+			frame := shell.Card // selected card keeps the accent border
+			if idx != m.selected {
+				frame = shell.CardMuted // unselected: muted frame (build view)
+			}
+			card := strings.Split(frame(rows), "\n")
 			c, r := k%cpr, k/cpr
 			baseY := r * rowStride
 			grid = pasteLines(grid, 1+c*shell.CardStride, baseY, card)
 			m.cardRects = append(m.cardRects, cardRect{rect: gridRects[k], idx: idx})
+			if idx == m.selected {
+				m.recordStartButtons(gridRects[k])
+			}
 		}
 		lines = grid
 	}
@@ -1123,12 +1146,71 @@ func (m *Model) cardRows(p registry.Project, running bool) []string {
 		for i, r := range rows {
 			rows[i] = shell.StyleSelectedRow.Render(padTo(cardInnerW, r))
 		}
+		rows = append(rows, padTo(cardInnerW, startButtonRow(m.startSel, true)))
 	} else {
 		for i, r := range rows {
 			rows[i] = padTo(cardInnerW, r)
 		}
+		rows = append(rows, padTo(cardInnerW, startButtonRow(m.staged.start, false)))
 	}
 	return rows
+}
+
+// startButtons are the card start buttons in startOptions order.
+var startButtons = []string{"Console", "OpenCode", "Web"}
+
+// start-button styles: the preselected variant is accent-filled, the
+// others idle on the selected card and muted on unselected cards.
+var (
+	startBtnSel  = lipgloss.NewStyle().Background(shell.ColAccent).Foreground(lipgloss.Color("0")).Bold(true)
+	startBtnIdle = lipgloss.NewStyle().Foreground(shell.ColCardFg)
+)
+
+// startButtonRow renders the card's start buttons with 2-space gaps:
+// Console  OpenCode  Web. pre selects the filled button (a start
+// variant name); only the selected card fills one.
+func startButtonRow(pre string, activeCard bool) string {
+	parts := make([]string, len(startButtons))
+	pad := ""
+	for i, lbl := range startButtons {
+		s := shell.StyleMutedAlt.Render(lbl)
+		if activeCard {
+			s = startBtnIdle.Render(lbl)
+			if startOptions[i] == pre {
+				s = startBtnSel.Render(lbl)
+			}
+		}
+		parts[i] = pad + s
+		pad = "  "
+	}
+	return strings.Join(parts, "")
+}
+
+// recordStartButtons pins the start-button hit rects on the selected
+// card's button row (content row 3, two cells in from the border):
+// label order and 2-space gaps mirror startButtonRow exactly.
+func (m *Model) recordStartButtons(rc shell.Rect) {
+	x, y, w := rc.X+2, rc.Y+3, 0
+	m.startBtnRects = nil
+	for _, lbl := range startButtons {
+		rect := shell.Rect{X: x + w, Y: y, W: shell.Width(lbl), H: 1}
+		m.startBtnRects = append(m.startBtnRects, rect)
+		w += rect.W + 2
+	}
+}
+
+// hitStartButton resolves a click on the selected card's button row to
+// its start variant.
+func (m *Model) hitStartButton(x, y int) (string, bool) {
+	if len(m.startBtnRects) == 0 {
+		return "", false
+	}
+	for i, r := range m.startBtnRects {
+		if r.Hit(x, y) {
+			return startOptions[i], true
+		}
+	}
+	return "", false
 }
 
 func indexOfProject(projects []registry.Project, containerID string) int {

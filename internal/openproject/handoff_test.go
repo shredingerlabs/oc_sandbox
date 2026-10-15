@@ -40,16 +40,9 @@ func TestConsoleHandoffRestoresPreHandoffState(t *testing.T) {
 	bodyOf(t, e.m, bodyW, bodyH)
 
 	// Pre-handoff list state: selected alpha, card-grid focus, no toast.
-	e.step(keyMsg("enter")) // start selected project
-	e.finishOps()           // start op completes → access prompt
-	if _, ok := findLine(bodyOf(t, e.m, bodyW, bodyH), "Console (bash)"); !ok {
-		t.Fatal("access prompt not reached")
-	}
+	e.step(keyMsg("enter")) // start selected project — chains the console handoff
+	e.finishOps()           // start op completes → handoff fires in the same drain
 	toastBefore := e.m.toast
-
-	// Simulate the console session exiting: the Exec callback fires with
-	// nil (clean exit), the follow-up message arrives at Update.
-	e.step(keyMsg("enter")) // pick Console (bash)
 	if !h.fired || h.cb == nil {
 		t.Fatal("exec handoff did not fire")
 	}
@@ -77,7 +70,7 @@ func TestConsoleHandoffRestoresPreHandoffState(t *testing.T) {
 		t.Errorf("toast row after clean session exit = %q, want pre-handoff %q intact", e.m.toast, toastBefore)
 	}
 	lines := bodyOf(t, e.m, bodyW, bodyH)
-	if !someLine(lines, "alpha") || someLine(lines, "Console (bash)") {
+	if !someLine(lines, "alpha") {
 		t.Errorf("card grid not restored after handoff:\n%s", strings.Join(lines, "\n"))
 	}
 }
@@ -138,7 +131,6 @@ func TestConsoleHandoffRestoresMouse(t *testing.T) {
 	bodyOf(t, e.m, bodyW, bodyH)
 	e.step(keyMsg("enter"))
 	e.finishOps()
-	e.step(keyMsg("enter"))
 	if !h.fired || h.cb == nil {
 		t.Fatal("exec handoff did not fire")
 	}

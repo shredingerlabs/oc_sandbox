@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 
+	tea "github.com/charmbracelet/bubbletea"
+
 	"github.com/shredingerlabs/oc-sandbox/internal/taskmgr"
 	"github.com/shredingerlabs/oc-sandbox/internal/testutil"
 )
@@ -40,8 +42,8 @@ func TestStartThroughSharedQueueStreamsAndGrantsAccess(t *testing.T) {
 	if got := e.m.toast; got != "Container started" {
 		t.Fatalf("toast = %q", got)
 	}
-	if e.m.state != stateAccess {
-		t.Fatalf("state = %v, want the access prompt after start", e.m.state)
+	if e.m.state != stateList {
+		t.Fatalf("state = %v, want the card grid after the console handoff", e.m.state)
 	}
 	if e.startStatus(t, "alpha") != "running" {
 		t.Fatal("container_status not written on verified start")
@@ -71,7 +73,8 @@ func TestStillRunningIndicatorOnCardWhileTaskRuns(t *testing.T) {
 }
 
 func TestTerminalHandoffGuardedWhileTasksRun(t *testing.T) {
-	e := queuedEnv(t, &runnerHooks{psOut: ""})
+	e := queuedEnv(t, nil)
+	e.hooks.psOut = "opencode-sandbox-" + e.ids["alpha"]
 	release := make(chan struct{})
 	foreignCmd := e.mgr.Launch(taskmgr.Op{
 		ID:    900,
@@ -86,12 +89,11 @@ func TestTerminalHandoffGuardedWhileTasksRun(t *testing.T) {
 	e.m = e.buildWithExec(t, &execed)
 	e.m.deps.Ops = e.mgr
 	e.m.deps.Tasks = e.mgr
-	e.m.state = stateAccess
-	e.m.pending = e.m.projects[0]
-	e.m.accessOpts = []string{"Console (bash)"}
-	e.m.accessSel = 0
+	bodyOf(t, e.m, bodyW, bodyH)
 
-	if cmd := e.m.Update(keyMsg("enter")); cmd != nil { // batch carries only the poll
+	// the running container is entered through the ordinary start flow;
+	// the handoff guard blocks it while a foreign task is busy
+	if cmd := e.m.Update(keyMsg("enter")); cmd != nil { // batch carries the reconcile + poll
 		e.finishKeyCmds(cmd)
 		if len(execed) != 0 {
 			t.Fatal("handoff started although tasks ran")
@@ -153,18 +155,37 @@ func TestBuildNowThroughSharedQueueRace(t *testing.T) {
 }
 
 func TestContainerGoneBetweenStatesShowsRecovery(t *testing.T) {
-	e := queuedEnv(t, &runnerHooks{psOut: ""})
+	e := queuedEnv(t, nil)
+	e.hooks.psOut = "opencode-sandbox-" + e.ids["alpha"]
 	var execed []string
 	e.m = e.buildWithExec(t, &execed)
 	e.m.deps.Ops = e.mgr
 	e.m.deps.Tasks = e.mgr
-	e.m.state = stateAccess
-	e.m.pending = e.m.projects[0]
-	e.m.accessOpts = []string{"Console (bash)"}
-	e.m.accessSel = 0
-	if cmd := e.m.Update(keyMsg("enter")); cmd == nil {
-		t.Fatal("handoff not started")
+	bodyOf(t, e.m, bodyW, bodyH)
+	cmd := e.m.Update(keyMsg("enter"))
+	if cmd == nil {
+		t.Fatal("running-container flow did not start the handoff")
 	}
+	// drain the reconcile plumbing until the handoff cmd is captured
+	pending := []tea.Cmd{cmd}
+	for len(pending) > 0 && len(execed) == 0 {
+		cmd := pending[0]
+		pending = pending[1:]
+		if cmd == nil {
+			continue
+		}
+		msg := cmd()
+		switch msg := msg.(type) {
+		case nil:
+		case tea.BatchMsg:
+			pending = append(pending, []tea.Cmd(msg)...)
+		default:
+			if c := e.m.Update(msg); c != nil {
+				pending = append(pending, c)
+			}
+		}
+	}
+	e.lastCmd = nil
 	if len(execed) != 1 || !strings.Contains(execed[0], "podman exec") {
 		t.Fatalf("handoff command wrong: %v", execed)
 	}

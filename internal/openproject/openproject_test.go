@@ -9,6 +9,8 @@ import (
 
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/termenv"
 
 	"github.com/shredingerlabs/oc-sandbox/internal/sandboxcfg"
 	"github.com/shredingerlabs/oc-sandbox/internal/shell"
@@ -181,8 +183,9 @@ func TestCardRectsPinnedGeometry(t *testing.T) {
 	e := newEnv(t, nil)
 	bodyOf(t, e.m, bodyW, bodyH)
 	got := e.m.CardRects()
-	// 30-wide cards, one per row at this size, card block 4 tall, 1-row gap.
-	want := []shell.Rect{{X: 1, Y: bt, W: 30, H: 4}, {X: 1, Y: bt + 5, W: 30, H: 4}}
+	// 30-wide cards, one per row at this size, card block 5 tall (3
+	// content rows incl. the start buttons), 1-row gap.
+	want := []shell.Rect{{X: 1, Y: bt, W: 30, H: 5}, {X: 1, Y: bt + 6, W: 30, H: 5}}
 	if !rectsEqual(got, want) {
 		t.Errorf("card rects = %v, want %v", got, want)
 	}
@@ -207,7 +210,7 @@ func TestCardGridWrapsAtWideWidth(t *testing.T) {
 	if len(got) < 3 {
 		t.Fatalf("expected ≥3 card rects, got %v", got)
 	}
-	want := []shell.Rect{{X: 1, Y: bt, W: 30, H: 4}, {X: 32, Y: bt, W: 30, H: 4}, {X: 63, Y: bt, W: 30, H: 4}}
+	want := []shell.Rect{{X: 1, Y: bt, W: 30, H: 5}, {X: 32, Y: bt, W: 30, H: 5}, {X: 63, Y: bt, W: 30, H: 5}}
 	if !rectsEqual(got[0:3], want) {
 		t.Errorf("wrapped rects = %v, want %v", got[0:3], want)
 	}
@@ -277,7 +280,7 @@ func TestSingleClickSelectsAndShowsSettings(t *testing.T) {
 }
 
 func TestDoubleClickStartsButSingleOnSelectedDoesNot(t *testing.T) {
-	e := newEnv(t, nil) // alpha selected, stopped
+	e := newEnv(t, nil) // alpha selected, stopped, console-configured
 	bodyOf(t, e.m, bodyW, bodyH)
 	rect := e.m.CardRects()[0]
 
@@ -294,8 +297,30 @@ func TestDoubleClickStartsButSingleOnSelectedDoesNot(t *testing.T) {
 	if e.startStatus(t, "alpha") != "running" {
 		t.Error("container_status not running after verified start.sh success")
 	}
-	if !someLine(bodyOf(t, e.m, bodyW, bodyH), "Container running — alpha") {
-		t.Error("access prompt not shown after start")
+	// console start chains straight into the console handoff
+	if len(e.execed) != 1 || !strings.HasSuffix(e.execed[0], " bash") {
+		t.Errorf("double click did not chain the console handoff: %v", e.execed)
+	}
+	e.finishOps() // drain the handoff resume (accessDone)
+	if e.m.state != stateList {
+		t.Errorf("state after handoff = %v, want stateList", e.m.state)
+	}
+}
+
+// Double click always uses the CONFIGURED start option, even though the
+// preselection differs.
+func TestDoubleClickStartsWithConfiguredOption(t *testing.T) {
+	e := newEnv(t, nil)
+	sandboxcfg.PatchString(e.home, sandboxcfg.Path(e.roots["alpha"]), "start_option", "opencode")
+	e.rebuild(t)
+	bodyOf(t, e.m, bodyW, bodyH)
+	rect := e.m.CardRects()[0]
+	e.step(keyMsg("left"))              // opencode → console (visual preselection only)
+	e.step(clickAt(rect.X+2, rect.Y+1)) // card body, not a button
+	e.step(clickAt(rect.X+2, rect.Y+1)) // double → configured option
+	e.finishOps()
+	if len(e.execed) != 1 || !strings.HasSuffix(e.execed[0], " opencode") {
+		t.Errorf("double click did not use the configured opencode option: %v", e.execed)
 	}
 }
 
@@ -312,9 +337,42 @@ func TestArrowKeysMoveSelection(t *testing.T) {
 	if !someLine(bodyOf(t, e.m, bodyW, bodyH), "Project Settings — alpha") {
 		t.Error("up did not move selection back")
 	}
-	e.step(keyMsg("right")) // single-column grid: right clamps at beta
-	if !someLine(bodyOf(t, e.m, bodyW, bodyH), "Project Settings — beta") {
-		t.Error("right did not keep selection at beta")
+	e.step(keyMsg("left"))
+	if e.m.selected != 0 {
+		t.Errorf("left moved the selection to %d", e.m.selected)
+	}
+}
+
+// left/right cycle the card's preselected start variant; Enter starts
+// with it. The preselection is seeded from the configured start option.
+func TestPreselectionPreselectedAndCycledByArrowKeys(t *testing.T) {
+	e := newEnv(t, nil)
+	sandboxcfg.PatchString(e.home, sandboxcfg.Path(e.roots["alpha"]), "start_option", "opencode")
+	e.rebuild(t)
+	bodyOf(t, e.m, bodyW, bodyH)
+	if e.m.startSel != "opencode" {
+		t.Fatalf("startSel = %q, want the configured opencode", e.m.startSel)
+	}
+	e.step(keyMsg("right")) // opencode → web
+	if e.m.startSel != "web" {
+		t.Errorf("right did not cycle to web: %q", e.m.startSel)
+	}
+	e.step(keyMsg("left"))
+	e.step(keyMsg("left")) // opencode → console
+	if e.m.startSel != "console" {
+		t.Errorf("left did not cycle to console: %q", e.m.startSel)
+	}
+	e.step(keyMsg("right")) // console → opencode
+	if e.m.startSel != "opencode" {
+		t.Errorf("right did not cycle to opencode: %q", e.m.startSel)
+	}
+	e.step(keyMsg("enter"))
+	e.finishOps()
+	if got := e.startCalls(t); len(got) != 1 {
+		t.Fatalf("enter did not start: %v", got)
+	}
+	if len(e.execed) != 1 || !strings.HasSuffix(e.execed[0], " opencode") {
+		t.Errorf("enter did not land in the preselected opencode session: %v", e.execed)
 	}
 }
 
@@ -328,6 +386,75 @@ func TestEnterStartsSelectedProject(t *testing.T) {
 	}
 	if e.startStatus(t, "alpha") != "running" {
 		t.Error("status not running after enter start")
+	}
+}
+
+// --- start buttons on the cards ---
+
+func TestStartButtonRectsAddressLabels(t *testing.T) {
+	e := newEnv(t, nil)
+	lines := bodyOf(t, e.m, bodyW, bodyH)
+	btns := e.m.startBtnRects
+	if len(btns) != len(startButtons) {
+		t.Fatalf("start button rects = %v", btns)
+	}
+	for i, r := range btns {
+		if txt := strings.TrimSpace(paneRowText(lines, r)); txt != startButtons[i] {
+			t.Errorf("button rect %d addresses %q, want %q", i, txt, startButtons[i])
+		}
+	}
+}
+
+// The preselection row layout is stable across fill states: cycling
+// must not shift a click target.
+func TestPreselectionKeepsButtonLayout(t *testing.T) {
+	e := newEnv(t, nil)
+	bodyOf(t, e.m, bodyW, bodyH)
+	before := e.m.startBtnRects
+	e.step(keyMsg("right")) // console → opencode (visual only)
+	e.step(keyMsg("right")) // opencode → web
+	if e.m.startSel != "web" {
+		t.Fatalf("startSel = %q, want web", e.m.startSel)
+	}
+	lines := bodyOf(t, e.m, bodyW, bodyH)
+	for i, r := range e.m.startBtnRects {
+		if txt := strings.TrimSpace(paneRowText(lines, r)); txt != startButtons[i] {
+			t.Errorf("preselection changed the button layout: rect %d = %q", i, txt)
+		}
+		if r != before[i] {
+			t.Errorf("preselection moved button rect %d: %v vs %v", i, before[i], r)
+		}
+	}
+}
+
+// A button click on an unselected card only selects it.
+func TestButtonClickOnUnselectedCardSelectsOnly(t *testing.T) {
+	e := newEnv(t, nil)
+	bodyOf(t, e.m, bodyW, bodyH)
+	rect := e.m.CardRects()[1] // beta, unselected
+	e.step(clickAt(rect.X+2, rect.Y+3))
+	e.finishOps()
+	if len(e.startCalls(t)) != 0 {
+		t.Errorf("unselected card button started the project: %v", e.startCalls(t))
+	}
+	if !someLine(bodyOf(t, e.m, bodyW, bodyH), "Project Settings — beta") {
+		t.Error("button click on unselected card did not select it")
+	}
+}
+
+// Unselected project cards render the muted frame (unfocused border
+// color), the selected one the accent frame — like the build view.
+func TestUnselectedCardsUseMutedFrame(t *testing.T) {
+	e := newEnv(t, nil)
+	saved := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.ANSI256)
+	t.Cleanup(func() { lipgloss.SetColorProfile(saved) })
+	body := e.m.Body(bodyW, bodyH)
+	if n := strings.Count(body, "\x1b[38;5;240m╭"); n != 1 { // beta
+		t.Errorf("muted frame count = %d, want exactly one muted card: %s", n, body)
+	}
+	if n := strings.Count(body, "\x1b[38;5;39m╭"); n != 1 { // selected alpha
+		t.Errorf("accent frame count = %d, want exactly one accent card: %s", n, body)
 	}
 }
 
@@ -422,51 +549,117 @@ func TestStartFailureKeepsStoppedAndToasts(t *testing.T) {
 	}
 }
 
-// --- access prompt after start (#63 console access) ---
+// --- card start-button chain: start + access in one gesture ---
 
 func TestAccessConsoleViaTerminalHandoff(t *testing.T) {
 	e := newEnv(t, nil)
-	var execed []string
-	e.m = e.buildWithExec(t, &execed)
 	bodyOf(t, e.m, bodyW, bodyH)
-	e.step(keyMsg("enter"))
+	e.step(keyMsg("enter")) // console-configured: enter = console variant
 	e.finishOps()
-	if _, ok := findLine(bodyOf(t, e.m, bodyW, bodyH), "Console (bash)"); !ok {
-		t.Errorf("access options not rendered after successful start")
+	if got := e.startCalls(t); len(got) != 1 {
+		t.Fatalf("enter did not start: %v", got)
 	}
-	e.step(keyMsg("enter")) // pick the highlighted Console (bash)
-	if len(execed) != 1 {
-		t.Fatalf("expected one exec handoff, got %v", execed)
+	if len(e.execed) != 1 {
+		t.Fatalf("expected one exec handoff, got %v", e.execed)
 	}
 	want := "podman exec -it --user dev opencode-sandbox-" + e.ids["alpha"] + " bash"
-	if execed[0] != want {
-		t.Errorf("console exec = %q, want %q", execed[0], want)
+	if e.execed[0] != want {
+		t.Errorf("console exec = %q, want %q", e.execed[0], want)
 	}
 }
 
 func TestAccessOpenCodeOption(t *testing.T) {
 	e := newEnv(t, nil)
 	sandboxcfg.PatchString(e.home, sandboxcfg.Path(e.roots["alpha"]), "start_option", "opencode")
-	var execed []string
-	e.m = e.buildWithExec(t, &execed)
-	bodyOf(t, e.m, bodyW, bodyH)
-	e.step(keyMsg("enter"))
-	e.finishOps()
-	e.step(keyMsg("up")) // first of two options = OpenCode
-	e.step(keyMsg("enter"))
-	if len(execed) != 1 || !strings.Contains(execed[0], " opencode") {
-		t.Fatalf("opencode exec = %v", execed)
-	}
-}
-
-func TestShowWebURLAndMissingPortNotice(t *testing.T) {
-	e := newEnv(t, nil)
-	sandboxcfg.PatchString(e.home, sandboxcfg.Path(e.roots["alpha"]), "start_option", "web")
 	e.rebuild(t)
 	bodyOf(t, e.m, bodyW, bodyH)
 	e.step(keyMsg("enter"))
 	e.finishOps()
-	e.step(keyMsg("enter")) // Show Web URL
+	if len(e.execed) != 1 || !strings.Contains(e.execed[0], " opencode") {
+		t.Fatalf("opencode exec = %v", e.execed)
+	}
+}
+
+// A running console-configured container entered via a card click lands
+// in the session directly (no start.sh run, no prompt).
+func TestRunningContainerEntersChosenVariantDirectly(t *testing.T) {
+	e := newEnv(t, nil)
+	e.hooks.psOut = "opencode-sandbox-" + e.ids["alpha"]
+	e.rebuild(t)
+	bodyOf(t, e.m, bodyW, bodyH)
+	e.step(keyMsg("enter"))
+	e.finishOps()
+	if len(e.startCalls(t)) != 0 {
+		t.Fatalf("running container was started: %v", e.startCalls(t))
+	}
+	if len(e.execed) != 1 || !strings.HasSuffix(e.execed[0], " bash") {
+		t.Fatalf("console handoff = %v", e.execed)
+	}
+}
+
+func TestWebButtonStartsWithStartWebAndShowsURL(t *testing.T) {
+	e := newEnv(t, nil) // alpha is console-configured
+	e.rebuild(t)
+	lines := bodyOf(t, e.m, bodyW, bodyH)
+	var rect shell.Rect
+	for _, r := range e.m.CardRects() {
+		if strings.Contains(paneRowRowAt(lines, r, 1), "alpha") {
+			rect = r
+		}
+	}
+	e.step(clickAt(rect.X+2, rect.Y+1)) // select alpha
+	// the Web button sits at content row 3; click its label
+	e.step(clickAt(rect.X+2+19, rect.Y+3))
+	e.finishOps()
+	got := strings.Join(e.startCalls(t)[0], " ")
+	if !strings.Contains(got, "--start_web") || !strings.HasSuffix(got, "--detach") {
+		t.Errorf("web-button start args = %q", got)
+	}
+	if !someLine(bodyOf(t, e.m, bodyW, bodyH), "http://") {
+		t.Error("web URL not announced")
+	}
+	if e.startStatus(t, "alpha") != "running" {
+		t.Error("web start did not mark running")
+	}
+	if len(e.execed) != 0 {
+		t.Errorf("web start performed a handoff: %v", e.execed)
+	}
+}
+
+// The Web button clicked on an already-RUNNING card never starts and
+// never execs: it announces the published URL (or the not-published
+// notice — a container started without web cannot adopt web live).
+func TestWebButtonOnRunningCardShowsURL(t *testing.T) {
+	e := newEnv(t, nil)
+	e.hooks.psOut = "opencode-sandbox-" + e.ids["alpha"]
+	e.rebuild(t)
+	lines := bodyOf(t, e.m, bodyW, bodyH)
+	var rect shell.Rect
+	for _, r := range e.m.CardRects() {
+		if strings.Contains(paneRowRowAt(lines, r, 1), "alpha") {
+			rect = r
+		}
+	}
+	e.step(clickAt(rect.X+19+2, rect.Y+3)) // Web button, alpha already selected
+	e.finishOps()
+	if len(e.startCalls(t)) != 0 {
+		t.Fatalf("running container was started: %v", e.startCalls(t))
+	}
+	if len(e.execed) != 0 {
+		t.Fatalf("web on a running container handed off: %v", e.execed)
+	}
+	if !someLine(bodyOf(t, e.m, bodyW, bodyH), "http://") {
+		t.Error("web URL not announced")
+	}
+}
+
+func TestWebStartShowsURLAndMissingPortNotice(t *testing.T) {
+	e := newEnv(t, nil)
+	sandboxcfg.PatchString(e.home, sandboxcfg.Path(e.roots["alpha"]), "start_option", "web")
+	e.rebuild(t)
+	bodyOf(t, e.m, bodyW, bodyH)
+	e.step(keyMsg("enter")) // configured web is the preselected variant
+	e.finishOps()
 	if !someLine(bodyOf(t, e.m, bodyW, bodyH), "http://") {
 		t.Error("web URL not announced")
 	}
@@ -476,7 +669,6 @@ func TestShowWebURLAndMissingPortNotice(t *testing.T) {
 	bodyOf(t, e.m, bodyW, bodyH)
 	e.step(keyMsg("enter"))
 	e.finishOps()
-	e.step(keyMsg("enter"))
 	if !someLine(bodyOf(t, e.m, bodyW, bodyH), "not published") {
 		t.Error("not-published notice missing")
 	}
