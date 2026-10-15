@@ -372,6 +372,178 @@ fi
 printf '%s\n' '{"projects": [], "version": "1.0"}' > "$HOME/.config/oc-sandbox/projects.json"
 
 rm -f "$credential_output"
+
+# Bash-TUI AI provider flow (#104): none/Custom wizard parity with mocked
+# prompts; refusals re-prompt; legacy stored ids present tolerantly and the
+# settings-revisit flow prefills from the stored provider section.
+run_init_project() { :; }
+check_and_build_containers() { return 2; }
+
+flow_pages="$test_home/ai-flow-pages"
+prompt_log="$test_home/ai-prompt-log"
+flow_pages_log_reset() { : > "$flow_pages"; : > "$prompt_log"; }
+show_page() { printf 'PAGE: %s\n' "$*" >> "$flow_pages"; }
+wait_for_enter() { :; }
+
+# One drained answer file: prompts and mocked menus both consume answers in
+# call order; a read failure means the sequence ran dry.
+TUI_ANSWERS="$test_home/tui-answers"
+drain() {
+  local head_line
+  local rest=()
+  if ! IFS= read -r head_line < "$TUI_ANSWERS"; then
+    printf 'TUI answer sequence exhausted\n' >&2
+    return 1
+  fi
+  mapfile -t rest < <(tail -n +2 "$TUI_ANSWERS")
+  if [[ ${#rest[@]} -gt 0 ]]; then
+    printf '%s\n' "${rest[@]}" > "$TUI_ANSWERS"
+  else
+    : > "$TUI_ANSWERS"
+  fi
+  printf '%s\n' "$head_line"
+}
+prompt_for_text() { printf '%s\n' "$1|$2" >> "$prompt_log"; drain; }
+prompt_for_secret() { drain; }
+
+menu_log="$test_home/ai-menu-log"
+: > "$menu_log"
+show_menu() { printf '%s\n' "$*" >> "$menu_log"; drain; }
+flow_pages_log_reset
+
+# (a) Wizard Custom: menu offers none first; Name/Endpoint/Token collected as
+# one block; slugified id recorded; generic subcommands shape the files.
+printf '%s\n' 'Custom' 'My Cool API (v2)' 'https://api.example.com/v1' 'ai-secret' > "$TUI_ANSWERS"
+flow_project="$test_home/ai-wizard-flow"
+mkdir -p "$flow_project"
+select_ai_provider "$flow_project" AiFlow full '' console console none
+flow_config="$flow_project/.opencode_config/sandbox_config.json"
+[[ "$(jq -r '.ai_provider' "$flow_config")" == 'my-cool-api-v2' ]]
+flow_auth="$flow_project/.opencode_data/auth.json"
+[[ "$(jq -r '."my-cool-api-v2".type' "$flow_auth")" == 'api' ]]
+[[ "$(jq -r '."my-cool-api-v2".key' "$flow_auth")" == 'ai-secret' ]]
+flow_openjson="$flow_project/.opencode_config/opencode.json"
+[[ "$(jq -r '.provider."my-cool-api-v2".npm' "$flow_openjson")" == '@ai-sdk/openai-compatible' ]]
+[[ "$(jq -r '.provider."my-cool-api-v2".name' "$flow_openjson")" == 'My Cool API (v2)' ]]
+[[ "$(jq -r '.provider."my-cool-api-v2".options.baseURL' "$flow_openjson")" == 'https://api.example.com/v1' ]]
+[[ "$(jq -r '.plugin[0]' "$flow_openjson")" == 'opencode-models-discovery@1.5.3' ]]
+[[ "$(stat -c '%a' "$flow_project/.opencode_data")" == '700' ]]
+[[ "$(stat -c '%a' "$flow_auth")" == '600' ]]
+grep -q 'PAGE: AI provider My Cool API (v2)' "$flow_pages"
+grep -Fq 'Select AI provider none Custom' "$menu_log"
+
+# (b) Wizard none flow: no provider files, no token prompt.
+printf '%s\n' 'none' > "$TUI_ANSWERS"
+flow_none_project="$test_home/ai-wizard-none"
+mkdir -p "$flow_none_project"
+select_ai_provider "$flow_none_project" AiFlowNone full '' console console none
+[[ "$(jq -r '.ai_provider' "$flow_none_project/.opencode_config/sandbox_config.json")" == 'none' ]]
+[[ ! -e "$flow_none_project/.opencode_data/auth.json" ]]
+[[ ! -e "$flow_none_project/.opencode_config/opencode.json" ]]
+
+# (c) Refusals re-prompt: nothing-sluggable name, bad endpoint, bad token.
+printf '%s\n' 'Custom' '!!!' 'My Cool API (v2)' 'api.example.com' 'https://api.example.com/v1' 'two words' 'ai-secret' > "$TUI_ANSWERS"
+flow_refusal_project="$test_home/ai-wizard-refusal"
+mkdir -p "$flow_refusal_project"
+select_ai_provider "$flow_refusal_project" AiFlowRefusal full '' console console none
+[[ "$(jq -r '.ai_provider' "$flow_refusal_project/.opencode_config/sandbox_config.json")" == 'my-cool-api-v2' ]]
+[[ "$(jq -r '."my-cool-api-v2".key' "$flow_refusal_project/.opencode_data/auth.json")" == 'ai-secret' ]]
+[[ "$(grep -c 'PAGE: Invalid provider name' "$flow_pages")" == 1 ]]
+[[ "$(grep -c 'PAGE: Invalid endpoint' "$flow_pages")" == 1 ]]
+[[ "$(grep -c 'PAGE: Invalid token' "$flow_pages")" == 1 ]]
+
+# (d) An empty Custom capture aborts without creating project state.
+printf '%s\n' 'Custom' '' > "$TUI_ANSWERS"
+flow_cancel_project="$test_home/ai-wizard-cancel"
+mkdir -p "$flow_cancel_project"
+select_ai_provider "$flow_cancel_project" AiFlowCancel full '' console console none
+[[ ! -e "$flow_cancel_project/.opencode_config/sandbox_config.json" ]]
+[[ ! -e "$flow_cancel_project/.opencode_data/auth.json" ]]
+
+# Revisit helpers: the real settings wizard driven by canned menus.
+configure_script="$PROJECT_ROOT/dist/scripts/configure-project.sh"
+show_menu_case() {
+  printf '%s\n' "$*" >> "$menu_log"
+  case "$1" in
+    'Select container edition'*) printf '%s\n' base ;;
+    'Select container modes'*) printf '%s\n' Done ;;
+    'Select start option'*) printf '%s\n' console ;;
+    'Select VCS tracking'*) printf '%s\n' none ;;
+    'Select AI provider'*) drain ;;
+    'Use Squid egress proxy'*) printf '%s\n' no ;;
+    'Credentials already exist'*) drain ;;
+    *) return 1 ;;
+  esac
+}
+show_menu() { show_menu_case "$@"; }
+
+# (e) Legacy stored id (gwdg-saia) outside the option list: tolerance page;
+# Custom switch prefills Name/Endpoint from the stored section; typed token +
+# existing id triggers the confirm; Replace writes the token.
+legacy_project="$test_home/ai-revisit"
+mkdir -p "$legacy_project"
+add_project_to_registry AiRevisit "$legacy_project" none
+create_sandbox_config "$legacy_project" full console none
+legacy_config="$legacy_project/.opencode_config/sandbox_config.json"
+update_sandbox_config_field "$legacy_config" ai_provider gwdg-saia
+"$configure_script" opencode-config "$legacy_project" \
+  --id gwdg-saia --name 'GWDG SAIA' --endpoint 'https://chat-ai.academiccloud.de/v1'
+"$configure_script" ai-provider "$legacy_project" \
+  --name 'GWDG SAIA' --endpoint 'https://chat-ai.academiccloud.de/v1' --token old-legacy-secret
+legacy_auth="$legacy_project/.opencode_data/auth.json"
+legacy_openjson="$legacy_project/.opencode_config/opencode.json"
+flow_pages_log_reset
+printf '%s\n' 'Custom' 'GWDG SAIA' 'https://chat-ai.academiccloud.de/v1' 'new-legacy-secret' 'Replace' > "$TUI_ANSWERS"
+revisit_project_settings "$legacy_project"
+grep -q 'PAGE: Stored AI provider no longer offered' "$flow_pages"
+grep -Fq 'Provider name:|GWDG SAIA' "$prompt_log"
+grep -Fq 'Endpoint URL:|https://chat-ai.academiccloud.de/v1' "$prompt_log"
+[[ "$(jq -r '.ai_provider' "$legacy_config")" == 'gwdg-saia' ]]
+[[ "$(jq -r '."gwdg-saia".key' "$legacy_auth")" == 'new-legacy-secret' ]]
+
+# (f) Keep existing: typed token + existing id, confirmed Keep, skips the
+# token write; the opencode.json merge stays coherent.
+flow_pages_log_reset
+printf '%s\n' 'Custom' 'GWDG SAIA' 'https://chat-ai.academiccloud.de/v1' 'another-legacy-secret' 'Keep existing' > "$TUI_ANSWERS"
+revisit_project_settings "$legacy_project"
+[[ "$(jq -r '."gwdg-saia".key' "$legacy_auth")" == 'new-legacy-secret' ]]
+[[ "$(jq -r '.provider."gwdg-saia".options.baseURL' "$legacy_openjson")" == 'https://chat-ai.academiccloud.de/v1' ]]
+grep -Fq 'Credentials already exist Keep existing' "$menu_log"
+
+# (g) Empty token revisits re-merge only when the id exists in auth.json:
+# no credential confirm, no auth write, opencode.json merged.
+flow_pages_log_reset
+printf '%s\n' 'Custom' 'GWDG SAIA' 'https://relocated.example.com/v1' '' > "$TUI_ANSWERS"
+revisit_project_settings "$legacy_project"
+! grep -Fq 'Credentials already exist' "$menu_log"
+[[ "$(jq -r '."gwdg-saia".key' "$legacy_auth")" == 'new-legacy-secret' ]]
+[[ "$(jq -r '.provider."gwdg-saia".options.baseURL' "$legacy_openjson")" == 'https://relocated.example.com/v1' ]]
+[[ "$(jq -r '.ai_provider' "$legacy_config")" == 'gwdg-saia' ]]
+
+# (h) Empty token with the id absent from auth.json is refused (re-prompt):
+# the token-required page appears, then the token configures the provider.
+flow_pages_log_reset
+printf '%s\n' 'Custom' 'Brand New API' 'https://brand.example.com/v1' '' 'brand-new-secret' > "$TUI_ANSWERS"
+revisit_project_settings "$legacy_project"
+grep -q 'PAGE: Token required' "$flow_pages"
+[[ "$(jq -r '."brand-new-api".key' "$legacy_auth")" == 'brand-new-secret' ]]
+[[ "$(jq -r '.ai_provider' "$legacy_config")" == 'brand-new-api' ]]
+[[ "$(jq -r '.provider."brand-new-api".options.baseURL' "$legacy_openjson")" == 'https://brand.example.com/v1' ]]
+
+# (i) Revisit none keeps the stored id entries untouched (no cascade deletes).
+flow_pages_log_reset
+printf '%s\n' 'none' > "$TUI_ANSWERS"
+revisit_project_settings "$legacy_project"
+[[ "$(jq -r '."gwdg-saia".key' "$legacy_auth")" == 'new-legacy-secret' ]]
+[[ "$(jq -r '.provider."brand-new-api".name' "$legacy_openjson")" == 'Brand New API' ]]
+[[ "$(jq -r '.ai_provider' "$legacy_config")" == 'none' ]]
+
+printf 'start-tui AI provider flow tests passed\n'
+
+unset -f run_init_project check_and_build_containers prompt_for_text prompt_for_secret show_menu drain
+# shellcheck disable=SC1091
+source "$PROJECT_ROOT/dist/scripts/start-tui.sh"
+
 printf 'start-tui credential safety tests passed\n'
 
 # Lifecycle tests use mocked Podman and native scripts.
