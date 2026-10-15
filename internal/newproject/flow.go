@@ -112,10 +112,12 @@ func deriveVCSFromURL(url string) (string, bool) {
 
 // --- create flow (order per data map §3 "New Project wizard") ------------
 
-// create validates the merged form, then either queues the build prompt
-// (edition image not built) or runs the creation tail. Registry writes
-// happen only inside the tail, after init-project.sh and the image
-// decision have both passed.
+// create validates the merged form, then branches on the recorded
+// "Image build" radio: Build later ⇒ straight to the creation tail
+// (registered stopped); Build now ⇒ build-container.sh first, revalidated
+// fresh before the tail. The decision is re-checked fresh here (the form
+// row only drives visibility, memo). Registry writes happen only inside
+// the tail, after init-project.sh has passed.
 func (m *Model) create() tea.Cmd {
 	toast := m.validateInputs()
 	if toast != "" {
@@ -127,9 +129,20 @@ func (m *Model) create() tea.Cmd {
 		return nil
 	}
 	if !imageExistsLive(m.run, m.edition) {
-		m.setPhase(phaseBuild)
-		m.choice = 0
-		return nil
+		if !m.buildNow {
+			return m.createTail()
+		}
+		return m.queueScript("Building image "+m.edition,
+			func() (string, error) { return m.ops.Run(m.cfg.BuildScript, m.edition) },
+			func(err error) tea.Cmd {
+				if err != nil || !imageExistsLive(m.run, m.edition) {
+					m.toast = "Build failed — the " + m.edition + " image is still unavailable." +
+						" Press Create Project to retry."
+					return nil
+				}
+				delete(m.imgKnown, m.edition) // memo stale: image now built
+				return m.createTail()
+			})
 	}
 	return m.createTail()
 }

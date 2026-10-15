@@ -388,20 +388,17 @@ func TestClickedTokenActivatesJustThatOption(t *testing.T) {
 	}
 }
 
-// TestKeyboardParity mirrors mouse interactions with keys only: the build
-// prompt is driven with ↓/↵, and option rows cycle with ↵.
+// TestKeyboardParity mirrors mouse interactions with keys only: the
+// "Image build" radio row is reached with tab and flipped with ↵
+// (Build now → Build later), and option rows cycle with ↵.
 func TestKeyboardParity(t *testing.T) {
 	m, ops, reg := newTestModel(t, func(ops *recOps, run *cmdrun.Fake) {
 		withoutImage(run)
 	})
 	typeKeys(t, m, "keysproj")
+	m.tabToField(t, "Image build")
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter}) // Build now → Build later
 	createViaKeyboard(t, m)
-	// choice starts on Build now (0); ↓ selects Build later, ↵ resolves
-	m.Update(tea.KeyMsg{Type: tea.KeyDown})
-	cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	if cmd == nil {
-		t.Fatalf("keyboard does not resolve the build prompt")
-	}
 	if !ops.has("init-project.sh") {
 		t.Fatalf("init not run after keyboard Build later: %v", ops.Calls)
 	}
@@ -640,17 +637,22 @@ func TestBuildLaterRegistersStopped(t *testing.T) {
 		withoutImage(run)
 	})
 	typeKeys(t, m, "deferred")
-	createViaKeyboard(t, m)
-	if ops.total() != 0 {
-		t.Fatalf("scripts before prompt: %v", ops.Calls)
-	}
+	// the radio row sits under the editions while the image is missing
 	b := plain(t, m)
-	if !strings.Contains(b, "Build now") || !strings.Contains(b, "Build later") || !strings.Contains(b, "Go back") {
-		t.Fatalf("build prompt missing:\n%s", b)
+	edIdx := strings.Index(b, "Edition")
+	buildIdx := strings.Index(b, "Image build")
+	moIdx := strings.Index(b, "Modes")
+	if buildIdx < 0 || !strings.Contains(b, "Build now") || !strings.Contains(b, "Build later") {
+		t.Fatalf("build radio row missing:\n%s", b)
 	}
-	if dblClick(t, m, "Build later") == nil {
-		t.Fatalf("double click did not activate Build later")
+	if !(edIdx < buildIdx && buildIdx < moIdx) {
+		t.Fatalf("Image build row not directly under Editions:\n%s", b)
 	}
+	click(t, m, "Build later") // record the radio choice
+	if !strings.Contains(valueLine(t, m, "Image build"), "● Build later") {
+		t.Fatalf("Build later not activated by click:\n%s", valueLine(t, m, "Image build"))
+	}
+	createViaKeyboard(t, m)
 	if !ops.has("init-project.sh") {
 		t.Fatalf("init not run after Build later: %v", ops.Calls)
 	}
@@ -684,10 +686,12 @@ func TestBuildNowRunsBuildScriptThenRegisters(t *testing.T) {
 		}
 	})
 	typeKeys(t, m, "builtnow")
-	createViaKeyboard(t, m)
-	if dblClick(t, m, "Build now") == nil {
-		t.Fatalf("double click did not activate Build now")
+	// Build now is the default radio choice; confirming Create runs the
+	// build before the creation tail
+	if !strings.Contains(valueLine(t, m, "Image build"), "● Build now") {
+		t.Fatalf("Build now not the default radio choice\n")
 	}
+	createViaKeyboard(t, m)
 	if !ops.has("build-container.sh", "swdev") {
 		t.Fatalf("build script not requested: %v", ops.Calls)
 	}
@@ -696,23 +700,6 @@ func TestBuildNowRunsBuildScriptThenRegisters(t *testing.T) {
 	}
 	if _, err := reg.ByName("builtnow"); err != nil {
 		t.Fatalf("registry write missing: %v", err)
-	}
-}
-
-func TestGoBackReturnsToForm(t *testing.T) {
-	m, ops, _ := newTestModel(t, func(ops *recOps, run *cmdrun.Fake) {
-		withoutImage(run)
-	})
-	typeKeys(t, m, "backed")
-	createViaKeyboard(t, m)
-	if dblClick(t, m, "Go back") != nil {
-		t.Fatalf("Go back should stay in form")
-	}
-	if ops.total() != 0 {
-		t.Fatalf("ops ran after Go back: %v", ops.Calls)
-	}
-	if strings.Contains(plain(t, m), "Go back") {
-		t.Fatalf("prompt still shown after Go back:\n%s", plain(t, m))
 	}
 }
 

@@ -1,9 +1,10 @@
 package app_test
 
 // Repro for the production report: creating a project with edition "web"
-// whose image is not built. Flow under test: click the web edition token,
-// click Create Project (Build-now prompt appears), click Build now — the
-// build tail must hand over to the create tail: registry entry written,
+// whose image is not built. Flow under test: click the web edition token
+// (the inline "Image build" radio appears under the editions, default
+// Build now), click Create Project, confirm the popup — the build tail
+// must hand over to the create tail: registry entry written,
 // sandbox_config.json present, and the first-run setup handoff must NOT
 // report a missing sandbox_config.json.
 
@@ -45,26 +46,21 @@ func TestE2EWebEditionBuildNowCreatesProject(t *testing.T) {
 	}
 	tm.Send(mousePress(webC+1, webR))
 
-	// Click Create Project — must show the Build-now prompt.
+	// With the web image missing, the inline build radio row must appear
+	// directly under the editions (default Build now).
+	if !waitScreen(t, rec, false, "Image build") {
+		t.Fatal("Image build radio row not rendered after web click:\n" + screenOf(t, rec))
+	}
+
+	// Click Create Project, then confirm the popup (ADR-0021): tab to
+	// Create, enter runs — Build now is the recorded plan.
 	btnR, btnC, ok2 := g.find("Create Project")
 	if !ok2 {
 		t.Fatal("Create Project button not rendered:\n" + g.String())
 	}
 	tm.Send(mousePress(btnC+2, btnR))
-	// Create confirmation popup (ADR-0021): tab to Create, enter runs.
 	tm.Send(tea.KeyMsg{Type: tea.KeyTab})
 	tm.Send(tea.KeyMsg{Type: tea.KeyEnter})
-	if !waitScreen(t, rec, false, "Build the web image now?") {
-		t.Fatalf("build prompt missing after Create click:\n%s", screenOf(t, rec))
-	}
-
-	// Click "Build now".
-	g2 := renderScreen(120, 40, string(rec.contents()))
-	bnR, bnC, ok3 := g2.find("Build now")
-	if !ok3 {
-		t.Fatal("Build now option not rendered:\n" + g2.String())
-	}
-	tm.Send(mousePress(bnC+2, bnR))
 
 	// Build runs through the fake podman; afterwards the create tail must
 	// run and register the project.

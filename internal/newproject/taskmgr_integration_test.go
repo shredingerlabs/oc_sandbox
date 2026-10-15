@@ -84,8 +84,9 @@ func TestAsyncBuildNowQueuesBuildThenContinues(t *testing.T) {
 		}
 	})
 	typeKeys(t, m, "asyncbuild")
-	createCmd(t, m) // build prompt up (image missing)
-	cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	// the inline "Image build" radio defaults to Build now; confirming the
+	// popup queues the build directly (no separate prompt step)
+	cmd := createCmd(t, m)
 	if !mgr.BusyKey("newproject") {
 		t.Fatal("build op not queued")
 	}

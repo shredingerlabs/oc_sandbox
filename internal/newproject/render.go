@@ -36,6 +36,8 @@ func fieldLabel(f int) string {
 		return "Repo URL"
 	case fEdition:
 		return "Edition"
+	case fBuild:
+		return "Image build"
 	case fModes:
 		return "Modes"
 	case fStart:
@@ -85,14 +87,7 @@ func (m *Model) fullRows(width int) ([]string, shell.Rect) {
 		case fCreate:
 			continue // button rendered below the toast row
 		case fPrompt:
-			q := ""
-			switch m.phase {
-			case phaseBuild:
-				q = "Build the " + m.edition + " image now?"
-			case phaseConfirm:
-				q = "Credential files already exist — keep or replace?"
-			}
-			rows = append(rows, shell.StyleWarn.Render(q))
+			rows = append(rows, shell.StyleWarn.Render("Credential files already exist — keep or replace?"))
 			y++
 			toks := m.promptVals()
 			rows = append(rows, shell.StyleFieldLabel.Render(padCell(""))+" "+m.optionRow(fPrompt, toks, y, &m.optRects))
@@ -128,32 +123,28 @@ func (m *Model) fullRows(width int) ([]string, shell.Rect) {
 	rows = append(rows, shell.Toast(m.toast))
 	y++
 
-	if m.phase == phaseForm {
-		btnLabel := createBtn
-		if m.fields[m.focus] == fCreate {
-			btnLabel = "▸ " + createBtn
-		}
-		lines := shell.ButtonLines(btnLabel, m.fields[m.focus] == fCreate)
-		w := 0
-		for _, r := range rows {
-			if cw := shell.Width(r); cw > w {
-				w = cw
-			}
-		}
-		var btn []string
-		for _, l := range lines {
-			btn = append(btn, shell.AlignRight(w, l))
-		}
-		btnX := BodyPad + CardInset + w - shell.Width(btn[1])
-		btnY := y + 1
-		for _, l := range btn {
-			rows = append(rows, l)
-		}
-		m.btnRow = btnY
-		return rows, shell.Rect{X: btnX, Y: btnY, W: shell.Width(btn[1]), H: 1}
+	btnLabel := createBtn
+	if m.fields[m.focus] == fCreate {
+		btnLabel = "▸ " + createBtn
 	}
-	return rows, shell.Rect{}
-
+	lines := shell.ButtonLines(btnLabel, m.fields[m.focus] == fCreate)
+	w := 0
+	for _, r := range rows {
+		if cw := shell.Width(r); cw > w {
+			w = cw
+		}
+	}
+	var btn []string
+	for _, l := range lines {
+		btn = append(btn, shell.AlignRight(w, l))
+	}
+	btnX := BodyPad + CardInset + w - shell.Width(btn[1])
+	btnY := y + 1
+	for _, l := range btn {
+		rows = append(rows, l)
+	}
+	m.btnRow = btnY
+	return rows, shell.Rect{X: btnX, Y: btnY, W: shell.Width(btn[1]), H: 1}
 }
 
 // focusFirstRow returns the body-relative row of the focused field
@@ -198,6 +189,8 @@ func (m *Model) optionsFor(f int) []string {
 	switch f {
 	case fEdition:
 		return m.editions()
+	case fBuild:
+		return buildOptions
 	case fModes:
 		return m.modeOptions()
 	case fStart:
@@ -246,6 +239,12 @@ func (m *Model) optionIsCurrent(f int, o string) bool {
 		return indexOf(m.modes, o) >= 0
 	case fEdition:
 		return m.edition == o
+	case fBuild:
+		cur := buildOptions[1]
+		if m.buildNow {
+			cur = buildOptions[0]
+		}
+		return o == cur
 	case fStart:
 		return m.start == o
 	case fVCS:

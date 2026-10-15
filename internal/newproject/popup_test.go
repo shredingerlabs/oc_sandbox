@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/shredingerlabs/oc-sandbox/internal/cmdrun"
 )
 
 // Create confirmation popup (ADR-0021): the trigger shows the current
@@ -39,6 +41,28 @@ func TestCreatePopupShowsConfigSummary(t *testing.T) {
 	if m.ConfirmOpen() {
 		t.Fatal("esc did not cancel the popup")
 	}
+	if ops.total() != 0 {
+		t.Fatalf("cancelled popup ran scripts: %v", ops.Calls)
+	}
+}
+
+// While the selected edition's image is missing, the popup summary also
+// lists the recorded "Image build" plan (ADR-0021 Create popup).
+func TestCreatePopupShowsBuildPlanWhenImageMissing(t *testing.T) {
+	m, ops, _ := newTestModel(t, func(ops *recOps, run *cmdrun.Fake) { withoutImage(run) })
+	typeKeys(t, m, "buildpop")
+	m.tabToField(t, "Image build")
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter}) // flip to Build later
+	m.tabToField(t, "Create Project")
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	b := plain(t, m)
+	if !m.ConfirmOpen() {
+		t.Fatalf("popup missing:\n%s", b)
+	}
+	if !strings.Contains(b, "image build: Build later") {
+		t.Fatalf("popup missing the recorded build plan:\n%s", b)
+	}
+	m.Update(tea.KeyMsg{Type: tea.KeyEsc}) // cancel, nothing runs
 	if ops.total() != 0 {
 		t.Fatalf("cancelled popup ran scripts: %v", ops.Calls)
 	}

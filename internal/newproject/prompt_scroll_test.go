@@ -1,9 +1,10 @@
 package newproject
 
-// Regression tests for the scroll-height report: with no prebuilt
-// container image, the build prompt's options (Build now / Build later /
-// Go back) must stay clickable at small terminal heights where the card
-// scrolls, and Go back must make the Create Project button visible again.
+// Regression tests for the scroll-height report: while the selected
+// edition has no container image, the inline "Image build" radio row
+// (Build now / Build later, directly under Editions) must stay clickable
+// at small terminal heights where the card scrolls, and the Create
+// Project button stays at the bottom of the card, reachable by focus.
 
 import (
 	"fmt"
@@ -39,23 +40,23 @@ func clickH(t *testing.T, m *Model, h int, token string) tea.Cmd {
 	return nil
 }
 
-// TestBuildPromptClickableAtSmallHeight: entering the build prompt phase
-// re-lands the cursor (fPrompt inserted before fCreate) and the follow
-// must re-pull the option row into the window — clicking "Build later"
-// runs the create tail and registers the project as stopped, at every
-// height where the card scrolls (blank h20 = 80x24).
-func TestBuildPromptClickableAtSmallHeight(t *testing.T) {
+// TestBuildRowClickableAtSmallHeight: the "Image build" radio row sits
+// directly under the Editions row while the image is missing; clicking
+// "Build later" records the choice and Create (reached by focus-follow at
+// the small height) runs the create tail and registers the project as
+// stopped (blank h20 = 80x24).
+func TestBuildRowClickableAtSmallHeight(t *testing.T) {
 	for _, h := range []int{28, 26, 24, 22, 20} {
 		t.Run(fmt.Sprintf("blank_h%d", h), func(t *testing.T) {
-			testBuildPromptClick(t, srcBlank, h)
+			testBuildRowClick(t, srcBlank, h)
 		})
 		t.Run(fmt.Sprintf("url_h%d", h), func(t *testing.T) {
-			testBuildPromptClick(t, srcURL, h)
+			testBuildRowClick(t, srcURL, h)
 		})
 	}
 }
 
-func testBuildPromptClick(t *testing.T, source int, h int) {
+func testBuildRowClick(t *testing.T, source int, h int) {
 	m, ops, reg := newTestModel(t, func(ops *recOps, run *cmdrun.Fake) { withoutImage(run) })
 	if source == srcURL {
 		// switch to the From URL source tab, fill name, then tab to the
@@ -68,15 +69,17 @@ func testBuildPromptClick(t *testing.T, source int, h int) {
 	} else {
 		typeKeys(t, m, "deferred")
 	}
-	createViaKeyboard(t, m)
-	if ops.total() != 0 {
-		t.Fatalf("scripts before prompt: %v", ops.Calls)
-	}
 	b := strings.Join(linesAt(t, m, h), "\n")
-	if !strings.Contains(b, "Build now") || !strings.Contains(b, "Build later") {
-		t.Fatalf("build prompt not rendered at height %d:\n%s", h, b)
+	if !strings.Contains(b, "Image build") || !strings.Contains(b, "Build now") || !strings.Contains(b, "Build later") {
+		t.Fatalf("build radio row not rendered at height %d:\n%s", h, b)
 	}
-	clickH(t, m, h, "Build later")
+	edIdx := strings.Index(b, "Edition")
+	buildIdx := strings.Index(b, "Image build")
+	if !(edIdx >= 0 && edIdx < buildIdx) {
+		t.Fatalf("Image build row not under Editions at height %d:\n%s", h, b)
+	}
+	clickH(t, m, h, "Build later") // record the radio choice
+	createViaKeyboard(t, m)
 	if !ops.has("init-project.sh") {
 		t.Fatalf("init not run after Build later: %v", ops.Calls)
 	}
@@ -86,27 +89,21 @@ func testBuildPromptClick(t *testing.T, source int, h int) {
 	}
 }
 
-// TestBuildPromptGoBackRestoresCreateButton: choosing Go back returns to
-// the form phase and re-lands the cursor on fCreate — the Create Project
-// button must be pulled back into the window at the same height.
-func TestBuildPromptGoBackRestoresCreateButton(t *testing.T) {
-	m, ops, _ := newTestModel(t, func(ops *recOps, run *cmdrun.Fake) { withoutImage(run) })
+// TestCreateButtonVisibleWithBuildRowAtSmallHeight: even with the extra
+// "Image build" row the Create Project button stays at the bottom of the
+// card — tabbing to it scrolls the card so the focused button is in the
+// window (checked in the height's own render, where the follow pulls).
+func TestCreateButtonVisibleWithBuildRowAtSmallHeight(t *testing.T) {
+	m, _, _ := newTestModel(t, func(ops *recOps, run *cmdrun.Fake) { withoutImage(run) })
 	typeKeys(t, m, "deferred")
-	createViaKeyboard(t, m)
-	if ops.total() != 0 {
-		t.Fatalf("scripts before prompt: %v", ops.Calls)
-	}
-	clickH(t, m, scrollH, "Go back") // resolving the prompt returns nil
-	if m.phase != phaseForm {
-		t.Fatalf("go back did not return to the form phase")
-	}
-	found := false
-	for _, l := range linesAt(t, m, scrollH) {
-		if strings.Contains(l, "Create Project") {
-			found = true
+	for i := 0; i < 20; i++ {
+		m.Update(tea.KeyMsg{Type: tea.KeyTab})
+		for _, l := range linesAt(t, m, scrollH) {
+			if strings.Contains(l, "▸ Create Project") {
+				return
+			}
 		}
 	}
-	if !found {
-		t.Fatalf("Create button not visible after go back at height %d:\n%s", scrollH, strings.Join(linesAt(t, m, scrollH), "\n"))
-	}
+	t.Fatalf("Create button not reachable with build row present at height %d:\n%s",
+		scrollH, strings.Join(linesAt(t, m, scrollH), "\n"))
 }

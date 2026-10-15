@@ -3,7 +3,10 @@
 // the project source (Blank Project / From URL), fixed-order option
 // tokens (● current / ○ alternatives) where a click activates just that
 // option, path autofill from the name until hand-edited, and the Create
-// Project button bottom-right (single click activates). Long operations (init-project.sh, configure-project.sh,
+// Project button bottom-right (single click activates). While the selected
+// edition's image is not built, an inline "Image build" radio row (Build
+// now / Build later) appears directly under Editions and Create executes
+// the recorded build plan. Long operations (init-project.sh, configure-project.sh,
 // build-container.sh) launch through the single Ops seam — no goroutines
 // here — which the background-task manager (#82) swaps later. On success
 // the view emits CreatedMsg: the post-create handoff seam that the
@@ -74,6 +77,7 @@ const (
 	fPath
 	fURL
 	fEdition
+	fBuild
 	fModes
 	fStart
 	fVCS
@@ -83,7 +87,7 @@ const (
 	fVCSHost
 	fAI
 	fGWDGToken
-	fPrompt // build / replacement prompt row (phase only)
+	fPrompt // credential replacement prompt row (phaseConfirm only)
 	fCreate
 )
 
@@ -93,15 +97,17 @@ const (
 	srcURL
 )
 
-// phases of the create flow.
+// phases of the create flow: the form plus the credential-replacement
+// confirm. The image build decision lives in the form itself (the
+// "Image build" radio row under Editions, executed by Create).
 const (
 	phaseForm = iota
-	phaseBuild
 	phaseConfirm
 )
 
 var (
 	startOptions = []string{"console", "opencode", "web"}
+	buildOptions = []string{"Build now", "Build later"}
 	vcsOptions   = []string{"none", "github.com", "gitlab.com", "own GitLab", "others"}
 	aiOptions    = []string{"gwdg-saia", "none"}
 )
@@ -142,7 +148,10 @@ type Model struct {
 	fields []int
 	focus  int // index into fields
 	phase  int
-	choice int // selected option of the build/confirm prompt row
+	choice int // selected option of the credential confirm prompt row
+
+	buildNow bool            // "Image build" radio: Build now / Build later
+	imgKnown map[string]bool // edition → image-exists memo (row visibility)
 
 	toast   string
 	created bool
@@ -183,10 +192,12 @@ func New(cfg Config, run cmdrun.Runner, ops Ops, reg *registry.Registry) *Model 
 		run:     run,
 		ops:     ops,
 		reg:     reg,
-		start:   startOptions[0],
-		vcs:     "none",
-		ai:      aiOptions[0],
-		pending: map[int]func(err error) tea.Cmd{},
+		start:    startOptions[0],
+		vcs:      "none",
+		ai:       aiOptions[0],
+		buildNow: true,
+		imgKnown: map[string]bool{},
+		pending:  map[int]func(err error) tea.Cmd{},
 	}
 	m.follow = shell.NewFollow(false, true)
 	m.follow.Arm()
@@ -297,17 +308,13 @@ func (m *Model) queueScript(title string, run func() (string, error), after func
 	})
 }
 
-// promptVals returns the option tokens of the current prompt row.
+// promptVals returns the option tokens of the credential confirm row.
 func (m *Model) promptVals() []string {
-	if m.phase == phaseBuild {
-		return []string{"Build now", "Build later", "Go back"}
-	}
 	return []string{"Keep existing", "Replace"}
 }
 
 func (m *Model) key(msg tea.KeyMsg) tea.Cmd {
-	switch m.phase {
-	case phaseBuild, phaseConfirm:
+	if m.phase == phaseConfirm {
 		vals := m.promptVals()
 		switch msg.String() {
 		case "up", "left":
@@ -387,15 +394,14 @@ func (m *Model) mouse(msg tea.MouseMsg) tea.Cmd {
 	if msg.Action != tea.MouseActionPress || msg.Button != tea.MouseButtonLeft {
 		return nil
 	}
-	switch m.phase {
-	case phaseBuild, phaseConfirm:
+	// the credential confirm row resolves on one press (choose + go)
+	if m.phase == phaseConfirm {
 		for _, or := range m.optRects {
 			if or.field == fPrompt && or.r.Hit(msg.X, msg.Y) {
 				m.choice = indexOf(m.promptVals(), or.val)
-				return m.resolvePrompt() // one press = choose + resolve
+				return m.resolvePrompt()
 			}
 		}
-		return nil
 	}
 	if m.btnRect.Hit(msg.X, msg.Y) {
 		m.focusRow(fCreate)
@@ -437,6 +443,8 @@ func (m *Model) activate(f int) tea.Cmd {
 		return nil
 	case fEdition:
 		m.edition = cycle(m.edition, m.editions())
+	case fBuild:
+		m.buildNow = !m.buildNow // radio cycle: enter/space flips now↔later
 	case fStart:
 		m.start = cycle(m.start, startOptions)
 	case fVCS:
@@ -479,6 +487,13 @@ func (m *Model) askCreate() tea.Cmd {
 		"modes: "+joinModes(m.modes),
 		"start: "+m.start,
 		"VCS tracking: "+m.vcs)
+	if !imageExistsLive(m.run, m.edition) {
+		line := "Build later"
+		if m.buildNow {
+			line = "Build now"
+		}
+		lines = append(lines, "image build: "+line)
+	}
 	m.confirm.Open("Create this project?", "Create", "Back", lines, false,
 		func() tea.Cmd { return m.create() })
 	return nil
@@ -497,6 +512,8 @@ func (m *Model) setOption(f int, val string) {
 	switch f {
 	case fEdition:
 		m.edition = val
+	case fBuild:
+		m.buildNow = val == buildOptions[0]
 	case fStart:
 		m.start = val
 	case fVCS:
@@ -659,7 +676,8 @@ func (m *Model) prefillFromURL() {
 // cursor on a different row (fPrompt inserted/dropped before fCreate)
 // without changing the focus index, so the follow's move-detection would
 // never fire — Force makes the next Pull re-land the window on the new
-// cursor row (build/confirm prompt stays reachable at scroll heights).
+// cursor row (the credential confirm prompt stays reachable at scroll
+// heights).
 func (m *Model) setPhase(p int) {
 	m.phase = p
 	m.follow.Force()
@@ -680,6 +698,14 @@ func (m *Model) refresh() {
 	if eds := m.editions(); len(eds) > 0 {
 		if indexOf(eds, m.edition) < 0 {
 			m.edition = eds[0]
+		}
+	}
+	if m.edition != "" {
+		// image-existence memo: one podman query per newly selected
+		// edition (builds triggered elsewhere are not tracked — the
+		// create decision re-checks fresh)
+		if _, known := m.imgKnown[m.edition]; !known {
+			m.imgKnown[m.edition] = imageExistsLive(m.run, m.edition)
 		}
 	}
 	if indexOf(startOptions, m.start) < 0 {
@@ -708,7 +734,14 @@ func (m *Model) fieldList() []int {
 	if m.source == srcURL {
 		fs = append(fs, fURL)
 	}
-	fs = append(fs, fEdition, fModes, fStart, fVCS)
+	fs = append(fs, fEdition)
+	// "Image build" radio row directly under the editions while the
+	// selected edition's image is missing (memo-driven, like the
+	// conditional VCS sub-fields)
+	if m.edition != "" && !m.imgKnown[m.edition] {
+		fs = append(fs, fBuild)
+	}
+	fs = append(fs, fModes, fStart, fVCS)
 	if m.vcs != "none" {
 		fs = append(fs, fGitName, fGitEmail, fVCSToken)
 		if m.vcs == "own GitLab" || m.vcs == "others" {
@@ -719,7 +752,7 @@ func (m *Model) fieldList() []int {
 	if m.ai == "gwdg-saia" {
 		fs = append(fs, fGWDGToken)
 	}
-	if m.phase == phaseBuild || m.phase == phaseConfirm {
+	if m.phase == phaseConfirm {
 		fs = append(fs, fPrompt)
 	}
 	fs = append(fs, fCreate)
@@ -742,51 +775,26 @@ func (m *Model) modeOptions() []string {
 	return append([]string{"none"}, modes...)
 }
 
-// resolvePrompt runs the selected build / replacement prompt option.
+// resolvePrompt runs the selected credential replacement prompt option.
 func (m *Model) resolvePrompt() tea.Cmd {
+	if m.phase != phaseConfirm {
+		return nil
+	}
 	vals := m.promptVals()
 	if m.choice < 0 || m.choice >= len(vals) {
 		return nil
 	}
-	switch m.phase {
-	case phaseBuild:
-		switch vals[m.choice] {
-		case "Build now":
-			return m.queueScript("Building image "+m.edition,
-				func() (string, error) { return m.ops.Run(m.cfg.BuildScript, m.edition) },
-				func(err error) tea.Cmd {
-					if err != nil || !imageExistsLive(m.run, m.edition) {
-						m.toast = "Build failed — the " + m.edition + " image is still unavailable."
-						m.refresh() // stays on the prompt: retry or go back
-						return nil
-					}
-					m.setPhase(phaseForm)
-					m.toast = ""
-					return m.createTail()
-				})
-		case "Build later":
-			m.setPhase(phaseForm)
-			m.toast = ""
-			return m.createTail()
-		default: // Go back
-			m.setPhase(phaseForm)
-			m.toast = ""
-			return nil
+	m.setPhase(phaseForm)
+	switch vals[m.choice] {
+	case "Replace":
+		if len(m.credQueue) > 0 {
+			m.credQueue[0].args = append(m.credQueue[0].args, "--replace")
+			m.credQueue[0].replace = true
 		}
-	case phaseConfirm:
-		m.setPhase(phaseForm)
-		switch vals[m.choice] {
-		case "Replace":
-			if len(m.credQueue) > 0 {
-				m.credQueue[0].args = append(m.credQueue[0].args, "--replace")
-				m.credQueue[0].replace = true
-			}
-		default: // Keep existing
-			m.dropHead()
-		}
-		return m.runCreds()
+	default: // Keep existing
+		m.dropHead()
 	}
-	return nil
+	return m.runCreds()
 }
 
 // dropHead pops the pending credential step; keeping an existing
