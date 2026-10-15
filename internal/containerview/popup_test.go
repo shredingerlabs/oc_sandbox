@@ -9,13 +9,15 @@ import (
 
 // Build confirmation popup (ADR-0021): the idle triggers show the popup
 // with the edition context; esc/q cancels without running; while an op
-// runs the trigger skips the popup (busy priority).
+// runs the trigger skips the popup (busy priority). Selection first:
+// the checked editions feed the popup.
 
 func TestBuildPopupContentAndCancel(t *testing.T) {
 	m, fake, _, _ := newFixture(t)
 	m.Body(80, 22)
+	m.Update(key(" "))              // check the focused edition (base)
 	m.Update(keyType(tea.KeyEnter)) // build trigger → popup
-	if got := body(m); !strings.Contains(got, "Build the all image?") || !strings.Contains(got, "edition: all") {
+	if got := body(m); !strings.Contains(got, "Build 1 image(s)?") || !strings.Contains(got, "edition: base") {
 		t.Fatalf("popup content wrong:\n%s", got)
 	}
 
@@ -31,6 +33,7 @@ func TestBuildPopupContentAndCancel(t *testing.T) {
 func TestBuildPopupOnlyWhenIdle(t *testing.T) {
 	m, fake, _, _ := newFixture(t)
 	m.Body(80, 22)
+	m.Update(key(" "))              // check the focused edition
 	m.Update(keyType(tea.KeyEnter)) // popup (ADR-0021)
 	confirmKeys(m)
 

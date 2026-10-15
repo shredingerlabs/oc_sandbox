@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"strings"
 
 	"github.com/shredingerlabs/oc-sandbox/internal/cmdrun"
 )
@@ -114,6 +115,34 @@ func RunningContainers(run cmdrun.Runner) []string {
 		return nil
 	}
 	return cmdrun.Lines(out)
+}
+
+// ContainerState is one `podman ps -a` row: the container name and its
+// lifecycle state ("running", "exited", "created", …).
+type ContainerState struct {
+	Name  string
+	State string
+}
+
+// AllContainers lists every opencode-sandbox container in any state
+// (`podman ps -a`, naming convention `opencode-sandbox-`), which
+// includes exited and created leftovers (a --rm container is gone
+// after stop, so leftovers only come from edge cases). Errors yield an
+// empty list (bash `|| true`).
+func AllContainers(run cmdrun.Runner) []ContainerState {
+	out, err := run.Output("podman", "ps", "-a", "--format", "{{.Names}}\t{{.State}}", "--filter", "name=opencode-sandbox-")
+	if err != nil {
+		return nil
+	}
+	var all []ContainerState
+	for _, l := range cmdrun.Lines(out) {
+		name, state, ok := strings.Cut(l, "\t")
+		if !ok {
+			continue
+		}
+		all = append(all, ContainerState{Name: name, State: state})
+	}
+	return all
 }
 
 // ImageExists reports whether the edition's image exists in podman.

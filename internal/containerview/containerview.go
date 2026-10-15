@@ -1,20 +1,27 @@
-// Package containerview is the Container center view (#79): Build and
-// Stop sub-tabs on the app shell (#76). Build offers the live edition
-// registry (ADR 0019) plus the "all" pseudo-option as educational cards
-// and streams build-container.sh output into the embedded log pane —
-// with no config writes (data-map §3). Stop lists the live running
-// containers as a checklist and stops them via podman stop, writing
-// container_status="stopped" only after the container is verified gone.
-// Both long operations launch through the Launcher seam so the
-// background-task manager (#82) can swap it.
+// Package containerview is the Container center view (#79): Build,
+// Start, Stop and Delete sub-tabs on the app shell (#76). Build lists
+// the live edition registry (ADR 0019) as a checklist with educational
+// descriptions and streams build-container.sh output into the embedded
+// log pane — with no config writes (data-map §3). Start lists the
+// registered projects with their running marker and starts the checked
+// containers via start.sh with each project's stored sandbox_config.json
+// — status "running" only after every container is verified live.
+// Delete lists every existing oc-sandbox container (podman ps -a, incl.
+// exited/created leftovers of gone projects) and removes stopped ones
+// via podman rm, mirroring a stale registry status after verified
+// removal; running containers are refused with a stop-first hint.
+// Stop lists the live running containers as a checklist and stops them
+// via podman stop, writing container_status="stopped" only after the
+// container is verified gone. All long operations launch through the
+// Launcher seam so the background-task manager (#82) can swap it.
 //
 // Use *Model as the shell.CenterView: the shell keeps its views for the
 // whole run and only polls them, so Update mutates the model in place.
 package containerview
 
 import (
+	"errors"
 	"fmt"
-	"math"
 	"slices"
 	"strings"
 
@@ -23,7 +30,9 @@ import (
 
 	"github.com/shredingerlabs/oc-sandbox/internal/cmdrun"
 	"github.com/shredingerlabs/oc-sandbox/internal/discovery"
+	"github.com/shredingerlabs/oc-sandbox/internal/openproject"
 	"github.com/shredingerlabs/oc-sandbox/internal/registry"
+	"github.com/shredingerlabs/oc-sandbox/internal/sandboxcfg"
 	"github.com/shredingerlabs/oc-sandbox/internal/shell"
 	"github.com/shredingerlabs/oc-sandbox/internal/taskmgr"
 )
@@ -67,21 +76,38 @@ func SyncLauncher(op Op) tea.Cmd {
 }
 
 // RunningMsg carries a fresh running-container list (podman ps) back
-// from a refresh cmd.
+// from a refresh cmd; it drives the Stop checklist and the running
+// marker of the Start rows.
 type RunningMsg []string
 
-// Sub-tab indices.
+// ContainersMsg carries every existing oc-sandbox container in any
+// state (podman ps -a) back from a refresh cmd (Delete tab).
+type ContainersMsg []discovery.ContainerState
+
+// ProjectsMsg carries the ordered registry projects back from a
+// refresh cmd (Start tab rows, Delete project-name echo).
+type ProjectsMsg struct {
+	Projects []registry.Project
+	Err      string
+}
+
+// Sub-tab indices and this view's queue keys.
 const (
-	TabBuild = 0
-	TabStop  = 1
+	TabBuild  = 0
+	TabStart  = 1
+	TabStop   = 2
+	TabDelete = 3
+
+	keyBuild  = "cv-build"
+	keyStart  = "cv-start"
+	keyDelete = "cv-delete"
 )
 
-var subTabItems = []string{"Build Container", "Stop Container"}
+var subTabItems = []string{"Build Container", "Start Container", "Stop Container", "Delete Container"}
 
 // descriptions are the educational one-liners per known edition; unknown
 // stages get the generic line.
 var descriptions = map[string]string{
-	"all":      "builds every edition plus the egress proxy",
 	"base":     "ubuntu foundation every other edition builds on",
 	"web":      "base with the OpenCode Web UI",
 	"embedded": "base plus embedded toolchains",
@@ -93,9 +119,9 @@ var descriptions = map[string]string{
 
 const defaultDescription = "container edition from the Dockerfile stage"
 
-// checklistFixedRows is the row budget of the stop checklist that is
-// fixed regardless of the container count: select-all row, blank row,
-// 3 button lines, toast.
+// checklistFixedRows is the row budget of a checklist that is fixed
+// regardless of the row count: select-all row, blank row, 3 button
+// lines, toast.
 const checklistFixedRows = 6
 
 func description(edition string) string {
@@ -105,49 +131,118 @@ func description(edition string) string {
 	return defaultDescription
 }
 
-// Model implements shell.CenterView with the Build and Stop sub-tabs.
-// All podman / script calls go through the injected runner; the
-// registry receives verified container_status updates only. Queue is
-// the shared background-task manager (#82): when wired, every op runs
-// through it (one op at a time per key, streaming lines); without it
-// the view falls back to the injected Launch function (SyncLauncher).
+// checklist is one tab's shared checklist state: focused row, scroll
+// offset, follow bookkeeping and the checked rows keyed by the row's
+// selection key (edition name / container name).
+type checklist struct {
+	sel     int
+	scroll  int
+	follow  shell.Follow
+	checked map[string]bool
+}
+
+func newChecklist() checklist {
+	return checklist{follow: shell.NewFollow(false, false), checked: map[string]bool{}}
+}
+
+// chkRow is one checklist row: key toggles it, main is the styled first
+// line (without the checkbox prefix), sub an optional styled line
+// rendered indented underneath (the build rows' description).
+type chkRow struct {
+	key  string
+	main string
+	sub  string
+}
+
+func keysOf(rows []chkRow) []string {
+	keys := make([]string, len(rows))
+	for i, r := range rows {
+		keys[i] = r.key
+	}
+	return keys
+}
+
+func (c *checklist) allSelected(keys []string) bool {
+	if len(keys) == 0 {
+		return false
+	}
+	for _, k := range keys {
+		if !c.checked[k] {
+			return false
+		}
+	}
+	return true
+}
+
+// toggleAll flips select-all: everything checked → clear, else check
+// every row.
+func (c *checklist) toggleAll(keys []string) {
+	if c.allSelected(keys) {
+		c.checked = map[string]bool{}
+		return
+	}
+	for _, k := range keys {
+		c.checked[k] = true
+	}
+}
+
+func (c *checklist) selected(keys []string) []string {
+	var out []string
+	for _, k := range keys {
+		if c.checked[k] {
+			out = append(out, k)
+		}
+	}
+	return out
+}
+
+func clampSel(c *checklist, n int) {
+	if c.sel >= n {
+		c.sel = max(0, n-1)
+	}
+}
+
+// Model implements shell.CenterView with the Build, Start, Stop and
+// Delete sub-tabs. All podman / script calls go through the injected
+// runner; the registry receives verified container_status updates only.
+// Queue is the shared background-task manager (#82): when wired, every
+// op runs through it (one op at a time per key, streaming lines);
+// without it the view falls back to the injected Launch function
+// (SyncLauncher).
 type Model struct {
 	Run              cmdrun.Runner
 	Registry         *registry.Registry
 	Dockerfile       string
 	DockerfileCustom string
 	BuildScript      string
+	StartScript      string
 	Launch           Launcher
 	Queue            *taskmgr.Manager
 
-	opID         int    // view-assigned handle echoed in DoneMsg/LineEvent filters
-	opKey        string // queue key of the in-flight op (id-disambiguation)
-	sub          int
-	buildSel     int
-	stopSel      int
-	stopScroll   int          // hidden head rows of the stop checklist
-	stopFollow   shell.Follow // wheel + selection-follow of the stop checklist
-	editions     []string
-	discoveryErr string
-	running      []string
-	selection    map[string]bool
-	log          shell.LogPane
-	opKind       string // "" idle, "build" / "stop" while an op runs
-	toast        string
-	dbl          shell.DblClick
-	confirm      shell.Confirm // shared confirmation popup (ADR-0021)
+	opID        int    // view-assigned handle echoed in DoneMsg/LineEvent filters
+	opKey       string // queue key of the in-flight op (id-disambiguation)
+	sub         int
+	buildChk    checklist
+	startChk    checklist
+	stopChk     checklist
+	delChk      checklist
+	editions    []string
+	discovErr   string
+	projects    []registry.Project
+	projectsErr string
+	running     []string
+	containers  []discovery.ContainerState
+	log         shell.LogPane
+	opKind      string // "" idle, "build" / "start" / "stop" / "delete" while an op runs
+	toast       string
+	confirm     shell.Confirm // shared confirmation popup (ADR-0021)
 
 	// Hit rects, stored at render time in screen space (regression
-	// tests pin them).
-	cardRects []shell.Rect
-	buildBtn  shell.Rect
-	selAll    shell.Rect
-	rowRects  []shell.Rect
-	stopBtn   shell.Rect
-
-	// stopIdx maps stop-tab rowRects to indices into m.running (the
-	// checklist scrolls off head rows).
-	stopIdx []int
+	// tests pin them). rowKeys[i] is the selection key of rowRects[i].
+	rowRects []shell.Rect
+	rowKeys  []string
+	selAll   shell.Rect
+	opBtn    shell.Rect
 }
 
 // truncate cuts s to n display cells, appending an ellipsis when the
@@ -170,20 +265,27 @@ func truncate(s string, n int) string {
 	return string(out) + "…"
 }
 
+// truncateStyled clips a (styled) row segment to its budget so no row
+// can stretch the card frame past the window.
+func truncateStyled(s string, n int) string { return truncate(s, n) }
+
 // New returns the Container view: live edition discovery from the
-// Dockerfiles, build-container.sh as the build entry point, and the
-// registry that receives verified container_status updates. launch may
-// be nil (SyncLauncher placeholder).
-func New(run cmdrun.Runner, reg *registry.Registry, dockerfile, dockerfileCustom, buildScript string, launch Launcher) *Model {
+// Dockerfiles, build-container.sh / start.sh as the build and start
+// entry points, and the registry that receives verified
+// container_status updates. launch may be nil (SyncLauncher placeholder).
+func New(run cmdrun.Runner, reg *registry.Registry, dockerfile, dockerfileCustom, buildScript, startScript string, launch Launcher) *Model {
 	return &Model{
 		Run:              run,
 		Registry:         reg,
 		Dockerfile:       dockerfile,
 		DockerfileCustom: dockerfileCustom,
 		BuildScript:      buildScript,
+		StartScript:      startScript,
 		Launch:           launch,
-		selection:        map[string]bool{},
-		stopFollow:       shell.NewFollow(false, false),
+		buildChk:         newChecklist(),
+		startChk:         newChecklist(),
+		stopChk:          newChecklist(),
+		delChk:           newChecklist(),
 		log:              shell.NewLogPane(),
 	}
 }
@@ -198,13 +300,37 @@ func (m *Model) SubTabs() ([]string, int) { return subTabItems, m.sub }
 // TextFocused implements shell.CenterView (no text inputs here).
 func (m *Model) TextFocused() bool { return false }
 
-// ConfirmOpen implements shell.ConfirmView (ADR-0021): the build popup.
+// ConfirmOpen implements shell.ConfirmView (ADR-0021).
 func (m *Model) ConfirmOpen() bool { return m.confirm.IsOpen() }
 
-// options returns the buildable editions incl. the "all" pseudo-option
-// (bash build-wizard parity).
-func (m *Model) options() []string {
-	return append([]string{"all"}, m.editions...)
+func (m *Model) activeChk() *checklist {
+	return []*checklist{&m.buildChk, &m.startChk, &m.stopChk, &m.delChk}[m.sub]
+}
+
+// keys returns the ordered selection keys of the tab's rows.
+func (m *Model) keys(t int) []string {
+	switch t {
+	case TabBuild:
+		if m.discovErr != "" {
+			return nil
+		}
+		return m.editions
+	case TabStart:
+		names := make([]string, 0, len(m.projects))
+		for _, p := range m.projects {
+			names = append(names, registry.ContainerName(p.ContainerID))
+		}
+		return names
+	case TabStop:
+		return m.running
+	case TabDelete:
+		names := make([]string, 0, len(m.containers))
+		for _, c := range m.containers {
+			names = append(names, c.Name)
+		}
+		return names
+	}
+	return nil
 }
 
 // refreshEditions re-runs live edition discovery (fresh per call, data
@@ -212,19 +338,63 @@ func (m *Model) options() []string {
 func (m *Model) refreshEditions() {
 	eds, err := discovery.Editions(m.Dockerfile, m.DockerfileCustom)
 	if err != nil {
-		m.discoveryErr = err.Error()
+		m.discovErr = err.Error()
 		return
 	}
-	m.discoveryErr = ""
+	m.discovErr = ""
 	m.editions = eds
-	if n := len(m.editions) + 1; m.buildSel >= n {
-		m.buildSel = n - 1
+	clampSel(&m.buildChk, len(m.editions))
+}
+
+func (m *Model) refreshRunning() tea.Cmd {
+	run := m.Run
+	return func() tea.Msg { return RunningMsg(discovery.RunningContainers(run)) }
+}
+
+func (m *Model) refreshContainers() tea.Cmd {
+	run := m.Run
+	return func() tea.Msg { return ContainersMsg(discovery.AllContainers(run)) }
+}
+
+func (m *Model) refreshProjects() tea.Cmd {
+	reg := m.Registry
+	return func() tea.Msg {
+		if reg == nil {
+			return ProjectsMsg{}
+		}
+		ps, err := reg.AllOrdered()
+		switch {
+		case errors.Is(err, registry.ErrNotFound):
+			return ProjectsMsg{} // no projects.json yet: a clean empty list
+		case err != nil:
+			return ProjectsMsg{Err: "Could not read the project registry: " + err.Error()}
+		}
+		return ProjectsMsg{Projects: ps}
 	}
 }
 
-// refreshRunning returns the cmd that polls the live running containers.
-func (m *Model) refreshRunning() tea.Cmd {
-	return func() tea.Msg { return RunningMsg(discovery.RunningContainers(m.Run)) }
+// refreshTab refreshes the focused tab's data sources fresh per entry
+// (data map §3); the scroll offset restarts at the top.
+func (m *Model) refreshTab(t int) tea.Cmd {
+	m.activeChk().scroll = 0
+	switch t {
+	case TabStart:
+		return tea.Batch(m.refreshRunning(), m.refreshProjects())
+	case TabStop:
+		return m.refreshRunning()
+	case TabDelete:
+		return tea.Batch(m.refreshContainers(), m.refreshProjects())
+	}
+	return nil
+}
+
+// purge drops checked keys that no longer exist in the fresh row keys.
+func purge(c *checklist, keys []string) {
+	for k := range c.checked {
+		if !slices.Contains(keys, k) {
+			delete(c.checked, k)
+		}
+	}
 }
 
 // Update implements shell.CenterView.
@@ -235,32 +405,36 @@ func (m *Model) Update(msg tea.Msg) tea.Cmd {
 			return nil
 		}
 		if msg.Index != m.sub {
-			// cancel-on-navigate (#82): switching this view's tab drops the
-			// queued (not running) build ops of the edition keys
+			// cancel-on-navigate (#82): switching this view's tab drops
+			// the queued (not running) container ops
 			if m.Queue != nil {
-				for _, opt := range m.options() {
-					m.Queue.CancelQueued("cv-build:" + opt)
+				for _, key := range []string{keyBuild, keyStart, keyDelete} {
+					m.Queue.CancelQueued(key)
 				}
 			}
 		}
 		m.sub = msg.Index
-		if m.sub == TabStop {
-			m.stopScroll = 0
-			return m.refreshRunning()
-		}
-		return nil
+		return m.refreshTab(m.sub)
 	case RunningMsg:
 		m.running = msg
-		for name := range m.selection {
-			if !slices.Contains(msg, name) {
-				delete(m.selection, name)
-			}
-		}
-		if m.stopSel >= len(msg) {
-			m.stopSel = max(0, len(msg)-1)
-		}
-		m.stopFollow.Arm() // keep the selection visible in the new list
-		m.stopFollow.Force()
+		purge(&m.stopChk, msg)
+		clampSel(&m.stopChk, len(msg))
+		m.stopChk.follow.Arm() // keep the selection visible in the new list
+		m.stopChk.follow.Force()
+		return nil
+	case ContainersMsg:
+		m.containers = msg
+		purge(&m.delChk, m.keys(TabDelete))
+		clampSel(&m.delChk, len(msg))
+		m.delChk.follow.Arm()
+		m.delChk.follow.Force()
+		return nil
+	case ProjectsMsg:
+		m.projects, m.projectsErr = msg.Projects, msg.Err
+		purge(&m.startChk, m.keys(TabStart))
+		clampSel(&m.startChk, len(m.projects))
+		m.startChk.follow.Arm()
+		m.startChk.follow.Force()
 		return nil
 	case OpDoneMsg:
 		return m.opDone(msg)
@@ -302,13 +476,12 @@ func (m *Model) Update(msg tea.Msg) tea.Cmd {
 				m.log, cmd = m.log.Update(msg)
 				return cmd
 			}
-			if m.sub == TabStop && len(m.running) > 0 {
-				dir := 1
-				if msg.Button == tea.MouseButtonWheelUp {
-					dir = -1
-				}
-				m.stopFollow.Wheel(&m.stopScroll, dir)
+			dir := 1
+			if msg.Button == tea.MouseButtonWheelUp {
+				dir = -1
 			}
+			c := m.activeChk()
+			c.follow.Wheel(&c.scroll, dir)
 			return nil
 		}
 		m.log, _ = m.log.Update(msg)
@@ -321,135 +494,79 @@ func (m *Model) Update(msg tea.Msg) tea.Cmd {
 }
 
 // key handles keyboard parity: tab/shift+tab and left/right switch the
-// sub-tabs, up/down move the selection, enter activates (build / stop),
-// space toggles the focused container.
+// sub-tabs, up/down move the selection (wrapped), enter activates
+// (build / start / stop / delete), space toggles the focused row.
 func (m *Model) key(msg tea.KeyMsg) tea.Cmd {
 	switch msg.String() {
 	case "tab", "right", "l":
 		m.sub = (m.sub + 1) % len(subTabItems)
-		if m.sub == TabStop {
-			return m.refreshRunning()
-		}
+		return m.refreshTab(m.sub)
 	case "shift+tab", "left", "h":
 		m.sub = (m.sub - 1 + len(subTabItems)) % len(subTabItems)
-		if m.sub == TabStop {
-			return m.refreshRunning()
-		}
+		return m.refreshTab(m.sub)
 	case "up", "k":
-		if m.sub == TabBuild {
-			if opts := m.options(); len(opts) > 0 {
-				m.buildSel = (m.buildSel - 1 + len(opts)) % len(opts)
-			}
-		} else if m.stopSel > 0 {
-			m.stopSel--
-			m.stopFollow.Arm()
+		c := m.activeChk()
+		if keys := m.keys(m.sub); len(keys) > 0 {
+			c.sel = (c.sel - 1 + len(keys)) % len(keys)
+			c.follow.Arm()
 		}
 	case "down", "j":
-		if m.sub == TabBuild {
-			if opts := m.options(); len(opts) > 0 {
-				m.buildSel = (m.buildSel + 1) % len(opts)
-			}
-		} else if m.stopSel < len(m.running)-1 {
-			m.stopSel++
-			m.stopFollow.Arm()
+		c := m.activeChk()
+		if keys := m.keys(m.sub); len(keys) > 0 {
+			c.sel = (c.sel + 1) % len(keys)
+			c.follow.Arm()
 		}
 	case " ":
-		if m.sub == TabStop && m.stopSel < len(m.running) {
-			name := m.running[m.stopSel]
-			m.selection[name] = !m.selection[name]
+		c := m.activeChk()
+		if keys := m.keys(m.sub); c.sel < len(keys) {
+			k := keys[c.sel]
+			c.checked[k] = !c.checked[k]
 		}
 	case "enter":
-		if m.sub == TabBuild {
-			opts := m.options()
-			if len(opts) == 0 {
-				return nil
-			}
-			return m.startBuild(opts[m.buildSel])
-		}
+		return m.enter()
+	}
+	return nil
+}
+
+// enter activates the focused tab's action (keyboard parity for the
+// button click).
+func (m *Model) enter() tea.Cmd {
+	switch m.sub {
+	case TabBuild:
+		return m.startBuild()
+	case TabStart:
+		return m.startStart()
+	case TabStop:
 		return m.startStop()
+	case TabDelete:
+		return m.startDelete()
 	}
 	return nil
 }
 
 // click handles left-button presses against the render-time hit rects:
-// a single click selects a card, a double click on the selected card (or
-// the Build button) starts the build; the Stop tab toggles checklist
-// rows, select-all, and the Stop button.
+// checklists toggle rows / select-all, the button activates the tab's
+// action.
 func (m *Model) click(msg tea.MouseMsg) tea.Cmd {
-	n := m.dbl.Press(msg)
 	if m.opKind == "" { // a running op's toast ("building XYZ…") stays
 		m.toast = ""
 	}
-	if m.sub == TabBuild {
-		for i, r := range m.cardRects {
-			if r.Hit(msg.X, msg.Y) {
-				if n == 2 && m.buildSel == i {
-					return m.startBuild(m.options()[i])
-				}
-				m.buildSel = i
-				return nil
-			}
-		}
-		if m.buildBtn.Hit(msg.X, msg.Y) {
-			opts := m.options()
-			if len(opts) == 0 {
-				return nil
-			}
-			return m.startBuild(opts[m.buildSel])
-		}
-		return nil
-	}
-	if m.selAll.Hit(msg.X, msg.Y) {
-		m.toggleAll()
-		return nil
-	}
 	for i, r := range m.rowRects {
 		if r.Hit(msg.X, msg.Y) {
-			idx := i
-			if i < len(m.stopIdx) {
-				idx = m.stopIdx[i]
-			}
-			name := m.running[idx]
-			m.selection[name] = !m.selection[name]
+			key := m.rowKeys[i]
+			c := m.activeChk()
+			c.checked[key] = !c.checked[key]
 			return nil
 		}
 	}
-	if m.stopBtn.Hit(msg.X, msg.Y) {
-		return m.startStop()
+	if m.selAll.Hit(msg.X, msg.Y) {
+		m.activeChk().toggleAll(m.keys(m.sub))
+		return nil
+	}
+	if m.opBtn.Hit(msg.X, msg.Y) {
+		return m.enter()
 	}
 	return nil
-}
-
-func (m *Model) toggleAll() {
-	if m.allSelected() {
-		m.selection = map[string]bool{}
-		return
-	}
-	for _, name := range m.running {
-		m.selection[name] = true
-	}
-}
-
-func (m *Model) allSelected() bool {
-	if len(m.running) == 0 {
-		return false
-	}
-	for _, name := range m.running {
-		if !m.selection[name] {
-			return false
-		}
-	}
-	return true
-}
-
-func (m *Model) selected() []string {
-	var out []string
-	for _, name := range m.running {
-		if m.selection[name] {
-			out = append(out, name)
-		}
-	}
-	return out
 }
 
 // toastLine renders the reserved toast row. While an op runs, the
@@ -468,49 +585,142 @@ func (m *Model) toastLine() string {
 	return m.toast
 }
 
-// startBuild opens the confirmation popup (ADR-0021) for a launch when
-// nothing runs (idle fires only); the popup confirm calls launchBuild.
-// A running op — this view's or a queued one — skips the popup and
-// toasts, keeping the existing busy priority.
-func (m *Model) startBuild(edition string) tea.Cmd {
+// startBuild opens the confirmation popup (ADR-0021) for the checked
+// editions when nothing runs (idle fires only); the popup confirm calls
+// launchBuild. A running op — this view's or a queued one — skips the
+// popup and toasts, keeping the existing busy priority.
+func (m *Model) startBuild() tea.Cmd {
 	if m.opKind != "" || (m.Queue != nil && m.Queue.Busy()) {
-		return m.launchBuild(edition)
+		return m.launchBuild()
 	}
-	m.confirm.Open("Build the "+edition+" image?", "Build", "Cancel",
-		[]string{"edition: " + edition}, false, func() tea.Cmd { return m.launchBuild(edition) })
+	eds := m.buildChk.selected(m.keys(TabBuild))
+	if len(eds) == 0 {
+		m.toast = "select editions to build"
+		return nil
+	}
+	lines := make([]string, 0, len(eds))
+	for _, ed := range eds {
+		lines = append(lines, "edition: "+ed)
+	}
+	m.confirm.Open(fmt.Sprintf("Build %d image(s)?", len(eds)), "Build", "Cancel", lines, false,
+		func() tea.Cmd { return m.launchBuild() })
 	return nil
 }
 
-// launchBuild runs the build op through the Launcher seam (one op at a
-// time; no config writes).
-func (m *Model) launchBuild(edition string) tea.Cmd {
+// launchBuild runs one sequential build op through the Launcher seam
+// (one op at a time; no config writes): build-container.sh per checked
+// edition, aborting at the first failure.
+func (m *Model) launchBuild() tea.Cmd {
 	if m.opKind != "" {
 		m.toast = "operation already in progress"
 		return nil
 	}
+	eds := m.buildChk.selected(m.keys(TabBuild))
+	if len(eds) == 0 {
+		m.toast = "select editions to build"
+		return nil
+	}
 	m.opKind = "build"
 	m.log = shell.NewLogPane().HideHead() // the spinner rides the toast row
-	m.toast = "building " + edition + "…"
+	m.toast = fmt.Sprintf("building %d edition(s)…", len(eds))
 	run, script := m.Run, m.BuildScript
-	return m.launch("building "+edition, "cv-build:"+edition, func(emit func(string)) error {
-		out, err := run.Output("bash", script, edition)
-		for _, l := range cmdrun.Lines(out) {
-			emit(l)
-		}
-		if err != nil {
-			return fmt.Errorf("build failed: %s", strings.TrimSpace(out))
+	return m.launch(fmt.Sprintf("building %d edition(s)", len(eds)), keyBuild, func(emit func(string)) error {
+		for _, ed := range eds {
+			emit("==> " + ed)
+			out, err := run.Output("bash", script, ed)
+			for _, l := range cmdrun.Lines(out) {
+				emit(l)
+			}
+			if err != nil {
+				return fmt.Errorf("build %s failed: %s", ed, strings.TrimSpace(out))
+			}
 		}
 		return nil
 	})
 }
 
-// startStop launches the stop op for the selected containers.
+// startStart runs the stored-config start op for the checked projects:
+// already-running containers are reused, the rest run start.sh with the
+// values from the project's sandbox_config.json (openproject.StartArgs,
+// --detach). Registry writes "running" only after every checked
+// container is verified live against a fresh podman ps (data map §3).
+func (m *Model) startStart() tea.Cmd {
+	if m.opKind != "" {
+		m.toast = "operation already in progress"
+		return nil
+	}
+	names := m.startChk.selected(m.keys(TabStart))
+	if len(names) == 0 {
+		m.toast = "select containers to start"
+		return nil
+	}
+	m.opKind = "start"
+	m.log = shell.NewLogPane().HideHead()
+	m.toast = fmt.Sprintf("starting %d container(s)…", len(names))
+	run, script, reg := m.Run, m.StartScript, m.Registry
+	return m.launch(fmt.Sprintf("starting %d container(s)", len(names)), keyStart, func(emit func(string)) error {
+		byName := make(map[string]registry.Project, len(names))
+		for _, name := range names {
+			id := strings.TrimPrefix(name, registry.ContainerName(""))
+			p, err := reg.ByID(id)
+			if err != nil {
+				return fmt.Errorf("project for %s is not registered", name)
+			}
+			byName[name] = p
+		}
+		for _, name := range names {
+			p := byName[name]
+			if slices.Contains(discovery.RunningContainers(run), name) {
+				emit("already running — reusing " + name)
+				continue
+			}
+			cfg, err := sandboxcfg.Read(sandboxcfg.Path(p.Path))
+			if err != nil {
+				return fmt.Errorf("cannot read sandbox_config.json for %s: %v", name, err)
+			}
+			if !openproject.ValidModes(cfg.ContainerModes) {
+				return errors.New("offline and cbm_ui are mutually exclusive — fix settings first")
+			}
+			if !discovery.ImageExists(run, cfg.ContainerEdition) {
+				return fmt.Errorf("image opencode-sandbox-%s is not built yet", cfg.ContainerEdition)
+			}
+			emit("==> " + name)
+			args := openproject.StartArgs(p.Path, cfg.ContainerEdition, p.ContainerID, cfg.ContainerModes, cfg.StartOption, cfg.UseProxy)
+			out, err := run.Output("bash", append([]string{script}, args...)...)
+			for _, l := range cmdrun.Lines(out) {
+				emit(l)
+			}
+			if err != nil {
+				return fmt.Errorf("start.sh failed for %s: %v (last: %s)", name, err, strings.TrimSpace(tail(out, 3)))
+			}
+		}
+		// verify the start op: every checked container must be live on
+		// a fresh podman ps before any write.
+		running := discovery.RunningContainers(run)
+		for _, name := range names {
+			if !slices.Contains(running, name) {
+				return fmt.Errorf("%s is not running", name)
+			}
+		}
+		if reg == nil {
+			return nil
+		}
+		for _, name := range names {
+			if err := reg.UpdateStatus(byName[name].Path, "running"); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+// startStop launches the stop op for the checked containers.
 func (m *Model) startStop() tea.Cmd {
 	if m.opKind != "" {
 		m.toast = "operation already in progress"
 		return nil
 	}
-	names := m.selected()
+	names := m.stopChk.selected(m.keys(TabStop))
 	if len(names) == 0 {
 		m.toast = "select containers to stop"
 		return nil
@@ -554,9 +764,132 @@ func (m *Model) startStop() tea.Cmd {
 	})
 }
 
+// startDelete opens the confirmation popup (ADR-0021, danger confirm)
+// for the checked containers; running containers are refused first with
+// the stop-first hint (uninstall parity: deleting a running container
+// would be an ungraceful kill).
+func (m *Model) startDelete() tea.Cmd {
+	if m.opKind != "" {
+		m.toast = "operation already in progress"
+		return nil
+	}
+	names := m.delChk.selected(m.keys(TabDelete))
+	if len(names) == 0 {
+		m.toast = "select containers to delete"
+		return nil
+	}
+	// refuse from the tab's fresh podman-ps -a state (the op re-checks)
+	live := make([]string, 0)
+	for _, name := range names {
+		if stateOf(m.containers, name) == "running" {
+			live = append(live, name)
+		}
+	}
+	if len(live) > 0 {
+		m.toast = "stop it first: podman stop " + strings.Join(live, " podman stop ")
+		return nil
+	}
+	lines := make([]string, 0, len(names))
+	for _, name := range names {
+		lines = append(lines, "container: "+name)
+	}
+	m.confirm.Open(fmt.Sprintf("Delete %d container(s)?", len(names)), "Delete", "Cancel", lines, true,
+		func() tea.Cmd { return m.launchDelete() })
+	return nil
+}
+
+// liveAmong returns the checked names that are currently running (from
+// the fresh podman-ps list of this view's state; the op re-checks).
+func liveAmong(running, names []string) []string {
+	var live []string
+	for _, name := range names {
+		if slices.Contains(running, name) {
+			live = append(live, name)
+		}
+	}
+	return live
+}
+
+// stateOf returns the recorded podman lifecycle state of a container.
+func stateOf(all []discovery.ContainerState, name string) string {
+	for _, c := range all {
+		if c.Name == name {
+			return c.State
+		}
+	}
+	return ""
+}
+
+// launchDelete runs the delete op through the Launcher seam: podman rm
+// per checked container, verified gone against a fresh podman ps -a
+// before any registry mirror write.
+func (m *Model) launchDelete() tea.Cmd {
+	if m.opKind != "" {
+		m.toast = "operation already in progress"
+		return nil
+	}
+	names := m.delChk.selected(m.keys(TabDelete))
+	if len(names) == 0 {
+		m.toast = "select containers to delete"
+		return nil
+	}
+	m.opKind = "delete"
+	m.log = shell.NewLogPane().HideHead()
+	m.toast = fmt.Sprintf("deleting %d container(s)…", len(names))
+	run, reg := m.Run, m.Registry
+	return m.launch(fmt.Sprintf("deleting %d container(s)", len(names)), keyDelete, func(emit func(string)) error {
+		// refuse running containers even when the state changed since
+		// the popup armed (same guard as startDelete)
+		if live := discovery.RunningContainers(run); len(live) > 0 {
+			for _, name := range liveAmong(live, names) {
+				return fmt.Errorf("stop it first: podman stop %s", name)
+			}
+		}
+		for _, name := range names {
+			out, err := run.Output("podman", "rm", name)
+			for _, l := range cmdrun.Lines(out) {
+				emit(l)
+			}
+			if err != nil {
+				return fmt.Errorf("podman rm %s failed: %s", name, strings.TrimSpace(out))
+			}
+		}
+		// verified gone (data map §3): reconcile against a fresh
+		// podman ps -a before any write.
+		remaining := discovery.AllContainers(run)
+		for _, name := range names {
+			if slices.ContainsFunc(remaining, func(c discovery.ContainerState) bool { return c.Name == name }) {
+				return fmt.Errorf("%s still exists", name)
+			}
+		}
+		if reg == nil {
+			return nil
+		}
+		for _, name := range names {
+			id := strings.TrimPrefix(name, registry.ContainerName(""))
+			p, err := reg.ByID(id)
+			if err != nil {
+				continue // leftover of a gone project: nothing to mirror
+			}
+			if p.ContainerStatus != "stopped" {
+				if err := reg.UpdateStatus(p.Path, "stopped"); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	})
+}
+
+// tail returns the last n lines of an output blob.
+func tail(out string, n int) string {
+	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
+	return strings.Join(lines[max(0, len(lines)-n):], "\n")
+}
+
 // launch turns the op into a tea.Cmd: through the shared background-task
 // manager (#82) when wired (queued per key, lines stream), else through
-// the injected Launcher func ((SyncLauncher fallback).
+// the injected Launcher func (SyncLauncher fallback).
 func (m *Model) launch(title, key string, op Op) tea.Cmd {
 	m.opID++
 	m.opKey = key
@@ -583,8 +916,8 @@ func (m *Model) launch(title, key string, op Op) tea.Cmd {
 }
 
 // opDone finalizes a finished op: stream the output into the log pane,
-// stop the spinner, toast the result, and refresh the running list
-// after a stop.
+// stop the spinner, toast the result, and refresh the focused tab's
+// data (for stop/start/delete that includes the fresh podman state).
 func (m *Model) opDone(msg OpDoneMsg) tea.Cmd {
 	if m.opKind == "" {
 		return nil
@@ -606,15 +939,29 @@ func (m *Model) opDone(msg OpDoneMsg) tea.Cmd {
 		} else {
 			m.toast = "Build successful"
 		}
+	case "start":
+		if msg.Err != nil {
+			m.toast = msg.Err.Error()
+		} else {
+			m.toast = "Containers started"
+		}
 	case "stop":
 		if msg.Err != nil {
 			m.toast = msg.Err.Error()
 		} else {
 			m.toast = "Containers stopped"
 		}
-		return m.refreshRunning()
+	case "delete":
+		if msg.Err != nil {
+			m.toast = msg.Err.Error()
+		} else {
+			m.toast = "Containers deleted"
+		}
 	}
-	return nil
+	if kind == "build" {
+		return nil // no data dependency; discovery is fresh per render
+	}
+	return m.refreshTab(m.sub)
 }
 
 // Body implements shell.CenterView. Edition discovery runs fresh on
@@ -622,133 +969,133 @@ func (m *Model) opDone(msg OpDoneMsg) tea.Cmd {
 // they are laid out.
 func (m *Model) Body(width, height int) string {
 	m.refreshEditions()
-	m.cardRects = nil
 	m.rowRects = nil
-	m.stopIdx = nil
+	m.rowKeys = nil
 	m.selAll = shell.Rect{}
-	m.stopBtn = shell.Rect{}
-	m.buildBtn = shell.Rect{}
+	m.opBtn = shell.Rect{}
 
 	var lines []string
-	if m.sub == TabBuild {
+	switch m.sub {
+	case TabBuild:
 		lines = m.buildBody(width, height)
-	} else {
-		lines = m.stopBody(width, height)
+	case TabStart:
+		lines = m.checklistBody(width, height, m.rows(TabStart, width), &m.startChk, 1,
+			m.projectsBanner(), "Start")
+	case TabStop:
+		lines = m.checklistBody(width, height, m.rows(TabStop, width), &m.stopChk, 1,
+			"no containers running", "Stop")
+	case TabDelete:
+		lines = m.checklistBody(width, height, m.rows(TabDelete, width), &m.delChk, 1,
+			"no oc-sandbox containers found", "Delete")
 	}
 	body := shell.PadLeft(padX, strings.Join(lines, "\n"))
-	if m.confirm.IsOpen() { // the popup overlays the cards (ADR-0021)
+	if m.confirm.IsOpen() { // the popup overlays the rows (ADR-0021)
 		body = m.confirm.Overlay(width, height, shell.BodyTop)
 	}
 	return body
 }
 
-// buildBody renders the two-column edition cards, the reserved toast
-// row, the Build button, and the embedded log pane below.
-func (m *Model) buildBody(width, height int) []string {
-	opts := m.options()
-	var lines []string
-	if m.discoveryErr != "" {
-		lines = append(lines, shell.Toast(m.discoveryErr), "")
-	} else {
-		cols := 2
-		if padX+2*shell.CardStride > width {
-			cols = 1
-		}
-		cards := make([]string, len(opts))
-		for i, opt := range opts {
-			busy := m.Queue != nil && m.Queue.BusyKey("cv-build:"+opt)
-			cards[i] = editionCard(opt, busy, i == m.buildSel)
-		}
-		rows := int(math.Ceil(float64(len(cards)) / float64(cols)))
-		m.cardRects = shell.CardRects(padX, bodyTop, len(opts), cols, 0)
-		for r := 0; r < rows; r++ {
-			end := min((r+1)*cols, len(cards))
-			lines = append(lines, lipgloss.JoinHorizontal(lipgloss.Top, cards[r*cols:end]...))
-		}
-		lines = append(lines, shell.Toast(m.toastLine()))
+// projectsBanner is the Start tab's empty-state / loud-error text.
+func (m *Model) projectsBanner() string {
+	if m.projectsErr != "" {
+		return m.projectsErr
 	}
-	btn := shell.Button("Build", false)
-	m.buildBtn = shell.Rect{X: width - shell.Width(btn), Y: bodyTop + len(lines), W: shell.Width(btn), H: 1}
-	lines = append(lines, shell.AlignRight(width-padX, btn))
-	if rest := height - len(lines); rest > 1 {
+	return "no projects registered"
+}
+
+// buildBody renders the edition checklist (loud discovery error
+// replaces the rows), the reserved toast row, the Build button, and the
+// embedded log pane below.
+func (m *Model) buildBody(width, height int) []string {
+	if m.discovErr != "" {
+		// discovery errors are loud: no rows, no select-all — the
+		// button and log pane render as usual
+		return m.bannerBody(width, height, m.discovErr, m.toastLine(), "Build")
+	}
+	return m.checklistBody(width, height, m.rows(TabBuild, width), &m.buildChk, 2, "", "Build")
+}
+
+// bannerBody renders a loud error above the normal button + log pane.
+func (m *Model) bannerBody(width, height int, banner, toast, btn string) []string {
+	var inner []string
+	inner = append(inner, shell.Toast(banner), "")
+	lineY := bodyTop + 2
+	for _, l := range shell.ButtonLines(btn, false) {
+		inner = append(inner, l)
+		if strings.Contains(l, btn) {
+			m.opBtn = shell.Rect{X: padX + 2, Y: lineY, W: shell.Width(l) - 2, H: 1}
+		}
+		lineY++
+	}
+	inner = append(inner, shell.Toast(toast))
+	card := shell.Card(inner)
+	lines := []string{card}
+	if rest := height - lipgloss.Height(card); rest > 1 {
 		m.log = m.log.SetSize(width-2*padX, rest)
 		lines = append(lines, m.log.View())
 	}
 	return lines
 }
 
-// editionCard renders one educational edition card (name + description
-// that wraps inside the fixed frame), accent-bordered when selected;
-// busy marks a queued or running op for that edition's queue key
-// (still-running indicator #82).
-func editionCard(name string, busy, selected bool) string {
-	suffix := ""
-	if busy {
-		// "  ◌ running" measures 11 cells: the name line always stays
-		// one row inside the frame.
-		suffix = "  " + shell.StyleStatusRunning.Render("◌ running")
-	}
-	name = truncate(name, shell.CardWidth-6-shell.Width(suffix))
-	st := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(shell.ColBorder).
-		Background(shell.ColCardBg).
-		Padding(0, 1).
-		Width(shell.CardWidth - 2).Height(shell.CardHeight - 2)
-	if selected {
-		st = st.BorderForeground(shell.ColAccent)
-	}
-	inner := shell.StyleFieldLabel.Render(name+suffix) + "\n" + shell.StyleMutedAlt.Render(description(name))
-	return st.Render(inner)
-}
-
-// stopBody renders the running-container checklist card (select-all,
-// rows, Stop button, reserved toast row) and the log pane below. When
-// the checklist exceeds the card height it scrolls: head rows are
-// dropped and the recorded rects shift up by the scroll offset.
-func (m *Model) stopBody(width, height int) []string {
+// checklistBody renders one tab's checklist card (select-all, rows,
+// action button, reserved toast row) and the log pane below; unit is
+// the rendered line count per row (build rows carry a description
+// line). When the checklist exceeds the card height it scrolls: head
+// rows are dropped and the recorded rects shift up by the offset.
+func (m *Model) checklistBody(width, height int, rows []chkRow, c *checklist, unit int, empty, btn string) []string {
+	num := len(rows)
 	avail := height - 2 // card borders
-	visible := max(1, avail-checklistFixedRows)
-	m.stopFollow.Pull(&m.stopScroll, m.stopSel, m.stopSel, len(m.running), visible)
+	visible := max(1, (avail-checklistFixedRows)/unit)
+	if num > 0 {
+		c.follow.Pull(&c.scroll, c.sel, c.sel, num, visible)
+	}
 
 	var inner []string
 	lineY := bodyTop + 1 // first row inside the card border
-	if len(m.running) == 0 {
-		inner = append(inner, shell.StyleMutedAlt.Render("no containers running"))
+	if num == 0 {
+		inner = append(inner, shell.StyleMutedAlt.Render(empty))
 		lineY++
 	} else {
-		box := "☐"
-		if m.allSelected() {
-			box = "☒"
+		allBox := "☐"
+		if c.allSelected(keysOf(rows)) {
+			allBox = "☒"
 		}
-		inner = append(inner, box+" select all")
+		inner = append(inner, allBox+" select all")
 		m.selAll = shell.Rect{X: padX + 2, Y: lineY, W: 2 + shell.Width("select all"), H: 1}
 		lineY++
-		for i := m.stopScroll; i < len(m.running) && i < m.stopScroll+visible; i++ {
-			name := m.running[i]
-			box := "☐"
-			if m.selection[name] {
-				box = "☒"
+		for i := c.scroll; i < num && i < c.scroll+visible; i++ {
+			row := rows[i]
+			rowBox := "☐"
+			if c.checked[row.key] {
+				rowBox = "☒"
 			}
-			row := box + " " + name + "  " + shell.StyleStatusRunning.Render(shell.SymOn+" running")
-			if i == m.stopSel {
-				row = shell.StyleSelectedRow.Render(row)
+			main := rowBox + " " + truncateStyled(row.main, width-8)
+			if i == c.sel {
+				main = shell.StyleSelectedRow.Render(main)
 			}
-			inner = append(inner, row)
+			inner = append(inner, main)
 			m.rowRects = append(m.rowRects, shell.Rect{
-				X: padX + 2, Y: lineY, W: 2 + shell.Width(name) + 2 + shell.Width(shell.SymOn+" running"), H: 1,
+				X: padX + 2, Y: lineY, W: 2 + shell.Width(row.main), H: unit,
 			})
-			m.stopIdx = append(m.stopIdx, i)
+			m.rowKeys = append(m.rowKeys, row.key)
 			lineY++
+			if row.sub != "" {
+				sub := "  " + truncateStyled(row.sub, width-10)
+				if i == c.sel {
+					sub = shell.StyleSelectedRow.Render(sub)
+				}
+				inner = append(inner, sub)
+				lineY++
+			}
 		}
 		inner = append(inner, "")
 		lineY++
 	}
-	btnBlock := shell.ButtonLines("Stop", false)
+	btnBlock := shell.ButtonLines(btn, false)
 	for _, l := range btnBlock {
 		inner = append(inner, l)
-		if strings.Contains(l, "Stop") {
-			m.stopBtn = shell.Rect{X: padX + 2, Y: lineY, W: shell.Width(l) - 2, H: 1} // minus borders
+		if strings.Contains(l, btn) {
+			m.opBtn = shell.Rect{X: padX + 2, Y: lineY, W: shell.Width(l) - 2, H: 1} // minus borders
 		}
 		lineY++
 	}
@@ -760,4 +1107,76 @@ func (m *Model) stopBody(width, height int) []string {
 		lines = append(lines, m.log.View())
 	}
 	return lines
+}
+
+// rows builds one tab's checklist rows fresh per render.
+func (m *Model) rows(t, width int) []chkRow {
+	switch t {
+	case TabBuild:
+		rows := make([]chkRow, 0, len(m.editions))
+		for _, ed := range m.editions {
+			rows = append(rows, chkRow{key: ed,
+				main: shell.StyleFieldLabel.Render(ed),
+				sub:  shell.StyleMutedAlt.Render(description(ed)),
+			})
+		}
+		return rows
+	case TabStart:
+		rows := make([]chkRow, 0, len(m.projects))
+		for _, p := range m.projects {
+			name := registry.ContainerName(p.ContainerID)
+			main := truncate(p.Name, 34) + "  " +
+				shell.StyleMutedAlt.Render(truncate(name, 44)) + m.runningMarker(name)
+			rows = append(rows, chkRow{key: name, main: truncateStyled(main, width-4)})
+		}
+		return rows
+	case TabStop:
+		rows := make([]chkRow, 0, len(m.running))
+		for _, name := range m.running {
+			rows = append(rows, chkRow{key: name,
+				main: truncate(name, 44) + m.runningMarker(name),
+			})
+		}
+		return rows
+	case TabDelete:
+		rows := make([]chkRow, 0, len(m.containers))
+		for _, c := range m.containers {
+			main := truncate(c.Name, 44)
+			if p, err := m.projectFor(c.Name); err == nil {
+				main += "  " + shell.StyleMutedAlt.Render(truncate(p.Name, 24))
+			}
+			main += stateMarker(c)
+			rows = append(rows, chkRow{key: c.Name, main: truncateStyled(main, width-4)})
+		}
+		return rows
+	}
+	return nil
+}
+
+// runningMarker appends the running indicator when the container is
+// live in the cached podman-ps list (ops re-check inside their task).
+func (m *Model) runningMarker(name string) string {
+	if !slices.Contains(m.running, name) {
+		return ""
+	}
+	return "  " + shell.StyleStatusRunning.Render(shell.SymOn+" running")
+}
+
+// stateMarker renders the podman lifecycle state: live in the running
+// color (same marker as the other tabs), any other state muted — the
+// distinction never rides on color alone (SymOn vs SymOff).
+func stateMarker(c discovery.ContainerState) string {
+	if c.State == "running" {
+		return "  " + shell.StyleStatusRunning.Render(shell.SymOn+" running")
+	}
+	return "  " + shell.StyleMutedAlt.Render(shell.SymOff+" "+c.State)
+}
+
+// projectFor resolves the registry project behind a container name;
+// ErrNotFound for unregistered containers.
+func (m *Model) projectFor(name string) (registry.Project, error) {
+	if m.Registry == nil {
+		return registry.Project{}, registry.ErrNotFound
+	}
+	return m.Registry.ByID(strings.TrimPrefix(name, registry.ContainerName("")))
 }

@@ -244,7 +244,9 @@ einem zentrierten Popup über der Ansicht (Details siehe
 [ADR-0021](docs/adr/0021-confirmation-popups.md)): **New Project → Create
 Project** (Zusammenfassung der aktuellen Konfiguration mit `Create`/`Back`),
 **Settings → Restore Config** (ausgewähltes Backup → Zieldatei),
-**Build Container** (Edition; nur im Leerlauf) und **Settings → Uninstall**
+**Build Container** (Editionen; nur im Leerlauf), **Delete Container**
+(rote `Delete`-Bestätigung; laufende Container werden zuvor mit dem
+Stopp-Hinweis abgewiesen) und **Settings → Uninstall**
 (rote `Uninstall`-Bestätigung nach dem getippten „uninstall“, mit Echo der
 gewählten Optionen). Fokus startet auf der abbrechenden Taste (`Back`/`Cancel`);
 `←`/`→`/`Tab` wechselt die Taste, `↵` aktiviert die fokussierte Taste,

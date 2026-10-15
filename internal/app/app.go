@@ -95,7 +95,7 @@ func Compose(home string, run cmdrun.Runner, now func() time.Time) App {
 	}, run, newproject.ScriptOps{Runner: run}, reg)
 	np.Tasks = mgr
 
-	cv := containerview.New(run, reg, layout.Dockerfile, layout.DockerfileCustom, layout.BuildScript, containerview.SyncLauncher)
+	cv := containerview.New(run, reg, layout.Dockerfile, layout.DockerfileCustom, layout.BuildScript, layout.StartScript, containerview.SyncLauncher)
 	cv.Queue = mgr
 
 	settings := settingsview.New(home)
