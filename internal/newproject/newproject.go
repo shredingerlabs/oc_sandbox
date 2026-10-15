@@ -86,7 +86,9 @@ const (
 	fVCSToken
 	fVCSHost
 	fAI
-	fGWDGToken
+	fAIName
+	fAIEndpoint
+	fAIToken
 	fPrompt // credential replacement prompt row (phaseConfirm only)
 	fCreate
 )
@@ -109,7 +111,7 @@ var (
 	startOptions = []string{"console", "opencode", "web"}
 	buildOptions = []string{"Build now", "Build later"}
 	vcsOptions   = []string{"none", "github.com", "gitlab.com", "own GitLab", "others"}
-	aiOptions    = []string{"gwdg-saia", "none"}
+	aiOptions    = []string{"none", "Custom"}
 )
 
 // Model is the New Project center view.
@@ -133,17 +135,19 @@ type Model struct {
 	vcsManual       bool // URL-derived VCS stops once the row is hand-set
 	cursor          int  // caret inside the focused text field
 
-	edition   string
-	modes     []string
-	modeCur   int // inner cursor over the mode option tokens
-	start     string
-	vcs       string
-	gitName   string
-	gitEmail  string
-	vcsToken  string
-	vcsHost   string
-	ai        string
-	gwdgToken string
+	edition    string
+	modes      []string
+	modeCur    int // inner cursor over the mode option tokens
+	start      string
+	vcs        string
+	gitName    string
+	gitEmail   string
+	vcsToken   string
+	vcsHost    string
+	ai         string
+	aiName     string // Custom: provider display name (also the id source)
+	aiEndpoint string
+	aiToken    string
 
 	fields []int
 	focus  int // index into fields
@@ -188,10 +192,10 @@ var _ shell.CenterView = (*Model)(nil)
 // New returns the New Project view.
 func New(cfg Config, run cmdrun.Runner, ops Ops, reg *registry.Registry) *Model {
 	m := &Model{
-		cfg:     cfg,
-		run:     run,
-		ops:     ops,
-		reg:     reg,
+		cfg:      cfg,
+		run:      run,
+		ops:      ops,
+		reg:      reg,
 		start:    startOptions[0],
 		vcs:      "none",
 		ai:       aiOptions[0],
@@ -220,7 +224,7 @@ func (m *Model) TextFocused() bool {
 	}
 	f := m.fields[m.focus]
 	switch f {
-	case fName, fPath, fURL, fGitName, fGitEmail, fVCSToken, fVCSHost, fGWDGToken:
+	case fName, fPath, fURL, fGitName, fGitEmail, fVCSToken, fVCSHost, fAIName, fAIEndpoint, fAIToken:
 		return true
 	}
 	return false
@@ -439,7 +443,7 @@ func (m *Model) focusRow(f int) {
 // activate handles Enter/Space on the focused row.
 func (m *Model) activate(f int) tea.Cmd {
 	switch f {
-	case fName, fPath, fURL, fGitName, fGitEmail, fVCSToken, fVCSHost, fGWDGToken:
+	case fName, fPath, fURL, fGitName, fGitEmail, fVCSToken, fVCSHost, fAIName, fAIEndpoint, fAIToken:
 		return nil
 	case fEdition:
 		m.edition = cycle(m.edition, m.editions())
@@ -452,6 +456,7 @@ func (m *Model) activate(f int) tea.Cmd {
 		m.vcsManual = true
 	case fAI:
 		m.ai = cycle(m.ai, aiOptions)
+		m.cursorReset()
 	case fModes:
 		opts := m.modeOptions()
 		if m.modeCur >= len(opts) {
@@ -486,7 +491,8 @@ func (m *Model) askCreate() tea.Cmd {
 		"edition: "+m.edition,
 		"modes: "+joinModes(m.modes),
 		"start: "+m.start,
-		"VCS tracking: "+m.vcs)
+		"VCS tracking: "+m.vcs,
+		"AI provider: "+m.aiSummary())
 	if !imageExistsLive(m.run, m.edition) {
 		line := "Build later"
 		if m.buildNow {
@@ -577,7 +583,7 @@ func cycle(cur string, opts []string) string {
 
 func isText(f int) bool {
 	switch f {
-	case fName, fPath, fURL, fGitName, fGitEmail, fVCSToken, fVCSHost, fGWDGToken:
+	case fName, fPath, fURL, fGitName, fGitEmail, fVCSToken, fVCSHost, fAIName, fAIEndpoint, fAIToken:
 		return true
 	}
 	return false
@@ -599,8 +605,12 @@ func (m *Model) textVal(f int) string {
 		return m.vcsToken
 	case fVCSHost:
 		return m.vcsHost
-	case fGWDGToken:
-		return m.gwdgToken
+	case fAIName:
+		return m.aiName
+	case fAIEndpoint:
+		return m.aiEndpoint
+	case fAIToken:
+		return m.aiToken
 	}
 	return ""
 }
@@ -625,8 +635,12 @@ func (m *Model) setText(f int, v string) {
 		m.vcsToken = v
 	case fVCSHost:
 		m.vcsHost = v
-	case fGWDGToken:
-		m.gwdgToken = v
+	case fAIName:
+		m.aiName = v
+	case fAIEndpoint:
+		m.aiEndpoint = v
+	case fAIToken:
+		m.aiToken = v
 	}
 }
 
@@ -749,8 +763,8 @@ func (m *Model) fieldList() []int {
 		}
 	}
 	fs = append(fs, fAI)
-	if m.ai == "gwdg-saia" {
-		fs = append(fs, fGWDGToken)
+	if m.ai == "Custom" {
+		fs = append(fs, fAIName, fAIEndpoint, fAIToken)
 	}
 	if m.phase == phaseConfirm {
 		fs = append(fs, fPrompt)
@@ -797,9 +811,9 @@ func (m *Model) resolvePrompt() tea.Cmd {
 	return m.runCreds()
 }
 
-// dropHead pops the pending credential step; keeping an existing
-// gwdg-saia entry also skips its opencode-config follower (bash: the
-// confirm path returns before both calls).
+// dropHead pops the pending credential step; keeping an existing provider
+// id's entry also skips its opencode-config follower (bash: the confirm
+// path returns before both calls).
 func (m *Model) dropHead() {
 	if len(m.credQueue) == 0 {
 		return

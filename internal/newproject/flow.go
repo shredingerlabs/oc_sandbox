@@ -11,6 +11,7 @@ import (
 
 	"github.com/shredingerlabs/oc-sandbox/internal/cmdrun"
 	"github.com/shredingerlabs/oc-sandbox/internal/discovery"
+	"github.com/shredingerlabs/oc-sandbox/internal/providerid"
 	"github.com/shredingerlabs/oc-sandbox/internal/registry"
 	"github.com/shredingerlabs/oc-sandbox/internal/sandboxcfg"
 )
@@ -149,6 +150,25 @@ func (m *Model) create() tea.Cmd {
 
 // validateInputs checks the slug name, required URL, path, and registry
 // uniqueness (duplicate name / canonical path).
+// aiSummary is the create-confirm popup's "AI provider" line value:
+// the provider name for Custom, or "none" (spec user story 9).
+func (m *Model) aiSummary() string {
+	if m.ai == "Custom" {
+		return m.aiName
+	}
+	return "none"
+}
+
+// recordedProviderID is the value recorded in sandbox_config.json's
+// ai_provider field: the slugified provider id for Custom, "none"
+// otherwise (spec user story 22).
+func (m *Model) recordedProviderID() string {
+	if m.ai == "Custom" {
+		return providerid.Slug(m.aiName)
+	}
+	return "none"
+}
+
 func (m *Model) validateInputs() string {
 	if !nameRe.MatchString(m.name) {
 		return "Invalid project name — use [a-zA-Z0-9_-]+."
@@ -164,6 +184,17 @@ func (m *Model) validateInputs() string {
 	}
 	if _, err := m.reg.ByPath(m.path); err == nil {
 		return "Duplicate project path — choose a unique location."
+	}
+	if m.ai == "Custom" {
+		if !providerid.ValidName(m.aiName) {
+			return "Provider name must not be empty and needs at least one letter or digit."
+		}
+		if !providerid.ValidEndpoint(m.aiEndpoint) {
+			return "Endpoint must be an http:// or https:// URL without whitespace (e.g. https://api.example.com/v1)."
+		}
+		if !providerid.ValidToken(m.aiToken) {
+			return "Token must not be empty or contain whitespace/newlines."
+		}
 	}
 	return ""
 }
@@ -189,7 +220,7 @@ func (m *Model) createTail() tea.Cmd {
 				return nil
 			}
 			cfgPath := sandboxcfg.Path(root)
-			if err := sandboxcfg.Create(m.cfg.Home, cfgPath, m.edition, m.modes, m.start, m.ai); err != nil {
+			if err := sandboxcfg.Create(m.cfg.Home, cfgPath, m.edition, m.modes, m.start, m.recordedProviderID()); err != nil {
 				m.toast = "sandbox_config.json could not be created: " + err.Error()
 				return nil
 			}
@@ -221,9 +252,10 @@ func (m *Model) patchConfig(cfgPath string) error {
 }
 
 // buildCreds queues configure-project.sh steps in bash order: VCS
-// credentials, then git identity (vcs != none), then the GWDG provider plus
-// its opencode-config follower. Steps are queued only with the values the
-// user supplied in the TUI — prompts stay here, the script only writes.
+// credentials, then git identity (vcs != none), then the custom provider's
+// ai-provider step plus its opencode-config follower (provider-neutral,
+// spec #100). Steps are queued only with the values the user supplied in
+// the TUI — prompts stay here, the script only writes.
 func (m *Model) buildCreds(root string) {
 	m.credQueue = nil
 	if m.vcs != "none" {
@@ -236,10 +268,12 @@ func (m *Model) buildCreds(root string) {
 			})
 		}
 	}
-	if m.ai == "gwdg-saia" && strings.TrimSpace(m.gwdgToken) != "" {
+	if m.ai == "Custom" {
 		m.credQueue = append(m.credQueue,
-			credStep{args: []string{"ai-provider", "gwdg", root, "--token", m.gwdgToken}},
-			credStep{args: []string{"opencode-config", "gwdg", root}},
+			credStep{args: []string{"ai-provider", root, "--name", m.aiName,
+				"--endpoint", m.aiEndpoint, "--token", m.aiToken}},
+			credStep{args: []string{"opencode-config", root, "--id", m.recordedProviderID(),
+				"--name", m.aiName, "--endpoint", m.aiEndpoint}},
 		)
 	}
 }
@@ -342,22 +376,36 @@ func (m *Model) finishCreate() tea.Cmd {
 	}
 }
 
+// aiProviderID finds the --name value of an ai-provider step; "" for
+// other steps (id-parameterized replacement confirm, spec #100).
+func aiProviderID(args []string) string {
+	if len(args) < 2 || args[0] != "ai-provider" {
+		return ""
+	}
+	i := indexOf(args, "--name")
+	if i >= 0 && i+1 < len(args) {
+		return providerid.Slug(args[i+1])
+	}
+	return ""
+}
+
 // needsConfirm reports whether the queued step would overwrite an existing
 // credential file and therefore requires the explicit Keep/Replace prompt:
 // VCS steps watch their CLI host file; the ai-provider step watches
-// auth.json for an existing gwdg-saia section (bash parity).
+// auth.json for an existing entry under the derived provider id (id-
+// parameterized, bash parity).
 func (m *Model) needsConfirm(st credStep) bool {
 	if st.file != "" {
 		if _, err := os.Stat(st.file); err == nil {
 			return true
 		}
 	}
-	if len(st.args) >= 3 && st.args[0] == "ai-provider" {
-		data, err := os.ReadFile(st.args[2] + "/.opencode_data/auth.json")
+	if id := aiProviderID(st.args); id != "" && len(st.args) > 1 {
+		data, err := os.ReadFile(st.args[1] + "/.opencode_data/auth.json")
 		if err == nil {
 			var doc map[string]any
 			if json.Unmarshal(data, &doc) == nil {
-				if _, has := doc["gwdg-saia"]; has {
+				if _, has := doc[id]; has {
 					return true
 				}
 			}
