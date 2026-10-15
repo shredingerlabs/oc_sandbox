@@ -183,9 +183,9 @@ func TestCardRectsPinnedGeometry(t *testing.T) {
 	e := newEnv(t, nil)
 	bodyOf(t, e.m, bodyW, bodyH)
 	got := e.m.CardRects()
-	// 30-wide cards, one per row at this size, card block 5 tall (3
-	// content rows incl. the start buttons), 1-row gap.
-	want := []shell.Rect{{X: 1, Y: bt, W: 30, H: 5}, {X: 1, Y: bt + 6, W: 30, H: 5}}
+	// 30-wide cards, one per row at this size, card block 6 tall (4
+	// content rows incl. the divider + start buttons), 1-row gap.
+	want := []shell.Rect{{X: 1, Y: bt, W: 30, H: 6}, {X: 1, Y: bt + 7, W: 30, H: 6}}
 	if !rectsEqual(got, want) {
 		t.Errorf("card rects = %v, want %v", got, want)
 	}
@@ -210,7 +210,7 @@ func TestCardGridWrapsAtWideWidth(t *testing.T) {
 	if len(got) < 3 {
 		t.Fatalf("expected ≥3 card rects, got %v", got)
 	}
-	want := []shell.Rect{{X: 1, Y: bt, W: 30, H: 5}, {X: 32, Y: bt, W: 30, H: 5}, {X: 63, Y: bt, W: 30, H: 5}}
+	want := []shell.Rect{{X: 1, Y: bt, W: 30, H: 6}, {X: 32, Y: bt, W: 30, H: 6}, {X: 63, Y: bt, W: 30, H: 6}}
 	if !rectsEqual(got[0:3], want) {
 		t.Errorf("wrapped rects = %v, want %v", got[0:3], want)
 	}
@@ -608,8 +608,8 @@ func TestWebButtonStartsWithStartWebAndShowsURL(t *testing.T) {
 		}
 	}
 	e.step(clickAt(rect.X+2, rect.Y+1)) // select alpha
-	// the Web button sits at content row 3; click its label
-	e.step(clickAt(rect.X+2+19, rect.Y+3))
+	// the Web button sits at content row 4; click its label
+	e.step(clickAt(rect.X+2+19, rect.Y+4))
 	e.finishOps()
 	got := strings.Join(e.startCalls(t)[0], " ")
 	if !strings.Contains(got, "--start_web") || !strings.HasSuffix(got, "--detach") {
@@ -640,7 +640,7 @@ func TestWebButtonOnRunningCardShowsURL(t *testing.T) {
 			rect = r
 		}
 	}
-	e.step(clickAt(rect.X+19+2, rect.Y+3)) // Web button, alpha already selected
+	e.step(clickAt(rect.X+19+2, rect.Y+4)) // Web button, alpha already selected
 	e.finishOps()
 	if len(e.startCalls(t)) != 0 {
 		t.Fatalf("running container was started: %v", e.startCalls(t))

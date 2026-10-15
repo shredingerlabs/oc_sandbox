@@ -1,11 +1,11 @@
 package shell
 
 // Card-grid geometry shared by the project/edition card views
-// (approved layout record #72): 30×5 cards with a one gutter cell
+// (approved layout record #72): 30×6 cards with a one gutter cell
 // between horizontal neighbors.
 const (
 	CardWidth  = 30 // card total width (border + 26 content cols)
-	CardHeight = 5  // card total height (border + rows)
+	CardHeight = 6  // card total height (border + rows)
 	CardGap    = 1  // horizontal gutter between neighbor cards
 	CardStride = CardWidth + CardGap
 )

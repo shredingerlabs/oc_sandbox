@@ -32,10 +32,10 @@ import (
 const BodyTop = shell.SubTabRowY + 1
 
 // Fixed card geometry (approved record #72): 30-wide cards with a one
-// column gutter; two content rows per card.
+// column gutter; three content rows per card.
 const (
 	cardInnerW = 26 // content width → shell.CardWidth 30 (border + 26)
-	cardRowsN  = 2
+	cardRowsN  = 3
 	rowStride  = shell.CardHeight + 1 // card + gap
 )
 
@@ -1146,12 +1146,16 @@ func (m *Model) cardRows(p registry.Project, running bool) []string {
 		for i, r := range rows {
 			rows[i] = shell.StyleSelectedRow.Render(padTo(cardInnerW, r))
 		}
-		rows = append(rows, padTo(cardInnerW, startButtonRow(m.startSel, true)))
+		rows = append(rows,
+			shell.StyleMutedAlt.Render(padTo(cardInnerW, divider(24))),
+			padTo(cardInnerW, startButtonRow(m.startSel, true)))
 	} else {
 		for i, r := range rows {
 			rows[i] = padTo(cardInnerW, r)
 		}
-		rows = append(rows, padTo(cardInnerW, startButtonRow(m.staged.start, false)))
+		rows = append(rows,
+			shell.StyleMutedAlt.Render(padTo(cardInnerW, divider(24))),
+			padTo(cardInnerW, startButtonRow(m.staged.start, false)))
 	}
 	return rows
 }
@@ -1187,10 +1191,10 @@ func startButtonRow(pre string, activeCard bool) string {
 }
 
 // recordStartButtons pins the start-button hit rects on the selected
-// card's button row (content row 3, two cells in from the border):
+// card's button row (content row 4, two cells in from the border):
 // label order and 2-space gaps mirror startButtonRow exactly.
 func (m *Model) recordStartButtons(rc shell.Rect) {
-	x, y, w := rc.X+2, rc.Y+3, 0
+	x, y, w := rc.X+2, rc.Y+4, 0
 	m.startBtnRects = nil
 	for _, lbl := range startButtons {
 		rect := shell.Rect{X: x + w, Y: y, W: shell.Width(lbl), H: 1}
