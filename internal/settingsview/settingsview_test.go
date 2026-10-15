@@ -514,11 +514,14 @@ func TestUninstallGoldenWithRunningContainers(t *testing.T) {
 	v := newSettings(t, home, fakeRunner("opencode-sandbox-alpha", "opencode-sandbox-beta"))
 	v.Update(shell.SubTabMsg{Index: 3})
 	golden(t, "uninstall-running", home, v.Body(76, 26))
-	// clipped rows must keep the warning + container hints visible
-	// (ellipsis marks a clipped podman-stop suggestion).
-	bb := body(v)
-	if !strings.Contains(bb, "stop it first") || !strings.Contains(bb, "podman stop") {
-		t.Errorf("stop hint missing from the warning block:\n%s", bb)
+	// clipped rows keep the warning + stop-hint prefix visible; the full
+	// podman-stop command appears once the window has the room for it.
+	if !strings.Contains(body(v), "stop it first") || !strings.Contains(body(v), "podman stop") {
+		t.Errorf("stop hint clipped too early:\n%s", body(v))
+	}
+	wide := shell.StripANSI(v.Body(86, 26))
+	if !strings.Contains(wide, "podman stop opencode-sandbox-alpha") {
+		t.Errorf("full stop hint missing from an 86-col window:\n%s", wide)
 	}
 }
 
