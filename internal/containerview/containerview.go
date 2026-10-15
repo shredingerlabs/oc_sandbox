@@ -265,10 +265,6 @@ func truncate(s string, n int) string {
 	return string(out) + "…"
 }
 
-// truncateStyled clips a (styled) row segment to its budget so no row
-// can stretch the card frame past the window.
-func truncateStyled(s string, n int) string { return truncate(s, n) }
-
 // New returns the Container view: live edition discovery from the
 // Dockerfiles, build-container.sh / start.sh as the build and start
 // entry points, and the registry that receives verified
@@ -1069,7 +1065,7 @@ func (m *Model) checklistBody(width, height int, rows []chkRow, c *checklist, un
 			if c.checked[row.key] {
 				rowBox = "☒"
 			}
-			main := rowBox + " " + truncateStyled(row.main, width-8)
+			main := rowBox + " " + truncate(row.main, width-8)
 			if i == c.sel {
 				main = shell.StyleSelectedRow.Render(main)
 			}
@@ -1080,7 +1076,7 @@ func (m *Model) checklistBody(width, height int, rows []chkRow, c *checklist, un
 			m.rowKeys = append(m.rowKeys, row.key)
 			lineY++
 			if row.sub != "" {
-				sub := "  " + truncateStyled(row.sub, width-10)
+				sub := "  " + truncate(row.sub, width-10)
 				if i == c.sel {
 					sub = shell.StyleSelectedRow.Render(sub)
 				}
@@ -1127,7 +1123,7 @@ func (m *Model) rows(t, width int) []chkRow {
 			name := registry.ContainerName(p.ContainerID)
 			main := truncate(p.Name, 34) + "  " +
 				shell.StyleMutedAlt.Render(truncate(name, 44)) + m.runningMarker(name)
-			rows = append(rows, chkRow{key: name, main: truncateStyled(main, width-4)})
+			rows = append(rows, chkRow{key: name, main: truncate(main, width-4)})
 		}
 		return rows
 	case TabStop:
@@ -1146,7 +1142,7 @@ func (m *Model) rows(t, width int) []chkRow {
 				main += "  " + shell.StyleMutedAlt.Render(truncate(p.Name, 24))
 			}
 			main += stateMarker(c)
-			rows = append(rows, chkRow{key: c.Name, main: truncateStyled(main, width-4)})
+			rows = append(rows, chkRow{key: c.Name, main: truncate(main, width-4)})
 		}
 		return rows
 	}
