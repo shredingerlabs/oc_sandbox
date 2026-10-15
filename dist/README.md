@@ -34,7 +34,6 @@ dist/
     ├── bash/
     │   └── bash_profile
     └── opencode/
-        ├── opencode-gwdg.json
         ├── opencode-basic.json
         ├── AGENTS.md
         └── skills/
@@ -50,8 +49,9 @@ points at `github.com` or `gitlab.com` (https, SSH, or scp-like form), the VCS
 host is derived automatically without prompting; other hosts show the manual
 chooser. Tokens use hidden prompts and remain in project-local `gh-cli/hosts.yml`,
 `glab-cli/config.yml` (hosts block; glab ignores a separate `hosts.yml`), or
-`.git_local/vcs/hosts.yml`. The GWDG SAIA token is stored
-in `.opencode_data/auth.json`. Existing credentials are kept unless `Replace` is
+`.git_local/vcs/hosts.yml`. The AI provider (provider-neutral, OpenAI-compatible
+endpoint of your choice) writes its token to `.opencode_data/auth.json` under a
+slugified provider id. Existing credentials are kept unless `Replace` is
 explicitly selected.
 Non-empty project-local Git `user.name` and `user.email` are requested for every
 non-`none` VCS choice. A failed start offers `Retry`, `Go back`, or `Exit`; retry

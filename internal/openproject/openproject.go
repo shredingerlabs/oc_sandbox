@@ -11,6 +11,8 @@
 package openproject
 
 import (
+	"encoding/json"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -21,6 +23,7 @@ import (
 
 	"github.com/shredingerlabs/oc-sandbox/internal/cmdrun"
 	"github.com/shredingerlabs/oc-sandbox/internal/discovery"
+	"github.com/shredingerlabs/oc-sandbox/internal/providerid"
 	"github.com/shredingerlabs/oc-sandbox/internal/registry"
 	"github.com/shredingerlabs/oc-sandbox/internal/sandboxcfg"
 	"github.com/shredingerlabs/oc-sandbox/internal/shell"
@@ -47,6 +50,7 @@ type Deps struct {
 	Runner           cmdrun.Runner
 	StartScript      string // dist/scripts/start.sh
 	BuildScript      string // dist/scripts/build-container.sh
+	ConfigureScript  string // dist/scripts/configure-project.sh (#103: provider steps)
 	Dockerfile       string
 	DockerfileCustom string
 	Ops              Launcher                                  // default DefaultLauncher
@@ -68,6 +72,7 @@ type opKind int
 const (
 	opStart opKind = iota
 	opBuild
+	opAI // settings-launched provider steps (#103)
 )
 
 type staged struct {
@@ -90,6 +95,7 @@ type paneRow struct {
 	section string
 	value   string
 	save    bool
+	tf      string // settings-pane text field id ("name"/"endpoint"/"token")
 }
 
 type cardRect struct {
@@ -112,6 +118,19 @@ type Model struct {
 
 	startSel      string       // preselected start variant of the selected card (console/opencode/web)
 	startBtnRects []shell.Rect // start-button hit rects on the selected visible card
+
+	// Custom AI provider capture (#103): selection state lives on the
+	// Model (staged is rebuilt by every refresh); the token is empty on
+	// load and only ever typed.
+	aiTouched   bool   // the user moved the AI row off the stored value
+	aiSel       bool   // Custom capture active
+	aiName      string // provider display name (id source)
+	aiEndpoint  string
+	aiToken     string
+	aiConfirm   *aiConfirmState      // Keep/Replace confirm pending
+	aiSteps     [][]string           // queued configure-project.sh argument vectors
+	aiSaveCfg   *sandboxcfg.Settings // whole-settings rewrite deferred to step success
+	aiRunningOp bool
 
 	staged  staged
 	cursor  int          // index into the settings pane's navigable rows
@@ -185,8 +204,30 @@ func (m *Model) Activate() tea.Cmd {
 // sub-menu tabs of its own.
 func (m *Model) SubTabs() ([]string, int) { return nil, 0 }
 
-// TextFocused implements shell.CenterView — no text inputs here.
-func (m *Model) TextFocused() bool { return false }
+// TextFocused implements shell.CenterView: a Custom-provider text row
+// holds focus in the settings pane (#103).
+func (m *Model) TextFocused() bool {
+	f := m.focusedNavRow()
+	return f != nil && f.tf != ""
+}
+
+// focusedNavRow returns the pane row under the settings cursor, or nil
+// when the pane is unfocused / empty.
+func (m *Model) focusedNavRow() *paneRow {
+	if m.focus != 1 || m.cursor < 0 || m.cursor >= len(m.navRows) {
+		return nil
+	}
+	return &m.layoutRows[m.navRows[m.cursor]]
+}
+
+// resetAICapture clears the Custom provider capture (project switch /
+// reload); in-flight step state survives so a running op completion
+// still lands.
+func (m *Model) resetAICapture() {
+	m.aiTouched, m.aiSel = false, false
+	m.aiName, m.aiEndpoint, m.aiToken = "", "", ""
+	m.aiConfirm = nil
+}
 
 // CardRects returns the current card hit rects (screen coordinates) so
 // regression tests can pin them.
@@ -230,6 +271,7 @@ func (m *Model) selectByID(containerID string) {
 
 func (m *Model) loadStaged() {
 	m.staged = staged{}
+	m.resetAICapture()
 	if m.selected < 0 || m.selected >= len(m.projects) {
 		return
 	}
@@ -367,6 +409,28 @@ func (m *Model) key(msg tea.KeyMsg) tea.Cmd {
 			}
 			return nil
 		}
+		row := m.focusedNavRow()
+		isText := row != nil && row.tf != ""
+		if isText { // movement keys still navigate; the rest types
+			switch k {
+			case "up", "k", "down", "j", "tab", "shift+tab", "enter",
+				"left", "right":
+			case "backspace":
+				if v := m.aiTextVal(row.tf); v != "" {
+					rs := []rune(v)
+					m.setAIText(row.tf, string(rs[:len(rs)-1]))
+				}
+				return nil
+			case " ":
+				m.setAIText(row.tf, m.aiTextVal(row.tf)+" ")
+				return nil
+			default:
+				if len(msg.Runes) > 0 {
+					m.setAIText(row.tf, m.aiTextVal(row.tf)+string(msg.Runes))
+					return nil
+				}
+			}
+		}
 		switch k {
 		case "up", "k":
 			m.cursor = (m.cursor - 1 + n) % n
@@ -375,8 +439,14 @@ func (m *Model) key(msg tea.KeyMsg) tea.Cmd {
 		case "shift+tab":
 			m.focus = 0
 		case "enter", " ":
+			if isText {
+				return nil
+			}
 			return m.activateNav(m.cursor)
 		case "left", "right":
+			if isText {
+				return nil
+			}
 			m.cycleOption(k == "right")
 		}
 	}
@@ -416,10 +486,40 @@ func (m *Model) activateNav(i int) tea.Cmd {
 	if row.save {
 		return m.save()
 	}
+	if row.tf != "" {
+		return nil // text rows never activate options (#103)
+	}
+	if row.section == "_confirm" {
+		return m.resolveAIConfirm(row.value == "Replace")
+	}
 	if row.section != "" {
 		m.applyOption(row.section, row.value)
 	}
 	return nil
+}
+
+// aiTextVal returns the capture value of a Custom-provider text field.
+func (m *Model) aiTextVal(tf string) string {
+	switch tf {
+	case "name":
+		return m.aiName
+	case "endpoint":
+		return m.aiEndpoint
+	case "token":
+		return m.aiToken
+	}
+	return ""
+}
+
+func (m *Model) setAIText(tf, v string) {
+	switch tf {
+	case "name":
+		m.aiName = v
+	case "endpoint":
+		m.aiEndpoint = v
+	case "token":
+		m.aiToken = v
+	}
 }
 
 // cycleOption steps a single-choice field to the next/previous option in
@@ -459,6 +559,14 @@ func (m *Model) cycleOption(forward bool) {
 		cur = m.staged.vcs
 	case "ai":
 		cur = m.staged.ai
+		switch {
+		case m.aiSel:
+			cur = "Custom"
+		case m.staged.ai == "none":
+			cur = "none"
+		default:
+			cur = "" // legacy stored id: shown read-only, not an option
+		}
 	case "proxy":
 		if m.staged.proxy {
 			cur = "yes"
@@ -505,7 +613,17 @@ func (m *Model) applyOption(section, value string) {
 	case "vcs":
 		s.vcs = value
 	case "ai":
-		s.ai = value
+		if value == "Custom" && !m.aiSel {
+			// first entry into the Custom capture: prefill Name /
+			// Endpoint from the stored id's opencode.json section
+			// (token always empty on load, #103).
+			if m.selected >= 0 && m.selected < len(m.projects) {
+				name, endpoint := providerPrefill(m.projects[m.selected].Path, m.staged.ai)
+				m.aiName, m.aiEndpoint = name, endpoint
+			}
+		}
+		m.aiSel = value == "Custom"
+		m.aiTouched = true
 	case "proxy":
 		s.proxy = value == "yes"
 	}
@@ -754,11 +872,17 @@ func (m *Model) buildPick(i int) tea.Cmd {
 }
 
 func (m *Model) opDone(msg OpDoneMsg) tea.Cmd {
-	if msg.ID != m.busyID || m.state != stateBusy {
+	if msg.ID != m.busyID {
 		return nil
 	}
 	if d, ok := any(msg).(taskmgr.DoneMsg); ok && d.Key != "" && d.Key != m.busyKey {
 		return nil // foreign view's op reusing this view's numeric id
+	}
+	if m.busyKind == opAI { // settings-run provider steps stay in the pane
+		return m.aiDone(msg)
+	}
+	if m.state != stateBusy {
+		return nil
 	}
 	// Streaming transport already fed the pane; batch launchers flush here.
 	if len(m.log.Lines()) == 0 {
@@ -859,6 +983,10 @@ func (m *Model) hasOtherWork() bool {
 // --- change-settings surface (ADR 0018, #63) ---
 
 func (m *Model) save() tea.Cmd {
+	if m.aiRunningOp || m.aiConfirm != nil {
+		m.toast = "AI provider configuration is running — wait for it to finish"
+		return nil
+	}
 	s := m.staged
 	if !s.loaded {
 		return nil
@@ -872,22 +1000,224 @@ func (m *Model) save() tea.Cmd {
 		return nil
 	}
 	p := m.projects[m.selected]
-	// ONE whole-config atomic rewrite; applies on next start.
-	err := sandboxcfg.Rewrite(m.deps.Home, sandboxcfg.Path(p.Path), sandboxcfg.Settings{
+	// ONE whole-config atomic rewrite; applies on next start. The AI
+	// value defaults to the stored id (barely-read rows keep the
+	// recorded provider untouched).
+	settings := sandboxcfg.Settings{
 		Edition:     s.edition,
 		Modes:       s.modes,
 		StartOption: s.start,
 		VCS:         s.vcs,
 		AIProvider:  s.ai,
 		UseProxy:    s.proxy,
-	})
-	if err != nil {
+	}
+	if m.aiTouched && m.aiSel { // Custom capture with the wizard's save semantics (#103)
+		return m.saveCustom(p)
+	}
+	if m.aiTouched {
+		settings.AIProvider = "none"
+	}
+	return m.applySettings(p.Path, settings)
+}
+
+// saveCustom translates the Custom capture into save semantics: empty
+// token re-merges only when the id already has credentials (otherwise
+// refused); a typed token writes both steps, gated by Keep/Replace
+// when the credential already exists. The whole-config rewrite is
+// deferred until every step passed (a failed write leaves the stored
+// config and the setup flag untouched).
+func (m *Model) saveCustom(p registry.Project) tea.Cmd {
+	if !providerid.ValidName(m.aiName) {
+		m.toast = "Name must not be empty and needs at least one letter or digit."
+		return nil
+	}
+	if !providerid.ValidEndpoint(m.aiEndpoint) {
+		m.toast = "Endpoint must be an http:// or https:// URL without whitespace (e.g. https://api.example.com/v1)."
+		return nil
+	}
+	if m.aiToken != "" && !providerid.ValidToken(m.aiToken) {
+		m.toast = "Token must not be empty or contain whitespace/newlines."
+		return nil
+	}
+	root := p.Path
+	id := providerid.Slug(m.aiName)
+	idExists := authJSONHasID(root, id)
+	merge := []string{"opencode-config", root, "--id", id,
+		"--name", m.aiName, "--endpoint", m.aiEndpoint}
+	steps := [][]string{}
+	if m.aiToken == "" {
+		if !idExists {
+			m.toast = "Token required — no existing credential entry for '" + id +
+				"' was found in auth.json; type a token to configure this provider."
+			return nil
+		}
+		steps = append(steps, merge) // re-merge only
+	} else {
+		steps = append(steps, []string{"ai-provider", root, "--name", m.aiName,
+			"--endpoint", m.aiEndpoint, "--token", m.aiToken})
+		steps = append(steps, merge)
+		if idExists { // credential exists: the Keep/Replace confirm gates it
+			m.aiConfirm = &aiConfirmState{id: id}
+			return nil
+		}
+	}
+	return m.queueAI(root, id, steps)
+}
+
+// applySettings performs the immediate whole-config rewrite (no
+// credential steps pending).
+func (m *Model) applySettings(root string, settings sandboxcfg.Settings) tea.Cmd {
+	if err := sandboxcfg.Rewrite(m.deps.Home, sandboxcfg.Path(root), settings); err != nil {
 		m.toast = "Could not save settings: " + err.Error()
 		return nil
 	}
 	m.loadStaged()
 	m.toast = "Settings saved — apply on next start"
 	return nil
+}
+
+// aiConfirmState carries the pending Keep/Replace decision.
+type aiConfirmState struct {
+	id string // provider id with an existing auth.json entry
+}
+
+// resolveAIConfirm applies the confirm: Keep existing skips the token
+// write (opencode.json merge only); Replace writes both steps with
+// --replace.
+func (m *Model) resolveAIConfirm(replace bool) tea.Cmd {
+	root := m.projects[m.selected].Path
+	id := providerid.Slug(m.aiName)
+	steps := [][]string{{"opencode-config", root, "--id", id,
+		"--name", m.aiName, "--endpoint", m.aiEndpoint}}
+	if replace {
+		steps = [][]string{{"ai-provider", root, "--name", m.aiName,
+			"--endpoint", m.aiEndpoint, "--token", m.aiToken, "--replace"}, steps[0]}
+	}
+	m.aiConfirm = nil
+	return m.queueAI(root, id, steps)
+}
+
+// queueAI launches the first configure-project.sh step through the
+// existing op queue (same Ops seam and per-project key as start/build);
+// the step continuation chains until the queue empties, then applies
+// the deferred whole-config rewrite.
+func (m *Model) queueAI(root, id string, steps [][]string) tea.Cmd {
+	m.aiSteps = steps
+	m.aiSaveCfg = &sandboxcfg.Settings{
+		Edition:     m.staged.edition,
+		Modes:       m.staged.modes,
+		StartOption: m.staged.start,
+		VCS:         m.staged.vcs,
+		AIProvider:  id,
+		UseProxy:    m.staged.proxy,
+	}
+	var p registry.Project
+	if m.selected >= 0 && m.selected < len(m.projects) {
+		p = m.projects[m.selected]
+	}
+	return m.launchAIStep(p)
+}
+
+// launchAIStep runs one step through the op queue and returns the done
+// continuation.
+func (m *Model) launchAIStep(p registry.Project) tea.Cmd {
+	args := m.aiSteps[0]
+	m.aiRunningOp = true
+	m.busyID++
+	m.busyKey = p.ContainerID
+	m.busyKind = opAI
+	run := m.deps.Runner
+	script := m.deps.ConfigureScript
+	m.toast = "Configuring AI provider…"
+	op := Op{
+		ID:    m.busyID,
+		Key:   p.ContainerID, // per-project queue bucket (#82)
+		Title: "Configuring AI provider",
+		Run: func(line func(string)) error {
+			out, err := run.Output("bash", append([]string{script}, args...)...)
+			for _, l := range cmdrun.Lines(out) {
+				line(l)
+			}
+			return err
+		},
+	}
+	return tea.Batch(m.deps.Ops.Launch(op))
+}
+
+// aiDone processes an op-queue completion of a settings-run provider
+// step: on failure the toast surfaces it and nothing was rewritten
+// (the setup flag and the stored config stay stale-checked); on
+// success the next queued step launches, and the last one applies the
+// deferred rewrite.
+func (m *Model) aiDone(msg OpDoneMsg) tea.Cmd {
+	m.aiRunningOp = false
+	if msg.Err != nil {
+		m.aiSteps, m.aiSaveCfg = nil, nil
+		m.toast = "AI provider setup failed: " + msg.Err.Error() +
+			" — no settings were written, fix and save again."
+		m.loadStaged() // re-sync the pane with disk truth (stale-check parity)
+		return nil
+	}
+	var p registry.Project
+	if m.selected >= 0 && m.selected < len(m.projects) {
+		p = m.projects[m.selected]
+	}
+	root := p.Path
+	m.aiSteps = m.aiSteps[1:]
+	if len(m.aiSteps) > 0 {
+		return m.launchAIStep(p)
+	}
+	cfg := m.aiSaveCfg
+	if cfg == nil {
+		return nil
+	}
+	set := *cfg
+	m.aiSaveCfg = nil
+	return m.applySettings(root, set)
+}
+
+// authJSONHasID reports whether the project-local auth.json already has
+// a credential entry under the provider id (id-parameterized
+// replacement-confirm check, spec #100).
+func authJSONHasID(root, id string) bool {
+	data, err := os.ReadFile(root + "/.opencode_data/auth.json")
+	if err != nil {
+		return false
+	}
+	var doc map[string]json.RawMessage
+	if json.Unmarshal(data, &doc) != nil {
+		return false
+	}
+	_, has := doc[id]
+	return has
+}
+
+// providerPrefill reads the stored id's provider section in the
+// project-local opencode.json: the display name and baseURL prefill
+// Name/Endpoint when the user opens the Custom capture.
+func providerPrefill(root, storedID string) (name, endpoint string) {
+	if storedID == "" || storedID == "none" {
+		return "", ""
+	}
+	data, err := os.ReadFile(root + "/.opencode_config/opencode.json")
+	if err != nil {
+		return "", ""
+	}
+	var doc struct {
+		Provider map[string]struct {
+			Name    string `json:"name"`
+			Options struct {
+				BaseURL string `json:"baseURL"`
+			} `json:"options"`
+		} `json:"provider"`
+	}
+	if json.Unmarshal(data, &doc) != nil {
+		return "", ""
+	}
+	if p, ok := doc.Provider[storedID]; ok {
+		return p.Name, p.Options.BaseURL
+	}
+	return "", ""
 }
 
 // --- layout ---
@@ -919,7 +1249,7 @@ func (m *Model) layout() []paneRow {
 	m.layoutRows = rows
 	m.paneScrollMax = max(0, len(rows)-m.height)
 	for i, r := range rows {
-		if r.section != "" || r.save {
+		if r.section != "" || r.save || r.tf != "" {
 			m.navRows = append(m.navRows, i)
 		}
 	}
@@ -981,7 +1311,41 @@ func (m *Model) settingsRows(paneW int) []paneRow {
 	addSection("Modes", "modes", modes, modeErr, func(o string) bool { return hasMode(s.modes, o) })
 	addSection("Start option", "start", startOptions, nil, func(o string) bool { return s.start == o })
 	addSection("VCS tracking", "vcs", vcsOptions, nil, func(o string) bool { return s.vcs == o })
-	addSection("AI provider", "ai", aiOptions, nil, func(o string) bool { return s.ai == o })
+	// AI provider row (provider-neutral, #103): only none/Custom are
+	// offered; a stored id not in the option list (legacy gwdg-saia or
+	// an older custom id) presents read-only with a reconfigure hint —
+	// the stored-edition-vanished pattern.
+	if aiLegacy := s.ai != "" && s.ai != "none"; aiLegacy {
+		add(shell.StyleWarn.Render(truncate("stored provider '"+s.ai+
+			"' no longer offered", paneW-2)))
+		add(shell.StyleMutedAlt.Render(truncate(
+			"reconfigure via Custom or switch to none", paneW-2)))
+	}
+	addSection("AI provider", "ai", aiOptions, nil, func(o string) bool {
+		if o == "Custom" {
+			return m.aiSel
+		}
+		return !m.aiSel && (s.ai == "none" || s.ai == "")
+	})
+	if m.aiSel { // Custom capture block: Name / Endpoint / Token in order
+		add(shell.StyleFieldLabel.Render("Custom provider"))
+		addTF := func(label, tf, val string) {
+			rows = append(rows, paneRow{
+				text: shell.StyleFieldLabel.Render(label + ": " + shell.StyleCurrentVal.Render(truncate(val, paneW-10))),
+				tf:   tf})
+		}
+		addTF("Name", "name", m.aiName)
+		addTF("Endpoint", "endpoint", m.aiEndpoint)
+		addTF("Token", "token", maskedToken(m.aiToken))
+	}
+	if m.aiConfirm != nil { // Keep/Replace gating on an existing credential
+		add(shell.StyleWarn.Render(truncate("Credentials for '"+m.aiConfirm.id+
+			"' exist in auth.json — Keep existing keeps the stored token.", paneW-2)))
+		for _, o := range []string{"Keep existing", "Replace"} {
+			rows = append(rows, paneRow{text: shell.StyleMutedAlt.Render(shell.SymOff + " " + o),
+				section: "_confirm", value: o})
+		}
+	}
 	addSection("Proxy", "proxy", []string{"no", "yes"}, nil, func(o string) bool { return (o == "yes") == s.proxy })
 	add("")
 	for _, bl := range shell.ButtonLines("Save Settings", false) {
@@ -1286,4 +1650,13 @@ func pasteLines(dst []string, col, row int, block []string) []string {
 		dst[y] += bl
 	}
 	return dst
+}
+
+// maskedToken renders a capture token without echoing the secret:
+// one bullet per character, or the muted empty marker.
+func maskedToken(token string) string {
+	if token == "" {
+		return "…"
+	}
+	return strings.Repeat("•", len([]rune(token)))
 }

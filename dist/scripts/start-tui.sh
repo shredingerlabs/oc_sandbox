@@ -824,16 +824,30 @@ select_ai_provider() {
   local start_option="${modes[-1]}"
   unset 'modes[-1]'
 
-  local options=("gwdg-saia" "none" "← Go Back")
-  local ai_provider=$(show_menu "Select AI provider" "${options[@]}")
+  local options=("none" "Custom" "← Go Back")
+  local ai_choice=$(show_menu "Select AI provider" "${options[@]}")
 
-  if [[ "$ai_provider" == "← Go Back" ]]; then
+  if [[ "$ai_choice" == "← Go Back" ]]; then
     if [[ -n "$repo_url" ]] && derive_vcs_tracking_from_repo_url "$repo_url" > /dev/null; then
       select_start_option "$project_path" "$project_name" "$edition" "$repo_url" "${modes[@]}"
     else
       select_vcs_tracking "$project_path" "$project_name" "$edition" "$repo_url" "${modes[@]}" "$start_option"
     fi
     return
+  fi
+
+  # Custom collects Name/Endpoint/Token as one coherent block up front so
+  # the slugified provider id can be recorded in sandbox_config.json (before
+  # provider setup, same order as the former gwdg flow).
+  local provider_name="" provider_endpoint="" provider_token=""
+  local ai_provider="$ai_choice"
+  if [[ "$ai_choice" == "Custom" ]]; then
+    local provider_fields
+    provider_fields=$(custom_ai_provider_fields "" "" "1") || return 0
+    provider_name="${provider_fields%%$'\n'*}"
+    provider_endpoint=$(printf '%s\n' "$provider_fields" | sed -n 2p)
+    provider_token=$(printf '%s\n' "$provider_fields" | sed -n 3p)
+    ai_provider=$(slugify_provider_id "$provider_name")
   fi
 
   local project_source="empty"
@@ -876,9 +890,12 @@ select_ai_provider() {
     configure_git_identity "$project_path" || return 0
   fi
 
-  if [[ "$ai_provider" == "gwdg-saia" ]]; then
-    setup_gwdg_provider "$project_path" || return 0
+  local ai_provider_label="none"
+  if [[ "$ai_choice" == "Custom" ]]; then
+    setup_custom_ai_provider "$project_path" "$provider_name" "$provider_endpoint" "$provider_token" || return 0
+    ai_provider_label="$provider_name"
   fi
+  show_page "AI provider" "This project will use the AI provider: ${ai_provider_label}."
 
   if check_and_build_containers "$project_path"; then
     add_project_to_registry "$project_name" "$project_path" "$vcs_tracking" "$repo_url" || return 0
@@ -1076,28 +1093,182 @@ configure_vcs_credentials() {
   run_configure_project vcs-credentials "$provider" "$project_path" --token "$token" --host "$host"
 }
 
-setup_gwdg_provider() {
+# slugify_provider_id derives the provider id from the typed display name
+# (ticket #100/#104): lowercase, every run of non-alphanumerics becomes '-',
+# leading/trailing '-' trimmed.
+slugify_provider_id() {
+  local name="$1"
+  local id
+  id=$(printf '%s' "$name" | tr '[:upper:]' '[:lower:]' | sed -e 's/[^a-z0-9]\+/-/g' -e 's/^-\+//' -e 's/-\+$//')
+  printf '%s' "$id"
+}
+
+validate_provider_endpoint() {
+  local endpoint="$1"
+  [[ "$endpoint" =~ ^https?://[^[:space:]]+$ ]]
+}
+
+validate_provider_token() {
+  local token="$1"
+  [[ -n "$token" ]] && [[ "$token" != *[[:space:]]* && "$token" != *$'\n'* ]]
+}
+
+auth_json_has_id() {
+  local auth_file="$1"
+  local provider_id="$2"
+  [[ -e "$auth_file" ]] || return 1
+  jq -e --arg id "$provider_id" 'has($id)' "$auth_file" >/dev/null 2>&1
+}
+
+# custom_ai_provider_fields shows the Name/Endpoint/Token block (in that
+# order) for a Custom AI provider and validates the values with per-field
+# re-prompts; the empty-but-unset third return marks "no token captured"
+# (revisit path — it applies its own empty-token semantics).
+custom_ai_provider_fields() {
+  local prefill_name="${1:-}"
+  local prefill_endpoint="${2:-}"
+  local capture_token="${3:-0}"
+  while true; do
+    local name
+    name=$(prompt_for_text "Name:" "$prefill_name") || return 1
+    [[ -n "$name" && "$name" != *$'\n'* && "$name" == *[a-zA-Z0-9]* ]] && break
+    show_page "Invalid name" \
+      "The name must not be empty and must contain at least one letter or digit."
+    prefill_name="$name"
+  done
+  while true; do
+    local endpoint
+    endpoint=$(prompt_for_text "Endpoint URL:" "$prefill_endpoint") || return 1
+    validate_provider_endpoint "$endpoint" && break
+    show_page "Invalid endpoint" \
+      "Endpoint must be an http:// or https:// URL without whitespace (for example https://api.example.com/v1)."
+    prefill_endpoint="$endpoint"
+  done
+  local token=""
+  if [[ "$capture_token" == "1" ]]; then
+    show_page "AI provider $name" "Enter the API token for the $name provider endpoint $endpoint."
+    while true; do
+      token=$(prompt_for_secret "Token:") || return 1
+      validate_provider_token "$token" && break
+      show_page "Invalid token" "The token must not be empty and must not contain whitespace or newlines."
+    done
+  fi
+  printf '%s\n%s\n%s\n' "$name" "$endpoint" "$token"
+}
+
+# setup_custom_ai_provider runs the provider setup for a New Project wizard:
+# the provider-neutral configure-project.sh subcommands. Name/Endpoint/Token
+# were already captured as one block — the slugified id went into
+# sandbox_config.json first. When the derived id already exists in auth.json
+# the Keep existing / Replace confirm gates the token write; Keep existing
+# skips the credential write but still re-merges opencode.json.
+setup_custom_ai_provider() {
   local project_path="$1"
+  local name="$2"
+  local endpoint="$3"
+  local token="$4"
+  local provider_id
+  provider_id=$(slugify_provider_id "$name")
   local auth_file="${project_path}/.opencode_data/auth.json"
 
-  if [[ -e "$auth_file" ]] && \
-    jq -e 'has("gwdg-saia")' "$auth_file" >/dev/null && \
-    ! confirm_credential_replacement "$auth_file"; then
+  local replace_flag=()
+  if auth_json_has_id "$auth_file" "$provider_id"; then
+    if ! confirm_credential_replacement "$auth_file"; then
+      run_configure_project opencode-config "$project_path" \
+        --id "$provider_id" --name "$name" --endpoint "$endpoint"
+      return
+    fi
+    replace_flag=(--replace)
+  fi
+
+  run_configure_project ai-provider "$project_path" \
+      --name "$name" --endpoint "$endpoint" --token "$token" "${replace_flag[@]}" && \
+    run_configure_project opencode-config "$project_path" \
+      --id "$provider_id" --name "$name" --endpoint "$endpoint"
+}
+
+# setup_ai_provider_from_captured runs the generic provider writes after the
+# revisit collected Name/Endpoint/Token (or a stored prefill). An empty token
+# re-merges only (the caller guarantees the id already exists in auth.json);
+# a non-empty token writes the credential, with --replace after the user
+# confirmed replacement.
+setup_ai_provider_from_captured() {
+  local project_path="$1"
+  local name="$2"
+  local endpoint="$3"
+  local token="$4"
+  local provider_id
+  provider_id=$(slugify_provider_id "$name")
+  local auth_file="${project_path}/.opencode_data/auth.json"
+
+  if [[ -z "$token" ]]; then
+    run_configure_project opencode-config "$project_path" \
+      --id "$provider_id" --name "$name" --endpoint "$endpoint"
+    return
+  fi
+
+  if auth_json_has_id "$auth_file" "$provider_id" && \
+     ! confirm_credential_replacement "$auth_file"; then
+    run_configure_project opencode-config "$project_path" \
+      --id "$provider_id" --name "$name" --endpoint "$endpoint" || return 1
     return 0
   fi
 
-  show_page "GWDG SAIA provider" "Enter the GWDG SAIA token."
+  local replace_flag=()
+  if auth_json_has_id "$auth_file" "$provider_id"; then
+    replace_flag=(--replace)
+  fi
+  run_configure_project ai-provider "$project_path" \
+      --name "$name" --endpoint "$endpoint" --token "$token" "${replace_flag[@]}" && \
+    run_configure_project opencode-config "$project_path" \
+      --id "$provider_id" --name "$name" --endpoint "$endpoint"
+}
+
+# setup_ai_provider_revisit captures the Custom provider from the stored
+# prefills and applies it (revisit = same semantics as wizard capture, but
+# an empty token is allowed when the slugified id already has a credential
+# entry in auth.json — it re-merges only; a missing entry refuses). The
+# captured id is returned via the REVISIT_PROVIDER_ID global.
+setup_ai_provider_revisit() {
+  local project_path="$1"
+  local stored_id="$2"
+  local auth_file="${project_path}/.opencode_data/auth.json"
+
+  local prefill_name="" prefill_endpoint=""
+  local openjson="${project_path}/.opencode_config/opencode.json"
+  if [[ -n "$stored_id" && "$stored_id" != "none" && -f "$openjson" ]]; then
+    prefill_name=$(jq -r --arg id "$stored_id" '.provider[$id].name // ""' "$openjson" || true)
+    prefill_endpoint=$(jq -r --arg id "$stored_id" '.provider[$id].options.baseURL // ""' "$openjson" || true)
+  fi
+
+  local input
+  input=$(custom_ai_provider_fields "$prefill_name" "$prefill_endpoint") || return 1
+  local name="${input%%$'\n'*}"
+  local endpoint
+  endpoint=$(printf '%s\n' "$input" | sed -n 2p)
+
+  local provider_id
+  provider_id=$(slugify_provider_id "$name")
+
   local token
-  token=$(prompt_for_secret "Token:") || return 1
-  [[ -n "$token" ]] || return 1
+  while true; do
+    token=$(prompt_for_secret "Token:") || return 1
+    if [[ -z "$token" ]]; then
+      if auth_json_has_id "$auth_file" "$provider_id"; then
+        break
+      fi
+      show_page "Token required" \
+        "No existing credential entry for '${provider_id}' was found in auth.json; type a token to configure this provider."
+      continue
+    fi
+    [[ "$token" != *[[:space:]]* && "$token" != *$'\n'* ]] && break
+    show_page "Invalid token" "The token must not contain whitespace or newlines."
+  done
 
-  run_configure_project ai-provider gwdg "$project_path" --token "$token" --replace && \
-    run_configure_project opencode-config gwdg "$project_path"
+  REVISIT_PROVIDER_ID="$provider_id"
+  setup_ai_provider_from_captured "$project_path" "$name" "$endpoint" "$token"
 }
 
-configure_gwdg_opencode_config() {
-  run_configure_project opencode-config gwdg "$1"
-}
 
 write_config_without_backup() {
   local filepath="$1"
@@ -1310,9 +1481,32 @@ revisit_project_settings() {
   vcs_choice=$(show_menu_prefilled "Select VCS tracking" "$current_vcs" none "github.com" "gitlab.com" "own GitLab" "others" "← Go Back")
   [[ "$vcs_choice" != "← Go Back" ]] || return 1
 
+  # The AI provider row only offers none/Custom anymore. A stored id that is
+  # not in the option list (e.g. legacy gwdg-saia or an older custom id) is
+  # presented tolerantly and readonly, following the stored-edition-vanished
+  # pattern: hint page, then the ordinary menu.
   local ai_choice
-  ai_choice=$(show_menu_prefilled "Select AI provider" "$current_ai" gwdg-saia none "← Go Back")
+  if [[ -n "$current_ai" && "$current_ai" != "none" ]]; then
+    show_page "Stored AI provider no longer offered" \
+      "The project stores the AI provider '${current_ai}' as its provider id, which is no longer directly selectable." \
+      "Reconfigure the provider via Custom (its Name/Endpoint are prefilled) or switch to none."
+    wait_for_enter || true
+    ai_choice=$(show_menu "Select AI provider" none Custom "← Go Back")
+  else
+    ai_choice=$(show_menu_prefilled "Select AI provider" "${current_ai:-none}" none Custom "← Go Back")
+  fi
   [[ "$ai_choice" != "← Go Back" ]] || return 1
+
+  local recorded_ai="$ai_choice"
+  if [[ "$ai_choice" == "Custom" ]]; then
+    if ! setup_ai_provider_revisit "$project_path" "$current_ai"; then
+      return 1
+    fi
+    recorded_ai="$REVISIT_PROVIDER_ID"
+    REVISIT_RECORDED_AI="$REVISIT_PROVIDER_ID"
+  else
+    REVISIT_RECORDED_AI="$ai_choice"
+  fi
 
   local proxy_label="no"
   [[ "$current_proxy" == "true" ]] && proxy_label="yes"
@@ -1339,16 +1533,13 @@ revisit_project_settings() {
   if [[ "$vcs_choice" != "none" ]]; then
     configure_git_identity "$project_path" || return 1
   fi
-  if [[ "$ai_choice" == "gwdg-saia" && ( "$ai_choice" != "$current_ai" || ! -e "${project_path}/.opencode_data/auth.json" ) ]]; then
-    setup_gwdg_provider "$project_path" || return 1
-  fi
 
   local modes_json='[]'
   if [[ ${#selected_modes[@]} -gt 0 ]]; then
     modes_json=$(printf '%s\n' "${selected_modes[@]}" | jq -R . | jq -s .)
   fi
   jq --arg edition "$edition" --argjson modes "$modes_json" \
-    --arg start "$start_choice" --arg vcs "$vcs_choice" --arg ai "$ai_choice" \
+    --arg start "$start_choice" --arg vcs "$vcs_choice" --arg ai "$recorded_ai" \
     --argjson proxy "$proxy_choice_bool" \
     '.container_edition=$edition | .container_modes=$modes | .start_option=$start |
      .vcs_tracking=$vcs | .ai_provider=$ai | .use_proxy=$proxy' "$config_path" | atomic_write "$config_path"
@@ -2037,7 +2228,8 @@ change_project_settings_wizard() {
   fi
 
   show_page "Project settings updated" \
-    "Settings were saved. They take effect on the next container start."
+    "Settings were saved. They take effect on the next container start." \
+    "AI provider: ${REVISIT_RECORDED_AI}"
   wait_for_enter || true
 }
 

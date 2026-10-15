@@ -30,15 +30,19 @@ func Run(root string) Report {
 		checkNewProjectWrites,
 		checkExitCodeSeams,
 		checkUpgradeInPlace,
+		checkAIProviderBackend,
 	} {
 		items = append(items, check(home, root))
 	}
 	return Report{Items: items}
 }
 
+// Box IDs of the A-list in run order (failAll/skipAll mirrors).
+var boxIDs = []string{"A1", "A2", "A3", "A4", "A5", "A6", "A7"}
+
 func failAll(err error) []Item {
 	var items []Item
-	for _, b := range []string{"A1", "A2", "A3", "A4", "A5", "A6"} {
+	for _, b := range boxIDs {
 		items = append(items, Item{Box: b, Title: "(harness setup)", Status: Fail, Note: err.Error()})
 	}
 	return items
@@ -46,7 +50,7 @@ func failAll(err error) []Item {
 
 func skipAll(note string) []Item {
 	var items []Item
-	for _, b := range []string{"A1", "A2", "A3", "A4", "A5", "A6"} {
+	for _, b := range boxIDs {
 		items = append(items, Item{Box: b, Title: "(skipped: no dist tree)", Status: Skipped, Note: note})
 	}
 	return items

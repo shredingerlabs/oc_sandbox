@@ -54,8 +54,12 @@ func fieldLabel(f int) string {
 		return "VCS host"
 	case fAI:
 		return "AI provider"
-	case fGWDGToken:
-		return "GWDG token"
+	case fAIName:
+		return "Provider name"
+	case fAIEndpoint:
+		return "Provider endpoint"
+	case fAIToken:
+		return "Provider token"
 	case fPrompt:
 		return ""
 	case fCreate:

@@ -574,7 +574,7 @@ func TestCreateBlankProjectWritesRegistryAndConfig(t *testing.T) {
 	if doc["project_source"] != "empty" || doc["repo_url"] != "" {
 		t.Fatalf("sandbox patches wrong: %v", doc)
 	}
-	if doc["container_edition"] != "swdev" || doc["start_option"] != "console" || doc["ai_provider"] != "gwdg-saia" {
+	if doc["container_edition"] != "swdev" || doc["start_option"] != "console" || doc["ai_provider"] != "none" {
 		t.Fatalf("sandbox create payload wrong: %v", doc)
 	}
 	modes, ok := doc["container_modes"].([]any)
@@ -730,18 +730,303 @@ func TestCredentialSubcommandsAndOrder(t *testing.T) {
 	}
 }
 
-func TestGWDGProviderSubcommands(t *testing.T) {
+// --- AI provider row: provider-neutral options ---------------------------
+
+// The AI row renders "none" first (default) and "Custom"; the gwdg-saia
+// preset is gone (spec #100: provider-neutral selection).
+func TestAIProviderOptionsNoneFirstCustomSecond(t *testing.T) {
+	m, _, _ := newTestModel(t)
+	row := rowOf(t, m, "AI provider")
+	if !strings.Contains(row, "● none ○ Custom") {
+		t.Fatalf("AI row must render '● none ○ Custom': %q", row)
+	}
+	b := plain(t, m)
+	if strings.Contains(b, "gwdg") {
+		t.Errorf("gwdg preset must vanish:\n%s", b)
+	}
+	if strings.Contains(b, "Provider name") || strings.Contains(b, "Provider endpoint") || strings.Contains(b, "Provider token") {
+		t.Errorf("Custom fields must stay hidden while none is selected:\n%s", b)
+	}
+}
+
+// Selecting Custom reveals the Name / Endpoint / Token block in that
+// order as one unit (keyboard and click activation).
+func TestAICustomRevealsFieldBlockInOrder(t *testing.T) {
+	m, _, _ := newTestModel(t)
+	click(t, m, "○ Custom")
+	b := plain(t, m)
+	nameIdx := strings.Index(b, "Provider name")
+	epIdx := strings.Index(b, "Provider endpoint")
+	tokIdx := strings.Index(b, "Provider token")
+	if nameIdx < 0 || epIdx < 0 || tokIdx < 0 || !(nameIdx < epIdx && epIdx < tokIdx) {
+		t.Fatalf("Custom fields missing or out of order (name %d, endpoint %d, token %d):\n%s", nameIdx, epIdx, tokIdx, b)
+	}
+	// keyboard parity: enter on the AI row cycles none→Custom
+	m2, _, _ := newTestModel(t)
+	m2.tabToField(t, "AI provider")
+	m2.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if !strings.Contains(plain(t, m2), "Provider token") {
+		t.Fatalf("enter on AI row must toggle the Custom block:\n%s", plain(t, m2))
+	}
+	// cycling back to none hides the block again
+	m2.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if strings.Contains(plain(t, m2), "Provider token") {
+		t.Fatalf("cycling off Custom must hide the block:\n%s", plain(t, m2))
+	}
+}
+
+// Validation refusals for Custom surface inline (toast row in the form)
+// and block Create.
+func TestCustomProviderValidationRefusals(t *testing.T) {
+	vals := []struct{ name, endpoint, token string }{
+		{"My api", "https://api.example.com/v1", "tok"}, // ok
+		{"My api", "https://api.example.com/v1", ""},    // empty token
+		{"My api", "https://api.example.com/v1", "a b"}, // whitespace token
+		{"My api", "ftp://api.example.com/v1", "tok"},   // bad endpoint
+		{"My api", "api.example.com/v1", "tok"},         // missing scheme
+		{"My api", "https://a b.example.com", "tok"},    // endpoint whitespace
+		{"!!!", "https://api.example.com/v1", "tok"},    // nothing sluggable
+		{"", "https://api.example.com/v1", "tok"},       // empty name
+	}
+	for i, v := range vals {
+		m, ops, _ := newTestModel(t)
+		typeKeys(t, m, "validname") // project name valid
+		click(t, m, "○ Custom")
+		if v.name != "" {
+			m.tabToField(t, "Provider name")
+			overwriteLine(t, m, v.name)
+		}
+		m.tabToField(t, "Provider endpoint")
+		if v.endpoint != "" {
+			overwriteLine(t, m, v.endpoint)
+		}
+		if v.token != "" {
+			m.tabToField(t, "Provider token")
+			overwriteLine(t, m, v.token)
+		}
+		createViaKeyboard(t, m)
+		switch i {
+		case 0:
+			if ops.total() == 0 {
+				t.Errorf("valid custom set must create: %v", ops.Calls)
+			}
+		default:
+			if m.confirm.IsOpen() {
+				t.Errorf("case %d must not open the confirm popup:\n%s", i, plain(t, m))
+			}
+			if !m.HasToast() {
+				t.Errorf("case %d: refusal not surfaced (toast empty):\n%s", i, plain(t, m))
+			}
+			if ops.total() != 0 {
+				t.Errorf("case %d: scripts ran on invalid create: %v", i, ops.Calls)
+			}
+		}
+	}
+}
+
+// Custom with a valid set runs the exact two-step arg-vector pair
+// against the Ops seam; sandbox_config.json records the slugified id.
+func TestCustomProviderSubcommands(t *testing.T) {
 	m, ops, _ := newTestModel(t)
 	typeKeys(t, m, "aiuser")
-	m.tabToField(t, "GWDG token")
-	typeKeys(t, m, "secret1")
+	click(t, m, "○ Custom")
+	m.tabToField(t, "Provider name")
+	overwriteLine(t, m, "My API")
+	m.tabToField(t, "Provider endpoint")
+	overwriteLine(t, m, "https://api.example.com/v1")
+	m.tabToField(t, "Provider token")
+	overwriteLine(t, m, "secret1")
+	// the scripted fake writes the credential files (fixture-based
+	// post-write assertions, same pattern as the legacy gwdg tests)
+	ops.Fake = func(call []string) error {
+		if len(call) < 2 {
+			return nil
+		}
+		switch call[1] {
+		case "ai-provider":
+			if !ops.has("configure-project.sh", "ai-provider", call[2], "--name", "My API",
+				"--endpoint", "https://api.example.com/v1", "--token", "secret1") {
+				t.Errorf("ai-provider invocation wrong: %v", call)
+			}
+			writeSecret(t, filepath.Join(call[2], ".opencode_data", "auth.json"),
+				`{"my-api": {"type": "api", "key": "secret1"}}`)
+		case "opencode-config":
+			if !ops.has("configure-project.sh", "opencode-config", call[2], "--id", "my-api",
+				"--name", "My API", "--endpoint", "https://api.example.com/v1") {
+				t.Errorf("opencode-config invocation wrong: %v", call)
+			}
+			writeSecret(t, filepath.Join(call[2], ".opencode_config", "opencode.json"),
+				`{"provider": {"my-api": {"npm": "@ai-sdk/openai-compatible"}}}`)
+		}
+		return nil
+	}
 	createViaKeyboard(t, m)
 	root := registry.CanonicalPath(filepath.Join(m.cfg.projectBase(), "aiuser"))
-	if !ops.has("configure-project.sh", "ai-provider", "gwdg", root, "--token", "secret1") {
-		t.Fatalf("ai-provider invocation wrong: %v", ops.Calls)
+	if !ops.has("configure-project.sh", "ai-provider", root, "--name", "My API",
+		"--endpoint", "https://api.example.com/v1", "--token", "secret1") {
+		t.Fatalf("ai-provider invocation missing: %v", ops.Calls)
 	}
-	if !ops.has("configure-project.sh", "opencode-config", "gwdg", root) {
+	if !ops.has("configure-project.sh", "opencode-config", root, "--id", "my-api",
+		"--name", "My API", "--endpoint", "https://api.example.com/v1") {
 		t.Fatalf("opencode-config follower missing: %v", ops.Calls)
+	}
+	// post-write file assertions (fixture write above mirrors the script)
+	auth := readJSON(t, filepath.Join(root, ".opencode_data", "auth.json"))
+	if _, has := auth["my-api"]; !has {
+		t.Errorf("auth.json key derivation wrong: %v", auth)
+	}
+	cfg := readJSON(t, filepath.Join(root, ".opencode_config", "opencode.json"))
+	prov, _ := cfg["provider"].(map[string]any)
+	if prov == nil {
+		t.Errorf("opencode.json provider block missing: %v", cfg)
+	} else if _, has := prov["my-api"]; !has {
+		t.Errorf("opencode.json provider id wrong: %v", prov)
+	}
+	doc := readJSON(t, filepath.Join(root, ".opencode_config", "sandbox_config.json"))
+	if doc["ai_provider"] != "my-api" {
+		t.Errorf("sandbox_config must record the slugified id: %v", doc)
+	}
+	if ai, oc, ok := opsHasPair(ops.Calls); !ok || ai < 0 {
+		t.Errorf("two-step order wrong (ai=%d oc=%d): %v", ai, oc, ops.Calls)
+	}
+}
+
+// opsHasPair reports whether the ai-provider step ran before the
+// opencode-config step.
+func opsHasPair(calls [][]string) (int, int, bool) {
+	ai, oc := -1, -1
+	for i, c := range calls {
+		if len(c) > 1 && c[0] == "configure-project.sh" {
+			if c[1] == "ai-provider" && ai < 0 {
+				ai = i
+			}
+			if c[1] == "opencode-config" && oc < 0 {
+				oc = i
+			}
+		}
+	}
+	return ai, oc, ai >= 0 && oc > ai
+}
+
+// The create confirmation popup shows an "AI provider" line with the
+// provider name (Custom) or "none" (default).
+func TestCreatePopupShowsAIProviderLine(t *testing.T) {
+	m, _, _ := newTestModel(t)
+	typeKeys(t, m, "popai")
+	m.tabToField(t, "Create Project")
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if b := plain(t, m); !strings.Contains(b, "AI provider: none") {
+		t.Fatalf("popup missing the none AI provider line:\n%s", b)
+	}
+	m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	click(t, m, "○ Custom")
+	m.tabToField(t, "Provider name")
+	overwriteLine(t, m, "My API")
+	m.tabToField(t, "Provider endpoint")
+	overwriteLine(t, m, "https://api.example.com/v1")
+	m.tabToField(t, "Provider token")
+	overwriteLine(t, m, "tok")
+	m.tabToField(t, "Create Project")
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if b := plain(t, m); !strings.Contains(b, "AI provider: My API") {
+		t.Fatalf("popup missing the custom AI provider line:\n%s", b)
+	}
+}
+
+// When the derived provider id already exists in auth.json the create
+// flow opens the Keep existing / Replace confirm; Replace appends
+// --replace to the ai-provider step, Keep existing drops both steps.
+func TestCustomProviderExistingIDConfirm(t *testing.T) {
+	m, ops, reg := newTestModel(t)
+	typeKeys(t, m, "confirmai")
+	click(t, m, "○ Custom")
+	m.tabToField(t, "Provider name")
+	overwriteLine(t, m, "GWDG-SAIA") // slug → gwdg-saia (legacy id fixture)
+	m.tabToField(t, "Provider endpoint")
+	overwriteLine(t, m, "https://api.example.com/v1")
+	m.tabToField(t, "Provider token")
+	overwriteLine(t, m, "GWT0K")
+	ops.Fake = func(call []string) error {
+		if call[0] == "init-project.sh" {
+			writeSecret(t, filepath.Join(call[1], ".opencode_data", "auth.json"),
+				`{"gwdg-saia": {"type": "api", "key": "old"}}`)
+		}
+		return nil
+	}
+	createViaKeyboard(t, m)
+	if !strings.Contains(plain(t, m), "Keep existing") {
+		t.Fatalf("confirm prompt missing for existing provider id:\n%s", plain(t, m))
+	}
+	dblClick(t, m, "Replace")
+	root := registry.CanonicalPath(filepath.Join(m.cfg.projectBase(), "confirmai"))
+	if !ops.has("configure-project.sh", "ai-provider", root, "--name", "GWDG-SAIA",
+		"--endpoint", "https://api.example.com/v1", "--token", "GWT0K", "--replace") {
+		t.Fatalf("Replace must append --replace: %v", ops.Calls)
+	}
+	if _, err := reg.ByName("confirmai"); err != nil {
+		t.Fatalf("registry write missing: %v", err)
+	}
+}
+
+// Keep existing skips both the ai-provider write and the opencode-config
+// follower (id-parameterized confirm; "once" because the fake errors if
+// either ran).
+func TestCustomProviderKeepExistingSkipsBothSteps(t *testing.T) {
+	m, ops, reg := newTestModel(t)
+	typeKeys(t, m, "keepai")
+	click(t, m, "○ Custom")
+	m.tabToField(t, "Provider name")
+	overwriteLine(t, m, "My API")
+	m.tabToField(t, "Provider endpoint")
+	overwriteLine(t, m, "https://api.example.com/v1")
+	m.tabToField(t, "Provider token")
+	overwriteLine(t, m, "NEWT0K")
+	ops.Fake = func(call []string) error {
+		if call[0] == "init-project.sh" {
+			writeSecret(t, filepath.Join(call[1], ".opencode_data", "auth.json"),
+				`{"my-api": {"type": "api", "key": "old"}}`)
+		}
+		return nil
+	}
+	createViaKeyboard(t, m)
+	dblClick(t, m, "Keep existing")
+	if ops.has("configure-project.sh", "ai-provider") {
+		t.Fatalf("ai-provider ran despite Keep existing: %v", ops.Calls)
+	}
+	if ops.has("configure-project.sh", "opencode-config") {
+		t.Fatalf("opencode-config ran despite Keep existing: %v", ops.Calls)
+	}
+	if _, err := reg.ByName("keepai"); err != nil {
+		t.Fatalf("registry write missing after keep: %v", err)
+	}
+}
+
+// A custom provider id that does NOT exist in auth.json must not open
+// the confirm (id-parameterized, not a file-existence check).
+func TestCustomProviderUnknownIDRunsDirectly(t *testing.T) {
+	m, ops, _ := newTestModel(t)
+	typeKeys(t, m, "freshai")
+	click(t, m, "○ Custom")
+	m.tabToField(t, "Provider name")
+	overwriteLine(t, m, "Fresh API")
+	m.tabToField(t, "Provider endpoint")
+	overwriteLine(t, m, "https://api.example.com/v1")
+	m.tabToField(t, "Provider token")
+	overwriteLine(t, m, "tok")
+	ops.Fake = func(call []string) error {
+		if call[0] == "init-project.sh" {
+			// auth.json holds a DIFFERENT id only
+			writeSecret(t, filepath.Join(call[1], ".opencode_data", "auth.json"),
+				`{"other-id": {"type": "api", "key": "old"}}`)
+		}
+		return nil
+	}
+	createViaKeyboard(t, m)
+	if strings.Contains(plain(t, m), "Keep existing") {
+		t.Fatalf("confirm opened although the id is absent from auth.json:\n%s", plain(t, m))
+	}
+	if !ops.has("configure-project.sh", "ai-provider") {
+		t.Fatalf("ai-provider step missing for fresh id: %v", ops.Calls)
 	}
 }
 
@@ -752,7 +1037,12 @@ func TestCredentialReplacementConfirm(t *testing.T) {
 	typeKeys(t, m, "https://github.com/user/repo.git")
 	m.tabToField(t, "VCS token")
 	typeKeys(t, m, "T0K")
-	m.tabToField(t, "GWDG token")
+	click(t, m, "○ Custom")
+	m.tabToField(t, "Provider name")
+	typeKeys(t, m, "My API")
+	m.tabToField(t, "Provider endpoint")
+	typeKeys(t, m, "https://api.example.com/v1")
+	m.tabToField(t, "Provider token")
 	typeKeys(t, m, "GWT0K")
 	// ops fake writes existing credential files during the fake init
 	ops.Fake = func(call []string) error {
@@ -760,7 +1050,7 @@ func TestCredentialReplacementConfirm(t *testing.T) {
 			root := call[1]
 			writeSecret(t, filepath.Join(root, ".git_local", "gh-cli", "hosts.yml"), "old")
 			writeSecret(t, filepath.Join(root, ".opencode_data", "auth.json"),
-				`{"gwdg-saia": {"type": "api", "key": "old"}}`)
+				`{"my-api": {"type": "api", "key": "old"}}`)
 		}
 		return nil
 	}
@@ -770,7 +1060,7 @@ func TestCredentialReplacementConfirm(t *testing.T) {
 		t.Fatalf("confirm prompt missing:\n%s", plain(t, m))
 	}
 	dblClick(t, m, "Keep existing")
-	// second confirm: ai provider (auth.json has gwdg-saia)
+	// second confirm: ai provider (auth.json has my-api)
 	dblClick(t, m, "Keep existing")
 	// no vcs-credentials call for the kept host file, no ai-provider for kept auth
 	if ops.has("configure-project.sh", "vcs-credentials") {
@@ -867,11 +1157,7 @@ func TestGoldenBlankForm(t *testing.T) {
 		"  │   Modes          ● none ○ offline ○ cbm_ui ○ hil_mode                   │",
 		"  │   Start          ● console ○ opencode ○ web                             │",
 		"  │   VCS tracking   ● none ○ github.com ○ gitlab.com ○ own GitLab ○ others │",
-		"  │   AI provider    ● gwdg-saia ○ none                                     │",
-		"  │   GWDG token                                                            │",
-		"  │ ╭──────────────────────────────╮                                        │",
-		"  │ │ …                            │                                        │",
-		"  │ ╰──────────────────────────────╯                                        │",
+		"  │   AI provider    ● none ○ Custom                                        │",
 		"  │                                                                         │",
 		"  │                                                    ╭──────────────────╮ │",
 		"  │                                                    │  Create Project  │ │",
@@ -921,7 +1207,7 @@ func TestCreateInitFailureToastCarriesReason(t *testing.T) {
 
 // --- card scroll at small window heights ---------------------------------------
 
-const scrollH = 22 // small body: the form must scroll, not clip
+const scrollH = 14 // small body: the form must scroll, not clip
 
 func cardLines(t *testing.T, m *Model, h int) []string {
 	t.Helper()
@@ -930,14 +1216,16 @@ func cardLines(t *testing.T, m *Model, h int) []string {
 
 // TestCreateButtonReachableAtSmallHeight: tabbing focus to the Create
 // button scrolls the card so the button is visible (before the fix the
-// tall form was silently clipped past the window).
+// tall form was silently clipped past the window). Rendering inside the
+// loop drives the follow at the scroll height (the pull fires per
+// focused-row move).
 func TestCreateButtonReachableAtSmallHeight(t *testing.T) {
 	m, _, _ := newTestModel(t)
 	typeKeys(t, m, "scrollproj")
-	cardLines(t, m, scrollH)
 	for i := 0; i < 20; i++ {
 		m.Update(tea.KeyMsg{Type: tea.KeyTab})
-		if focusedField(t, m, "Create Project") {
+		lines := cardLines(t, m, scrollH)
+		if strings.Contains(strings.Join(lines, "\n"), "▸ Create Project") {
 			break
 		}
 	}

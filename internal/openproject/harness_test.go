@@ -31,10 +31,13 @@ type runnerHooks struct {
 	psOut    string // `podman ps` output
 	imageErr error  // `podman image exists` error (nil = image exists)
 	portErr  error  // `podman port` error
-	startErr error  // start.sh error
+	startErr error
 	buildErr error
-	onStart  func(args []string) // fires right before start.sh "runs"
-	onBuild  func(args []string)
+	// configure-project.sh (settings-launched provider steps, #103)
+	configureErr error
+	onConfigure  func(args []string)
+	onStart      func(args []string) // fires right before start.sh "runs"
+	onBuild      func(args []string)
 }
 
 func (h *runnerHooks) output(name string, args []string) (string, error) {
@@ -52,6 +55,11 @@ func (h *runnerHooks) output(name string, args []string) (string, error) {
 			h.onBuild(args[1:])
 		}
 		return "built", h.buildErr
+	case name == "bash" && filepath.Base(args[0]) == "configure-project.sh":
+		if h.onConfigure != nil {
+			h.onConfigure(args[1:])
+		}
+		return "configured", h.configureErr
 	case name == "podman" && args[0] == "ps":
 		return h.psOut, nil
 	case name == "podman" && args[0] == "image":
@@ -135,6 +143,7 @@ func (e *env) build(t *testing.T) *Model {
 		Runner:           e.run,
 		StartScript:      filepath.Join(e.home, "start.sh"),
 		BuildScript:      filepath.Join(e.home, "build-container.sh"),
+		ConfigureScript:  filepath.Join(e.home, "configure-project.sh"),
 		Dockerfile:       filepath.Join(e.home, "Dockerfile"),
 		DockerfileCustom: "",
 		Ops:              e.launch,
