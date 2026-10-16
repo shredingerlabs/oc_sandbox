@@ -17,6 +17,7 @@
 #   vcs-credentials custom <project-root> --token <t> --host <h>
 #   ai-provider <project-root> --name <n> --endpoint <u> --token <t> [--replace]
 #   opencode-config <project-root> --id <i> --name <n> --endpoint <u>
+#   ai-provider-remove <project-root> --id <i>
 #
 # Exit codes: 0 success, 1 error, 2 usage error.
 #
@@ -30,7 +31,7 @@ die() {
 }
 
 usage() {
-  sed -n '2,25p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+  sed -n '2,26p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
   exit 2
 }
 
@@ -316,6 +317,56 @@ cmd_opencode_config() {
   write_config_without_backup "$config_file" "$config"
 }
 
+# ai-provider-remove: deletes one provider entry from the project's own
+# config files — the credential key in auth.json and the provider.<id>
+# section in opencode.json. Unknown ids fail loudly; other entries,
+# unrelated sections and the legacy sandbox_config record are untouched
+# (ADR-0023).
+cmd_ai_provider_remove() {
+  local project_path="" p_id=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --id) [[ $# -ge 2 ]] || die "--id requires a value" 2; p_id="$2"; shift 2 ;;
+      -*) die "Unknown argument: $1" 2 ;;
+      *) [[ -z "$project_path" ]] || die "Unexpected argument: $1" 2; project_path="$1"; shift ;;
+    esac
+  done
+
+  [[ -n "$project_path" ]] || die "Usage: $0 ai-provider-remove <project-root> --id <i>" 2
+  [[ -n "$p_id" ]] || die "Missing --id" 2
+
+  local auth_file="${project_path}/.opencode_data/auth.json"
+  local config_file="${project_path}/.opencode_config/opencode.json"
+  local existing='' in_auth=false in_config=false
+
+  if [[ -e "$auth_file" ]]; then
+    existing=$(jq -c . "$auth_file") || die "Existing auth.json is not valid JSON"
+    jq -e --arg id "$p_id" 'has($id)' <<< "$existing" >/dev/null && in_auth=true
+  fi
+  if [[ -f "$config_file" ]]; then
+    jq -e --arg id "$p_id" '.provider | type == "object" and has($id)' \
+      "$config_file" >/dev/null 2>&1 && in_config=true
+  fi
+
+  if [[ "$in_auth" != "true" && "$in_config" != "true" ]]; then
+    die "Unknown provider id: ${p_id}" 2
+  fi
+
+  if [[ "$in_auth" == "true" ]]; then
+    local auth_config
+    auth_config=$(jq --arg id "$p_id" 'del(.[$id])' <<< "$existing") ||
+      die "Removing ${p_id} from auth.json failed"
+    write_secret_file "$auth_file" "$auth_config"
+  fi
+
+  if [[ "$in_config" == "true" ]]; then
+    local config
+    config=$(jq --arg id "$p_id" 'del(.provider[$id])' "$config_file") ||
+      die "Removing provider.${p_id} from opencode.json failed"
+    write_config_without_backup "$config_file" "$config"
+  fi
+}
+
 main() {
   local subcommand="${1:-}"
   shift 2>/dev/null || true
@@ -325,6 +376,7 @@ main() {
     vcs-credentials) cmd_vcs_credentials "$@" ;;
     ai-provider) cmd_ai_provider "$@" ;;
     opencode-config) cmd_opencode_config "$@" ;;
+    ai-provider-remove) cmd_ai_provider_remove "$@" ;;
     -h|--help|help|"") usage ;;
     *) die "Unknown subcommand: ${subcommand} (see --help)" 2 ;;
   esac
