@@ -134,6 +134,11 @@ func (l psLauncher) Launch(op taskmgr.Op) tea.Cmd {
 	}
 }
 
+// WireProjectSettingsDeps wires the Edit Project settings view's write
+// path (app composition): runner, configure-project.sh and the shared
+// task manager as the Ops launcher.
+func (v *View) WireProjectSettingsDeps(d projectsettings.Deps) { v.ps.Deps = d }
+
 // SubTabs implements shell.CenterView.
 func (v *View) SubTabs() ([]string, int) { return tabs, v.sub }
 

@@ -20,7 +20,27 @@ import (
 )
 
 // Test harness: real registry fixtures (no podman — this screen never
-// starts anything), the BubbleTea model seam, rendered-lines assertions.
+// starts anything), a fake script runner, a recording Launcher, the
+// BubbleTea model seam, rendered-lines assertions.
+
+// psHooks script the fake runner's configure-project.sh behavior.
+type psHooks struct {
+	configureErr error
+}
+
+// psLaunch records every op and executes it like DefaultLauncher.
+type psLaunch struct {
+	ops []taskmgr.Op
+}
+
+func (l *psLaunch) Launch(op taskmgr.Op) tea.Cmd {
+	l.ops = append(l.ops, op)
+	return func() tea.Msg {
+		var lines []string
+		err := op.Run(func(line string) { lines = append(lines, line) })
+		return taskmgr.DoneMsg{ID: op.ID, Key: op.Key, Lines: lines, Err: err}
+	}
+}
 
 // env holds the fixture home; timestamps recede per insert so AllOrdered
 // (last_used desc) lists alpha first and the open project is alpha.
@@ -29,23 +49,9 @@ type env struct {
 	base   time.Time
 	seq    int
 	roots  map[string]string
+	hooks  *psHooks
 	run    *cmdrun.Fake
-	launch *launchRecord
-}
-
-// launchRecord records every op handed to the seam and executes it like
-// DefaultLauncher so save flows complete inline.
-type launchRecord struct {
-	ops []taskmgr.Op
-}
-
-func (l *launchRecord) Launch(op taskmgr.Op) tea.Cmd {
-	l.ops = append(l.ops, op)
-	return func() tea.Msg {
-		var lines []string
-		err := op.Run(func(line string) { lines = append(lines, line) })
-		return taskmgr.DoneMsg{ID: op.ID, Key: op.Key, Lines: lines, Err: err}
-	}
+	launch *psLaunch
 }
 
 func newEnv(t *testing.T, names ...string) *env {
@@ -55,7 +61,13 @@ func newEnv(t *testing.T, names ...string) *env {
 	if err := os.RemoveAll(home); err != nil {
 		t.Fatal(err)
 	}
-	e := &env{home: home, roots: map[string]string{}, run: &cmdrun.Fake{}, launch: &launchRecord{}}
+	e := &env{home: home, roots: map[string]string{}, hooks: &psHooks{}, launch: &psLaunch{}}
+	e.run = &cmdrun.Fake{Script: func(name string, args []string) (string, error) {
+		if name == "bash" && len(args) > 0 && filepath.Base(args[0]) == "configure-project.sh" {
+			return "configured", e.hooks.configureErr
+		}
+		return "", nil
+	}}
 	if err := e.reg(t, time.Now()).CreateProjectsFile(); err != nil {
 		t.Fatal(err)
 	}
@@ -64,6 +76,10 @@ func newEnv(t *testing.T, names ...string) *env {
 	}
 	return e
 }
+
+// drain drains the launcher's cmd tree into the view (the recording
+// Launcher returns DoneMsgs directly — no manager in between).
+// Defined in vcs_test.go.
 
 func (e *env) reg(t *testing.T, now time.Time) *registry.Registry {
 	t.Helper()
