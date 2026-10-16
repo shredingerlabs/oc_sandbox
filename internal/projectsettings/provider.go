@@ -26,16 +26,10 @@ import (
 // guarded); the Keep/Replace confirm is id-parameterized when a
 // credential already exists, and empty-token saves merge only when one
 // does. The sandbox_config `ai_provider` field is neither read nor
-// written here (ADR-0023).
-
-// Deps wires the pane's write path: the script runner, the
+// written here (ADR-0023). The pane's write path is wired through the
+// package-level Deps (view.go): the script runner, the
 // configure-project.sh location and the Ops launcher (the shared task
 // manager in production). Zero fields resolve to production defaults.
-type Deps struct {
-	Runner          cmdrun.Runner
-	ConfigureScript string
-	Ops             taskmgr.Launcher
-}
 
 // pane items (focus indices when the AI pane is open; 0 = card grid):
 // 1..3 = the add form fields, 4 = the Add button, 5/6 = the

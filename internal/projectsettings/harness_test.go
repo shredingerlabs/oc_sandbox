@@ -1,6 +1,7 @@
 package projectsettings
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -78,36 +79,7 @@ func newEnv(t *testing.T, names ...string) *env {
 
 // drain drains the launcher's cmd tree into the view (the recording
 // Launcher returns DoneMsgs directly — no manager in between).
-func drain(t *testing.T, v *View, cmd tea.Cmd) {
-	t.Helper()
-	for cmd != nil {
-		msg := cmd()
-		if msg == nil {
-			return
-		}
-		if batch, ok := msg.(tea.BatchMsg); ok {
-			cmd = nil
-			for _, c := range []tea.Cmd(batch) {
-				drain(t, v, c)
-			}
-			continue
-		}
-		cmd = v.Update(msg)
-	}
-}
-
-// configureCalls extracts the configure-project.sh argument vectors the
-// pane queued (script path stripped).
-func (e *env) configureCalls(t *testing.T) [][]string {
-	t.Helper()
-	var out [][]string
-	for _, c := range e.run.Calls {
-		if c.Name == "bash" && len(c.Args) > 1 && filepath.Base(c.Args[0]) == "configure-project.sh" {
-			out = append(out, c.Args[1:])
-		}
-	}
-	return out
-}
+// Defined in vcs_test.go.
 
 func (e *env) reg(t *testing.T, now time.Time) *registry.Registry {
 	t.Helper()
@@ -137,12 +109,88 @@ func (e *env) addProject(t *testing.T, name string) {
 
 func (e *env) view(t *testing.T) *View {
 	t.Helper()
-	v := New(e.home)
-	v.Deps = Deps{
+	return New(Deps{
+		Home:            e.home,
 		Runner:          e.run,
-		ConfigureScript: filepath.Join(e.home, "configure-project.sh"),
+		ConfigureScript: filepath.Join(e.home, "scripts", "configure-project.sh"),
 		Ops:             e.launch,
+	})
+}
+
+// --- VCS fixture helpers -------------------------------------------------
+
+// setTracking patches the project's sandbox_config vcs_tracking.
+func (e *env) setTracking(t *testing.T, name, tracking string) {
+	t.Helper()
+	if err := sandboxcfg.PatchString(e.home, sandboxcfg.Path(e.roots[name]), "vcs_tracking", tracking); err != nil {
+		t.Fatal(err)
 	}
+}
+
+// setRepoURL patches the project's sandbox_config repo_url.
+func (e *env) setRepoURL(t *testing.T, name, url string) {
+	t.Helper()
+	if err := sandboxcfg.PatchString(e.home, sandboxcfg.Path(e.roots[name]), "repo_url", url); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// writeGitconfig seeds the project-local git config (git-identity shape).
+func (e *env) writeGitconfig(t *testing.T, name, gitName, gitEmail string) {
+	t.Helper()
+	p := filepath.Join(e.roots[name], ".git_local", "gitconfig")
+	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	content := "[user]\n\tname = " + gitName + "\n\temail = " + gitEmail + "\n"
+	if err := os.WriteFile(p, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// writeHostFile seeds a CLI host credential file with the given hosts
+// (the JSON shape configure-project.sh writes).
+func (e *env) writeHostFile(t *testing.T, name, sub string, hosts ...string) {
+	t.Helper()
+	doc := map[string]any{}
+	for _, h := range hosts {
+		doc[h] = map[string]any{"token": "x"}
+	}
+	p := filepath.Join(e.roots[name], ".git_local", sub)
+	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	data, _ := json.Marshal(doc)
+	if err := os.WriteFile(p, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// configureCalls extracts configure-project.sh invocation arg vectors
+// (the view always invokes it through `bash <script> <args...>`).
+func (e *env) configureCalls(t *testing.T) [][]string {
+	t.Helper()
+	var out [][]string
+	for _, c := range e.run.Calls {
+		if c.Name == "bash" && filepath.Base(c.Args[0]) == "configure-project.sh" {
+			out = append(out, c.Args[1:])
+		}
+	}
+	return out
+}
+
+// sandboxValue reads one string field of the project's sandbox_config.
+func (e *env) sandboxValue(t *testing.T, name, field string) string {
+	t.Helper()
+	data, err := os.ReadFile(sandboxcfg.Path(e.roots[name]))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(data, &doc); err != nil {
+		t.Fatal(err)
+	}
+	v, _ := doc[field].(string)
 	return v
 }
 
@@ -164,8 +212,23 @@ func keyMsg(s string) tea.Msg {
 		return tea.KeyMsg{Type: tea.KeyShiftTab}
 	case "enter":
 		return tea.KeyMsg{Type: tea.KeyEnter}
+	case "backspace":
+		return tea.KeyMsg{Type: tea.KeyBackspace}
+	case " ":
+		return tea.KeyMsg{Type: tea.KeySpace, Runes: []rune{' '}}
 	default:
 		return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(s)}
+	}
+}
+
+// typeKeys sends a string one rune key at a time (spaces included).
+func typeKeys(v *View, s string) {
+	for _, r := range s {
+		if r == ' ' {
+			v.Update(keyMsg(" "))
+			continue
+		}
+		v.Update(keyMsg(string(r)))
 	}
 }
 

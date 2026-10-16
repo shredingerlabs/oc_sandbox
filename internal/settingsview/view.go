@@ -110,8 +110,28 @@ func New(home string) *View {
 		follow:       shell.NewFollow(true, false),
 	}
 	v.ops = DefaultOps{view: v}
-	v.ps = projectsettings.New(home)
+	v.ps = projectsettings.New(projectsettings.Deps{
+		Home:            home,
+		Runner:          v.run,
+		ConfigureScript: installRoot + "/scripts/configure-project.sh",
+		Ops:             psLauncher{v},
+	})
 	return v
+}
+
+// psLauncher routes the Edit Project settings view's ops through the
+// shared task manager when wired, else runs them as one batch cmd.
+type psLauncher struct{ v *View }
+
+func (l psLauncher) Launch(op taskmgr.Op) tea.Cmd {
+	if l.v.Tasks != nil {
+		return l.v.Tasks.Launch(op)
+	}
+	return func() tea.Msg {
+		var lines []string
+		err := op.Run(func(line string) { lines = append(lines, line) })
+		return taskmgr.DoneMsg{ID: op.ID, Lines: lines, Err: err}
+	}
 }
 
 // WireProjectSettingsDeps wires the Edit Project settings view's write
@@ -141,8 +161,11 @@ func (v *View) Rects() []shell.Rect {
 	return v.rects
 }
 
-// ConfirmOpen implements shell.ConfirmView (ADR-0021): the popup is up.
-func (v *View) ConfirmOpen() bool { return v.confirm.IsOpen() }
+// ConfirmOpen implements shell.ConfirmView (ADR-0021): the popup is up —
+// the pane's own or the delegated Edit Project settings view's.
+func (v *View) ConfirmOpen() bool {
+	return v.confirm.IsOpen() || (v.sub == 4 && v.ps.ConfirmOpen())
+}
 
 // Update implements shell.CenterView.
 func (v *View) Update(msg tea.Msg) tea.Cmd {
@@ -156,7 +179,10 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 			v.enterPane()
 		}
 	case taskmgr.DoneMsg: // continuation of a queued op (#82)
-		return v.taskDone(msg)
+		if cmd, ours := v.taskDone(msg); ours {
+			return cmd
+		}
+		return v.ps.Update(msg) // foreign here may be the delegated view's op
 	case tea.KeyMsg:
 		if v.confirm.IsOpen() { // the popup consumes keys (ADR-0021)
 			return v.confirm.Key(msg)
@@ -198,16 +224,16 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 // tasks (other views') and ignored. The Key guard disambiguates another
 // view's op that reuses this view's numeric id (every view numbers from
 // its own counter).
-func (v *View) taskDone(msg taskmgr.DoneMsg) tea.Cmd {
+func (v *View) taskDone(msg taskmgr.DoneMsg) (tea.Cmd, bool) {
 	after, ours := v.queuePending[msg.ID]
 	if !ours || (msg.Key != "" && msg.Key != "settings") {
-		return nil
+		return nil, false
 	}
 	delete(v.queuePending, msg.ID)
 	if msg.Err != nil {
 		v.toast = msg.Err.Error()
 	}
-	return after(msg.Err)
+	return after(msg.Err), true
 }
 
 // enterPane refreshes the pane's live data when its tab is entered:
