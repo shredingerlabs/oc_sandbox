@@ -59,6 +59,9 @@ func TestAsyncCreateFlowsThroughTaskQueue(t *testing.T) {
 	if !m.Created() {
 		t.Fatal("Created() false after task-driven creation")
 	}
+	if m.textVal(fName) != "" || m.textVal(fPath) != "" || m.source != srcBlank {
+		t.Fatal("async create did not reset the form (unsuccessful create must keep entries)")
+	}
 }
 
 func TestAsyncBuildNowQueuesBuildThenContinues(t *testing.T) {
