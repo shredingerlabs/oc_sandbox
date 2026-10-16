@@ -87,6 +87,7 @@ type View struct {
 	aiSteps    [][]string
 	aiRunning  bool
 	aiErr      string
+	removing   string // provider id whose removal op is in flight (#112)
 	opID       int
 }
 
@@ -279,8 +280,14 @@ func (v *View) tabFocus(dir int) {
 	lo, hi := piName, piAdd
 	if v.aiConfirm != nil {
 		lo, hi = piKeep, piReplace
-	} else if v.focus > piAdd {
-		v.focus = piAdd // confirm closed: stale confirm indices snap back
+	} else {
+		// #112: the shown entries' Remove buttons close the cycle.
+		if n := v.entryCount(); n > 0 {
+			hi = piRemove + n - 1
+		}
+		if v.focus > hi {
+			v.focus = piAdd // stale confirm/Remove indices snap back
+		}
 	}
 	if v.focus < lo || v.focus > hi {
 		if dir > 0 {
@@ -315,6 +322,8 @@ func (v *View) paneKey(msg tea.KeyMsg) {
 			v.lastCmd = v.resolveAIConfirm(false)
 		case piReplace:
 			v.lastCmd = v.resolveAIConfirm(true)
+		default:
+			v.lastCmd = v.removeAt(v.focus)
 		}
 		return
 	case "backspace":

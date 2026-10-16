@@ -41,6 +41,7 @@ const (
 	piAdd
 	piKeep
 	piReplace
+	piRemove // each shown entry's Remove button; the entry is piRemove + i
 )
 
 // field is one add-form text input: value plus cursor.
@@ -249,6 +250,9 @@ func (v *View) aiDone(msg taskmgr.DoneMsg) tea.Cmd {
 		return nil
 	}
 	v.aiRunning = false
+	if v.removing != "" {
+		return v.removeDone(msg) // #112: the removal op's completion
+	}
 	if msg.Err != nil {
 		v.aiSteps = nil
 		v.aiErr = "AI provider setup failed: " + msg.Err.Error() +
@@ -265,7 +269,92 @@ func (v *View) aiDone(msg taskmgr.DoneMsg) tea.Cmd {
 	return nil
 }
 
-// deps resolves the zero-valued Deps to production defaults.
+// --- remove flow ----------------------------------------------------------------
+
+// removeEntry opens the shared confirmation popup (ADR-0021) gating the
+// queued ai-provider-remove op for one entry of the selected project.
+// Cancel leaves the config files untouched; removal is a plain delete —
+// the last entry simply leaves the project with no providers (ADR-0023),
+// and sandbox_config's legacy ai_provider field is never written.
+func (v *View) removeEntry(e entry) tea.Cmd {
+	if v.aiRunning {
+		v.toast = "AI provider configuration is running — wait for it to finish"
+		return nil
+	}
+	if v.aiConfirm != nil || v.confirm.IsOpen() {
+		return nil
+	}
+	if v.sel < 0 || v.sel >= len(v.projects) {
+		return nil
+	}
+	root := v.projects[v.sel].Path
+	id := e.id
+	v.confirm.Open("Remove provider?",
+		"Remove", "Cancel",
+		[]string{"Remove '" + id + "' — deletes its auth.json credential " +
+			"and opencode.json section from " + v.paneProject() + "."},
+		false,
+		func() tea.Cmd { return v.queueRemove(root, id) })
+	return nil
+}
+
+// queueRemove launches the ai-provider-remove op through the Ops seam;
+// a DoneMsg lands in aiDone with v.removing set.
+func (v *View) queueRemove(root, id string) tea.Cmd {
+	v.aiRunning = true
+	v.removing = id
+	v.aiSteps = nil
+	v.opID++
+	key := ""
+	if v.sel >= 0 && v.sel < len(v.projects) {
+		key = v.projects[v.sel].ContainerID
+	}
+	v.toast = "Removing provider…"
+	run := v.deps().Runner
+	script := v.deps().ConfigureScript
+	args := []string{"ai-provider-remove", root, "--id", id}
+	op := taskmgr.Op{
+		ID:    v.opID,
+		Key:   key,
+		Title: "Removing AI provider",
+		Run: func(emit func(string)) error {
+			out, err := run.Output("bash", append([]string{script}, args...)...)
+			for _, l := range cmdrun.Lines(out) {
+				emit(l)
+			}
+			return err
+		},
+	}
+	return v.deps().Ops.Launch(op)
+}
+
+// removeDone processes the removal op's completion: the failure path
+// surfaces the error without any half-delete (the root's entry and its
+// credential stay until the script says otherwise); success clears the
+// state — the list re-reads opencode.json on the next render.
+func (v *View) removeDone(msg taskmgr.DoneMsg) tea.Cmd {
+	id := v.removing
+	v.removing = ""
+	if msg.Err != nil {
+		v.aiErr = "AI provider removal failed: " + msg.Err.Error() +
+			" — entry '" + id + "' and its credential are kept, fix and try again."
+		return nil
+	}
+	v.toast = "Provider entry removed — the list is refreshed"
+	return nil
+}
+
+// --- entry list rendering ---------------------------------------------------------
+
+// entryCount reports how many Remove buttons the entry list currently
+// renders (the tab-focus upper bound; 0 = none).
+func (v *View) entryCount() int {
+	if v.pane != paneAI || v.sel < 0 || v.sel >= len(v.projects) {
+		return 0
+	}
+	return len(readEntries(v.projects[v.sel].Path))
+}
+
 func (v *View) deps() Deps {
 	d := v.Deps
 	if d.Runner == nil {
@@ -309,7 +398,7 @@ func (v *View) aiPaneRows(paneW int) []paneRow {
 	if len(entries) == 0 {
 		add(shell.StyleMutedAlt.Render("no entries — add a provider above"))
 	}
-	for _, e := range entries {
+	for i, e := range entries {
 		mark := shell.SymOff
 		if !e.orphan {
 			mark = shell.SymOn
@@ -319,6 +408,11 @@ func (v *View) aiPaneRows(paneW int) []paneRow {
 			add(shell.StyleWarn.Render(truncate("credential missing in auth.json", paneW-4)))
 			add(shell.StyleMutedAlt.Render(truncate("read-only — reconfigure via the add form", paneW-4)))
 		}
+		// #112: the Remove button on the shown entry.
+		rows = append(rows, paneRow{
+			text: "  " + shell.ButtonLines("Remove", v.focus == piRemove+i && v.pane == paneAI && v.aiConfirm == nil)[1],
+			ai:   piRemove + i,
+		})
 	}
 
 	if v.aiConfirm != nil {
@@ -387,7 +481,25 @@ func (v *View) paneClick(idx int) {
 		v.lastCmd = v.resolveAIConfirm(false)
 	case piReplace:
 		v.lastCmd = v.resolveAIConfirm(true)
+	default:
+		v.lastCmd = v.removeAt(idx)
 	}
+}
+
+// removeAt starts the removal flow for the entry whose Remove button
+// carries focus index idx (piRemove + i, #112).
+func (v *View) removeAt(idx int) tea.Cmd {
+	if idx < piRemove {
+		return nil
+	}
+	if v.sel < 0 || v.sel >= len(v.projects) {
+		return nil
+	}
+	entries := readEntries(v.projects[v.sel].Path)
+	if i := idx - piRemove; i < len(entries) {
+		return v.removeEntry(entries[i])
+	}
+	return nil
 }
 
 // resetPane clears the AI pane state (card/pane switches hand the pane
@@ -400,6 +512,7 @@ func (v *View) resetPane() {
 	v.aiConfirm = nil
 	v.aiSteps = nil
 	v.aiErr = ""
+	v.removing = ""
 }
 
 // paneRow is one laid-out pane line; ai >= 0 marks it an interactive AI
