@@ -65,8 +65,9 @@ type View struct {
 
 	cardRects   []shell.Rect // one hit rect per rendered card
 	buttonRects []shell.Rect // vcs / AI Provider on the selected card
-	paneRects   []shell.Rect // AI pane interactive rows (fields, Add, confirm)
+	paneRects   []shell.Rect // AI pane interactive rows (fields, Add, Save, confirm, entries)
 	paneIdx     []int        // focus index per pane rect
+	paneEnts    []int        // editable-entry list index per pane rect (-1 = not an entry)
 	saveCmd     tea.Cmd      // cmd a pane click produced (save launch)
 	pending     func()
 
@@ -79,15 +80,19 @@ type View struct {
 
 	// AI provider pane (#110): the add form fields, the pending
 	// Keep/Replace confirm, the queued write steps and the run flag.
-	Deps       Deps // production wiring (runner / configure-project.sh / Ops)
-	aiName     field
-	aiEndpoint field
-	aiToken    field
-	aiConfirm  *aiConfirmState
-	aiSteps    [][]string
-	aiRunning  bool
-	aiErr      string
-	opID       int
+	// #111 adds the entry edit form (aiEdit) and whether an edit save is
+	// queued (aiEditQueued).
+	Deps         Deps // production wiring (runner / configure-project.sh / Ops)
+	aiName       field
+	aiEndpoint   field
+	aiToken      field
+	aiEdit       *aiEditState
+	aiEditQueued bool
+	aiConfirm    *aiConfirmState
+	aiSteps      [][]string
+	aiRunning    bool
+	aiErr        string
+	opID         int
 }
 
 // Deps wires the view's write paths: the command runner and the
@@ -145,7 +150,8 @@ func (v *View) TextFocused() bool {
 		fs := v.vcs.fields()
 		return v.vcs.focus >= 1 && v.vcs.focus <= len(fs)
 	}
-	return v.pane == paneAI && v.focus >= piName && v.focus <= piToken && v.aiConfirm == nil
+	return v.pane == paneAI && v.focus >= piName && v.focus <= piToken && v.aiConfirm == nil ||
+		v.pane == paneAI && v.focus >= piEditName && v.focus <= piEditToken && v.aiConfirm == nil
 }
 
 // ConfirmOpen implements shell.ConfirmView (ADR-0021): the VCS
@@ -247,6 +253,11 @@ func (v *View) key(msg tea.KeyMsg) {
 			v.aiConfirm = nil
 			return
 		}
+		if v.aiEdit != nil {
+			v.aiEdit = nil
+			v.focus = 0
+			return
+		}
 		if v.focus != 0 {
 			v.focus = 0
 		}
@@ -276,11 +287,16 @@ func (v *View) tabFocus(dir int) {
 	if v.pane != paneAI {
 		return
 	}
-	lo, hi := piName, piAdd
+	var lo, hi int
 	if v.aiConfirm != nil {
 		lo, hi = piKeep, piReplace
-	} else if v.focus > piAdd {
-		v.focus = piAdd // confirm closed: stale confirm indices snap back
+	} else if v.aiEdit != nil {
+		lo, hi = piEditName, piEditSave
+	} else {
+		lo, hi = piName, piAdd
+		if v.focus > piAdd {
+			v.focus = piAdd // confirm closed: stale confirm indices snap back
+		}
 	}
 	if v.focus < lo || v.focus > hi {
 		if dir > 0 {
@@ -311,6 +327,8 @@ func (v *View) paneKey(msg tea.KeyMsg) {
 		switch v.focus {
 		case piAdd:
 			v.lastCmd = v.addProvider()
+		case piEditSave:
+			v.lastCmd = v.saveProviderEdit()
 		case piKeep:
 			v.lastCmd = v.resolveAIConfirm(false)
 		case piReplace:
@@ -349,6 +367,12 @@ func (v *View) focusedField() *field {
 		return &v.aiEndpoint
 	case piToken:
 		return &v.aiToken
+	case piEditName:
+		return &v.aiEdit.name
+	case piEditEndpoint:
+		return &v.aiEdit.endpoint
+	case piEditToken:
+		return &v.aiEdit.token
 	}
 	return nil
 }
@@ -403,12 +427,24 @@ func (v *View) click(x, y int) {
 			return
 		}
 	}
-	// The open AI pane's interactive rows take precedence.
+	// The open AI pane's interactive rows take precedence; entry rows
+	// open the entry edit form, everything else routes by focus index.
 	if v.pane == paneAI {
 		for i, r := range v.paneRects {
 			if r.Hit(x, y) {
-				v.focus = v.paneIdx[i]
-				v.paneClick(v.focus)
+				idx, ent := v.paneIdx[i], v.paneEnts[i]
+				if ent >= 0 {
+					entries := readEntries(v.projects[v.sel].Path)
+					if ent < len(entries) {
+						v.openEntryEdit(entries[ent])
+					}
+					return
+				}
+				if idx < 0 { // orphan entries are read-only: recorded, no-op
+					return
+				}
+				v.focus = idx
+				v.paneClick(idx)
 				return
 			}
 		}
