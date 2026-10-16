@@ -1,6 +1,7 @@
 package projectsettings
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,9 +12,11 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/muesli/termenv"
 
+	"github.com/shredingerlabs/oc-sandbox/internal/cmdrun"
 	"github.com/shredingerlabs/oc-sandbox/internal/registry"
 	"github.com/shredingerlabs/oc-sandbox/internal/sandboxcfg"
 	"github.com/shredingerlabs/oc-sandbox/internal/shell"
+	"github.com/shredingerlabs/oc-sandbox/internal/taskmgr"
 )
 
 // Test harness: real registry fixtures (no podman — this screen never
@@ -22,10 +25,27 @@ import (
 // env holds the fixture home; timestamps recede per insert so AllOrdered
 // (last_used desc) lists alpha first and the open project is alpha.
 type env struct {
-	home  string
-	base  time.Time
-	seq   int
-	roots map[string]string
+	home   string
+	base   time.Time
+	seq    int
+	roots  map[string]string
+	run    *cmdrun.Fake
+	launch *launchRecord
+}
+
+// launchRecord records every op handed to the seam and executes it like
+// DefaultLauncher so save flows complete inline.
+type launchRecord struct {
+	ops []taskmgr.Op
+}
+
+func (l *launchRecord) Launch(op taskmgr.Op) tea.Cmd {
+	l.ops = append(l.ops, op)
+	return func() tea.Msg {
+		var lines []string
+		err := op.Run(func(line string) { lines = append(lines, line) })
+		return taskmgr.DoneMsg{ID: op.ID, Key: op.Key, Lines: lines, Err: err}
+	}
 }
 
 func newEnv(t *testing.T, names ...string) *env {
@@ -35,7 +55,7 @@ func newEnv(t *testing.T, names ...string) *env {
 	if err := os.RemoveAll(home); err != nil {
 		t.Fatal(err)
 	}
-	e := &env{home: home, roots: map[string]string{}}
+	e := &env{home: home, roots: map[string]string{}, run: &cmdrun.Fake{}, launch: &launchRecord{}}
 	if err := e.reg(t, time.Now()).CreateProjectsFile(); err != nil {
 		t.Fatal(err)
 	}
@@ -73,7 +93,89 @@ func (e *env) addProject(t *testing.T, name string) {
 
 func (e *env) view(t *testing.T) *View {
 	t.Helper()
-	return New(e.home)
+	return New(Deps{
+		Home:            e.home,
+		Runner:          e.run,
+		ConfigureScript: filepath.Join(e.home, "scripts", "configure-project.sh"),
+		Ops:             e.launch,
+	})
+}
+
+// --- VCS fixture helpers -------------------------------------------------
+
+// setTracking patches the project's sandbox_config vcs_tracking.
+func (e *env) setTracking(t *testing.T, name, tracking string) {
+	t.Helper()
+	if err := sandboxcfg.PatchString(e.home, sandboxcfg.Path(e.roots[name]), "vcs_tracking", tracking); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// setRepoURL patches the project's sandbox_config repo_url.
+func (e *env) setRepoURL(t *testing.T, name, url string) {
+	t.Helper()
+	if err := sandboxcfg.PatchString(e.home, sandboxcfg.Path(e.roots[name]), "repo_url", url); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// writeGitconfig seeds the project-local git config (git-identity shape).
+func (e *env) writeGitconfig(t *testing.T, name, gitName, gitEmail string) {
+	t.Helper()
+	p := filepath.Join(e.roots[name], ".git_local", "gitconfig")
+	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	content := "[user]\n\tname = " + gitName + "\n\temail = " + gitEmail + "\n"
+	if err := os.WriteFile(p, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// writeHostFile seeds a CLI host credential file with the given hosts
+// (the JSON shape configure-project.sh writes).
+func (e *env) writeHostFile(t *testing.T, name, sub string, hosts ...string) {
+	t.Helper()
+	doc := map[string]any{}
+	for _, h := range hosts {
+		doc[h] = map[string]any{"token": "x"}
+	}
+	p := filepath.Join(e.roots[name], ".git_local", sub)
+	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	data, _ := json.Marshal(doc)
+	if err := os.WriteFile(p, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// configureCalls extracts configure-project.sh invocation arg vectors
+// (the view always invokes it through `bash <script> <args...>`).
+func (e *env) configureCalls(t *testing.T) [][]string {
+	t.Helper()
+	var out [][]string
+	for _, c := range e.run.Calls {
+		if c.Name == "bash" && filepath.Base(c.Args[0]) == "configure-project.sh" {
+			out = append(out, c.Args[1:])
+		}
+	}
+	return out
+}
+
+// sandboxValue reads one string field of the project's sandbox_config.
+func (e *env) sandboxValue(t *testing.T, name, field string) string {
+	t.Helper()
+	data, err := os.ReadFile(sandboxcfg.Path(e.roots[name]))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(data, &doc); err != nil {
+		t.Fatal(err)
+	}
+	v, _ := doc[field].(string)
+	return v
 }
 
 // --- step / render helpers (Bullet-dee test seam: the BubbleTea model) ---
@@ -94,8 +196,23 @@ func keyMsg(s string) tea.Msg {
 		return tea.KeyMsg{Type: tea.KeyShiftTab}
 	case "enter":
 		return tea.KeyMsg{Type: tea.KeyEnter}
+	case "backspace":
+		return tea.KeyMsg{Type: tea.KeyBackspace}
+	case " ":
+		return tea.KeyMsg{Type: tea.KeySpace, Runes: []rune{' '}}
 	default:
 		return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(s)}
+	}
+}
+
+// typeKeys sends a string one rune key at a time (spaces included).
+func typeKeys(v *View, s string) {
+	for _, r := range s {
+		if r == ' ' {
+			v.Update(keyMsg(" "))
+			continue
+		}
+		v.Update(keyMsg(string(r)))
 	}
 }
 
