@@ -67,6 +67,17 @@ func hasMode(modes []string, mode string) bool {
 	return false
 }
 
+// withoutMode returns modes minus the given mode (newproject parity).
+func withoutMode(modes []string, mode string) []string {
+	var out []string
+	for _, m := range modes {
+		if m != mode {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
 // truncate cuts s to at most n cells (display width, ANSI- and
 // wide-rune-aware), appending an ellipsis when cut.
 func truncate(s string, n int) string {

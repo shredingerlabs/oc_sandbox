@@ -597,14 +597,16 @@ func (m *Model) applyOption(section, value string) {
 		s.editionGone = false
 	case "modes":
 		if hasMode(s.modes, value) {
-			var out []string
-			for _, mo := range s.modes {
-				if mo != value {
-					out = append(out, mo)
-				}
-			}
-			s.modes = out
+			s.modes = withoutMode(s.modes, value)
 		} else {
+			// live mutual exclusion (newproject parity): offline and
+			// cbm_ui can never be staged together.
+			switch value {
+			case "offline":
+				s.modes = withoutMode(s.modes, "cbm_ui")
+			case "cbm_ui":
+				s.modes = withoutMode(s.modes, "offline")
+			}
 			s.modes = append(s.modes, value)
 		}
 	case "start":

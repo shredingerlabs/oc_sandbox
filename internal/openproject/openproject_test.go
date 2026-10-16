@@ -835,6 +835,27 @@ func TestOfflineCBMComboRejectedOnSaveAndStart(t *testing.T) {
 	}
 }
 
+// --- mode exclusivity (newproject parity) ---
+
+func TestOfflineCBMExcludedWhenStaging(t *testing.T) {
+	e := newEnv(t, &runnerHooks{
+		helpOut: startHelpOut + "\n  --cbm_ui CBM UI mode",
+	})
+	bodyOf(t, e.m, bodyW, bodyH)
+	clickPaneRowByText(t, e, "cbm_ui")
+	if !hasMode(e.m.staged.modes, "cbm_ui") || hasMode(e.m.staged.modes, "offline") {
+		t.Fatalf("cbm_ui not staged alone: %v", e.m.staged.modes)
+	}
+	clickPaneRowByText(t, e, "offline") // turns cbm_ui off
+	if !hasMode(e.m.staged.modes, "offline") || hasMode(e.m.staged.modes, "cbm_ui") {
+		t.Fatalf("offline+cbm_ui staged together: %v", e.m.staged.modes)
+	}
+	clickPaneRowByText(t, e, "offline") // toggle off again
+	if hasMode(e.m.staged.modes, "offline") {
+		t.Fatalf("offline toggle-off failed: %v", e.m.staged.modes)
+	}
+}
+
 // --- settings-pane scroll at narrow heights ---
 
 func TestSettingsPaneScrollsAtNarrowHeight(t *testing.T) {
