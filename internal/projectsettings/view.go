@@ -18,8 +18,10 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/shredingerlabs/oc-sandbox/internal/cmdrun"
 	"github.com/shredingerlabs/oc-sandbox/internal/registry"
 	"github.com/shredingerlabs/oc-sandbox/internal/shell"
+	"github.com/shredingerlabs/oc-sandbox/internal/taskmgr"
 )
 
 // Tab item (Settings center's sub-menu row; the tab itself lives in the
@@ -45,26 +47,47 @@ const (
 
 // View is the Edit Project settings screen.
 type View struct {
-	home       string
-	projects   []registry.Project
-	sel        int // selected card (0 = the open project on load)
-	pane       int // paneNone / paneVCS / paneAI
-	toast      string
-	width      int
-	gridScroll int
-	gridFollow shell.Follow // wheel turns it off; selection pulls again
+	home            string
+	run             cmdrun.Runner
+	configureScript string
+	ops             taskmgr.Launcher
+	opSeq           int // view-assigned op handles
+	saveID          int // the in-flight VCS save op (0 = none)
+	projects        []registry.Project
+	sel             int // selected card (0 = the open project on load)
+	pane            int // paneNone / paneVCS / paneAI
+	vcs             *vcsState
+	confirm         shell.Confirm // VCS replace-credentials popup (ADR-0021)
+	toast           string
+	width           int
+	gridScroll      int
+	gridFollow      shell.Follow // wheel turns it off; selection pulls again
 
 	cardRects   []shell.Rect // one hit rect per rendered card
 	buttonRects []shell.Rect // vcs / AI Provider on the selected card
+	saveCmd     tea.Cmd      // cmd a pane click produced (save launch)
 	pending     func()
+}
+
+// Deps wires the view's write paths: the command runner and the
+// configure-project.sh location the VCS pane saves through, and the ops
+// launcher (the single goroutine escape hatch; nil → batch default).
+type Deps struct {
+	Home            string
+	Runner          cmdrun.Runner
+	ConfigureScript string
+	Ops             taskmgr.Launcher
 }
 
 // New returns the Edit Project settings view for home, preloaded from the
 // project registry with the open project (last used) preselected.
-func New(home string) *View {
+func New(d Deps) *View {
 	v := &View{
-		home:       home,
-		gridFollow: shell.NewFollow(true, false),
+		home:            d.Home,
+		run:             d.Runner,
+		configureScript: d.ConfigureScript,
+		ops:             d.Ops,
+		gridFollow:      shell.NewFollow(true, false),
 	}
 	v.Reload()
 	return v
@@ -84,15 +107,26 @@ func (v *View) Reload() {
 	}
 	v.sel = clamp(v.sel, 0, len(v.projects)-1)
 	v.pane = paneNone
+	v.vcs = nil
 	v.gridScroll = 0
 }
 
 // SubTabs implements shell.CenterView (standalone composition).
 func (v *View) SubTabs() ([]string, int) { return tabs, 0 }
 
-// TextFocused implements shell.CenterView: the screen has no text fields
-// yet (pure navigation), so focus never suppresses shell keys.
-func (v *View) TextFocused() bool { return false }
+// TextFocused implements shell.CenterView: true while a VCS pane text
+// field holds focus, so the shell suppresses 1–4/q/esc and letters type.
+func (v *View) TextFocused() bool {
+	if v.pane == paneVCS && v.vcs != nil {
+		fs := v.vcs.fields()
+		return v.vcs.focus >= 1 && v.vcs.focus <= len(fs)
+	}
+	return false
+}
+
+// ConfirmOpen implements shell.ConfirmView (ADR-0021): the VCS
+// replace-credentials popup is up.
+func (v *View) ConfirmOpen() bool { return v.confirm.IsOpen() }
 
 // Rects returns the interactive hit rects of the selected card's buttons
 // as laid out by the last Body render (regression-tested geometry).
@@ -102,12 +136,33 @@ func (v *View) Rects() []shell.Rect { return v.buttonRects }
 func (v *View) Update(msg tea.Msg) tea.Cmd {
 	v.toast = ""
 	switch msg := msg.(type) {
+	case taskmgr.DoneMsg:
+		v.vcsDone(msg)
 	case tea.KeyMsg:
+		if v.confirm.IsOpen() { // the popup consumes keys (ADR-0021)
+			was := true
+			v.confirm.Key(msg)
+			return v.afterConfirm(was)
+		}
+		if v.vcsKey(msg) {
+			return nil
+		}
 		v.key(msg)
 	case tea.MouseMsg:
 		if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft {
+			if v.confirm.IsOpen() { // popup buttons & outside-cancel first
+				if cmd, ok := v.confirm.Click(msg.X, msg.Y); ok {
+					if ac := v.afterConfirm(true); ac != nil {
+						cmd = tea.Batch(cmd, ac)
+					}
+					return cmd
+				}
+				return nil
+			}
 			v.click(msg.X, msg.Y)
-			return nil
+			cmd := v.saveCmd
+			v.saveCmd = nil
+			return cmd
 		}
 		if msg.Button == tea.MouseButtonWheelUp || msg.Button == tea.MouseButtonWheelDown {
 			dir := 1
@@ -118,6 +173,18 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 		}
 	}
 	return nil
+}
+
+// afterConfirm runs the post-popup continuation: Replace already returned
+// its apply cmd; every other dismissal (Keep existing / esc / outside)
+// counts as "keep existing" — the rest of the staged save applies without
+// the credential step.
+func (v *View) afterConfirm(was bool) tea.Cmd {
+	if v.confirm.IsOpen() || !was || v.vcs == nil || v.vcs.replaced {
+		return nil
+	}
+	v.vcs.skipCreds = true
+	return v.applySave()
 }
 
 // Toast sets feedback for the next render (parity with the other
@@ -151,6 +218,7 @@ func (v *View) moveSel(d int) {
 	if n != v.sel {
 		v.sel = n
 		v.pane = paneNone
+		v.vcs = nil
 	}
 }
 
@@ -158,10 +226,33 @@ func (v *View) selectCard(i int) {
 	if i != v.sel {
 		v.sel = i
 		v.pane = paneNone // card switch resets the pane
+		v.vcs = nil
 	}
 }
 
 func (v *View) click(x, y int) {
+	// VCS pane items (tracker tokens, field values, save) first: they
+	// never overlap the card grid.
+	if p := v.vcs; p != nil && v.pane == paneVCS {
+		for i, r := range p.trackerRects {
+			if r.Hit(x, y) {
+				p.setTracker(trackers[i])
+				return
+			}
+		}
+		fs := p.fields()
+		for i, r := range p.fieldRects {
+			if r.Hit(x, y) {
+				p.focus = i + 1
+				return
+			}
+		}
+		if p.saveRect.Hit(x, y) {
+			p.focus = len(fs) + 1
+			v.vcsSave()
+			return
+		}
+	}
 	for i, r := range v.cardRects {
 		if !r.Hit(x, y) {
 			continue
@@ -175,9 +266,14 @@ func (v *View) click(x, y int) {
 			if br.Hit(x, y) {
 				v.pending = nil
 				if j == 0 {
-					v.pane = paneVCS
+					if v.sel >= 0 && v.sel < len(v.projects) {
+						v.openVCS(v.projects[v.sel])
+					} else {
+						v.pane = paneVCS
+					}
 				} else {
 					v.pane = paneAI
+					v.vcs = nil
 				}
 				return
 			}
@@ -230,7 +326,11 @@ func (v *View) Body(width, height int) string {
 	leftW := leftWidth(width)
 	left := v.leftPane(leftW, height)
 	right := v.paneBody(paneWidth(width), height)
-	return lipgloss.JoinHorizontal(lipgloss.Top, left, right)
+	body := lipgloss.JoinHorizontal(lipgloss.Top, left, right)
+	if v.confirm.IsOpen() { // the popup overlays the body (ADR-0021)
+		body = v.confirm.Overlay(width, height, shell.BodyTop)
+	}
+	return body
 }
 
 // leftPane renders the wrapping card grid (or the empty-registry hint)
@@ -357,20 +457,24 @@ func (v *View) recordButtons(rc shell.Rect) {
 }
 
 // paneBody renders the right pane card (variant C frame): the empty
-// hint, or the selected project's placeholder for the opened pane.
+// hint, the VCS pane (staged fields + save), or the selected project's
+// placeholder for the AI provider pane.
 func (v *View) paneBody(paneW, height int) string {
 	var rows []string
-	switch v.pane {
-	case paneVCS:
+	cw := max(1, paneW-4) // content width: the card frame adds padding+border (cw+4)
+	switch {
+	case v.pane == paneVCS && v.vcs != nil:
+		rows = v.vcsRows(cw, v.paneContentX(paneW), shell.BodyTop+1)
+	case v.pane == paneVCS:
 		rows = append(rows, shell.StyleFieldLabel.Render("VCS — "+v.paneProject()))
-	case paneAI:
+	case v.pane == paneAI:
 		rows = append(rows, shell.StyleFieldLabel.Render("AI Provider — "+v.paneProject()))
 	default:
 		rows = append(rows, shell.StyleMutedAlt.Render(hintText))
 	}
 	// Wrap the pane content to its column width (MaxWidth would clip the
 	// long hint).
-	wrap := lipgloss.NewStyle().Width(max(1, paneW-4))
+	wrap := lipgloss.NewStyle().Width(cw)
 	var lines []string
 	var card []string
 	for _, r := range rows {
@@ -380,10 +484,18 @@ func (v *View) paneBody(paneW, height int) string {
 		card = append(card, "")
 	}
 	card = card[:max(0, height-2)]
+	// The pane card sits at the pane's column 0 (padLines prefixes nothing
+	// here), so a cw-wide card plus its frame always fits paneW.
 	for _, l := range strings.Split(shell.Card(card), "\n") {
-		lines = append(lines, " "+l)
+		lines = append(lines, l)
 	}
-	return padLines(lines, 1, paneW, height)
+	return padLines(lines, 0, paneW, height)
+}
+
+// paneContentX is the screen column of the pane card's content column 0:
+// the left pane plus the card border and its padding.
+func (v *View) paneContentX(paneW int) int {
+	return leftWidth(v.width) + 2
 }
 
 func (v *View) paneProject() string {

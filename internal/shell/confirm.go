@@ -36,6 +36,15 @@ type Confirm struct {
 // IsOpen reports whether a popup is armed (the shell key bypass queries this).
 func (c *Confirm) IsOpen() bool { return c.open }
 
+// Rects returns the popup's button hit rects of the last Overlay render
+// (cancel first, confirm second) for harness tests; empty while closed.
+func (c *Confirm) Rects() []Rect {
+	if !c.open {
+		return nil
+	}
+	return []Rect{c.cancelRect, c.okRect}
+}
+
 // Open arms the popup: title, confirm button label, cancel button label
 // ("Back" for the Create summary), context lines, danger render (red
 // confirm), and the continuation the confirm button produces.
