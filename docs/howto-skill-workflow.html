@@ -207,16 +207,18 @@ unvorhersehbaren Verhalten.</p>
     <td><code>/wayfinder</code> auf Idee anwenden →<br>
         <code>/wayfinder</code> auf jedes <code>wayfinder:xy</code> gelabelte Ticket anwenden →<br>
         <code>/to-spec</code> auf fertige wayfinder map →<br>
-        <code>/to-tickets</code> auf spec →<br>
-        <code>/implement</code> auf jedes <code>ready-for-agent</code> Ticket</td>
+        <code>/to-tickets</code> auf spec (gleiche Session) →<br>
+        <code>/implement</code> auf jedes <code>ready-for-agent</code> Ticket, oder<br>
+        <code>/implement-spec</code> auf spec (bearbeitet alle Tickets mit Subagents)</td>
   </tr>
   <tr>
     <td>Wenig Unklarheit bei kleinerer oder gut definierter Projektidee oder
         kleineren Änderungen — <strong>Klärung</strong> passt in <strong>eine Session</strong>
         (&lt; 100–150k Token)</td>
     <td><code>/grill-with-docs</code> auf Konzept anwenden → <code>/to-spec</code> am Ende
-        der Session anwenden → <code>/to-tickets</code> auf Spec anwenden →
-        <code>/implement</code> auf jedes Ticket anwenden</td>
+        der Session anwenden → <code>/to-tickets</code> auf Spec anwenden (gleiche Session) →
+        <code>/implement</code> auf jedes Ticket anwenden, oder<br>
+        <code>/implement-spec</code> auf Spec (bearbeitet alle Tickets mit Subagents)</td>
   </tr>
   <tr>
     <td>Klar definierte, kleine Änderungen — <strong>Klärung und Umsetzung</strong>
@@ -297,8 +299,8 @@ darin, ob die Klärung dokumentiert wird und ob sie in eine Agenten-Session
       die Map <strong>klein</strong> halten — „prototypemaxxing not planmaxxing“;
       eine Map-Session nach der anderen (nicht parallel)</li>
       <li>Danach: Map → <code>/to-spec</code> (kollabiert die verlinkten Entscheidungen
-      zu einem baubaren Plan) → <code>/to-tickets</code> → <code>/implement</code> pro
-      Ticket <em>oder</em> <code>/implement-spec</code> auf den gesamten Spec
+      zu einem baubaren Plan) → <code>/to-tickets</code> in gleicher Session wie /to-spec → <code>/implement</code> pro
+      Ticket in jeweils neuer Session <em>oder</em> <code>/implement-spec</code> auf den gesamten Spec
       (vgl. §6).</li>
   <li>Braucht Tracker-Anbindung aus <code>/setup-matt-pocock-skills</code> (GitHub,
       GitLab, Linear, Jira, Azure DevOps u. a. über „Other“; lokales Tracking über
@@ -320,7 +322,9 @@ darin, ob die Klärung dokumentiert wird und ob sie in eine Agenten-Session
         <strong>nicht</strong> selbst.</td>
     <td>Standard für Einzeltickets; ist bereits Pflicht in der
         <code>/to-tickets</code>-Kette aus §4 — unabhängige Tickets können
-        parallel via separate Sessions laufen.</td>
+        parallel via separate Sessions laufen. 
+        <br><code>/implement</code> kann auch direkt kleine Grill-Sessions
+        oder kleine Änderungen direkt umsetzen. </td>
   </tr>
   <tr>
     <td><code>/implement-spec</code></td>
@@ -340,7 +344,7 @@ darin, ob die Klärung dokumentiert wird und ob sie in eine Agenten-Session
   </tbody>
 </table>
 
-<h3>Voraussetzungen</h3>
+<h3>Voraussetzungen für <code>/implement-spec</code></h3>
 <ul>
   <li>Spec + Tickets müssen existieren (aus <code>/to-spec</code> →
       <code>/to-tickets</code>).</li>
@@ -391,9 +395,9 @@ issues. Lokales Tracking ermöglicht keine Blocking-Abhängigkeiten.</p>
 <pre><code> /to-spec on wayfinder map gh issue #1.
 </code></pre>
 
-<p>Wayfinder Spec in Tickets wandeln:</p>
+<p>Wayfinder Spec in Tickets wandeln (in gleicher Session wie /to-spec):</p>
 
-<pre><code> /to-tickets on wayfinder spec gh issue #42.
+<pre><code> /to-tickets
 </code></pre>
 
 <p>Umsetzen eines <code>ready-for-agent</code> Ticket zur Implementierung:</p>
@@ -430,8 +434,8 @@ grill-with-docs-Flow nach <code>/to-tickets</code>. Am Ende läuft
   <li>Am Ende der Session (wenn Ergebnis mehr als eine Implementierungs-Session benötigt):
       <pre><code>/to-spec
 </code></pre>
-      dann:
-      <pre><code>/to-tickets gh issue #4.
+      dann in gleicher Session:
+      <pre><code>/to-tickets
 </code></pre>
       (Nummer des Tickets anpassen)<br>
       dann Umsetzen eines <code>ready-for-agent</code> Tickets zur Implementierung:

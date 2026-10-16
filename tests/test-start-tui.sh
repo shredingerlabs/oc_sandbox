@@ -357,6 +357,87 @@ fresh_openjson_file="$fresh_openjson/.opencode_config/opencode.json"
 [[ "$(jq -r '.permission.external_directory."/home/dev/**"' "$fresh_openjson_file")" == 'allow' ]]
 [[ "$(jq -r '.mcp."codebase-memory-mcp".type' "$fresh_openjson_file")" == 'local' ]]
 
+# ai-provider-remove (#107): deletes the auth.json credential key and the
+# provider.<id> section in opencode.json, leaving other entries and unrelated
+# sections intact; the legacy sandbox_config ai_provider record is untouched.
+remove_project="$test_home/ai-remove-project"
+mkdir -p "$remove_project/.opencode_config"
+printf '%s\n' '{"ai_provider": "entry-one", "edition": "full"}' \
+  > "$remove_project/.opencode_config/sandbox_config.json"
+"$configure_script" ai-provider "$remove_project" \
+  --name 'Entry One' --endpoint 'https://api.example.com/v1' --token 'entry-one-secret'
+"$configure_script" opencode-config "$remove_project" \
+  --id 'entry-one' --name 'Entry One' --endpoint 'https://api.example.com/v1'
+"$configure_script" ai-provider "$remove_project" \
+  --name 'Other API' --endpoint 'http://localhost:11434/v1' --token 'other-secret'
+"$configure_script" opencode-config "$remove_project" \
+  --id 'other-api' --name 'Other API' --endpoint 'http://localhost:11434/v1'
+remove_auth="$remove_project/.opencode_data/auth.json"
+remove_openjson="$remove_project/.opencode_config/opencode.json"
+
+"$configure_script" ai-provider-remove "$remove_project" --id 'entry-one'
+[[ "$(jq -c 'keys' "$remove_auth")" == '["other-api"]' ]]
+[[ "$(jq -r '."other-api".key' "$remove_auth")" == 'other-secret' ]]
+[[ "$(jq -c '.provider | keys' "$remove_openjson")" == '["other-api"]' ]]
+[[ "$(jq -r '.provider."other-api".options.baseURL' "$remove_openjson")" == 'http://localhost:11434/v1' ]]
+[[ "$(jq -r '.plugin[0]' "$remove_openjson")" == opencode-models-discovery@1.5.3 ]]
+[[ "$(jq -r '.permission.external_directory."/home/dev/**"' "$remove_openjson")" == 'allow' ]]
+[[ "$(jq -r '.ai_provider' "$remove_project/.opencode_config/sandbox_config.json")" == 'entry-one' ]]
+[[ "$(stat -c '%a' "$remove_auth")" == '600' ]]
+
+# Mid-failure gap: when the auth.json removal succeeded but the
+# opencode.json write fails (unwritable config dir), the removal exits
+# non-zero with a clear message and the opencode section survives.
+gap_project="$test_home/ai-remove-gap-project"
+mkdir -p "$gap_project/.opencode_config"
+"$configure_script" ai-provider "$gap_project" \
+  --name 'Gap One' --endpoint 'https://api.example.com/v1' --token 'gap-secret'
+"$configure_script" opencode-config "$gap_project" \
+  --id 'gap-one' --name 'Gap One' --endpoint 'https://api.example.com/v1'
+gap_auth="$gap_project/.opencode_data/auth.json"
+gap_openjson="$gap_project/.opencode_config/opencode.json"
+chmod 555 "$gap_project/.opencode_config"
+set +e
+gap_out="$test_home/ai-remove-gap-out"
+"$configure_script" ai-provider-remove "$gap_project" --id 'gap-one' >"$gap_out" 2>&1
+gap_rc=$?
+chmod 755 "$gap_project/.opencode_config"
+set -e
+[[ "$gap_rc" -ne 0 ]]
+grep -q 'Error:' "$gap_out"
+[[ "$(jq -c 'keys' "$gap_auth")" == '[]' ]] # auth key already gone — acceptable
+[[ "$(jq -c '.provider | keys' "$gap_openjson")" == '["gap-one"]' ]]
+[[ "$(jq -r '.provider."gap-one".options.baseURL' "$gap_openjson")" == 'https://api.example.com/v1' ]]
+
+# Unknown ids die loudly without touching anything.
+set +e
+remove_unknown_out="$test_home/ai-remove-unknown-out"
+"$configure_script" ai-provider-remove "$remove_project" --id 'no-such-provider' \
+  >"$remove_unknown_out" 2>&1
+remove_unknown_rc=$?
+# Invalid usage: missing --id, missing project root, unknown flag.
+"$configure_script" ai-provider-remove "$remove_project" >"$remove_unknown_out" 2>&1
+remove_missing_id_rc=$?
+"$configure_script" ai-provider-remove >"$remove_unknown_out" 2>&1
+remove_missing_root_rc=$?
+"$configure_script" ai-provider-remove "$remove_project" --id 'other-api' --bogus >"$remove_unknown_out" 2>&1
+remove_bad_flag_rc=$?
+set -e
+[[ "$remove_unknown_rc" -eq 2 ]]
+[[ "$remove_missing_id_rc" -eq 2 ]]
+[[ "$remove_missing_root_rc" -eq 2 ]]
+[[ "$remove_bad_flag_rc" -eq 2 ]]
+grep -q 'Error:' "$remove_unknown_out"
+[[ "$(jq -c 'keys' "$remove_auth")" == '["other-api"]' ]]
+[[ "$(jq -c '.provider | keys' "$remove_openjson")" == '["other-api"]' ]]
+
+# Removing the last entry leaves the project with zero providers, no error.
+"$configure_script" ai-provider-remove "$remove_project" --id 'other-api'
+[[ "$(jq -c 'keys' "$remove_auth")" == '[]' ]]
+[[ "$(jq -c '.provider | keys' "$remove_openjson")" == '[]' ]]
+[[ "$(jq -r '.plugin[0]' "$remove_openjson")" == opencode-models-discovery@1.5.3 ]]
+[[ "$(jq -r '.ai_provider' "$remove_project/.opencode_config/sandbox_config.json")" == 'entry-one' ]]
+
 # The GWDG preset is gone from the shipped scripts and templates.
 [[ ! -e "$PROJECT_ROOT/dist/templates/opencode/opencode-gwdg.json" ]]
 

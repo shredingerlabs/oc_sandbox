@@ -204,7 +204,7 @@ ohne `gum` auf einen einfachen Textmodus zurück.
 | **Open Project**            | Registriertes Projekt auswählen und starten                          |
 | **New Project**             | Projekt-Root neu anlegen (Wizard)                                    |
 | **Build Container**         | Container-Images bauen (Editionen wie `build-container.sh`)          |
-| **Settings**                | Change Project Settings, Projekt-Import, Config-Backup/-Restore, Stop Container, Uninstall |
+| **Settings**                | Change Project Settings, Edit Project settings (VCS/AI Provider), Projekt-Import, Config-Backup/-Restore, Stop Container, Uninstall |
 | **Exit**                    | TUI beenden                                                          |
 
 ### Typischer Ablauf
@@ -244,6 +244,27 @@ Projekte werden in `~/.config/oc-sandbox/projects.json` registriert (kanonischer
 Pfad + kurze SHA-256-Container-Identität). Settings-Backup/Restore und der
 Deinstallations-Wizard (TUI-Label „Uninstall“) finden sich unter **Settings** – Details siehe
 [Deinstallation](#deinstallation).
+
+### Edit Project settings (Settings)
+
+**Settings → Edit Project settings** zeigt alle registrierten Projekte als
+Karten (das zuletzt genutzte ist vorgewählt); pro Karte öffnen **vcs** und
+**AI Provider** den rechten Bereich. Der **vcs**-Bereich bündelt die
+nachträgliche VCS-Pflege eines Projekts: Tracker-Auswahl (`none`, `github.com`,
+`gitlab.com`, `own GitLab`, `others` – vorbelegt aus `vcs_tracking` der
+`sandbox_config.json`), Git-Identität (vorbelegt aus der projekt-lokalen
+Git-Konfiguration, geschrieben über `configure-project.sh git-identity`),
+Repo-URL (gespiegelt in `sandbox_config.json` **und** die Projekt-Registry),
+verborgener Token (für jeden Tracker außer `none`) und – nur bei `own GitLab`
+/ `others` – ein Host-Feld (nur Hostname, vorbelegt aus der `.git_local/`
+Hosts-Datei, vor dem Speichern geprüft). Ein **Save** wendet alle gesetzten
+Änderungen über die `configure-project.sh`-Unterkommandos an
+(`vcs-credentials <tracker> --token <t> [--host <h>] [--replace]`); liegen
+bereits Zugangsdaten vor, schützt ein **Keep existing / Replace**-Popup
+([ADR-0021](docs/adr/0021-confirmation-popups.md)) vor dem versehentlichen
+Überschreiben. Tracker `none` verlangt weder Token noch Host; ungültige Hosts
+oder Tokens mit Whitespace werden beim Speichern abgewiesen (Fehleranzeige,
+ohne Schreibzugriff).
 
 ### Bestätigungs-Popup (Confirmation Popup)
 

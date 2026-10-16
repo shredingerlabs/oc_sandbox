@@ -3,6 +3,7 @@ package openproject
 import (
 	"errors"
 	"os"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -110,14 +111,14 @@ func TestGoldenSnapshotCardsAndSettingsPane(t *testing.T) {
 	}
 	for _, needle := range []string{
 		"Project Settings — alpha", "Edition", "Modes", "Start option",
-		"VCS tracking", "AI provider", "Proxy", "Save Settings", "● base",
+		"Proxy", "Save Settings", "● base",
 	} {
 		if !someLine(lines, needle) {
 			t.Errorf("settings pane does not contain %q", needle)
 		}
 	}
 	if n := countLines(lines, "──────"); n < 5 {
-		t.Errorf("expected ≥6 divider rules, got %d", n)
+		t.Errorf("expected ≥5 divider rules, got %d", n)
 	}
 }
 
@@ -450,7 +451,10 @@ func TestUnselectedCardsUseMutedFrame(t *testing.T) {
 	lipgloss.SetColorProfile(termenv.ANSI256)
 	t.Cleanup(func() { lipgloss.SetColorProfile(saved) })
 	body := e.m.Body(bodyW, bodyH)
-	if n := strings.Count(body, "\x1b[38;5;240m╭"); n != 1 { // beta
+	// Card frames sit at column 1 (one leading space); muted borders
+	// elsewhere (e.g. the Save button) are out of scope for this check.
+	cardFrame := regexp.MustCompile(`(?m)^ \x1b\[38;5;240m╭`)
+	if n := len(cardFrame.FindAllString(body, -1)); n != 1 { // beta
 		t.Errorf("muted frame count = %d, want exactly one muted card: %s", n, body)
 	}
 	if n := strings.Count(body, "\x1b[38;5;39m╭"); n != 1 { // selected alpha

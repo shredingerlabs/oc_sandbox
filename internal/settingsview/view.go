@@ -15,14 +15,17 @@ import (
 	"github.com/shredingerlabs/oc-sandbox/internal/cmdrun"
 	"github.com/shredingerlabs/oc-sandbox/internal/config"
 	"github.com/shredingerlabs/oc-sandbox/internal/discovery"
+	"github.com/shredingerlabs/oc-sandbox/internal/projectsettings"
 	"github.com/shredingerlabs/oc-sandbox/internal/registry"
 	"github.com/shredingerlabs/oc-sandbox/internal/sandboxcfg"
 	"github.com/shredingerlabs/oc-sandbox/internal/shell"
 	"github.com/shredingerlabs/oc-sandbox/internal/taskmgr"
 )
 
-// Sub-menu tab items (approved layout record #72).
-var tabs = []string{"Import project", "Export Config", "Restore Config", "Uninstall"}
+// Sub-menu tab items (approved layout record #72); "Edit Project
+// settings" (index 4) delegates its pane surface to the projectsettings
+// view (ticket #108).
+var tabs = []string{"Import project", "Export Config", "Restore Config", "Uninstall", "Edit Project settings"}
 
 // View is the Settings center view. Home is $HOME; the config layout,
 // registry, backups and the default install root hang off it. Tasks is
@@ -41,8 +44,10 @@ type View struct {
 	opSeq        int // view-assigned task handles
 	queuePending map[int]func(err error) tea.Cmd
 
-	sub   int // 0 import, 1 export, 2 restore, 3 uninstall
+	sub   int // 0..3 core panes, 4 edit-project-settings (delegated)
 	toast string
+
+	ps *projectsettings.View // Edit Project settings screen (#108)
 
 	// Import pane: 0 picker, 1 summary, 2 informational prompt.
 	impStage     int
@@ -105,22 +110,62 @@ func New(home string) *View {
 		follow:       shell.NewFollow(true, false),
 	}
 	v.ops = DefaultOps{view: v}
+	v.ps = projectsettings.New(projectsettings.Deps{
+		Home:            home,
+		Runner:          v.run,
+		ConfigureScript: installRoot + "/scripts/configure-project.sh",
+		Ops:             psLauncher{v},
+	})
 	return v
 }
+
+// psLauncher routes the Edit Project settings view's ops through the
+// shared task manager when wired, else runs them as one batch cmd.
+type psLauncher struct{ v *View }
+
+func (l psLauncher) Launch(op taskmgr.Op) tea.Cmd {
+	if l.v.Tasks != nil {
+		return l.v.Tasks.Launch(op)
+	}
+	return func() tea.Msg {
+		var lines []string
+		err := op.Run(func(line string) { lines = append(lines, line) })
+		return taskmgr.DoneMsg{ID: op.ID, Lines: lines, Err: err}
+	}
+}
+
+// WireProjectSettingsDeps wires the Edit Project settings view's write
+// path (app composition): runner, configure-project.sh and the shared
+// task manager as the Ops launcher.
+func (v *View) WireProjectSettingsDeps(d projectsettings.Deps) { v.ps.Deps = d }
 
 // SubTabs implements shell.CenterView.
 func (v *View) SubTabs() ([]string, int) { return tabs, v.sub }
 
 // TextFocused implements shell.CenterView: true while a text input holds
 // focus so the shell suppresses 1–4/q/esc and letters type.
-func (v *View) TextFocused() bool { return v.focusedField() != nil }
+func (v *View) TextFocused() bool {
+	if v.sub == 4 {
+		return v.ps.TextFocused()
+	}
+	return v.focusedField() != nil
+}
 
 // Rects returns the interactive hit rects of the current pane as laid
-// out by the last Body render (regression-tested geometry).
-func (v *View) Rects() []shell.Rect { return v.rects }
+// out by the last Body render (regression-tested geometry); the Edit
+// Project settings tab delegates to its view.
+func (v *View) Rects() []shell.Rect {
+	if v.sub == 4 {
+		return v.ps.Rects()
+	}
+	return v.rects
+}
 
-// ConfirmOpen implements shell.ConfirmView (ADR-0021): the popup is up.
-func (v *View) ConfirmOpen() bool { return v.confirm.IsOpen() }
+// ConfirmOpen implements shell.ConfirmView (ADR-0021): the popup is up —
+// the pane's own or the delegated Edit Project settings view's.
+func (v *View) ConfirmOpen() bool {
+	return v.confirm.IsOpen() || (v.sub == 4 && v.ps.ConfirmOpen())
+}
 
 // Update implements shell.CenterView.
 func (v *View) Update(msg tea.Msg) tea.Cmd {
@@ -134,10 +179,16 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 			v.enterPane()
 		}
 	case taskmgr.DoneMsg: // continuation of a queued op (#82)
-		return v.taskDone(msg)
+		if cmd, ours := v.taskDone(msg); ours {
+			return cmd
+		}
+		return v.ps.Update(msg) // foreign here may be the delegated view's op
 	case tea.KeyMsg:
 		if v.confirm.IsOpen() { // the popup consumes keys (ADR-0021)
 			return v.confirm.Key(msg)
+		}
+		if v.sub == 4 { // Edit Project settings: full delegation (#108)
+			return v.ps.Update(msg)
 		}
 		return v.key(msg)
 	case tea.MouseMsg:
@@ -147,12 +198,18 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 					return cmd
 				}
 			}
+			if v.sub == 4 {
+				return v.ps.Update(msg)
+			}
 			v.click(msg.X, msg.Y)
 			cmd := v.pending
 			v.pending = nil
 			return cmd
 		}
 		if msg.Button == tea.MouseButtonWheelUp || msg.Button == tea.MouseButtonWheelDown {
+			if v.sub == 4 {
+				return v.ps.Update(msg)
+			}
 			dir := 1
 			if msg.Button == tea.MouseButtonWheelUp {
 				dir = -1
@@ -167,16 +224,16 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 // tasks (other views') and ignored. The Key guard disambiguates another
 // view's op that reuses this view's numeric id (every view numbers from
 // its own counter).
-func (v *View) taskDone(msg taskmgr.DoneMsg) tea.Cmd {
+func (v *View) taskDone(msg taskmgr.DoneMsg) (tea.Cmd, bool) {
 	after, ours := v.queuePending[msg.ID]
 	if !ours || (msg.Key != "" && msg.Key != "settings") {
-		return nil
+		return nil, false
 	}
 	delete(v.queuePending, msg.ID)
 	if msg.Err != nil {
 		v.toast = msg.Err.Error()
 	}
-	return after(msg.Err)
+	return after(msg.Err), true
 }
 
 // enterPane refreshes the pane's live data when its tab is entered:
@@ -192,6 +249,8 @@ func (v *View) enterPane() {
 	case 3:
 		v.unSeen = true
 		v.unRunning = discovery.RunningContainers(v.run)
+	case 4:
+		v.ps.Reload() // fresh registry: cards reflect the current fixtures
 	}
 }
 
@@ -208,8 +267,10 @@ func (v *View) Body(width, height int) string {
 		rows, hits, focusRow = v.exportPane()
 	case 2:
 		rows, hits, focusRow = v.restorePane()
-	default:
+	case 3:
 		rows, hits, focusRow = v.uninstallPane(width)
+	default:
+		return v.ps.Body(width, height) // Edit Project settings (#108)
 	}
 	rows = append(rows, shell.Toast(v.toast))
 	if v.focusChanged {
@@ -393,9 +454,10 @@ func (v *View) activate() tea.Cmd {
 		return v.exportActivate()
 	case 2:
 		return v.restoreActivate()
-	default:
+	case 3:
 		return v.uninstallActivate()
 	}
+	return nil // case 4 (Edit Project settings) is fully delegated
 }
 
 func insertRune(f *field, r rune) {
