@@ -38,7 +38,7 @@
 
 **VCS integration** — Version Control System setup (GitHub, GitLab, or custom host) creating host token files (`gh-cli/hosts.yml`, `glab-cli/config.yml` with a `hosts:` block — glab ignores a separate `hosts.yml`, or `vcs/hosts.yml`) in `.git_local/` subdirectories, separate from AI provider configuration.
 
-**AI provider** — The OpenCode model backend a project runs against, selected from `none` or `Custom` in both TUIs. A configured provider enters OpenCode as an `@ai-sdk/openai-compatible` section in `opencode.json`, its credential in `auth.json` (`.opencode_data/`), and its provider id recorded in sandbox_config.json. _Avoid_: GWDG preset (removed; `gwdg-saia` only survives as a legacy stored id, shown read-only with a reconfigure hint), vendor preset.
+**AI provider** — The OpenCode model backend a project runs against, selected from `none` or `Custom` in both TUIs. A configured provider enters OpenCode as an `@ai-sdk/openai-compatible` section in `opencode.json`, its credential in `auth.json` (`.opencode_data/`), and its provider id recorded in sandbox_config.json. _Avoid_: GWDG preset (removed; `gwdg-saia` survives only as a legacy stored id — backed by a provider section it renders as the current Custom choice, otherwise read-only with a reconfigure hint), vendor preset.
 
 **custom provider** — The `Custom` choice on the AI provider row: Name / Endpoint / Token captured as one block (wizard and settings alike, both TUIs). Name is display name and id source; Endpoint is the OpenAI-compatible baseURL; Token is the API key. Stored without any vendor preset. _Avoid_: GWDG flow, preset provider.
 

@@ -171,6 +171,74 @@ func TestAIOffersNoneCustomAndChecksLegacy(t *testing.T) {
 	}
 }
 
+// --- live stored id: backed section, no warning, ● Custom -----------------
+
+// A stored id with its opencode.json provider section is a live custom
+// provider: Custom carries the ● current mark, the orphan warning never
+// shows; none stays muted.
+func TestLiveStoredCustomMarksCustomCurrent(t *testing.T) {
+	e := newEnv(t, nil)
+	e.writeOpenJSON(t, e.roots["alpha"], "gwdg-saia", "GWDG SAIA",
+		"https://chat-ai.academiccloud.de/v1")
+	e.writeAuth(t, e.roots["alpha"], "gwdg-saia")
+	e.rebuild(t) // staged lives on the model — rebuild after the fixture writes
+	lines := bodyOf(t, e.m, bodyW, 42)
+	if someLine(lines, "no longer offered") || someLine(lines, "reconfigure") {
+		t.Errorf("live stored id still warned:\n%s", strings.Join(lines, "\n"))
+	}
+	goToSectionRow(t, e, "ai", "Custom")
+	r := e.m.layoutRows[e.m.navRows[e.m.cursor]]
+	if !strings.Contains(r.text, "●") {
+		t.Errorf("live stored id did not mark Custom current: %q", r.text)
+	}
+	goToSectionRow(t, e, "ai", "none")
+	r = e.m.layoutRows[e.m.navRows[e.m.cursor]]
+	if !strings.Contains(r.text, "○") {
+		t.Errorf("none marked current next to the live custom id: %q", r.text)
+	}
+}
+
+// A custom save records the id and merges the provider section; on the
+// reloaded settings pane (simulated script side effects on disk) the
+// stored id reads as a live provider.
+func TestCustomSaveReloadMarksCustomAndNoWarning(t *testing.T) {
+	e := newEnv(t, nil)
+	typeCustom(t, e, "My API", "https://api.example.com/v1", "fresh-secret")
+	saveSettings(t, e)
+	// the configure steps' on-disk effects, as the real script leaves them
+	e.writeOpenJSON(t, e.roots["alpha"], "my-api", "My API", "https://api.example.com/v1")
+	e.writeAuth(t, e.roots["alpha"], "my-api")
+	e.rebuild(t)
+	lines := bodyOf(t, e.m, bodyW, bodyH)
+	if someLine(lines, "no longer offered") || someLine(lines, "reconfigure") {
+		t.Errorf("saved custom id warned after reload:\n%s", strings.Join(lines, "\n"))
+	}
+	if got := e.configAI(t, "alpha"); got != "my-api" {
+		t.Errorf("ai_provider = %q, want my-api", got)
+	}
+}
+
+// None stays reachable for a backed id: activate the ○ none row (saving
+// there removes only the pointer).
+func TestLiveCustomSwitchesToNone(t *testing.T) {
+	e := newEnv(t, nil)
+	e.writeOpenJSON(t, e.roots["alpha"], "my-api", "My API", "https://api.example.com/v1")
+	e.writeAuth(t, e.roots["alpha"], "my-api")
+	e.rebuild(t) // staged lives on the model — rebuild after the fixture writes
+	goToSectionRow(t, e, "ai", "none")
+	e.step(keyMsg("enter"))
+	saveSettings(t, e)
+	if got := e.configAI(t, "alpha"); got != "none" {
+		t.Errorf("ai_provider = %q, want none", got)
+	}
+	if len(e.configureCalls(t)) != 0 {
+		t.Errorf("switch to none ran configure steps: %v", e.configureCalls(t))
+	}
+	if _, ok := e.authEntry(t, e.roots["alpha"], "my-api"); !ok {
+		t.Error("switch to none deleted the live id's entries")
+	}
+}
+
 // findAIStem reports whether any pane line lists gwdg-saia as a current
 // (●) option row.
 func findAIStem(lines []string) bool {

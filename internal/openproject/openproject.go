@@ -83,6 +83,7 @@ type staged struct {
 	start       string
 	vcs         string
 	ai          string
+	aiLive      bool // stored id is a live custom provider (backed by its opencode.json provider section)
 	proxy       bool
 	editionGone bool   // stored edition vanished from live discovery
 	cfgErr      string // sandbox_config.json unreadable
@@ -282,7 +283,7 @@ func (m *Model) loadStaged() {
 		return
 	}
 	editions, edErr := discovery.Editions(m.deps.Dockerfile, m.deps.DockerfileCustom)
-	m.staged = staged{
+	st := staged{
 		loaded:      true,
 		name:        p.Name,
 		edition:     cfg.ContainerEdition,
@@ -293,6 +294,14 @@ func (m *Model) loadStaged() {
 		proxy:       cfg.UseProxy,
 		editionGone: edErr != nil || !hasString(editions, cfg.ContainerEdition),
 	}
+	// A stored id backed by its opencode.json provider section is a live
+	// custom provider (custom-flow save records its id here); only an
+	// orphaned legacy record keeps the reconfigure-hint warning.
+	if st.ai != "" && st.ai != "none" {
+		name, endpoint := providerPrefill(p.Path, st.ai)
+		st.aiLive = name != "" || endpoint != ""
+	}
+	m.staged = st
 	// the configured start option is the card's preselected start variant
 	if hasString(startOptions, cfg.StartOption) {
 		m.startSel = cfg.StartOption
@@ -562,10 +571,12 @@ func (m *Model) cycleOption(forward bool) {
 		switch {
 		case m.aiSel:
 			cur = "Custom"
-		case m.staged.ai == "none":
+		case m.staged.ai == "none" || m.staged.ai == "":
 			cur = "none"
+		case m.staged.aiLive:
+			cur = "Custom" // live stored id: Custom is the current choice
 		default:
-			cur = "" // legacy stored id: shown read-only, not an option
+			cur = "" // orphaned legacy stored id: shown read-only, not an option
 		}
 	case "proxy":
 		if m.staged.proxy {
@@ -1314,10 +1325,12 @@ func (m *Model) settingsRows(paneW int) []paneRow {
 	addSection("Start option", "start", startOptions, nil, func(o string) bool { return s.start == o })
 	addSection("VCS tracking", "vcs", vcsOptions, nil, func(o string) bool { return s.vcs == o })
 	// AI provider row (provider-neutral, #103): only none/Custom are
-	// offered; a stored id not in the option list (legacy gwdg-saia or
-	// an older custom id) presents read-only with a reconfigure hint —
-	// the stored-edition-vanished pattern.
-	if aiLegacy := s.ai != "" && s.ai != "none"; aiLegacy {
+	// offered. A stored id backed by its opencode.json provider section
+	// is a live custom provider — Custom carries the ● current mark. An
+	// orphaned legacy record (id without backing section) presents
+	// read-only with a reconfigure hint — the stored-edition-vanished
+	// pattern.
+	if aiOrphan := s.ai != "" && s.ai != "none" && !s.aiLive; aiOrphan {
 		add(shell.StyleWarn.Render(truncate("stored provider '"+s.ai+
 			"' no longer offered", paneW-2)))
 		add(shell.StyleMutedAlt.Render(truncate(
@@ -1325,9 +1338,9 @@ func (m *Model) settingsRows(paneW int) []paneRow {
 	}
 	addSection("AI provider", "ai", aiOptions, nil, func(o string) bool {
 		if o == "Custom" {
-			return m.aiSel
+			return m.aiSel || s.aiLive
 		}
-		return !m.aiSel && (s.ai == "none" || s.ai == "")
+		return !m.aiSel && !s.aiLive && (s.ai == "none" || s.ai == "")
 	})
 	if m.aiSel { // Custom capture block: Name / Endpoint / Token in order
 		add(shell.StyleFieldLabel.Render("Custom provider"))
