@@ -33,7 +33,9 @@ import (
 
 // pane items (focus indices when the AI pane is open; 0 = card grid):
 // 1..3 = the add form fields, 4 = the Add button, 5/6 = the
-// Keep/Replace confirm rows.
+// Keep/Replace confirm rows, 7..10 = the entry edit form's fields and
+// its Save button (open while the edit form shows), and from piRemove
+// one index per shown entry's Remove button (piRemove + i; #112).
 const (
 	piName = iota + 1
 	piEndpoint
@@ -41,6 +43,10 @@ const (
 	piAdd
 	piKeep
 	piReplace
+	piEditName
+	piEditEndpoint
+	piEditToken
+	piEditSave
 	piRemove // each shown entry's Remove button; the entry is piRemove + i
 )
 
@@ -71,21 +77,37 @@ func (f *field) backspace() {
 	f.cur--
 }
 
-// aiConfirmState carries the pending Keep/Replace decision.
+// aiConfirmState carries the pending Keep/Replace decision; edit saves
+// resolve it against the edit form's fields and move the old id's
+// section (rename).
 type aiConfirmState struct {
-	id string // provider id with an existing auth.json entry
+	id    string // provider id with an existing auth.json entry
+	edit  bool   // pending decision comes from the entry edit form
+	oldID string // edit: the id being renamed away from
+}
+
+// aiEditState holds the entry edit form: the id being edited plus the
+// prefilled name / endpoint / token fields (ticket #111).
+type aiEditState struct {
+	id       string
+	name     field
+	endpoint field
+	token    field
 }
 
 // entry is one provider entry of the selected project.
 type entry struct {
-	id     string
-	name   string
-	orphan bool // section without an auth.json credential
+	id       string
+	name     string
+	endpoint string
+	token    string // stored credential (auth.json); empty when orphaned
+	orphan   bool   // section without an auth.json credential
 }
 
 // readEntries reads the selected project's provider entries from
-// opencode.json (the list's single source of truth), flagging entries
-// whose auth.json credential is missing as orphaned.
+// opencode.json (the list's single source of truth) and auth.json (the
+// stored tokens), flagging entries whose auth.json credential is
+// missing as orphaned.
 func readEntries(root string) []entry {
 	data, err := os.ReadFile(filepath.Join(root, ".opencode_config", "opencode.json"))
 	if err != nil {
@@ -93,12 +115,16 @@ func readEntries(root string) []entry {
 	}
 	var doc struct {
 		Provider map[string]struct {
-			Name string `json:"name"`
+			Name    string `json:"name"`
+			Options struct {
+				BaseURL string `json:"baseURL"`
+			} `json:"options"`
 		} `json:"provider"`
 	}
 	if json.Unmarshal(data, &doc) != nil {
 		return nil
 	}
+	tokens := readAuthKeys(root)
 	ids := make([]string, 0, len(doc.Provider))
 	for id := range doc.Provider {
 		ids = append(ids, id)
@@ -106,12 +132,34 @@ func readEntries(root string) []entry {
 	sort.Strings(ids)
 	out := make([]entry, 0, len(ids))
 	for _, id := range ids {
-		e := entry{id: id, name: doc.Provider[id].Name}
+		e := entry{id: id, name: doc.Provider[id].Name,
+			endpoint: doc.Provider[id].Options.BaseURL, token: tokens[id]}
 		if e.name == "" {
 			e.name = id
 		}
-		e.orphan = !authHasID(root, id)
+		_, has := tokens[id]
+		e.orphan = !has
 		out = append(out, e)
+	}
+	return out
+}
+
+// readAuthKeys maps auth.json's id → stored api key (missing/invalid
+// file yields an empty map).
+func readAuthKeys(root string) map[string]string {
+	out := map[string]string{}
+	data, err := os.ReadFile(filepath.Join(root, ".opencode_data", "auth.json"))
+	if err != nil {
+		return out
+	}
+	var doc map[string]struct {
+		Key string `json:"key"`
+	}
+	if json.Unmarshal(data, &doc) != nil {
+		return out
+	}
+	for id, cred := range doc {
+		out[id] = cred.Key
 	}
 	return out
 }
@@ -196,19 +244,125 @@ func (v *View) addProvider() tea.Cmd {
 	return v.queueAI(root, id, steps)
 }
 
-// resolveAIConfirm applies the pending confirm: Keep existing skips the
-// token write (opencode.json merge only); Replace writes both steps with
-// --replace.
+// resolveAIConfirm applies the pending confirm. Add flow: Keep existing
+// skips the token write (opencode.json merge only); Replace writes both
+// steps with --replace. Edit flow (#111): the same gating against the
+// edit form's fields; a rename additionally removes the old section
+// (only after the new values are written, so a failure never leaves a
+// half-renamed config half-eaten).
 func (v *View) resolveAIConfirm(replace bool) tea.Cmd {
-	root := v.projects[v.sel].Path
-	id := providerid.Slug(v.aiName.val)
-	steps := [][]string{{"opencode-config", root, "--id", id,
-		"--name", v.aiName.val, "--endpoint", v.aiEndpoint.val}}
-	if replace {
-		steps = [][]string{{"ai-provider", root, "--name", v.aiName.val,
-			"--endpoint", v.aiEndpoint.val, "--token", v.aiToken.val, "--replace"}, steps[0]}
-	}
+	st := v.aiConfirm
 	v.aiConfirm = nil
+	root := v.projects[v.sel].Path
+	if st == nil || !st.edit {
+		id := providerid.Slug(v.aiName.val)
+		steps := [][]string{{"opencode-config", root, "--id", id,
+			"--name", v.aiName.val, "--endpoint", v.aiEndpoint.val}}
+		if replace {
+			steps = [][]string{{"ai-provider", root, "--name", v.aiName.val,
+				"--endpoint", v.aiEndpoint.val, "--token", v.aiToken.val, "--replace"}, steps[0]}
+		}
+		return v.queueAI(root, id, steps)
+	}
+	name := v.aiEdit.name.val
+	endpoint := v.aiEdit.endpoint.val
+	id := providerid.Slug(name)
+	steps := [][]string{}
+	if replace {
+		steps = append(steps, []string{"ai-provider", root, "--name", name,
+			"--endpoint", endpoint, "--token", v.aiEdit.token.val, "--replace"})
+	}
+	steps = append(steps, []string{"opencode-config", root, "--id", id,
+		"--name", name, "--endpoint", endpoint})
+	if st.oldID != id {
+		steps = append(steps, []string{"ai-provider-remove", root, "--id", st.oldID})
+	}
+	v.aiEditQueued = true
+	return v.queueAI(root, id, steps)
+}
+
+// --- entry edit flow (#111) ----------------------------------------------------
+
+// openEntryEdit opens the entry edit form with the entry's values
+// prefilled (token from auth.json, rendered masked). Orphaned entries
+// are read-only; while a previously triggered save or confirm is
+// pending the click just toasts.
+func (v *View) openEntryEdit(e entry) bool {
+	if e.orphan {
+		return false
+	}
+	if v.aiRunning {
+		v.toast = "AI provider configuration is running — wait for it to finish"
+		return true
+	}
+	if v.aiConfirm != nil {
+		v.toast = "Resolve the Keep existing / Replace confirm first"
+		return true
+	}
+	st := &aiEditState{id: e.id}
+	st.name.insert(e.name)
+	st.endpoint.insert(e.endpoint)
+	st.token.insert(e.token)
+	v.aiEdit = st
+	v.focus = piEditName
+	return true
+}
+
+// saveProviderEdit validates the edit form with creation's semantics and
+// queues the configure-project.sh steps through the Ops seam. Trust:
+// typed token + existing credential for the would-be id → id-parameterized
+// Keep/Replace confirm before any write; empty-token saves merge
+// endpoint/name only (permitted when the id keeps its credential — a
+// rename without a token would strand the stored credential, so it is
+// refused); a rename removes the old section after the new values are
+// written.
+func (v *View) saveProviderEdit() tea.Cmd {
+	if v.aiRunning {
+		v.toast = "AI provider configuration is running — wait for it to finish"
+		return nil
+	}
+	if v.aiConfirm != nil {
+		v.toast = "Resolve the Keep existing / Replace confirm first"
+		return nil
+	}
+	if !providerid.ValidName(v.aiEdit.name.val) {
+		v.toast = "Name must not be empty and needs at least one letter or digit."
+		return nil
+	}
+	if !providerid.ValidEndpoint(v.aiEdit.endpoint.val) {
+		v.toast = "Endpoint must be an http:// or https:// URL without whitespace (e.g. https://api.example.com/v1)."
+		return nil
+	}
+	token := v.aiEdit.token.val
+	if token != "" && !providerid.ValidToken(token) {
+		v.toast = "Token must not be empty or contain whitespace/newlines."
+		return nil
+	}
+	root := v.projects[v.sel].Path
+	oldID := v.aiEdit.id
+	id := providerid.Slug(v.aiEdit.name.val)
+	merge := []string{"opencode-config", root, "--id", id,
+		"--name", v.aiEdit.name.val, "--endpoint", v.aiEdit.endpoint.val}
+	steps := [][]string{}
+	if token == "" {
+		if id != oldID {
+			v.toast = "Token required — renaming moves the stored credential; type the token and save again."
+			return nil
+		}
+		steps = append(steps, merge) // merge endpoint/name only
+	} else {
+		steps = append(steps, []string{"ai-provider", root, "--name", v.aiEdit.name.val,
+			"--endpoint", v.aiEdit.endpoint.val, "--token", token})
+		steps = append(steps, merge)
+		if id != oldID {
+			steps = append(steps, []string{"ai-provider-remove", root, "--id", oldID})
+		}
+		if authHasID(root, id) { // the Keep/Replace confirm gates the existing credential
+			v.aiConfirm = &aiConfirmState{id: id, edit: true, oldID: oldID}
+			return nil
+		}
+	}
+	v.aiEditQueued = true
 	return v.queueAI(root, id, steps)
 }
 
@@ -255,6 +409,7 @@ func (v *View) aiDone(msg taskmgr.DoneMsg) tea.Cmd {
 	}
 	if msg.Err != nil {
 		v.aiSteps = nil
+		v.aiEditQueued = false
 		v.aiErr = "AI provider setup failed: " + msg.Err.Error() +
 			" — no config was written, fix and try again."
 		return nil
@@ -262,14 +417,24 @@ func (v *View) aiDone(msg taskmgr.DoneMsg) tea.Cmd {
 	v.aiSteps = v.aiSteps[1:]
 	if len(v.aiSteps) > 0 {
 		root := v.projects[v.sel].Path
-		return v.queueAI(root, providerid.Slug(v.aiName.val), v.aiSteps)
+		return v.queueAI(root, "", v.aiSteps)
+	}
+	if v.aiEditQueued {
+		v.aiEditQueued = false
+		old := v.aiEdit
+		v.aiEdit = nil
+		if old != nil {
+			v.focus = 0
+		}
+		v.toast = "Provider saved — the entry now shows under its new values"
+		return nil
 	}
 	v.aiName, v.aiEndpoint, v.aiToken = field{}, field{}, field{}
 	v.toast = "AI provider configured — it now shows in the list"
 	return nil
 }
 
-// --- remove flow ----------------------------------------------------------------
+// --- remove flow (#112) -----------------------------------------------------------
 
 // removeEntry opens the shared confirmation popup (ADR-0021) gating the
 // queued ai-provider-remove op for one entry of the selected project.
@@ -344,8 +509,6 @@ func (v *View) removeDone(msg taskmgr.DoneMsg) tea.Cmd {
 	return nil
 }
 
-// --- entry list rendering ---------------------------------------------------------
-
 // entryCount reports how many Remove buttons the entry list currently
 // renders (the tab-focus upper bound; 0 = none).
 func (v *View) entryCount() int {
@@ -355,6 +518,7 @@ func (v *View) entryCount() int {
 	return len(readEntries(v.projects[v.sel].Path))
 }
 
+// deps resolves the zero-valued Deps to production defaults.
 func (v *View) deps() Deps {
 	d := v.Deps
 	if d.Runner == nil {
@@ -375,7 +539,7 @@ func (v *View) deps() Deps {
 // list (opencode.json sections), and the pending confirm when open.
 func (v *View) aiPaneRows(paneW int) []paneRow {
 	var rows []paneRow
-	add := func(text string) { rows = append(rows, paneRow{text: text, ai: -1}) }
+	add := func(text string) { rows = append(rows, paneRow{text: text, ai: -1, ent: -1}) }
 	root := v.projects[v.sel].Path
 
 	add(shell.StyleFieldLabel.Render("AI Provider — " + v.paneProject()))
@@ -390,7 +554,21 @@ func (v *View) aiPaneRows(paneW int) []paneRow {
 	rows = append(rows, paneRow{
 		text: shell.ButtonLines("Add", v.focus == piAdd && v.pane == paneAI && v.aiConfirm == nil)[1],
 		ai:   piAdd,
+		ent:  -1,
 	})
+
+	if v.aiEdit != nil {
+		add("")
+		add(shell.StyleFieldLabel.Render("Edit provider — " + v.aiEdit.id))
+		v.aiFieldRow(&rows, piEditName, "Name", v.aiEdit.name, paneW)
+		v.aiFieldRow(&rows, piEditEndpoint, "Endpoint", v.aiEdit.endpoint, paneW)
+		v.aiFieldRow(&rows, piEditToken, "Token", v.aiEdit.token, paneW)
+		rows = append(rows, paneRow{
+			text: shell.ButtonLines("Save", v.focus == piEditSave && v.pane == paneAI && v.aiConfirm == nil)[1],
+			ai:   piEditSave,
+			ent:  -1,
+		})
+	}
 
 	add("")
 	add(shell.StyleFieldLabel.Render("Providers"))
@@ -399,19 +577,28 @@ func (v *View) aiPaneRows(paneW int) []paneRow {
 		add(shell.StyleMutedAlt.Render("no entries — add a provider above"))
 	}
 	for i, e := range entries {
+		// Every shown entry carries a Remove button (#112); non-orphaned
+		// entries' name rows are additionally clickable (open the edit
+		// form, #111), orphan rows and hints are plain text.
 		mark := shell.SymOff
 		if !e.orphan {
 			mark = shell.SymOn
 		}
-		add(shell.StyleMutedAlt.Render(mark + " " + truncate(e.name, paneW-4)))
 		if e.orphan {
+			add(shell.StyleMutedAlt.Render(mark + " " + truncate(e.name, paneW-4)))
 			add(shell.StyleWarn.Render(truncate("credential missing in auth.json", paneW-4)))
 			add(shell.StyleMutedAlt.Render(truncate("read-only — reconfigure via the add form", paneW-4)))
+		} else {
+			rows = append(rows, paneRow{
+				text: shell.StyleMutedAlt.Render(mark + " " + truncate(e.name, paneW-4)),
+				ai:   -1,
+				ent:  i,
+			})
 		}
-		// #112: the Remove button on the shown entry.
 		rows = append(rows, paneRow{
 			text: "  " + shell.ButtonLines("Remove", v.focus == piRemove+i && v.pane == paneAI && v.aiConfirm == nil)[1],
 			ai:   piRemove + i,
+			ent:  -1,
 		})
 	}
 
@@ -427,7 +614,7 @@ func (v *View) aiPaneRows(paneW int) []paneRow {
 			if v.focus == o.idx {
 				text = shell.StyleCurrentVal.Render(shell.SymOn + " " + o.lbl)
 			}
-			rows = append(rows, paneRow{text: text, ai: o.idx})
+			rows = append(rows, paneRow{text: text, ai: o.idx, ent: -1})
 		}
 	}
 	return rows
@@ -437,7 +624,7 @@ func (v *View) aiPaneRows(paneW int) []paneRow {
 // the focused field shows the caret, the token renders masked.
 func (v *View) aiFieldRow(rows *[]paneRow, idx int, label string, f field, paneW int) {
 	val := f.val
-	if idx == piToken {
+	if idx == piToken || idx == piEditToken {
 		val = strings.Repeat("•", len([]rune(val)))
 	}
 	focused := v.pane == paneAI && v.focus == idx && v.aiConfirm == nil
@@ -451,21 +638,23 @@ func (v *View) aiFieldRow(rows *[]paneRow, idx int, label string, f field, paneW
 	}
 	*rows = append(*rows, paneRow{
 		text: shell.StyleFieldLabel.Render(label+": ") + shell.StyleCurrentVal.Render(truncate(val, paneW-10)),
-		ai:   idx,
+		ai:   idx, ent: -1,
 	})
 }
 
 // aiPaneRects records the hit rects of the AI pane rows (fields, Add,
-// confirm options) as rendered at (x, y).
+// Save, confirm options, editable entries) as rendered at (x, y).
 func (v *View) aiPaneRects(rows []paneRow, x, y int) {
 	v.paneRects = v.paneRects[:0]
 	v.paneIdx = v.paneIdx[:0]
+	v.paneEnts = v.paneEnts[:0]
 	for i, r := range rows {
-		if r.ai < 0 {
+		if r.ai < 0 && r.ent < 0 {
 			continue
 		}
 		v.paneRects = append(v.paneRects, shell.Rect{X: x, Y: y + i, W: shell.Width(r.text), H: 1})
 		v.paneIdx = append(v.paneIdx, r.ai)
+		v.paneEnts = append(v.paneEnts, r.ent)
 	}
 }
 
@@ -477,12 +666,14 @@ func (v *View) paneClick(idx int) {
 		if v.aiConfirm == nil {
 			v.lastCmd = v.addProvider()
 		}
+	case piEditSave:
+		v.lastCmd = v.saveProviderEdit()
 	case piKeep:
 		v.lastCmd = v.resolveAIConfirm(false)
 	case piReplace:
 		v.lastCmd = v.resolveAIConfirm(true)
 	default:
-		v.lastCmd = v.removeAt(idx)
+		v.lastCmd = v.removeAt(idx) // #112: a Remove button's focus index
 	}
 }
 
@@ -508,7 +699,9 @@ func (v *View) resetPane() {
 	v.focus = 0
 	v.paneRects = v.paneRects[:0]
 	v.paneIdx = v.paneIdx[:0]
+	v.paneEnts = v.paneEnts[:0]
 	v.aiName, v.aiEndpoint, v.aiToken = field{}, field{}, field{}
+	v.aiEdit, v.aiEditQueued = nil, false
 	v.aiConfirm = nil
 	v.aiSteps = nil
 	v.aiErr = ""
@@ -516,8 +709,9 @@ func (v *View) resetPane() {
 }
 
 // paneRow is one laid-out pane line; ai >= 0 marks it an interactive AI
-// pane row (focus index).
+// pane row (focus index), ent >= 0 an editable entry row (list index).
 type paneRow struct {
 	text string
 	ai   int
+	ent  int
 }
