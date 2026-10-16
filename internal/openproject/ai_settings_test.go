@@ -222,11 +222,23 @@ func TestCustomSaveReloadMarksCustomAndNoWarning(t *testing.T) {
 // there removes only the pointer).
 func TestLiveCustomSwitchesToNone(t *testing.T) {
 	e := newEnv(t, nil)
-	e.writeOpenJSON(t, e.roots["alpha"], "my-api", "My API", "https://api.example.com/v1")
-	e.writeAuth(t, e.roots["alpha"], "my-api")
+	e.writeOpenJSON(t, e.roots["alpha"], "gwdg-saia", "GWDG SAIA",
+		"https://chat-ai.academiccloud.de/v1")
+	e.writeAuth(t, e.roots["alpha"], "gwdg-saia")
 	e.rebuild(t) // staged lives on the model — rebuild after the fixture writes
 	goToSectionRow(t, e, "ai", "none")
 	e.step(keyMsg("enter"))
+	// the marks follow the activated choice, not the stored live id.
+	goToSectionRow(t, e, "ai", "Custom")
+	r := e.m.layoutRows[e.m.navRows[e.m.cursor]]
+	if strings.Contains(r.text, "●") {
+		t.Errorf("Custom kept the ● mark after none was activated: %q", r.text)
+	}
+	goToSectionRow(t, e, "ai", "none")
+	r = e.m.layoutRows[e.m.navRows[e.m.cursor]]
+	if !strings.Contains(r.text, "●") {
+		t.Errorf("activated none not marked ●: %q", r.text)
+	}
 	saveSettings(t, e)
 	if got := e.configAI(t, "alpha"); got != "none" {
 		t.Errorf("ai_provider = %q, want none", got)
@@ -234,7 +246,7 @@ func TestLiveCustomSwitchesToNone(t *testing.T) {
 	if len(e.configureCalls(t)) != 0 {
 		t.Errorf("switch to none ran configure steps: %v", e.configureCalls(t))
 	}
-	if _, ok := e.authEntry(t, e.roots["alpha"], "my-api"); !ok {
+	if _, ok := e.authEntry(t, e.roots["alpha"], "gwdg-saia"); !ok {
 		t.Error("switch to none deleted the live id's entries")
 	}
 }

@@ -571,10 +571,12 @@ func (m *Model) cycleOption(forward bool) {
 		switch {
 		case m.aiSel:
 			cur = "Custom"
-		case m.staged.ai == "none" || m.staged.ai == "":
-			cur = "none"
+		case m.aiTouched:
+			cur = "none" // user moved off the stored value
 		case m.staged.aiLive:
 			cur = "Custom" // live stored id: Custom is the current choice
+		case m.staged.ai == "none" || m.staged.ai == "":
+			cur = "none"
 		default:
 			cur = "" // orphaned legacy stored id: shown read-only, not an option
 		}
@@ -1337,6 +1339,12 @@ func (m *Model) settingsRows(paneW int) []paneRow {
 			"reconfigure via Custom or switch to none", paneW-2)))
 	}
 	addSection("AI provider", "ai", aiOptions, nil, func(o string) bool {
+		if m.aiTouched { // row moved off the stored value: marks follow the choice
+			if o == "Custom" {
+				return m.aiSel
+			}
+			return !m.aiSel
+		}
 		if o == "Custom" {
 			return m.aiSel || s.aiLive
 		}
