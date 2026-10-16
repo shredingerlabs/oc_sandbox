@@ -393,6 +393,8 @@ func TestAIAddEmptyTokenMergesOnlyWhenCredentialExists(t *testing.T) {
 }
 
 // Empty token without an existing credential: refused, nothing queued.
+// The refusal renders through the pane's error path (persists across
+// keys like the other pane errors), not a one-shot toast.
 func TestAIAddEmptyTokenRefusedWithoutCredential(t *testing.T) {
 	e := newEnv(t, "alpha")
 	v := aiPane(t, e)
@@ -403,6 +405,9 @@ func TestAIAddEmptyTokenRefusedWithoutCredential(t *testing.T) {
 	}
 	if len(e.configureCalls(t)) != 0 || len(e.launch.ops) != 0 {
 		t.Errorf("refused save queued writes: %v %v", e.configureCalls(t), e.launch.ops)
+	}
+	if !someLine(bodyLines(t, v), "Token required") {
+		t.Errorf("refusal did not land on the pane error path (vanished with the toast)")
 	}
 }
 

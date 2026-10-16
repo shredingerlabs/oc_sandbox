@@ -385,6 +385,30 @@ remove_openjson="$remove_project/.opencode_config/opencode.json"
 [[ "$(jq -r '.ai_provider' "$remove_project/.opencode_config/sandbox_config.json")" == 'entry-one' ]]
 [[ "$(stat -c '%a' "$remove_auth")" == '600' ]]
 
+# Mid-failure gap: when the auth.json removal succeeded but the
+# opencode.json write fails (unwritable config dir), the removal exits
+# non-zero with a clear message and the opencode section survives.
+gap_project="$test_home/ai-remove-gap-project"
+mkdir -p "$gap_project/.opencode_config"
+"$configure_script" ai-provider "$gap_project" \
+  --name 'Gap One' --endpoint 'https://api.example.com/v1' --token 'gap-secret'
+"$configure_script" opencode-config "$gap_project" \
+  --id 'gap-one' --name 'Gap One' --endpoint 'https://api.example.com/v1'
+gap_auth="$gap_project/.opencode_data/auth.json"
+gap_openjson="$gap_project/.opencode_config/opencode.json"
+chmod 555 "$gap_project/.opencode_config"
+set +e
+gap_out="$test_home/ai-remove-gap-out"
+"$configure_script" ai-provider-remove "$gap_project" --id 'gap-one' >"$gap_out" 2>&1
+gap_rc=$?
+chmod 755 "$gap_project/.opencode_config"
+set -e
+[[ "$gap_rc" -ne 0 ]]
+grep -q 'Error:' "$gap_out"
+[[ "$(jq -c 'keys' "$gap_auth")" == '[]' ]] # auth key already gone — acceptable
+[[ "$(jq -c '.provider | keys' "$gap_openjson")" == '["gap-one"]' ]]
+[[ "$(jq -r '.provider."gap-one".options.baseURL' "$gap_openjson")" == 'https://api.example.com/v1' ]]
+
 # Unknown ids die loudly without touching anything.
 set +e
 remove_unknown_out="$test_home/ai-remove-unknown-out"

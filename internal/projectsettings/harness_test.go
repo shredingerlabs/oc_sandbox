@@ -26,6 +26,8 @@ import (
 // psHooks script the fake runner's configure-project.sh behavior.
 type psHooks struct {
 	configureErr error
+	failOn       int // 1-based configure call that starts failing (0 = never)
+	nCalls       int
 }
 
 // psLaunch records every op and executes it like DefaultLauncher.
@@ -64,7 +66,12 @@ func newEnv(t *testing.T, names ...string) *env {
 	e := &env{home: home, roots: map[string]string{}, hooks: &psHooks{}, launch: &psLaunch{}}
 	e.run = &cmdrun.Fake{Script: func(name string, args []string) (string, error) {
 		if name == "bash" && len(args) > 0 && filepath.Base(args[0]) == "configure-project.sh" {
-			return "configured", e.hooks.configureErr
+			e.hooks.nCalls++
+			err := e.hooks.configureErr
+			if e.hooks.failOn > 0 && e.hooks.nCalls < e.hooks.failOn {
+				err = nil
+			}
+			return "configured", err
 		}
 		return "", nil
 	}}

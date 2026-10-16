@@ -1,6 +1,7 @@
 package projectsettings
 
 import (
+	"errors"
 	"strings"
 	"testing"
 )
@@ -260,9 +261,10 @@ func TestAIEditEmptyTokenMergesOnly(t *testing.T) {
 	}
 }
 
-// A rename with an emptied token is refused: the scripts cannot move the
-// credential without a token, so nothing is queued.
-func TestAIEditRenameEmptyTokenRefused(t *testing.T) {
+// A rename with an emptied token still moves the credential: the view
+// reads the stored token back from auth.json and submits it, so the
+// scripted move carries the credential to the new id.
+func TestAIEditRenameEmptyTokenUsesStoredCredential(t *testing.T) {
 	e := newEnv(t, "alpha")
 	root := e.roots["alpha"]
 	e.writeOpenJSON(t, root, "my-api", "My API", "https://api.example.com/v1")
@@ -272,17 +274,23 @@ func TestAIEditRenameEmptyTokenRefused(t *testing.T) {
 	v.Update(keyMsg("tab"))
 	v.Update(keyMsg("tab"))
 	for i := 0; i < len("stored-secret"); i++ {
-		v.Update(keyMsg("backspace"))
+		v.Update(keyMsg("backspace")) // clear the token
 	}
 	v.Update(keyMsg("tab"))
 	v.Update(keyMsg("enter"))
-	lines := bodyLines(t, v)
-	if !someLine(lines, "Token required") {
-		t.Errorf("refusal message missing:\n%s", join(lines))
+	if v.aiConfirm != nil {
+		t.Fatalf("rename opened the confirm")
 	}
-	if len(e.configureCalls(t)) != 0 || len(e.launch.ops) != 0 {
-		t.Errorf("refused rename queued writes: %v %v", e.configureCalls(t), e.launch.ops)
+	drain(t, v, v.lastCmd)
+	calls := e.configureCalls(t)
+	if len(calls) != 3 {
+		t.Fatalf("configure calls = %v, want ai-provider + opencode-config + remove", calls)
 	}
+	assertVec(t, []string{"ai-provider", root, "--name", "Fancy Provider",
+		"--endpoint", "https://api.example.com/v1", "--token", "stored-secret"}, calls[0], "ai-provider")
+	assertVec(t, []string{"opencode-config", root, "--id", "fancy-provider",
+		"--name", "Fancy Provider", "--endpoint", "https://api.example.com/v1"}, calls[1], "opencode-config")
+	assertVec(t, []string{"ai-provider-remove", root, "--id", "my-api"}, calls[2], "ai-provider-remove")
 }
 
 // --- validation parity ----------------------------------------------------------
@@ -352,6 +360,54 @@ func TestAIEditMouseParitySave(t *testing.T) {
 	drain(t, v, v.lastCmd)
 	if len(e.configureCalls(t)) != 1 {
 		t.Fatalf("configure calls = %v, want the merge only", e.configureCalls(t))
+	}
+}
+
+// --- rename: partial-failure reality ------------------------------------------
+
+// A rename whose final auto-remove fails surfaces the failure and keeps
+// the on-disk state visible: earlier steps already wrote, so the entry
+// list reflects the disk (new section listed, old section still listed)
+// and the stale-prefilled edit form closes.
+func TestAIRenameFinalRemoveFailurePartialWrite(t *testing.T) {
+	e := newEnv(t, "alpha")
+	root := e.roots["alpha"]
+	e.writeOpenJSON(t, root, "my-api", "My API", "https://api.example.com/v1")
+	e.writeAuth(t, root, "my-api")
+	e.hooks.failOn = 3
+	e.hooks.configureErr = errors.New("disk full")
+	v := openEntry(t, e, "My API")
+	clearAndType(t, v, len("My API"), "Fancy Provider")
+	v.Update(keyMsg("tab"))
+	v.Update(keyMsg("tab")) // skip endpoint
+	v.Update(keyMsg("tab")) // Save
+	cmd := v.Update(keyMsg("enter"))
+	drain(t, v, cmd)
+	calls := e.configureCalls(t)
+	if len(calls) != 3 {
+		t.Fatalf("configure calls = %v, want all three steps attempted", calls)
+	}
+	if len(e.launch.ops) != 3 { // one launch per chained step
+		t.Fatalf("ops = %d, want the chain relaunches", len(e.launch.ops))
+	}
+	lines := bodyLines(t, v)
+	if !someLine(lines, "setup failed") {
+		t.Errorf("failure not surfaced in the pane:\n%s", join(lines))
+	}
+	if someLine(lines, "no config was written") {
+		t.Errorf("stale 'no config was written' claim rendered:\n%s", join(lines))
+	}
+	// on-disk state as the real script's first two steps leave it (the
+	// fake runner writes nothing): the new section + credential exist
+	// and the old section is not yet removed.
+	e.writeOpenJSON2(t, root, "fancy-provider", "Fancy Provider", "https://api.example.com/v1")
+	e.writeAuth(t, root, "fancy-provider")
+	lines = bodyLines(t, v)
+	if !someLine(lines, "Fancy Provider") || !someLine(lines, "My API") {
+		t.Errorf("entry list lost the on-disk state:\n%s", join(lines))
+	}
+	if someLine(lines, "Edit provider") {
+		t.Errorf("stale edit form still open:\n%s", join(lines))
 	}
 }
 

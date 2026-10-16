@@ -193,41 +193,59 @@ func (defaultOps) Launch(op taskmgr.Op) tea.Cmd {
 
 // --- add flow ---------------------------------------------------------------
 
-// addProvider validates the add form and queues the configure-project.sh
-// write steps through the Ops seam. Refusals toast; a colliding
-// credential opens the id-parameterized Keep/Replace confirm before any
-// write.
-func (v *View) addProvider() tea.Cmd {
+// gateAIWrite applies the busy guards shared by the add and edit-save
+// flows: while an AI op runs or a Keep/Replace confirm is pending, the
+// flow is refused with a toast.
+func (v *View) gateAIWrite() bool {
 	if v.aiRunning {
 		v.toast = "AI provider configuration is running — wait for it to finish"
-		return nil
+		return false
 	}
 	if v.aiConfirm != nil {
 		v.toast = "Resolve the Keep existing / Replace confirm first"
-		return nil
+		return false
 	}
-	if !providerid.ValidName(v.aiName.val) {
-		v.toast = "Name must not be empty and needs at least one letter or digit."
-		return nil
+	return true
+}
+
+// validateProviderFields validates a Name / Endpoint / optional Token
+// trio with creation semantics; empty return = valid.
+func validateProviderFields(name, endpoint, token string) string {
+	if !providerid.ValidName(name) {
+		return "Name must not be empty and needs at least one letter or digit."
 	}
-	if !providerid.ValidEndpoint(v.aiEndpoint.val) {
-		v.toast = "Endpoint must be an http:// or https:// URL without whitespace (e.g. https://api.example.com/v1)."
-		return nil
+	if !providerid.ValidEndpoint(endpoint) {
+		return "Endpoint must be an http:// or https:// URL without whitespace (e.g. https://api.example.com/v1)."
 	}
-	token := v.aiToken.val
 	if token != "" && !providerid.ValidToken(token) {
-		v.toast = "Token must not be empty or contain whitespace/newlines."
+		return "Token must not be empty or contain whitespace/newlines."
+	}
+	return ""
+}
+
+// addProvider validates the add form and queues the configure-project.sh
+// write steps through the Ops seam. Refusals render or toast; a
+// colliding credential opens the id-parameterized Keep/Replace confirm
+// before any write. The empty-token refusal lands on the pane's
+// rendered error path (aiErr) like the script failures do (#110).
+func (v *View) addProvider() tea.Cmd {
+	if !v.gateAIWrite() {
+		return nil
+	}
+	if msg := validateProviderFields(v.aiName.val, v.aiEndpoint.val, v.aiToken.val); msg != "" {
+		v.toast = msg
 		return nil
 	}
 	root := v.projects[v.sel].Path
 	id := providerid.Slug(v.aiName.val)
+	token := v.aiToken.val
 	idExists := authHasID(root, id)
 	merge := []string{"opencode-config", root, "--id", id,
 		"--name", v.aiName.val, "--endpoint", v.aiEndpoint.val}
 	steps := [][]string{}
 	if token == "" {
 		if !idExists {
-			v.toast = "Token required — no existing credential entry for '" + id +
+			v.aiErr = "Token required — no existing credential entry for '" + id +
 				"' was found in auth.json; type a token to configure this provider."
 			return nil
 		}
@@ -276,6 +294,7 @@ func (v *View) resolveAIConfirm(replace bool) tea.Cmd {
 		"--name", name, "--endpoint", endpoint})
 	if st.oldID != id {
 		steps = append(steps, []string{"ai-provider-remove", root, "--id", st.oldID})
+		v.aiRename = true
 	}
 	v.aiEditQueued = true
 	return v.queueAI(root, id, steps)
@@ -312,45 +331,38 @@ func (v *View) openEntryEdit(e entry) bool {
 // queues the configure-project.sh steps through the Ops seam. Trust:
 // typed token + existing credential for the would-be id → id-parameterized
 // Keep/Replace confirm before any write; empty-token saves merge
-// endpoint/name only (permitted when the id keeps its credential — a
-// rename without a token would strand the stored credential, so it is
-// refused); a rename removes the old section after the new values are
-// written.
+// endpoint/name only; a rename moves the provider id (old section
+// removed after the new values are written) and reads the emptied token
+// back from auth.json so the stored credential moves with it (#111).
 func (v *View) saveProviderEdit() tea.Cmd {
-	if v.aiRunning {
-		v.toast = "AI provider configuration is running — wait for it to finish"
+	if !v.gateAIWrite() {
 		return nil
 	}
-	if v.aiConfirm != nil {
-		v.toast = "Resolve the Keep existing / Replace confirm first"
-		return nil
-	}
-	if !providerid.ValidName(v.aiEdit.name.val) {
-		v.toast = "Name must not be empty and needs at least one letter or digit."
-		return nil
-	}
-	if !providerid.ValidEndpoint(v.aiEdit.endpoint.val) {
-		v.toast = "Endpoint must be an http:// or https:// URL without whitespace (e.g. https://api.example.com/v1)."
-		return nil
-	}
-	token := v.aiEdit.token.val
-	if token != "" && !providerid.ValidToken(token) {
-		v.toast = "Token must not be empty or contain whitespace/newlines."
+	if msg := validateProviderFields(v.aiEdit.name.val, v.aiEdit.endpoint.val, v.aiEdit.token.val); msg != "" {
+		v.toast = msg
 		return nil
 	}
 	root := v.projects[v.sel].Path
 	oldID := v.aiEdit.id
 	id := providerid.Slug(v.aiEdit.name.val)
+	v.aiRename = id != oldID
+	token := v.aiEdit.token.val
 	merge := []string{"opencode-config", root, "--id", id,
 		"--name", v.aiEdit.name.val, "--endpoint", v.aiEdit.endpoint.val}
 	steps := [][]string{}
-	if token == "" {
-		if id != oldID {
-			v.toast = "Token required — renaming moves the stored credential; type the token and save again."
-			return nil
-		}
+	if token == "" && !v.aiRename {
 		steps = append(steps, merge) // merge endpoint/name only
 	} else {
+		if token == "" && v.aiRename {
+			// renaming must move the stored credential; the emptied
+			// token is read back from auth.json (#111)
+			token = readAuthKeys(root)[oldID]
+			if token == "" {
+				v.aiErr = "Token required — renaming moves the stored credential from '" + oldID +
+					"'; type the token and save again."
+				return nil
+			}
+		}
 		steps = append(steps, []string{"ai-provider", root, "--name", v.aiEdit.name.val,
 			"--endpoint", v.aiEdit.endpoint.val, "--token", token})
 		steps = append(steps, merge)
@@ -366,12 +378,23 @@ func (v *View) saveProviderEdit() tea.Cmd {
 	return v.queueAI(root, id, steps)
 }
 
+// runScriptStep runs one configure-project.sh invocation through run and
+// emits its output lines (the shared queue-emit shape).
+func runScriptStep(run cmdrun.Runner, script string, args []string, emit func(string)) error {
+	out, err := run.Output("bash", append([]string{script}, args...)...)
+	for _, l := range cmdrun.Lines(out) {
+		emit(l)
+	}
+	return err
+}
+
 // queueAI launches the first configure-project.sh step through the Ops
 // seam (per-project queue bucket); the DoneMsg continuation chains the
 // remaining steps.
 func (v *View) queueAI(root, id string, steps [][]string) tea.Cmd {
 	v.aiSteps = steps
 	v.aiRunning = true
+	v.aiErr = "" // every queue clears the rendered error
 	v.opID++
 	key := ""
 	if v.sel >= 0 && v.sel < len(v.projects) {
@@ -386,19 +409,23 @@ func (v *View) queueAI(root, id string, steps [][]string) tea.Cmd {
 		Key:   key,
 		Title: "Configuring AI provider",
 		Run: func(emit func(string)) error {
-			out, err := run.Output("bash", append([]string{script}, args...)...)
-			for _, l := range cmdrun.Lines(out) {
-				emit(l)
-			}
-			return err
+			return runScriptStep(run, script, args, emit)
 		},
 	}
 	return v.deps().Ops.Launch(op)
 }
 
-// aiDone processes an op-queue completion: on failure the pane surfaces
-// a setup-failure-style message and nothing was rewritten; on success
-// the next queued step launches and the form resets.
+// aiRenameOut closes the edit form after a rename resolves: the form's
+// prefilled values are stale once the id has moved (or failed to move
+// cleanly), so the pane falls back to the re-read entry list.
+func (v *View) aiRenameOut() {
+	v.aiErr = ""
+}
+
+// aiDone processes an op-queue completion: a failure renders the error
+// with the partial-write reality (earlier steps in the queue may have
+// written already; the entry list re-reads disk on the next render);
+// on success the next queued step launches and the form resets.
 func (v *View) aiDone(msg taskmgr.DoneMsg) tea.Cmd {
 	if msg.ID != v.opID {
 		return nil
@@ -410,8 +437,15 @@ func (v *View) aiDone(msg taskmgr.DoneMsg) tea.Cmd {
 	if msg.Err != nil {
 		v.aiSteps = nil
 		v.aiEditQueued = false
+		// a queued rename closes its now stale-prefilled edit form;
+		// the list reflects on-disk state on the next render.
+		if v.aiRename {
+			v.aiRename = false
+			v.aiEdit = nil
+			v.focus = 0
+		}
 		v.aiErr = "AI provider setup failed: " + msg.Err.Error() +
-			" — no config was written, fix and try again."
+			" — config may be partially written; re-check the entry list."
 		return nil
 	}
 	v.aiSteps = v.aiSteps[1:]
@@ -423,6 +457,7 @@ func (v *View) aiDone(msg taskmgr.DoneMsg) tea.Cmd {
 		v.aiEditQueued = false
 		old := v.aiEdit
 		v.aiEdit = nil
+		v.aiRename = false
 		if old != nil {
 			v.focus = 0
 		}
@@ -430,6 +465,7 @@ func (v *View) aiDone(msg taskmgr.DoneMsg) tea.Cmd {
 		return nil
 	}
 	v.aiName, v.aiEndpoint, v.aiToken = field{}, field{}, field{}
+	v.aiRename = false
 	v.toast = "AI provider configured — it now shows in the list"
 	return nil
 }
@@ -483,11 +519,7 @@ func (v *View) queueRemove(root, id string) tea.Cmd {
 		Key:   key,
 		Title: "Removing AI provider",
 		Run: func(emit func(string)) error {
-			out, err := run.Output("bash", append([]string{script}, args...)...)
-			for _, l := range cmdrun.Lines(out) {
-				emit(l)
-			}
-			return err
+			return runScriptStep(run, script, args, emit)
 		},
 	}
 	return v.deps().Ops.Launch(op)
@@ -705,6 +737,7 @@ func (v *View) resetPane() {
 	v.aiConfirm = nil
 	v.aiSteps = nil
 	v.aiErr = ""
+	v.aiRename = false
 	v.removing = ""
 }
 

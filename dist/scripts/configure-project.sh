@@ -363,7 +363,8 @@ cmd_ai_provider_remove() {
     local config
     config=$(jq --arg id "$p_id" 'del(.provider[$id])' "$config_file") ||
       die "Removing provider.${p_id} from opencode.json failed"
-    write_config_without_backup "$config_file" "$config"
+    write_config_without_backup "$config_file" "$config" ||
+      die "Writing opencode.json failed; provider.${p_id} section kept"
   fi
 }
 
