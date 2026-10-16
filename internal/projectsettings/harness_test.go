@@ -11,21 +11,46 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/muesli/termenv"
 
+	"github.com/shredingerlabs/oc-sandbox/internal/cmdrun"
 	"github.com/shredingerlabs/oc-sandbox/internal/registry"
 	"github.com/shredingerlabs/oc-sandbox/internal/sandboxcfg"
 	"github.com/shredingerlabs/oc-sandbox/internal/shell"
+	"github.com/shredingerlabs/oc-sandbox/internal/taskmgr"
 )
 
 // Test harness: real registry fixtures (no podman — this screen never
-// starts anything), the BubbleTea model seam, rendered-lines assertions.
+// starts anything), a fake script runner, a recording Launcher, the
+// BubbleTea model seam, rendered-lines assertions.
+
+// psHooks script the fake runner's configure-project.sh behavior.
+type psHooks struct {
+	configureErr error
+}
+
+// psLaunch records every op and executes it like DefaultLauncher.
+type psLaunch struct {
+	ops []taskmgr.Op
+}
+
+func (l *psLaunch) Launch(op taskmgr.Op) tea.Cmd {
+	l.ops = append(l.ops, op)
+	return func() tea.Msg {
+		var lines []string
+		err := op.Run(func(line string) { lines = append(lines, line) })
+		return taskmgr.DoneMsg{ID: op.ID, Key: op.Key, Lines: lines, Err: err}
+	}
+}
 
 // env holds the fixture home; timestamps recede per insert so AllOrdered
 // (last_used desc) lists alpha first and the open project is alpha.
 type env struct {
-	home  string
-	base  time.Time
-	seq   int
-	roots map[string]string
+	home   string
+	base   time.Time
+	seq    int
+	roots  map[string]string
+	hooks  *psHooks
+	run    *cmdrun.Fake
+	launch *psLaunch
 }
 
 func newEnv(t *testing.T, names ...string) *env {
@@ -35,7 +60,13 @@ func newEnv(t *testing.T, names ...string) *env {
 	if err := os.RemoveAll(home); err != nil {
 		t.Fatal(err)
 	}
-	e := &env{home: home, roots: map[string]string{}}
+	e := &env{home: home, roots: map[string]string{}, hooks: &psHooks{}, launch: &psLaunch{}}
+	e.run = &cmdrun.Fake{Script: func(name string, args []string) (string, error) {
+		if name == "bash" && len(args) > 0 && filepath.Base(args[0]) == "configure-project.sh" {
+			return "configured", e.hooks.configureErr
+		}
+		return "", nil
+	}}
 	if err := e.reg(t, time.Now()).CreateProjectsFile(); err != nil {
 		t.Fatal(err)
 	}
@@ -43,6 +74,39 @@ func newEnv(t *testing.T, names ...string) *env {
 		e.addProject(t, n)
 	}
 	return e
+}
+
+// drain drains the launcher's cmd tree into the view (the recording
+// Launcher returns DoneMsgs directly — no manager in between).
+func drain(t *testing.T, v *View, cmd tea.Cmd) {
+	t.Helper()
+	for cmd != nil {
+		msg := cmd()
+		if msg == nil {
+			return
+		}
+		if batch, ok := msg.(tea.BatchMsg); ok {
+			cmd = nil
+			for _, c := range []tea.Cmd(batch) {
+				drain(t, v, c)
+			}
+			continue
+		}
+		cmd = v.Update(msg)
+	}
+}
+
+// configureCalls extracts the configure-project.sh argument vectors the
+// pane queued (script path stripped).
+func (e *env) configureCalls(t *testing.T) [][]string {
+	t.Helper()
+	var out [][]string
+	for _, c := range e.run.Calls {
+		if c.Name == "bash" && len(c.Args) > 1 && filepath.Base(c.Args[0]) == "configure-project.sh" {
+			out = append(out, c.Args[1:])
+		}
+	}
+	return out
 }
 
 func (e *env) reg(t *testing.T, now time.Time) *registry.Registry {
@@ -73,7 +137,13 @@ func (e *env) addProject(t *testing.T, name string) {
 
 func (e *env) view(t *testing.T) *View {
 	t.Helper()
-	return New(e.home)
+	v := New(e.home)
+	v.Deps = Deps{
+		Runner:          e.run,
+		ConfigureScript: filepath.Join(e.home, "configure-project.sh"),
+		Ops:             e.launch,
+	}
+	return v
 }
 
 // --- step / render helpers (Bullet-dee test seam: the BubbleTea model) ---

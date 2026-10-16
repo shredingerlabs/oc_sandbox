@@ -20,6 +20,7 @@ import (
 
 	"github.com/shredingerlabs/oc-sandbox/internal/registry"
 	"github.com/shredingerlabs/oc-sandbox/internal/shell"
+	"github.com/shredingerlabs/oc-sandbox/internal/taskmgr"
 )
 
 // Tab item (Settings center's sub-menu row; the tab itself lives in the
@@ -56,7 +57,28 @@ type View struct {
 
 	cardRects   []shell.Rect // one hit rect per rendered card
 	buttonRects []shell.Rect // vcs / AI Provider on the selected card
+	paneRects   []shell.Rect // AI pane interactive rows (fields, Add, confirm)
+	paneIdx     []int        // focus index per pane rect
 	pending     func()
+
+	lastCmd tea.Cmd // cmd produced by the last key (enter-activated flows)
+
+	// Focus: 0 = card grid, >=1 = pane item (pi* indices while the AI
+	// pane is open). Tab cycles; a text field in focus suppresses the
+	// shell's own keys.
+	focus int
+
+	// AI provider pane (#110): the add form fields, the pending
+	// Keep/Replace confirm, the queued write steps and the run flag.
+	Deps       Deps // production wiring (runner / configure-project.sh / Ops)
+	aiName     field
+	aiEndpoint field
+	aiToken    field
+	aiConfirm  *aiConfirmState
+	aiSteps    [][]string
+	aiRunning  bool
+	aiErr      string
+	opID       int
 }
 
 // New returns the Edit Project settings view for home, preloaded from the
@@ -84,6 +106,7 @@ func (v *View) Reload() {
 	}
 	v.sel = clamp(v.sel, 0, len(v.projects)-1)
 	v.pane = paneNone
+	v.resetPane()
 	v.gridScroll = 0
 }
 
@@ -92,18 +115,28 @@ func (v *View) SubTabs() ([]string, int) { return tabs, 0 }
 
 // TextFocused implements shell.CenterView: the screen has no text fields
 // yet (pure navigation), so focus never suppresses shell keys.
-func (v *View) TextFocused() bool { return false }
+func (v *View) TextFocused() bool {
+	return v.pane == paneAI && v.focus >= piName && v.focus <= piToken && v.aiConfirm == nil
+}
 
 // Rects returns the interactive hit rects of the selected card's buttons
-// as laid out by the last Body render (regression-tested geometry).
-func (v *View) Rects() []shell.Rect { return v.buttonRects }
+// as laid out by the last Body render (regression-tested geometry); the
+// open AI pane appends its field/button/confirm rects.
+func (v *View) Rects() []shell.Rect {
+	out := make([]shell.Rect, 0, len(v.buttonRects)+len(v.paneRects))
+	out = append(out, v.buttonRects...)
+	out = append(out, v.paneRects...)
+	return out
+}
 
 // Update implements shell.CenterView.
 func (v *View) Update(msg tea.Msg) tea.Cmd {
 	v.toast = ""
+	v.lastCmd = nil
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		v.key(msg)
+		return v.lastCmd
 	case tea.MouseMsg:
 		if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft {
 			v.click(msg.X, msg.Y)
@@ -116,6 +149,8 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 			}
 			v.gridFollow.Wheel(&v.gridScroll, dir)
 		}
+	case taskmgr.DoneMsg:
+		return v.aiDone(msg)
 	}
 	return nil
 }
@@ -125,6 +160,27 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 func (v *View) Toast(text string) { v.toast = text }
 
 func (v *View) key(msg tea.KeyMsg) {
+	switch msg.String() {
+	case "tab":
+		v.tabFocus(1)
+		return
+	case "shift+tab":
+		v.tabFocus(-1)
+		return
+	case "esc":
+		if v.aiConfirm != nil {
+			v.aiConfirm = nil
+			return
+		}
+		if v.focus != 0 {
+			v.focus = 0
+		}
+		return
+	}
+	if v.pane == paneAI && v.focus != 0 {
+		v.paneKey(msg)
+		return
+	}
 	cpr := v.cardsPerRow()
 	switch msg.String() {
 	case "up", "k":
@@ -136,6 +192,90 @@ func (v *View) key(msg tea.KeyMsg) {
 	case "right", "l":
 		v.moveSel(1)
 	}
+}
+
+// tabFocus cycles the focus between the card grid and the open AI
+// pane's items (grid → name → endpoint → token → Add → confirm rows →
+// grid); with the confirm open only the confirm rows cycle.
+func (v *View) tabFocus(dir int) {
+	if v.pane != paneAI {
+		return
+	}
+	lo, hi := piName, piAdd
+	if v.aiConfirm != nil {
+		lo, hi = piKeep, piReplace
+	} else if v.focus > piAdd {
+		v.focus = piAdd // confirm closed: stale confirm indices snap back
+	}
+	if v.focus < lo || v.focus > hi {
+		if dir > 0 {
+			v.focus = lo
+		}
+		return
+	}
+	n := v.focus + dir
+	if n < lo {
+		v.focus = 0 // back to the grid
+		return
+	}
+	if n > hi {
+		if v.aiConfirm != nil {
+			return // the confirm traps the focus while it is up
+		}
+		v.focus = 0
+		return
+	}
+	v.focus = n
+}
+
+// paneKey handles keys while an AI pane item holds focus: typing edits
+// the focused field; enter activates the Add button or a confirm row.
+func (v *View) paneKey(msg tea.KeyMsg) {
+	switch msg.String() {
+	case "enter":
+		switch v.focus {
+		case piAdd:
+			v.lastCmd = v.addProvider()
+		case piKeep:
+			v.lastCmd = v.resolveAIConfirm(false)
+		case piReplace:
+			v.lastCmd = v.resolveAIConfirm(true)
+		}
+		return
+	case "backspace":
+		if f := v.focusedField(); f != nil {
+			f.backspace()
+		}
+		return
+	case "left":
+		if f := v.focusedField(); f != nil {
+			f.cur--
+		}
+		return
+	case "right":
+		if f := v.focusedField(); f != nil {
+			f.cur++
+		}
+		return
+	}
+	rs := msg.Runes
+	if f := v.focusedField(); f != nil && len(rs) > 0 {
+		f.insert(string(rs))
+	}
+}
+
+// focusedField returns the field under the focus cursor (nil on the
+// Add button / confirm rows).
+func (v *View) focusedField() *field {
+	switch v.focus {
+	case piName:
+		return &v.aiName
+	case piEndpoint:
+		return &v.aiEndpoint
+	case piToken:
+		return &v.aiToken
+	}
+	return nil
 }
 
 // moveSel moves the card selection; a card switch resets the right pane
@@ -151,6 +291,7 @@ func (v *View) moveSel(d int) {
 	if n != v.sel {
 		v.sel = n
 		v.pane = paneNone
+		v.resetPane()
 	}
 }
 
@@ -158,10 +299,19 @@ func (v *View) selectCard(i int) {
 	if i != v.sel {
 		v.sel = i
 		v.pane = paneNone // card switch resets the pane
+		v.resetPane()
 	}
 }
 
 func (v *View) click(x, y int) {
+	// The open AI pane's interactive rows take precedence.
+	for i, r := range v.paneRects {
+		if r.Hit(x, y) {
+			v.focus = v.paneIdx[i]
+			v.paneClick(v.focus)
+			return
+		}
+	}
 	for i, r := range v.cardRects {
 		if !r.Hit(x, y) {
 			continue
@@ -176,8 +326,10 @@ func (v *View) click(x, y int) {
 				v.pending = nil
 				if j == 0 {
 					v.pane = paneVCS
+					v.resetPane()
 				} else {
 					v.pane = paneAI
+					v.resetPane()
 				}
 				return
 			}
@@ -357,14 +509,29 @@ func (v *View) recordButtons(rc shell.Rect) {
 }
 
 // paneBody renders the right pane card (variant C frame): the empty
-// hint, or the selected project's placeholder for the opened pane.
+// hint, the VCS placeholder, or the AI provider pane (add form + entry
+// list, hit rects recorded).
 func (v *View) paneBody(paneW, height int) string {
 	var rows []string
 	switch v.pane {
 	case paneVCS:
 		rows = append(rows, shell.StyleFieldLabel.Render("VCS — "+v.paneProject()))
 	case paneAI:
-		rows = append(rows, shell.StyleFieldLabel.Render("AI Provider — "+v.paneProject()))
+		aiRows := v.aiPaneRows(paneW)
+		v.aiPaneRects(aiRows, leftWidth(v.width)+4, shell.BodyTop+1)
+		card := make([]string, len(aiRows))
+		for i, r := range aiRows {
+			card[i] = r.text // rows are pre-clipped to the pane width
+		}
+		for len(card) < max(0, height-2) {
+			card = append(card, "")
+		}
+		card = card[:max(0, height-2)]
+		var lines []string
+		for _, l := range strings.Split(shell.Card(card), "\n") {
+			lines = append(lines, " "+l)
+		}
+		return padLines(lines, 1, paneW, height)
 	default:
 		rows = append(rows, shell.StyleMutedAlt.Render(hintText))
 	}

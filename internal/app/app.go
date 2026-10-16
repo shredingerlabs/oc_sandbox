@@ -16,6 +16,7 @@ import (
 	"github.com/shredingerlabs/oc-sandbox/internal/containerview"
 	"github.com/shredingerlabs/oc-sandbox/internal/newproject"
 	"github.com/shredingerlabs/oc-sandbox/internal/openproject"
+	"github.com/shredingerlabs/oc-sandbox/internal/projectsettings"
 	"github.com/shredingerlabs/oc-sandbox/internal/registry"
 	"github.com/shredingerlabs/oc-sandbox/internal/settingsview"
 	"github.com/shredingerlabs/oc-sandbox/internal/setupflow"
@@ -101,6 +102,11 @@ func Compose(home string, run cmdrun.Runner, now func() time.Time) App {
 
 	settings := settingsview.New(home)
 	settings.Tasks = mgr
+	settings.WireProjectSettingsDeps(projectsettings.Deps{
+		Runner:          run,
+		ConfigureScript: layout.ConfigureScript,
+		Ops:             mgr,
+	})
 
 	flow := setupflow.NewView(setupflow.ViewDeps{
 		Home:      home,
