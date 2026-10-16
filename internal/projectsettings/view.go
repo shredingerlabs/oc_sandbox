@@ -81,7 +81,8 @@ type View struct {
 	// AI provider pane (#110): the add form fields, the pending
 	// Keep/Replace confirm, the queued write steps and the run flag.
 	// #111 adds the entry edit form (aiEdit) and whether an edit save is
-	// queued (aiEditQueued).
+	// queued (aiEditQueued); #112 adds the provider id whose removal op
+	// is in flight (removing).
 	Deps         Deps // production wiring (runner / configure-project.sh / Ops)
 	aiName       field
 	aiEndpoint   field
@@ -92,6 +93,7 @@ type View struct {
 	aiSteps      [][]string
 	aiRunning    bool
 	aiErr        string
+	removing     string // provider id whose removal op is in flight (#112)
 	opID         int
 }
 
@@ -294,8 +296,12 @@ func (v *View) tabFocus(dir int) {
 		lo, hi = piEditName, piEditSave
 	} else {
 		lo, hi = piName, piAdd
-		if v.focus > piAdd {
-			v.focus = piAdd // confirm closed: stale confirm indices snap back
+		// #112: the shown entries' Remove buttons close the cycle.
+		if n := v.entryCount(); n > 0 {
+			hi = piRemove + n - 1
+		}
+		if v.focus > hi {
+			v.focus = piAdd // stale confirm/Remove indices snap back
 		}
 	}
 	if v.focus < lo || v.focus > hi {
@@ -333,6 +339,8 @@ func (v *View) paneKey(msg tea.KeyMsg) {
 			v.lastCmd = v.resolveAIConfirm(false)
 		case piReplace:
 			v.lastCmd = v.resolveAIConfirm(true)
+		default:
+			v.lastCmd = v.removeAt(v.focus) // #112: Remove button focus indices
 		}
 		return
 	case "backspace":
