@@ -357,6 +357,42 @@ func TestVCSSaveReplaceConfirm(t *testing.T) {
 	}
 }
 
+// The Keep/Replace confirm re-arms per Save: a second overwriting save
+// in the same pane session asks again instead of riding the earlier
+// Replace decision.
+func TestVCSSaveReplaceConfirmRearmsPerSave(t *testing.T) {
+	e := newEnv(t, "alpha")
+	e.setTracking(t, "alpha", "github.com")
+	e.writeHostFile(t, "alpha", "gh-cli/hosts.yml", "github.com")
+	v := e.view(t)
+	openVCS(t, v)
+	clickField(t, v, "Token:")
+	typeKeys(v, "new-tok")
+	clickSave(t, v)
+	confirmReplace(t, v)
+	if n := len(e.configureCalls(t)); n != 1 {
+		t.Fatalf("first save: configure calls = %d", n)
+	}
+	clickField(t, v, "Token:")
+	for i := 0; i < len("new-tok"); i++ {
+		v.Update(keyMsg("backspace"))
+	}
+	typeKeys(v, "again-tok")
+	clickSave(t, v)
+	if !v.confirm.IsOpen() {
+		t.Fatalf("second overwrite skipped the re-confirmation:\n%s", strings.Join(bodyLines(t, v), "\n"))
+	}
+	confirmReplace(t, v)
+	calls := e.configureCalls(t)
+	if len(calls) != 2 || !strings.Contains(strings.Join(calls[1], " "), "--replace") {
+		t.Fatalf("configure calls = %v", calls)
+	}
+	st := v.vcs
+	if st != nil && (st.replaceOK || st.skipCreds) {
+		t.Errorf("stale confirm flags survived the save: %+v", st)
+	}
+}
+
 // "Keep existing" on the confirmation skips the credential write but
 // still saves the other staged changes.
 func TestVCSSaveKeepExistingSkipsCredentials(t *testing.T) {

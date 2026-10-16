@@ -9,7 +9,6 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/shredingerlabs/oc-sandbox/internal/cmdrun"
 	"github.com/shredingerlabs/oc-sandbox/internal/registry"
 	"github.com/shredingerlabs/oc-sandbox/internal/sandboxcfg"
 	"github.com/shredingerlabs/oc-sandbox/internal/shell"
@@ -387,7 +386,10 @@ func (v *View) applySave() tea.Cmd {
 	url := strings.TrimSpace(p.url)
 	tracker, root, home := p.tracker, p.root, v.home
 	creds := tracker != "none" && tok != "" && !p.skipCreds
+	// the confirm decision applies to this save only: the Keep/Replace
+	// confirm re-arms on the next overwriting Save in the same session
 	replace := p.replaceOK
+	p.replaceOK, p.skipCreds = false, false
 	identChanged := name != p.origName || email != p.origEmail
 	storedTracker, storedURL := p.storedTracker, p.storedURL
 	runner, script := v.run, v.configureScript
@@ -398,11 +400,7 @@ func (v *View) applySave() tea.Cmd {
 		Title: "Saving VCS settings — " + p.proj.Name,
 		Run: func(emit func(string)) error {
 			runStep := func(args []string) error {
-				out, err := runner.Output("bash", append([]string{script}, args...)...)
-				for _, l := range cmdrun.Lines(out) {
-					emit(l)
-				}
-				return err
+				return runScriptStep(runner, script, args, emit)
 			}
 			if tracker != storedTracker {
 				if err := sandboxcfg.PatchString(home, sandboxcfg.Path(root), "vcs_tracking", tracker); err != nil {

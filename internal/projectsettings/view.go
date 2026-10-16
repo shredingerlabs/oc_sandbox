@@ -93,6 +93,7 @@ type View struct {
 	aiSteps      [][]string
 	aiRunning    bool
 	aiErr        string
+	aiRename     bool   // the running/failed queue is a rename (#111)
 	removing     string // provider id whose removal op is in flight (#112)
 	opID         int
 }
