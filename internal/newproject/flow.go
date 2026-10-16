@@ -371,6 +371,7 @@ func (m *Model) finishCreate() tea.Cmd {
 	}
 	m.created = true
 	m.toast = "Project created successfully."
+	m.resetForm() // wizard starts empty for the next project
 	return func() tea.Msg {
 		return CreatedMsg{Name: req.Name, Path: root, ConfigPath: sandboxcfg.Path(root)}
 	}

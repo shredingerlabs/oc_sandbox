@@ -224,6 +224,10 @@ ohne `gum` auf einen einfachen Textmodus zurück.
    - `opencode` – OpenCode-TUI
    
    - `web` – OpenCode-Weboberfläche (`opencode web --port 4096`, Hintergrunddienst)
+   
+   Nach erfolgreichem Anlegen (**Ersteinrichtung** startet) wird der Wizard
+   zurückgesetzt – alle Eingaben werden verworfen, der nächste New-Project-Gang
+   startet leer.
 3. **Ersteinrichtung** – läuft automatisch im Hintergrund (CBM-Konfiguration,
    danach interaktive Skills-Einrichtung über OpenCode-TUI). Bei Fehlern bietet
    die TUI `Retry`, `Go back` oder `Exit`; ein Retry wiederholt nur den

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -627,6 +628,57 @@ func TestCreateFromURLClonesSource(t *testing.T) {
 	p, err := reg.ByName("repo")
 	if err != nil || p.RepoURL != "https://github.com/user/repo.git" || p.GitTracking != "github.com" {
 		t.Fatalf("registry entry wrong: %+v err %v", p, err)
+	}
+}
+
+// TestFormResetsAfterSuccessfulCreate proves the post-create reset: once
+// the registry write passed, every user entry is cleared back to the
+// New() defaults so the next wizard session starts empty (a stale
+// duplicate name/path would fail validation immediately).
+func TestFormResetsAfterSuccessfulCreate(t *testing.T) {
+	m, ops, reg := newTestModel(t)
+	m.Update(shell.SubTabMsg{Index: 1})
+	m.setText(fURL, "https://github.com/user/repo.git") // name/VCS prefill
+	m.setText(fGitName, "Ann")
+	m.setText(fGitEmail, "ann@example.com")
+	m.setText(fVCSToken, "tok")
+	m.ai = "Custom"
+	m.modes = []string{"offline"}
+	m.refresh() // Custom reveals the AI field block
+	m.setText(fAIName, "My AI")
+	m.setText(fAIEndpoint, "https://api.example.com/v1")
+	m.setText(fAIToken, "secret")
+
+	createViaKeyboard(t, m)
+	if _, err := reg.ByName("repo"); err != nil {
+		t.Fatalf("create did not register the project: %v", err)
+	}
+	if !ops.has("configure-project.sh", "git-identity") {
+		t.Fatalf("credential flow did not run: %v", ops.Calls)
+	}
+
+	if m.source != srcBlank {
+		t.Fatalf("source tab = %d, want blank", m.source)
+	}
+	for _, f := range []int{fName, fPath, fURL, fGitName, fGitEmail, fVCSToken, fVCSHost, fAIName, fAIEndpoint, fAIToken} {
+		if v := m.textVal(f); v != "" {
+			t.Fatalf("field %d not cleared: %q", f, v)
+		}
+	}
+	if m.vcs != "none" || m.ai != "none" || m.start != startOptions[0] {
+		t.Fatalf("option defaults not restored: vcs=%q ai=%q start=%q", m.vcs, m.ai, m.start)
+	}
+	if len(m.modes) != 0 || len(m.credQueue) != 0 || m.phase != phaseForm {
+		t.Fatalf("flow leftovers not cleared: modes=%v queue=%d phase=%d", m.modes, len(m.credQueue), m.phase)
+	}
+	if manual := m.nameManual || m.pathManual || m.vcsManual; manual {
+		t.Fatalf("manual flags not cleared")
+	}
+
+	// A blank form renders with the same rows as a fresh view (no From-URL
+	// field, no credential sub-blocks).
+	if !reflect.DeepEqual(m.fieldList(), New(m.cfg, m.run, m.ops, m.reg).fieldList()) {
+		t.Fatalf("field list not reset: %v", m.fieldList())
 	}
 }
 

@@ -686,6 +686,28 @@ func (m *Model) prefillFromURL() {
 	m.refresh()
 }
 
+// resetForm clears every user-entered entry back to the New() defaults:
+// the wizard starts fresh after a successful create instead of holding
+// the previous project's name/path/credentials (which would fail the
+// duplicate-name validation on the next create).
+func (m *Model) resetForm() {
+	m.source = srcBlank
+	m.name, m.path, m.url = "", "", ""
+	m.nameManual, m.pathManual, m.vcsManual = false, false, false
+	m.cursor = 0
+	m.edition = ""
+	m.modes, m.modeCur = nil, 0
+	m.start = startOptions[0]
+	m.vcs = "none"
+	m.gitName, m.gitEmail, m.vcsToken, m.vcsHost = "", "", "", ""
+	m.ai = aiOptions[0]
+	m.aiName, m.aiEndpoint, m.aiToken = "", "", ""
+	m.phase = phaseForm
+	m.choice = 0
+	m.credQueue = nil
+	m.refresh()
+}
+
 // setPhase is the deliberate phase transition: the flip re-lands the
 // cursor on a different row (fPrompt inserted/dropped before fCreate)
 // without changing the focus index, so the follow's move-detection would
