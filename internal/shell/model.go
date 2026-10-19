@@ -12,14 +12,14 @@ import (
 	"github.com/shredingerlabs/oc-sandbox/internal/taskmgr"
 )
 
-// Minimum terminal size for the too-small overlay guard (terminal
-// support matrix): below it the shell renders an inline too-small
-// screen instead of the app. ResizeHeight is the taller startup target
-// requested via the window-size escape: the Edit Project settings AI
-// provider pane unfolds with an opened provider entry unscrolled.
+// screen instead of the app. The recommended dimensions name the fully
+// fitting layout (Edit Project settings: two project card columns
+// beside the fully unfolded AI provider pane) that the startup
+// window-size escape grows narrow terminals toward (80x41).
 const (
 	MinWidth     = 80
 	MinHeight    = 24
+	ResizeWidth  = 115
 	ResizeHeight = 41
 )
 
@@ -307,7 +307,7 @@ func (m Model) broadcastTaskMsg(msg tea.Msg) tea.Cmd {
 // View implements tea.Model.
 func (m Model) View() string {
 	if m.TooSmall() {
-		return fmt.Sprintf("Terminal too small — recommended %dx%d, got %dx%d.\nResize to continue.", MinWidth, MinHeight, m.width, m.height)
+		return fmt.Sprintf("Terminal too small — got %dx%d.\nMinimum %dx%d, recommended %dx%d.\nResize to continue.", m.width, m.height, MinWidth, MinHeight, ResizeWidth, ResizeHeight)
 	}
 	items, selected := m.views[m.active].SubTabs()
 	tabs, _ := SubTabsRow(items, selected)

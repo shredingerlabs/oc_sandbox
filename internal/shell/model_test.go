@@ -325,7 +325,7 @@ func TestTooSmallGuardAsciiSnapshot(t *testing.T) {
 
 	m := newTestModel()
 	got := m.View() // 0x0 before any WindowSizeMsg
-	want := "Terminal too small — recommended 80x24, got 0x0.\nResize to continue."
+	want := "Terminal too small — got 0x0.\nMinimum 80x24, recommended 115x41.\nResize to continue."
 	if got != want {
 		t.Errorf("initial guard = %q, want %q", got, want)
 	}
@@ -334,7 +334,7 @@ func TestTooSmallGuardAsciiSnapshot(t *testing.T) {
 	}
 	for _, sz := range [][2]int{{79, 24}, {80, 23}, {40, 10}} {
 		m = resized(newTestModel(), sz[0], sz[1])
-		want := fmt.Sprintf("Terminal too small — recommended 80x24, got %dx%d.\nResize to continue.", sz[0], sz[1])
+		want := fmt.Sprintf("Terminal too small — got %dx%d.\nMinimum 80x24, recommended 115x41.\nResize to continue.", sz[0], sz[1])
 		if m.View() != want {
 			t.Errorf("%dx%d guard = %q, want %q", sz[0], sz[1], m.View(), want)
 		}
