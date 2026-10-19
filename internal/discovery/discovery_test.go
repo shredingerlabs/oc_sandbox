@@ -155,6 +155,50 @@ func TestRunningContainers(t *testing.T) {
 	}
 }
 
+func TestRunningContainersWithImages(t *testing.T) {
+	run := &cmdrun.Fake{Script: func(name string, args []string) (string, error) {
+		if name == "podman" {
+			return "opencode-sandbox-aaa\tlocalhost/opencode-sandbox-swdev:latest\nopencode-sandbox-bbb\topencode-sandbox-base\n", nil
+		}
+		return "", nil
+	}}
+	got := RunningContainersWithImages(run)
+	want := []ContainerImage{
+		{Name: "opencode-sandbox-aaa", Image: "localhost/opencode-sandbox-swdev:latest"},
+		{Name: "opencode-sandbox-bbb", Image: "opencode-sandbox-base"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("containers = %+v, want %+v", got, want)
+	}
+	if len(run.Calls) != 1 || run.Calls[0].Name != "podman" ||
+		!reflect.DeepEqual(run.Calls[0].Args, []string{"ps", "--format", "{{.Names}}\t{{.Image}}", "--filter", "name=opencode-sandbox-"}) {
+		t.Fatalf("unexpected podman invocation: %+v", run.Calls)
+	}
+	// Errors are swallowed (bash || true).
+	fail := &cmdrun.Fake{Script: func(name string, args []string) (string, error) {
+		if name == "podman" && args[0] == "ps" && args[2] == "{{.Names}}\t{{.Image}}" {
+			return "", errFake
+		}
+		return "", nil
+	}}
+	failRun := fail
+	if got := RunningContainersWithImages(cmdrun.Runner(failRun)); got != nil {
+		t.Fatalf("failed podman ps must yield no containers, got %+v", got)
+	}
+	// Edition parsing off the image column.
+	for img, want := range map[string]string{
+		"opencode-sandbox-base":                         "base",
+		"localhost/opencode-sandbox-swdev:latest":       "swdev",
+		"registry.io/team/opencode-sandbox-my-ed":       "my-ed",
+		"registry.io/team/opencode-sandbox-x@sha256:ff": "x",
+		"alpine:3": "",
+	} {
+		if got := EditionFromImage(img); got != want {
+			t.Errorf("EditionFromImage(%q) = %q, want %q", img, got, want)
+		}
+	}
+}
+
 func TestImageExists(t *testing.T) {
 	run := &cmdrun.Fake{Script: func(name string, args []string) (string, error) {
 		if name == "podman" && args[0] == "image" && args[1] == "exists" && args[2] == "opencode-sandbox-swdev" {
