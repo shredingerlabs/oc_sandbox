@@ -51,10 +51,13 @@ fi
 # Credential store bridge: credentials file is written by the wizard only
 # when a VCS token is captured — no token, no file (issue #38).
 [[ ! -e "$root1/.git_local/credentials" ]]
-[[ -f "$root1/.git_local/glab-cli/config.yml" ]]
+# glab-cli/config.yml is created by the wizard (configure-project.sh
+# vcs-credentials) on demand — no seed, no false "already exists" prompt.
+[[ ! -e "$root1/.git_local/glab-cli" ]]
 [[ -f "$root1/.ssh_local/config" ]]
 [[ -f "$root1/.bash_local/bash_profile" ]]
-[[ -d "$root1/project/scripts" ]]
+# templates/scripts seeding was removed (5f032ac) — no project/scripts anymore
+[[ ! -e "$root1/project/scripts" ]]
 
 # Rechte
 [[ "$(stat -c '%a' "$root1/.git_local")" == "700" ]]
