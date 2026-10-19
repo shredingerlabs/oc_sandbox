@@ -11,6 +11,7 @@
 package openproject
 
 import (
+	"fmt"
 	"os/exec"
 	"strings"
 	"time"
@@ -70,6 +71,7 @@ type opKind int
 const (
 	opStart opKind = iota
 	opBuild
+	opSwitch
 )
 
 type staged struct {
@@ -357,7 +359,7 @@ func (m *Model) key(msg tea.KeyMsg) tea.Cmd {
 		case "up", "k":
 			m.mismatchSel = max(0, m.mismatchSel-1)
 		case "down", "j":
-			m.mismatchSel = min(len(mismatchPromptOptions)-1, m.mismatchSel+1)
+			m.mismatchSel = min(len(m.mismatchOptions())-1, m.mismatchSel+1)
 		case "enter", " ":
 			return m.mismatchPick(m.mismatchSel)
 		case "esc":
@@ -812,9 +814,18 @@ func (m *Model) buildPick(i int) tea.Cmd {
 	}
 }
 
-// mismatchPromptOptions are the working mismatch-prompt choices (#115);
-// ticket 116 adds the Switch button between them.
-var mismatchPromptOptions = []string{"Use current", "Cancel"}
+// mismatchOptions are the mismatch-prompt choices: Use current and
+// Cancel from #115, plus — only when the editions actually diverge —
+// the Switch button naming the saved edition it will start (#116; the
+// prompt itself never renders on agreeing editions, applyReconcile
+// gates it).
+func (m *Model) mismatchOptions() []string {
+	opts := []string{"Use current", "Cancel"}
+	if m.mismatchRunning != "" && m.mismatchRunning != m.pendingCfg.ContainerEdition {
+		opts = append(opts, "Switch to "+m.pendingCfg.ContainerEdition)
+	}
+	return opts
+}
 
 // mismatchPick resolves the edition-mismatch prompt (#115).
 func (m *Model) mismatchPick(i int) tea.Cmd {
@@ -825,12 +836,80 @@ func (m *Model) mismatchPick(i int) tea.Cmd {
 		m.state = stateList
 		m.mismatchRunning = ""
 		return tea.Batch(m.poll(), m.access(p, cfg, variant, false))
+	case 2: // Switch to <edition> — confirmed replacement (#116)
+		p, cfg, variant := m.pending, m.pendingCfg, m.variant
+		m.mismatchRunning = ""
+		return m.launchSwitch(p, cfg, variant)
 	default: // Cancel — no podman side effects at all
 		m.variant = ""
 		m.mismatchRunning = ""
 		m.state = stateList
 		return nil
 	}
+}
+
+// launchSwitch runs the confirmed replacement of the running
+// wrong-edition container (#116) as one tracked long op with the
+// embedded log pane, in two verified steps: stop the old container
+// (registry → stopped only after it verifies gone — containers run
+// --rm, so gone = removed), then start with args fully rebuilt from
+// the saved settings (registry → running afterwards, in opDone, only
+// on a verified success).
+func (m *Model) launchSwitch(p registry.Project, cfg sandboxcfg.Config, variant string) tea.Cmd {
+	if !ValidModes(cfg.ContainerModes) {
+		m.toast = "offline and cbm_ui are mutually exclusive — fix settings first"
+		m.state = stateList
+		return nil
+	}
+	m.variant = variant
+	m.state = stateBusy
+	m.busyKind = opSwitch
+	m.pending = p
+	m.pendingCfg = cfg
+	m.opTitle = "Switching to " + cfg.ContainerEdition
+	m.log = shell.NewLogPane().Run(true)
+	m.busyID++
+	m.busyKey = p.ContainerID
+	pid, path, edition := p.ContainerID, p.Path, cfg.ContainerEdition
+	name := registry.ContainerName(pid)
+	args := StartArgs(p.Path, edition, pid, cfg.ContainerModes, variant, cfg.UseProxy)
+	run, script, reg := m.deps.Runner, m.deps.StartScript, m.reg
+	op := Op{
+		ID:    m.busyID,
+		Key:   pid, // per-project queue bucket (#82)
+		Title: m.opTitle,
+		Run: func(line func(string)) error {
+			// 1. Stop the old container, verify gone (fresh ps),
+			// registry → stopped only after verification.
+			out, err := run.Output("podman", "stop", name)
+			for _, l := range cmdrun.Lines(out) {
+				line(l)
+			}
+			if err != nil {
+				return err
+			}
+			if hasString(discovery.RunningContainers(run), name) {
+				return fmt.Errorf("container %s still listed after stop", name)
+			}
+			if err := reg.UpdateStatus(path, "stopped"); err != nil {
+				return err
+			}
+			line("Registry status: stopped")
+			// 2. Start with fully rebuilt args from current settings.
+			out, err = run.Output("bash", append([]string{script}, args...)...)
+			for _, l := range cmdrun.Lines(out) {
+				line(l)
+			}
+			if err != nil {
+				return err
+			}
+			if !hasString(discovery.RunningContainers(run), name) {
+				return fmt.Errorf("container %s not live after start", name)
+			}
+			return nil
+		},
+	}
+	return tea.Batch(m.deps.Ops.Launch(op), m.log.Spin())
 }
 
 func (m *Model) opDone(msg OpDoneMsg) tea.Cmd {
@@ -852,10 +931,12 @@ func (m *Model) opDone(msg OpDoneMsg) tea.Cmd {
 	m.log = m.log.Run(false)
 	m.refresh()
 	switch m.busyKind {
-	case opStart:
+	case opStart, opSwitch:
 		p := m.pending
 		if msg.Err == nil {
 			// container_status = running only on start.sh success.
+			// (For a switch the op has already verified the new
+			// container live on a fresh podman ps.)
 			if err := m.reg.UpdateStatus(p.Path, "running"); err != nil {
 				m.toast = "Could not update container status: " + err.Error()
 			} else {
@@ -871,8 +952,15 @@ func (m *Model) opDone(msg OpDoneMsg) tea.Cmd {
 			return tea.Batch(m.poll(), m.access(p, m.pendingCfg, m.variant, !m.pendingCfg.SetupComplete))
 		}
 		m.variant = ""
-		m.toast = "Failed to start container"
 		m.state = stateList
+		if m.busyKind == opSwitch {
+			// The op already wrote "stopped" after the stop verified
+			// gone — no start rollback: the previous edition's image
+			// still exists, the user can switch back.
+			m.toast = "Switch failed — " + msg.Err.Error()
+			return m.poll()
+		}
+		m.toast = "Failed to start container"
 		return m.poll()
 	default: // opBuild
 		if msg.Err == nil {
@@ -1103,6 +1191,11 @@ func (m *Model) Body(width, height int) string {
 			},
 			buildPromptOptions, m.buildSel)
 	case stateMismatch:
+		opts := m.mismatchOptions()
+		for m.mismatchSel >= len(opts) {
+			m.mismatchSel--
+		}
+		m.mismatchSel = max(0, m.mismatchSel)
 		indent := paneX - leftW
 		right = m.promptPane(indent, paneW, height,
 			[]string{
@@ -1111,7 +1204,7 @@ func (m *Model) Body(width, height int) string {
 				shell.StyleMutedAlt.Render("Saved:   opencode-sandbox-" + m.pendingCfg.ContainerEdition),
 				"",
 			},
-			mismatchPromptOptions, m.mismatchSel)
+			opts, m.mismatchSel)
 	default:
 		rows := m.layout()
 		indent := paneX - leftW

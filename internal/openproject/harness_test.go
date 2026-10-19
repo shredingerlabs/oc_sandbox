@@ -32,6 +32,7 @@ type runnerHooks struct {
 	psImagesOut string // `podman ps` output (names+images format; "" = psOut)
 	imageErr    error  // `podman image exists` error (nil = image exists)
 	portErr     error  // `podman port` error
+	stopErr     error  // `podman stop` error
 	startErr    error
 	buildErr    error
 	// configure-project.sh (settings-launched provider steps, #103)
@@ -39,6 +40,7 @@ type runnerHooks struct {
 	onConfigure  func(args []string)
 	onStart      func(args []string) // fires right before start.sh "runs"
 	onBuild      func(args []string)
+	onStop       func(args []string) // fires right before podman stop "runs"
 }
 
 func (h *runnerHooks) output(name string, args []string) (string, error) {
@@ -68,6 +70,11 @@ func (h *runnerHooks) output(name string, args []string) (string, error) {
 		return h.psOut, nil
 	case name == "podman" && args[0] == "image":
 		return "", h.imageErr
+	case name == "podman" && args[0] == "stop":
+		if h.onStop != nil {
+			h.onStop(args[1:])
+		}
+		return "", h.stopErr
 	case name == "podman" && args[0] == "port":
 		return "127.0.0.1:4096", h.portErr
 	}
