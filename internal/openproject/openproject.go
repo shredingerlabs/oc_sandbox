@@ -11,6 +11,7 @@
 package openproject
 
 import (
+	"fmt"
 	"os/exec"
 	"strings"
 	"time"
@@ -59,9 +60,10 @@ type Deps struct {
 type viewState int
 
 const (
-	stateList  viewState = iota // card grid + settings pane
-	stateBuild                  // Build now / Build later / Go back prompt
-	stateBusy                   // long op runs, embedded log pane
+	stateList     viewState = iota // card grid + settings pane
+	stateBuild                     // Build now / Build later / Go back prompt
+	stateMismatch                  // Edition mismatch prompt (Use current / Cancel)
+	stateBusy                      // long op runs, embedded log pane
 )
 
 type opKind int
@@ -69,6 +71,7 @@ type opKind int
 const (
 	opStart opKind = iota
 	opBuild
+	opSwitch
 )
 
 type staged struct {
@@ -122,6 +125,20 @@ type Model struct {
 	state    viewState
 	buildSel int
 	opTitle  string
+
+	mismatchSel     int    // selected mismatch-prompt choice
+	mismatchRunning string // edition the live container actually runs
+	// mismatchImageOK is the reconcile's missing-image verdict for the
+	// saved edition, latched when the mismatch prompt enters (#117): the
+	// Switch pick needs it to route into the missing-image build prompt
+	// BEFORE any stop command can be issued.
+	mismatchImageOK bool
+
+	// switchAfterBuild marks a build prompt opened on behalf of a
+	// mismatch switch (#117): the switch resumes (stop → start → the
+	// originally clicked access) once the build ends and the image
+	// revalidates.
+	switchAfterBuild bool
 
 	busyID     int
 	busyKey    string // queue key of the in-flight op (id-disambiguation)
@@ -281,6 +298,8 @@ func (m *Model) Update(msg tea.Msg) tea.Cmd {
 		return m.opDone(msg)
 	case reconcileMsg:
 		return m.applyReconcile(msg)
+	case switchResumeMsg:
+		return m.resumeSwitch(msg)
 	case runningMsg:
 		m.running = msg
 		return nil
@@ -346,6 +365,18 @@ func (m *Model) key(msg tea.KeyMsg) tea.Cmd {
 			m.buildSel = min(len(buildPromptOptions)-1, m.buildSel+1)
 		case "enter", " ":
 			return m.buildPick(m.buildSel)
+		}
+		return nil
+	case stateMismatch:
+		switch k {
+		case "up", "k":
+			m.mismatchSel = max(0, m.mismatchSel-1)
+		case "down", "j":
+			m.mismatchSel = min(len(m.mismatchOptions())-1, m.mismatchSel+1)
+		case "enter", " ":
+			return m.mismatchPick(m.mismatchSel)
+		case "esc":
+			return m.mismatchPick(1) // esc = Cancel
 		}
 		return nil
 	}
@@ -557,9 +588,12 @@ func (m *Model) mouse(msg tea.MouseMsg) tea.Cmd {
 		return nil
 	}
 	switch m.state {
-	case stateBuild:
+	case stateBuild, stateMismatch:
 		for i, r := range m.promptRects {
 			if r.Hit(msg.X, msg.Y) {
+				if m.state == stateMismatch {
+					return m.mismatchPick(i)
+				}
 				return m.buildPick(i)
 			}
 		}
@@ -627,6 +661,9 @@ type reconcileMsg struct {
 	cfg     sandboxcfg.Config
 	cfgErr  string
 	lastErr string
+	// runningEdition is the edition parsed off the live container's
+	// image ("" = not live, or the image is not an edition image).
+	runningEdition string
 }
 
 // reconcileCmd runs the event-loop-blocking part of the start flow
@@ -651,6 +688,17 @@ func (m *Model) reconcileCmd(p registry.Project) tea.Cmd {
 		msg.cfg = cfg
 		// 3. Missing edition image → Build now / Build later / Go back.
 		msg.imageOK = discovery.ImageExists(deps.Runner, cfg.ContainerEdition)
+		// 4. Edition mismatch (#115): the live container's image is the
+		// truth about what runs — parse its edition and let the model
+		// prompt when it diverges from the saved one.
+		if msg.live {
+			for _, c := range discovery.RunningContainersWithImages(deps.Runner) {
+				if c.Name == registry.ContainerName(p.ContainerID) {
+					msg.runningEdition = discovery.EditionFromImage(c.Image)
+					break
+				}
+			}
+		}
 		return msg
 	}
 }
@@ -673,6 +721,15 @@ func (m *Model) applyReconcile(msg reconcileMsg) tea.Cmd {
 	}
 	variant := m.variant // empty falls back to the configured option in access
 	if msg.live {
+		if editionsDiverge(msg.runningEdition, msg.cfg.ContainerEdition) {
+			m.state = stateMismatch
+			m.mismatchSel = 0
+			m.mismatchRunning = msg.runningEdition
+			m.mismatchImageOK = msg.imageOK
+			m.pending = p
+			m.pendingCfg = msg.cfg
+			return dots
+		}
 		return tea.Batch(dots, m.access(p, msg.cfg, variant, false))
 	}
 	if !msg.imageOK {
@@ -759,6 +816,10 @@ func (m *Model) buildPick(i int) tea.Cmd {
 		}
 		return tea.Batch(m.deps.Ops.Launch(op), m.log.Spin())
 	case 1: // Build later — deferred build, stays stopped
+		// a switch routed here (#117) is abandoned: the mismatch stays
+		// unresolved and a later start click re-runs detection
+		m.switchAfterBuild = false
+		m.variant = ""
 		m.toast = "Build later — project stays stopped until the image is built"
 		m.state = stateList
 		return nil
@@ -766,9 +827,133 @@ func (m *Model) buildPick(i int) tea.Cmd {
 		if m.deps.Tasks != nil {
 			m.deps.Tasks.CancelQueued(m.pending.ContainerID)
 		}
+		m.switchAfterBuild = false // same abandonment as Build later (#117)
+		m.variant = ""
 		m.state = stateList
 		return nil
 	}
+}
+
+// editionsDiverge reports whether the live image's edition differs from
+// the saved one: the mismatch prompt (#115) only ever renders on that.
+func editionsDiverge(running, saved string) bool {
+	return running != "" && running != saved
+}
+
+// Prompt choice indices: Use current first, Cancel second, Switch
+// appended third (#115, #116).
+const (
+	mismatchUseCurrent = 0
+	mismatchCancel     = 1
+	mismatchSwitch     = 2
+)
+
+// mismatchOptions are the mismatch-prompt choices: Use current and
+// Cancel from #115, plus — only when the editions actually diverge —
+// the Switch button naming the saved edition it will start (#116; the
+// prompt itself never renders on agreeing editions, applyReconcile
+// gates it).
+func (m *Model) mismatchOptions() []string {
+	opts := []string{"Use current", "Cancel"}
+	if editionsDiverge(m.mismatchRunning, m.pendingCfg.ContainerEdition) {
+		opts = append(opts, "Switch to "+m.pendingCfg.ContainerEdition)
+	}
+	return opts
+}
+
+// mismatchPick resolves the edition-mismatch prompt (#115).
+func (m *Model) mismatchPick(i int) tea.Cmd {
+	switch i {
+	case mismatchUseCurrent: // Use current — route into the running container as today
+		p, cfg := m.pending, m.pendingCfg
+		variant := m.variant
+		m.state = stateList
+		m.mismatchRunning = ""
+		return tea.Batch(m.poll(), m.access(p, cfg, variant, false))
+	case mismatchSwitch: // Switch to <edition> — confirmed replacement (#116)
+		p, cfg, variant := m.pending, m.pendingCfg, m.variant
+		m.mismatchRunning = ""
+		if !m.mismatchImageOK {
+			// #117, never destroy without a replacement: build the
+			// saved edition's image first (the old container keeps
+			// running throughout), then the switch resumes — reconcile
+			// latched the missing-image verdict before any pick.
+			m.state = stateBuild
+			m.buildSel = 0
+			m.switchAfterBuild = true
+			return m.poll()
+		}
+		return m.launchSwitch(p, cfg, variant)
+	default: // Cancel (mismatchCancel; esc also lands here) — no podman side effects at all
+		m.variant = ""
+		m.mismatchRunning = ""
+		m.state = stateList
+		return nil
+	}
+}
+
+// launchSwitch runs the confirmed replacement of the running
+// wrong-edition container (#116) as one tracked long op with the
+// embedded log pane, in two verified steps: stop the old container
+// (registry → stopped only after it verifies gone — containers run
+// --rm, so gone = removed), then start with args fully rebuilt from
+// the saved settings (registry → running afterwards, in opDone, only
+// on a verified success).
+func (m *Model) launchSwitch(p registry.Project, cfg sandboxcfg.Config, variant string) tea.Cmd {
+	if !ValidModes(cfg.ContainerModes) {
+		m.toast = "offline and cbm_ui are mutually exclusive — fix settings first"
+		m.state = stateList
+		return nil
+	}
+	m.variant = variant
+	m.state = stateBusy
+	m.busyKind = opSwitch
+	m.pending = p
+	m.pendingCfg = cfg
+	m.opTitle = "Switching to " + cfg.ContainerEdition
+	m.log = shell.NewLogPane().Run(true)
+	m.busyID++
+	m.busyKey = p.ContainerID
+	pid, path, edition := p.ContainerID, p.Path, cfg.ContainerEdition
+	name := registry.ContainerName(pid)
+	args := StartArgs(p.Path, edition, pid, cfg.ContainerModes, variant, cfg.UseProxy)
+	run, script, reg := m.deps.Runner, m.deps.StartScript, m.reg
+	op := Op{
+		ID:    m.busyID,
+		Key:   pid, // per-project queue bucket (#82)
+		Title: m.opTitle,
+		Run: func(line func(string)) error {
+			// 1. Stop the old container, verify gone (fresh ps),
+			// registry → stopped only after verification.
+			out, err := run.Output("podman", "stop", name)
+			for _, l := range cmdrun.Lines(out) {
+				line(l)
+			}
+			if err != nil {
+				return err
+			}
+			if hasString(discovery.RunningContainers(run), name) {
+				return fmt.Errorf("container %s still listed after stop", name)
+			}
+			if err := reg.UpdateStatus(path, "stopped"); err != nil {
+				return err
+			}
+			line("Registry status: stopped")
+			// 2. Start with fully rebuilt args from current settings.
+			out, err = run.Output("bash", append([]string{script}, args...)...)
+			for _, l := range cmdrun.Lines(out) {
+				line(l)
+			}
+			if err != nil {
+				return err
+			}
+			if !hasString(discovery.RunningContainers(run), name) {
+				return fmt.Errorf("container %s not live after start", name)
+			}
+			return nil
+		},
+	}
+	return tea.Batch(m.deps.Ops.Launch(op), m.log.Spin())
 }
 
 func (m *Model) opDone(msg OpDoneMsg) tea.Cmd {
@@ -790,10 +975,12 @@ func (m *Model) opDone(msg OpDoneMsg) tea.Cmd {
 	m.log = m.log.Run(false)
 	m.refresh()
 	switch m.busyKind {
-	case opStart:
+	case opStart, opSwitch:
 		p := m.pending
 		if msg.Err == nil {
 			// container_status = running only on start.sh success.
+			// (For a switch the op has already verified the new
+			// container live on a fresh podman ps.)
 			if err := m.reg.UpdateStatus(p.Path, "running"); err != nil {
 				m.toast = "Could not update container status: " + err.Error()
 			} else {
@@ -809,21 +996,63 @@ func (m *Model) opDone(msg OpDoneMsg) tea.Cmd {
 			return tea.Batch(m.poll(), m.access(p, m.pendingCfg, m.variant, !m.pendingCfg.SetupComplete))
 		}
 		m.variant = ""
-		m.toast = "Failed to start container"
 		m.state = stateList
+		if m.busyKind == opSwitch {
+			// The op already wrote "stopped" after the stop verified
+			// gone — no start rollback: the previous edition's image
+			// still exists, the user can switch back. Surface the
+			// error in the log pane too, not only the toast (#116):
+			// the stop already succeeded, the start is what failed.
+			m.log, _ = m.log.Update(shell.LineMsg("Switch failed — " + msg.Err.Error()))
+			m.toast = "Switch failed — " + msg.Err.Error()
+			return m.poll()
+		}
+		m.toast = "Failed to start container"
 		return m.poll()
 	default: // opBuild
 		if msg.Err == nil {
+			if m.switchAfterBuild {
+				// #117: the build ran for a pending switch. Revalidate
+				// the image off the event loop, then resume the switch
+				// (stop → start → the originally clicked access): the
+				// old container was never touched during the build.
+				ed, run := m.pendingCfg.ContainerEdition, m.deps.Runner
+				return func() tea.Msg {
+					return switchResumeMsg{missing: !discovery.ImageExists(run, ed)}
+				}
+			}
 			// Image check off the event loop: re-reconcile; it launches
 			// the start when the image is really there.
 			m.toast = "Image built"
 			return m.reconcileCmd(m.pending)
 		}
-		m.variant = ""
-		m.toast = "Build failed — image still unavailable"
-		m.state = stateList
+		m.buildFailed()
 		return nil
 	}
+}
+
+// buildFailed lands the shared build-failure verdict (#117): the image
+// is still unavailable, the queued switch (if any) is abandoned, and the
+// view returns to the project list.
+func (m *Model) buildFailed() {
+	m.switchAfterBuild = false
+	m.variant = ""
+	m.toast = "Build failed — image still unavailable"
+	m.state = stateList
+}
+
+// switchResumeMsg delivers the post-build image revalidation of a
+// mismatch switch that routed into the missing-image build prompt (#117).
+type switchResumeMsg struct{ missing bool }
+
+// resumeSwitch continues a pending switch after the build (#117).
+func (m *Model) resumeSwitch(msg switchResumeMsg) tea.Cmd {
+	m.switchAfterBuild = false
+	if msg.missing { // build "succeeded" but the image is still absent
+		m.buildFailed()
+		return nil
+	}
+	return m.launchSwitch(m.pending, m.pendingCfg, m.variant)
 }
 
 // access resolves the chosen start variant directly (card flow, no
@@ -1040,6 +1269,21 @@ func (m *Model) Body(width, height int) string {
 				"",
 			},
 			buildPromptOptions, m.buildSel)
+	case stateMismatch:
+		opts := m.mismatchOptions()
+		for m.mismatchSel >= len(opts) {
+			m.mismatchSel--
+		}
+		m.mismatchSel = max(0, m.mismatchSel)
+		indent := paneX - leftW
+		right = m.promptPane(indent, paneW, height,
+			[]string{
+				shell.StyleWarn.Render("Edition mismatch"),
+				shell.StyleMutedAlt.Render("Running: opencode-sandbox-" + m.mismatchRunning),
+				shell.StyleMutedAlt.Render("Saved:   opencode-sandbox-" + m.pendingCfg.ContainerEdition),
+				"",
+			},
+			opts, m.mismatchSel)
 	default:
 		rows := m.layout()
 		indent := paneX - leftW

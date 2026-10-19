@@ -27,17 +27,20 @@ import (
 const startHelpOut = "Usage: start.sh [project]\n  --skills  enable skills mode\n  --offline offline mode\n--use_proxy --detach --container-id"
 
 type runnerHooks struct {
-	helpOut  string // `bash start.sh --help` output ("" = startHelpOut)
-	psOut    string // `podman ps` output
-	imageErr error  // `podman image exists` error (nil = image exists)
-	portErr  error  // `podman port` error
-	startErr error
-	buildErr error
+	helpOut     string // `bash start.sh --help` output ("" = startHelpOut)
+	psOut       string // `podman ps` output (names format)
+	psImagesOut string // `podman ps` output (names+images format; "" = psOut)
+	imageErr    error  // `podman image exists` error (nil = image exists)
+	portErr     error  // `podman port` error
+	stopErr     error  // `podman stop` error
+	startErr    error
+	buildErr    error
 	// configure-project.sh (settings-launched provider steps, #103)
 	configureErr error
 	onConfigure  func(args []string)
 	onStart      func(args []string) // fires right before start.sh "runs"
 	onBuild      func(args []string)
+	onStop       func(args []string) // fires right before podman stop "runs"
 }
 
 func (h *runnerHooks) output(name string, args []string) (string, error) {
@@ -61,9 +64,17 @@ func (h *runnerHooks) output(name string, args []string) (string, error) {
 		}
 		return "configured", h.configureErr
 	case name == "podman" && args[0] == "ps":
+		if h.psImagesOut != "" && len(args) > 2 && args[2] == "{{.Names}}\t{{.Image}}" {
+			return h.psImagesOut, nil
+		}
 		return h.psOut, nil
 	case name == "podman" && args[0] == "image":
 		return "", h.imageErr
+	case name == "podman" && args[0] == "stop":
+		if h.onStop != nil {
+			h.onStop(args[1:])
+		}
+		return "", h.stopErr
 	case name == "podman" && args[0] == "port":
 		return "127.0.0.1:4096", h.portErr
 	}
