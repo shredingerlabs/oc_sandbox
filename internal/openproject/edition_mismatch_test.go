@@ -189,6 +189,250 @@ func TestSwitchNeverRendersOnAgreeingEditions(t *testing.T) {
 	}
 }
 
+// --- switch (#117): missing-image guard before any stop ---
+
+// Mismatch + missing saved-edition image: pressing Switch routes into
+// the existing Build now / Build later / Go back prompt BEFORE any stop
+// command is issued; the old container keeps running.
+func TestMismatchSwitchMissingImageRoutesToBuildPromptBeforeStop(t *testing.T) {
+	e := newEnv(t, nil)
+	e.hooks.imageErr = errors.New("not built")
+	e.hooks.psOut = "opencode-sandbox-" + e.ids["alpha"]
+	e.hooks.psImagesOut = "opencode-sandbox-" + e.ids["alpha"] + "\topencode-sandbox-swdev"
+	e.rebuild(t)
+	bodyOf(t, e.m, bodyW, bodyH)
+	e.step(keyMsg("enter"))
+	e.reconcileStart()
+	if e.m.state != stateMismatch {
+		t.Fatalf("state = %v, want mismatch prompt", e.m.state)
+	}
+	mark := len(e.run.Calls)
+	mismatchTo(e, 2) // Switch
+	e.finishKeyCmds(e.lastCmd)
+	if e.m.state != stateBuild {
+		t.Fatalf("state = %v, want build prompt", e.m.state)
+	}
+	lines := bodyOf(t, e.m, bodyW, bodyH)
+	if !someLine(lines, "Build now") || !someLine(lines, "Go back") {
+		t.Fatalf("build prompt missing options, body = %v", lines)
+	}
+	for _, c := range e.run.Calls[mark:] {
+		if c.Name == "podman" && c.Args[0] == "stop" {
+			t.Errorf("stop issued before the build prompt: %v", c.Args)
+		}
+	}
+	if len(e.launch.ops) != 0 {
+		t.Errorf("switch launched ops at pick time: %d", len(e.launch.ops))
+	}
+	// the old container keeps running
+	if e.startStatus(t, "alpha") != "running" {
+		t.Errorf("status = %q, want running", e.startStatus(t, "alpha"))
+	}
+}
+
+// Build now from the guarded routing: the build runs while the old
+// container is still up (no stop during the build), then the image
+// revalidates and the switch resumes — stop, verified start with rebuilt
+// args, continue into the access clicked originally.
+func TestMismatchSwitchBuildNowResumesSwitch(t *testing.T) {
+	e := newEnv(t, nil)
+	e.hooks.imageErr = errors.New("not built")
+	e.hooks.onBuild = func(args []string) { e.hooks.imageErr = nil } // mid-flight image becomes available
+	e.hooks.onStop = func(args []string) {
+		e.hooks.psOut = ""
+		e.hooks.psImagesOut = ""
+	}
+	e.hooks.onStart = func(args []string) {
+		e.hooks.psOut = "opencode-sandbox-" + e.ids["alpha"]
+		e.hooks.psImagesOut = "opencode-sandbox-" + e.ids["alpha"] + "\topencode-sandbox-base"
+	}
+	e.hooks.psOut = "opencode-sandbox-" + e.ids["alpha"]
+	e.hooks.psImagesOut = "opencode-sandbox-" + e.ids["alpha"] + "\topencode-sandbox-swdev"
+	e.rebuild(t)
+	bodyOf(t, e.m, bodyW, bodyH)
+	e.step(keyMsg("enter"))
+	e.reconcileStart()
+	if e.m.state != stateMismatch {
+		t.Fatalf("state = %v, want mismatch prompt", e.m.state)
+	}
+	mismatchTo(e, 2)
+	e.finishKeyCmds(e.lastCmd)
+	if e.m.state != stateBuild {
+		t.Fatalf("state = %v, want build prompt", e.m.state)
+	}
+	e.step(keyMsg("enter")) // Build now
+	if len(e.launch.ops) != 1 {
+		t.Fatalf("build op not queued: %d", len(e.launch.ops))
+	}
+	// old container still up mid-build: no stop yet, status running
+	stopsMidBuild := 0
+	for _, c := range e.run.Calls {
+		if c.Name == "podman" && c.Args[0] == "stop" {
+			stopsMidBuild++
+		}
+	}
+	if stopsMidBuild != 0 {
+		t.Errorf("stop issued during build: %d", stopsMidBuild)
+	}
+	if e.startStatus(t, "alpha") != "running" {
+		t.Errorf("status = %q, want running mid-build", e.startStatus(t, "alpha"))
+	}
+	if got := e.buildCalls(t); len(got) != 0 { // the op is queued, not yet run
+		t.Errorf("build already ran mid-queue: %v", got)
+	}
+	e.finishOps() // build completes → revalidate → switch runs → access
+
+	if got := e.buildCalls(t); len(got) != 1 || got[0][0] != "base" {
+		t.Errorf("build calls = %v, want single base build", got)
+	}
+
+	// exactly one stop, after the build
+	stops := 0
+	buildIdx, stopIdx := -1, -1
+	for i, c := range e.run.Calls {
+		if c.Name == "podman" && c.Args[0] == "stop" {
+			stops++
+			stopIdx = i
+		}
+		if c.Name == "bash" && len(c.Args) > 1 && c.Args[0] != e.startScript() {
+			buildIdx = i
+		}
+	}
+	if stops != 1 || stopIdx < 0 {
+		t.Fatalf("stops = %d, want exactly one", stops)
+	}
+	if buildIdx < 0 || stopIdx < buildIdx {
+		t.Errorf("stop (idx %d) before build (idx %d)", stopIdx, buildIdx)
+	}
+	calls := e.startCalls(t)
+	if len(calls) != 1 {
+		t.Fatalf("start.sh ran %d times", len(calls))
+	}
+	want := []string{
+		e.roots["alpha"], "--edition", "base", "--container-id", e.ids["alpha"],
+		"--skills", "--detach",
+	}
+	if strings.Join(calls[0], " ") != strings.Join(want, " ") {
+		t.Errorf("switch start args = %v, want %v", calls[0], want)
+	}
+	if e.startStatus(t, "alpha") != "running" {
+		t.Errorf("status = %q, want running", e.startStatus(t, "alpha"))
+	}
+	// continue into the originally clicked access (console handoff)
+	if len(e.execed) != 1 || e.execed[0] != "podman exec -it --user dev opencode-sandbox-"+e.ids["alpha"]+" bash" {
+		t.Errorf("access after resumed switch = %v", e.execed)
+	}
+}
+
+// "Build later" from the guarded routing: no stop, the old container
+// stays running untouched, and a subsequent start click re-runs the
+// mismatch detection.
+func TestMismatchSwitchBuildLaterNoStopAndRedetects(t *testing.T) {
+	e := newEnv(t, nil)
+	e.hooks.imageErr = errors.New("not built")
+	e.hooks.psOut = "opencode-sandbox-" + e.ids["alpha"]
+	e.hooks.psImagesOut = "opencode-sandbox-" + e.ids["alpha"] + "\topencode-sandbox-swdev"
+	e.rebuild(t)
+	bodyOf(t, e.m, bodyW, bodyH)
+	e.step(keyMsg("enter"))
+	e.reconcileStart()
+	if e.m.state != stateMismatch {
+		t.Fatalf("state = %v, want mismatch prompt", e.m.state)
+	}
+	mismatchTo(e, 2)
+	e.finishKeyCmds(e.lastCmd)
+	if e.m.state != stateBuild {
+		t.Fatalf("state = %v, want build prompt", e.m.state)
+	}
+	mark := len(e.run.Calls)
+	e.step(keyMsg("down"))
+	e.step(keyMsg("enter")) // Build later
+	e.finishKeyCmds(e.lastCmd)
+	if e.m.state != stateList {
+		t.Errorf("state = %v, want stateList", e.m.state)
+	}
+	for _, c := range e.run.Calls[mark:] {
+		if c.Name == "podman" && c.Args[0] != "ps" {
+			t.Errorf("Build later issued podman %v", c.Args)
+		}
+	}
+	if e.startStatus(t, "alpha") != "running" {
+		t.Errorf("status = %q, want running (old container untouched)", e.startStatus(t, "alpha"))
+	}
+	// a later start click re-runs detection
+	e.step(keyMsg("enter"))
+	e.reconcileStart()
+	if e.m.state != stateMismatch {
+		t.Errorf("later start state = %v, want mismatch prompt again", e.m.state)
+	}
+}
+
+// "Go back" from the guarded routing behaves like Build later: no stop,
+// the mismatch stays unresolved, a later start click re-detects it.
+func TestMismatchSwitchGoBackNoStopAndRedetects(t *testing.T) {
+	e := newEnv(t, nil)
+	e.hooks.imageErr = errors.New("not built")
+	e.hooks.psOut = "opencode-sandbox-" + e.ids["alpha"]
+	e.hooks.psImagesOut = "opencode-sandbox-" + e.ids["alpha"] + "\topencode-sandbox-swdev"
+	e.rebuild(t)
+	bodyOf(t, e.m, bodyW, bodyH)
+	e.step(keyMsg("enter"))
+	e.reconcileStart()
+	mismatchTo(e, 2)
+	e.finishKeyCmds(e.lastCmd)
+	if e.m.state != stateBuild {
+		t.Fatalf("state = %v, want build prompt", e.m.state)
+	}
+	mark := len(e.run.Calls)
+	e.step(keyMsg("down"))
+	e.step(keyMsg("down"))
+	e.step(keyMsg("enter")) // Go back
+	e.finishKeyCmds(e.lastCmd)
+	if e.m.state != stateList {
+		t.Errorf("state = %v, want stateList", e.m.state)
+	}
+	for _, c := range e.run.Calls[mark:] {
+		if c.Name == "podman" && c.Args[0] != "ps" {
+			t.Errorf("Go back issued podman %v", c.Args)
+		}
+	}
+	if e.startStatus(t, "alpha") != "running" {
+		t.Errorf("status = %q, want running (old container untouched)", e.startStatus(t, "alpha"))
+	}
+	e.step(keyMsg("enter"))
+	e.reconcileStart()
+	if e.m.state != stateMismatch {
+		t.Errorf("later start state = %v, want mismatch prompt again", e.m.state)
+	}
+}
+
+// Stopped container + missing image: today's build prompt, unchanged —
+// no mismatch prompt since there is nothing to protect.
+func TestStoppedContainerMissingImageShowsTodaysBuildPrompt(t *testing.T) {
+	e := newEnv(t, nil)
+	sandboxcfg.PatchString(e.home, sandboxcfg.Path(e.roots["alpha"]), "container_edition", "swdev")
+	e.hooks.imageErr = errors.New("not built")
+	e.rebuild(t)
+	bodyOf(t, e.m, bodyW, bodyH)
+	e.step(keyMsg("enter"))
+	e.reconcileStart()
+	if e.m.state != stateBuild {
+		t.Fatalf("state = %v, want build prompt", e.m.state)
+	}
+	lines := bodyOf(t, e.m, bodyW, bodyH)
+	if !someLine(lines, "is not built yet") {
+		t.Fatalf("build prompt body missing, body = %v", lines)
+	}
+	if someLine(lines, "Edition mismatch") {
+		t.Error("stopped container showed a mismatch prompt")
+	}
+	for _, c := range e.run.Calls {
+		if c.Name == "podman" && c.Args[0] == "stop" {
+			t.Errorf("stop issued: %v", c.Args)
+		}
+	}
+}
+
 // --- switch (#116): the confirmed replacement ---
 
 // Switch stops the running container under its exact name, verifies it
