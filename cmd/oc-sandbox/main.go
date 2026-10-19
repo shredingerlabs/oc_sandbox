@@ -49,10 +49,10 @@ func requestMinTermSize() {
 		return
 	}
 	w, h, err := term.GetSize(out.Fd())
-	if err != nil || w >= shell.MinWidth && h >= shell.MinHeight {
+	if err != nil || w >= shell.MinWidth && h >= shell.ResizeHeight {
 		return
 	}
-	fmt.Fprintf(out, "\x1b[8;%d;%dt", shell.MinHeight, shell.MinWidth)
+	fmt.Fprintf(out, "\x1b[8;%d;%dt", shell.ResizeHeight, shell.MinWidth)
 }
 
 // runTUI runs the composed production TUI (#84). It's the default

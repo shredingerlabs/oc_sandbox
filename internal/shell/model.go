@@ -12,13 +12,15 @@ import (
 	"github.com/shredingerlabs/oc-sandbox/internal/taskmgr"
 )
 
-// Minimum terminal size (terminal support matrix): below it the shell
-// renders an inline too-small screen instead of the app. Height covers
-// the AI provider pane in the Edit Project settings screen with an
-// opened provider entry (edit form + Providers list) unscrolled.
+// Minimum terminal size for the too-small overlay guard (terminal
+// support matrix): below it the shell renders an inline too-small
+// screen instead of the app. ResizeHeight is the taller startup target
+// requested via the window-size escape: the Edit Project settings AI
+// provider pane unfolds with an opened provider entry unscrolled.
 const (
-	MinWidth  = 80
-	MinHeight = 41
+	MinWidth     = 80
+	MinHeight    = 24
+	ResizeHeight = 41
 )
 
 // SubTabMsg is sent to the active CenterView when the user clicks one of
