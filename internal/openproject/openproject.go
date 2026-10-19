@@ -59,10 +59,10 @@ type Deps struct {
 type viewState int
 
 const (
-	stateList  viewState = iota // card grid + settings pane
-	stateBuild                  // Build now / Build later / Go back prompt
-	stateMismatch               // Edition mismatch prompt (Use current / Cancel)
-	stateBusy                   // long op runs, embedded log pane
+	stateList     viewState = iota // card grid + settings pane
+	stateBuild                     // Build now / Build later / Go back prompt
+	stateMismatch                  // Edition mismatch prompt (Use current / Cancel)
+	stateBusy                      // long op runs, embedded log pane
 )
 
 type opKind int

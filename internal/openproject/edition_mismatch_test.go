@@ -161,11 +161,11 @@ func containsArg(args []string, want string) bool {
 // shows what truly runs.
 func TestEditionFromImageParsesRegistryAndTags(t *testing.T) {
 	for img, want := range map[string]string{
-		"opencode-sandbox-base":                          "base",
-		"localhost/opencode-sandbox-swdev:latest":        "swdev",
-		"registry.io/team/opencode-sandbox-my-ed":        "my-ed",
+		"opencode-sandbox-base":                         "base",
+		"localhost/opencode-sandbox-swdev:latest":       "swdev",
+		"registry.io/team/opencode-sandbox-my-ed":       "my-ed",
 		"registry.io/team/opencode-sandbox-x@sha256:ff": "x",
-		"alpine:3":                                       "",
+		"alpine:3": "",
 	} {
 		if got := discovery.EditionFromImage(img); got != want {
 			t.Errorf("EditionFromImage(%q) = %q, want %q", img, got, want)
