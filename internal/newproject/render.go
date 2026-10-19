@@ -110,7 +110,8 @@ func (m *Model) fullRows(width int) ([]string, shell.Rect) {
 			// text fields render as a boxed text area: label row, then the
 			// 3-line input box (border / value / border)
 			rows = append(rows, labelCell)
-			top, content, bottom := shell.TextFieldBoxLines(m.textVal(f), m.cursor, focused)
+			val, cur := windowValue(m.textVal(f), m.cursor, width, focused)
+			top, content, bottom := shell.TextFieldBoxLines(val, cur, focused)
 			yTop := y + 1 // box top border
 			rows = append(rows, top, content, bottom)
 			y += 3 // label + top border + content consumed; bottom counts as its own row below
@@ -185,6 +186,31 @@ func padCell(cell string) string {
 		return cell + strings.Repeat(" ", n)
 	}
 	return cell
+}
+
+// windowValue clips a long text value to the input-box budget so the
+// card stays inside the terminal: the box adds 4 columns (border +
+// padding) beyond the value and the card another 4 (border + inner
+// padding) atop the body pad — an unclamped long token/URL widened the
+// card past the terminal and the frame wrapped apart. Values longer
+// than the budget show their tail; while focused the window slides with
+// the caret (caret cell budgeted) so newly typed characters stay
+// visible. Returns the windowed value and the caret offset within it.
+func windowValue(val string, cursor int, width int, focused bool) (string, int) {
+	w := max(1, width-BodyPad-CardInset-6)
+	rs := []rune(val)
+	if !focused {
+		if len(rs) > w {
+			val, cursor = string(rs[len(rs)-w:]), max(0, cursor-(len(rs)-w))
+		}
+		return val, cursor
+	}
+	budget := max(0, w-1) // the caret cell eats one column
+	if len(rs) > budget {
+		s := max(0, min(cursor-budget+1, len(rs)-budget))
+		return string(rs[s : s+budget]), cursor - s
+	}
+	return val, cursor
 }
 
 // optionsFor lists the option tokens of a non-text field, or nil for

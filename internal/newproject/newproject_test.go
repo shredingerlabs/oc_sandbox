@@ -479,14 +479,15 @@ func TestPathAutofillFromNameUntilHandEdited(t *testing.T) {
 	m, _, _ := newTestModel(t)
 	typeKeys(t, m, "my-app")
 	want := registry.CanonicalPath(filepath.Join(m.cfg.projectBase(), "my-app"))
-	if got := valueLine(t, m, "Project path"); got != want {
+	// long values display as their 70-rune tail (windowValue)
+	if got := valueLine(t, m, "Project path"); !strings.HasSuffix(want, got) {
 		t.Fatalf("path not auto-filled: %q want %q", got, want)
 	}
 	// hand-edit the path → autofill stops
 	m.Update(tea.KeyMsg{Type: tea.KeyTab})
 	typeKeys(t, m, "-demand")
 	hand := want + "-demand"
-	if got := valueLine(t, m, "Project path"); got != hand {
+	if got := valueLine(t, m, "Project path"); !strings.HasSuffix(hand, got) {
 		t.Fatalf("hand-edited path lost: %q", got)
 	}
 	// re-focus name and edit: path stays hand-valued
@@ -494,7 +495,7 @@ func TestPathAutofillFromNameUntilHandEdited(t *testing.T) {
 		m.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
 	}
 	m.Update(tea.KeyMsg{Type: tea.KeyBackspace})
-	if got := valueLine(t, m, "Project path"); got != hand {
+	if got := valueLine(t, m, "Project path"); !strings.HasSuffix(hand, got) {
 		t.Fatalf("path was re-autofilled after hand edit: %q", got)
 	}
 }
@@ -1367,4 +1368,48 @@ func TestClickedTokenWhileScrolled(t *testing.T) {
 	if !act {
 		t.Fatalf("click on the scrolled option row did not activate web:\n%s", plain(t, m))
 	}
+}
+
+// TestLongTokenKeepsCardInsideTerminal: a long token typed into a text
+// field must not widen the card past the terminal width — the frame
+// would wrap and break at the standard 80×24 window (regression: the
+// input box had no width clamp).
+func TestLongTokenKeepsCardInsideTerminal(t *testing.T) {
+	tok := strings.Repeat("t", 70)
+	blank := testLongTokenBody(t, func(m *Model) {
+		typeKeys(t, m, "proj")
+		m.tabToField(t, "VCS tracking")
+		m.Update(tea.KeyMsg{Type: tea.KeyEnter}) // none → github.com
+		m.tabToField(t, "VCS token")
+		typeKeys(t, m, tok)
+	})
+	url := testLongTokenBody(t, func(m *Model) {
+		m.Update(shell.SubTabMsg{Index: srcURL})
+		typeKeys(t, m, "https://github.com/user/repo.git")
+		m.tabToField(t, "VCS token")
+		typeKeys(t, m, tok)
+	})
+	provider := testLongTokenBody(t, func(m *Model) {
+		typeKeys(t, m, "proj")
+		m.tabToField(t, "AI provider")
+		m.Update(tea.KeyMsg{Type: tea.KeyEnter}) // none → Custom
+		m.tabToField(t, "Provider token")
+		typeKeys(t, m, tok)
+	})
+	for i, b := range []string{blank, url, provider} {
+		for j, l := range strings.Split(b, "\n") {
+			if w := shell.Width(l); w > 80 {
+				t.Fatalf("case %d: body line %d is %d cells (terminal 80):\n%s", i, j, w, b)
+			}
+		}
+	}
+}
+
+// testLongTokenBody prepares a model, runs setup, and renders the final
+// body at the standard window (the tab helper drives Body internally).
+func testLongTokenBody(t *testing.T, setup func(*Model)) string {
+	t.Helper()
+	m, _, _ := newTestModel(t)
+	setup(m)
+	return plain(t, m)
 }
