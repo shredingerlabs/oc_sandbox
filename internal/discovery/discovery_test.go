@@ -181,8 +181,7 @@ func TestRunningContainersWithImages(t *testing.T) {
 		}
 		return "", nil
 	}}
-	failRun := fail
-	if got := RunningContainersWithImages(cmdrun.Runner(failRun)); got != nil {
+	if got := RunningContainersWithImages(cmdrun.Runner(fail)); got != nil {
 		t.Fatalf("failed podman ps must yield no containers, got %+v", got)
 	}
 	// Edition parsing off the image column.

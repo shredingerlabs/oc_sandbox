@@ -3,24 +3,32 @@ package openproject
 import (
 	"errors"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
-	"github.com/shredingerlabs/oc-sandbox/internal/discovery"
 	"github.com/shredingerlabs/oc-sandbox/internal/sandboxcfg"
 )
+
+// mismatchEnv stubs a running alpha on the swdev edition (saved
+// edition: base) and drives the start flow into the mismatch prompt.
+func mismatchEnv(t *testing.T, hooks *runnerHooks) *env {
+	t.Helper()
+	e := newEnv(t, hooks)
+	e.hooks.psOut = "opencode-sandbox-" + e.ids["alpha"]
+	e.hooks.psImagesOut = "opencode-sandbox-" + e.ids["alpha"] + "\topencode-sandbox-swdev"
+	e.rebuild(t)
+	bodyOf(t, e.m, bodyW, bodyH)
+	e.step(keyMsg("enter"))
+	e.reconcileStart()
+	return e
+}
 
 // A running container whose image edition differs from the saved
 // sandbox_config.json edition shows a mismatch prompt naming both
 // editions; nothing stops or starts until a choice is made.
 func TestEditionMismatchPromptShowsBothEditions(t *testing.T) {
-	e := newEnv(t, nil)
-	e.hooks.psOut = "opencode-sandbox-" + e.ids["alpha"]
-	e.hooks.psImagesOut = "opencode-sandbox-" + e.ids["alpha"] + "\tlocalhost/opencode-sandbox-swdev:latest"
-	e.rebuild(t)
-	bodyOf(t, e.m, bodyW, bodyH)
-	e.step(keyMsg("enter"))
-	e.reconcileStart()
+	e := mismatchEnv(t, nil)
 	lines := bodyOf(t, e.m, bodyW, bodyH)
 	// both editions surfaced: the running one and the saved one
 	if !someLine(lines, "swdev") || !someLine(lines, "base") {
@@ -40,13 +48,7 @@ func TestEditionMismatchPromptShowsBothEditions(t *testing.T) {
 // "Use current" routes into the running container exactly as today:
 // handoff port, zero stop/start calls, registry stays running.
 func TestMismatchUseCurrentAccessesWithoutStopStart(t *testing.T) {
-	e := newEnv(t, nil)
-	e.hooks.psOut = "opencode-sandbox-" + e.ids["alpha"]
-	e.hooks.psImagesOut = "opencode-sandbox-" + e.ids["alpha"] + "\topencode-sandbox-swdev"
-	e.rebuild(t)
-	bodyOf(t, e.m, bodyW, bodyH)
-	e.step(keyMsg("enter"))
-	e.reconcileStart()
+	e := mismatchEnv(t, nil)
 	if e.m.state != stateMismatch {
 		t.Fatalf("state = %v, want mismatch prompt", e.m.state)
 	}
@@ -76,13 +78,7 @@ func TestMismatchUseCurrentAccessesWithoutStopStart(t *testing.T) {
 // "Cancel" closes the prompt and issues no podman calls at all — no
 // stop, no start, no access.
 func TestMismatchCancelIssuesNoPodmanCalls(t *testing.T) {
-	e := newEnv(t, nil)
-	e.hooks.psOut = "opencode-sandbox-" + e.ids["alpha"]
-	e.hooks.psImagesOut = "opencode-sandbox-" + e.ids["alpha"] + "\topencode-sandbox-swdev"
-	e.rebuild(t)
-	bodyOf(t, e.m, bodyW, bodyH)
-	e.step(keyMsg("enter"))
-	e.reconcileStart()
+	e := mismatchEnv(t, nil)
 	e.finishKeyCmds(e.lastCmd) // drain the reconcile's own poll refresh
 	if e.m.state != stateMismatch {
 		t.Fatalf("state = %v, want mismatch prompt", e.m.state)
@@ -139,7 +135,7 @@ func TestStoppedContainerChangedEditionStartsWithSavedArgs(t *testing.T) {
 	if len(calls) != 1 {
 		t.Fatalf("start.sh ran %d times", len(calls))
 	}
-	if !containsArg(calls[0], "swdev") || containsArg(calls[0], "base") {
+	if !slices.Contains(calls[0], "swdev") || slices.Contains(calls[0], "base") {
 		t.Errorf("start args = %v", calls[0])
 	}
 	// today's behavior: start success continues into access (console handoff)
@@ -161,13 +157,7 @@ func mismatchTo(e *env, choice int) {
 // The mismatch prompt offers the Switch button naming the saved edition
 // (the target of the replacement).
 func TestMismatchPromptOffersSwitchToSavedEdition(t *testing.T) {
-	e := newEnv(t, nil)
-	e.hooks.psOut = "opencode-sandbox-" + e.ids["alpha"]
-	e.hooks.psImagesOut = "opencode-sandbox-" + e.ids["alpha"] + "\topencode-sandbox-swdev"
-	e.rebuild(t)
-	bodyOf(t, e.m, bodyW, bodyH)
-	e.step(keyMsg("enter"))
-	e.reconcileStart()
+	e := mismatchEnv(t, nil)
 	lines := bodyOf(t, e.m, bodyW, bodyH)
 	if !someLine(lines, "Switch to base") {
 		t.Fatalf("mismatch prompt missing switch button, body = %v", lines)
@@ -195,14 +185,7 @@ func TestSwitchNeverRendersOnAgreeingEditions(t *testing.T) {
 // the existing Build now / Build later / Go back prompt BEFORE any stop
 // command is issued; the old container keeps running.
 func TestMismatchSwitchMissingImageRoutesToBuildPromptBeforeStop(t *testing.T) {
-	e := newEnv(t, nil)
-	e.hooks.imageErr = errors.New("not built")
-	e.hooks.psOut = "opencode-sandbox-" + e.ids["alpha"]
-	e.hooks.psImagesOut = "opencode-sandbox-" + e.ids["alpha"] + "\topencode-sandbox-swdev"
-	e.rebuild(t)
-	bodyOf(t, e.m, bodyW, bodyH)
-	e.step(keyMsg("enter"))
-	e.reconcileStart()
+	e := mismatchEnv(t, &runnerHooks{imageErr: errors.New("not built")})
 	if e.m.state != stateMismatch {
 		t.Fatalf("state = %v, want mismatch prompt", e.m.state)
 	}
@@ -235,23 +218,19 @@ func TestMismatchSwitchMissingImageRoutesToBuildPromptBeforeStop(t *testing.T) {
 // revalidates and the switch resumes — stop, verified start with rebuilt
 // args, continue into the access clicked originally.
 func TestMismatchSwitchBuildNowResumesSwitch(t *testing.T) {
-	e := newEnv(t, nil)
-	e.hooks.imageErr = errors.New("not built")
-	e.hooks.onBuild = func(args []string) { e.hooks.imageErr = nil } // mid-flight image becomes available
-	e.hooks.onStop = func(args []string) {
-		e.hooks.psOut = ""
-		e.hooks.psImagesOut = ""
+	var e *env
+	hooks := &runnerHooks{}
+	hooks.imageErr = errors.New("not built")
+	hooks.onBuild = func(args []string) { hooks.imageErr = nil } // mid-flight image becomes available
+	hooks.onStop = func(args []string) {
+		hooks.psOut = ""
+		hooks.psImagesOut = ""
 	}
-	e.hooks.onStart = func(args []string) {
-		e.hooks.psOut = "opencode-sandbox-" + e.ids["alpha"]
-		e.hooks.psImagesOut = "opencode-sandbox-" + e.ids["alpha"] + "\topencode-sandbox-base"
+	hooks.onStart = func(args []string) { // the started container is live again
+		hooks.psOut = "opencode-sandbox-" + e.ids["alpha"]
+		hooks.psImagesOut = "opencode-sandbox-" + e.ids["alpha"] + "\topencode-sandbox-base"
 	}
-	e.hooks.psOut = "opencode-sandbox-" + e.ids["alpha"]
-	e.hooks.psImagesOut = "opencode-sandbox-" + e.ids["alpha"] + "\topencode-sandbox-swdev"
-	e.rebuild(t)
-	bodyOf(t, e.m, bodyW, bodyH)
-	e.step(keyMsg("enter"))
-	e.reconcileStart()
+	e = mismatchEnv(t, hooks)
 	if e.m.state != stateMismatch {
 		t.Fatalf("state = %v, want mismatch prompt", e.m.state)
 	}
@@ -328,14 +307,7 @@ func TestMismatchSwitchBuildNowResumesSwitch(t *testing.T) {
 // stays running untouched, and a subsequent start click re-runs the
 // mismatch detection.
 func TestMismatchSwitchBuildLaterNoStopAndRedetects(t *testing.T) {
-	e := newEnv(t, nil)
-	e.hooks.imageErr = errors.New("not built")
-	e.hooks.psOut = "opencode-sandbox-" + e.ids["alpha"]
-	e.hooks.psImagesOut = "opencode-sandbox-" + e.ids["alpha"] + "\topencode-sandbox-swdev"
-	e.rebuild(t)
-	bodyOf(t, e.m, bodyW, bodyH)
-	e.step(keyMsg("enter"))
-	e.reconcileStart()
+	e := mismatchEnv(t, &runnerHooks{imageErr: errors.New("not built")})
 	if e.m.state != stateMismatch {
 		t.Fatalf("state = %v, want mismatch prompt", e.m.state)
 	}
@@ -370,14 +342,7 @@ func TestMismatchSwitchBuildLaterNoStopAndRedetects(t *testing.T) {
 // "Go back" from the guarded routing behaves like Build later: no stop,
 // the mismatch stays unresolved, a later start click re-detects it.
 func TestMismatchSwitchGoBackNoStopAndRedetects(t *testing.T) {
-	e := newEnv(t, nil)
-	e.hooks.imageErr = errors.New("not built")
-	e.hooks.psOut = "opencode-sandbox-" + e.ids["alpha"]
-	e.hooks.psImagesOut = "opencode-sandbox-" + e.ids["alpha"] + "\topencode-sandbox-swdev"
-	e.rebuild(t)
-	bodyOf(t, e.m, bodyW, bodyH)
-	e.step(keyMsg("enter"))
-	e.reconcileStart()
+	e := mismatchEnv(t, &runnerHooks{imageErr: errors.New("not built")})
 	mismatchTo(e, 2)
 	e.finishKeyCmds(e.lastCmd)
 	if e.m.state != stateBuild {
@@ -441,21 +406,16 @@ func TestStoppedContainerMissingImageShowsTodaysBuildPrompt(t *testing.T) {
 // the registry flips to running — and continues into the clicked access
 // (console handoff), no second click.
 func TestMismatchSwitchStopsThenVerifiedStartThenAccess(t *testing.T) {
-	e := newEnv(t, nil)
-	e.hooks.onStop = func(args []string) { // after stop the ps polls show nothing
-		e.hooks.psOut = ""
-		e.hooks.psImagesOut = ""
+	hooks := &runnerHooks{}
+	hooks.onStop = func(args []string) { // after stop the ps polls show nothing
+		hooks.psOut = ""
+		hooks.psImagesOut = ""
 	}
+	e := mismatchEnv(t, hooks)
 	e.hooks.onStart = func(args []string) { // the started container is live again
 		e.hooks.psOut = "opencode-sandbox-" + e.ids["alpha"]
 		e.hooks.psImagesOut = "opencode-sandbox-" + e.ids["alpha"] + "\topencode-sandbox-base"
 	}
-	e.hooks.psOut = "opencode-sandbox-" + e.ids["alpha"]
-	e.hooks.psImagesOut = "opencode-sandbox-" + e.ids["alpha"] + "\topencode-sandbox-swdev"
-	e.rebuild(t)
-	bodyOf(t, e.m, bodyW, bodyH)
-	e.step(keyMsg("enter"))
-	e.reconcileStart()
 	if e.m.state != stateMismatch {
 		t.Fatalf("state = %v, want mismatch prompt", e.m.state)
 	}
@@ -504,21 +464,8 @@ func TestMismatchSwitchStopsThenVerifiedStartThenAccess(t *testing.T) {
 	if strings.Join(calls[0], " ") != strings.Join(want, " ") {
 		t.Errorf("switch start args = %v, want %v", calls[0], want)
 	}
-	// the started container is verified live: a ps after start.sh ran
-	startIdx := -1
-	for i, c := range e.run.Calls {
-		if c.Name == "bash" && len(c.Args) > 0 && c.Args[0] == e.startScript() {
-			startIdx = i
-		}
-	}
-	if startIdx < 0 {
-		t.Fatal("start.sh never ran")
-	}
-	for _, c := range e.run.Calls[startIdx+1:] {
-		if c.Name == "podman" && c.Args[0] == "ps" {
-			break
-		}
-	} // verification happens inside the op; absence is asserted via status below
+	// the started container is verified live (inside the op); absence is
+	// asserted via status below
 	if e.startStatus(t, "alpha") != "running" {
 		t.Errorf("status = %q, want running", e.startStatus(t, "alpha"))
 	}
@@ -531,27 +478,25 @@ func TestMismatchSwitchStopsThenVerifiedStartThenAccess(t *testing.T) {
 // Stop succeeded but the start failed: the registry stays "stopped", the
 // failure surfaces, and nothing rolls back (no second stop/start).
 func TestMismatchSwitchStartFailureLeavesStopped(t *testing.T) {
-	e := newEnv(t, nil)
-	e.hooks.stopErr = nil
-	e.hooks.onStop = func(args []string) {
-		e.hooks.psOut = ""
-		e.hooks.psImagesOut = ""
+	hooks := &runnerHooks{}
+	hooks.onStop = func(args []string) { // after stop the ps polls show nothing
+		hooks.psOut = ""
+		hooks.psImagesOut = ""
 	}
-	e.hooks.startErr = errors.New("podman blew up")
-	e.hooks.psOut = "opencode-sandbox-" + e.ids["alpha"]
-	e.hooks.psImagesOut = "opencode-sandbox-" + e.ids["alpha"] + "\topencode-sandbox-swdev"
-	e.rebuild(t)
-	bodyOf(t, e.m, bodyW, bodyH)
-	e.step(keyMsg("enter"))
-	e.reconcileStart()
+	hooks.startErr = errors.New("podman blew up")
+	e := mismatchEnv(t, hooks)
 	mark := len(e.run.Calls)
-	mismatchTo(e, 2)
+	mismatchTo(e, mismatchSwitch)
 	e.finishOps()
 	if e.startStatus(t, "alpha") != "stopped" {
 		t.Errorf("status = %q, want stopped after failed start", e.startStatus(t, "alpha"))
 	}
 	if !someLine(bodyOf(t, e.m, bodyW, bodyH), "Switch failed") {
 		t.Error("switch failure not surfaced")
+	}
+	// the error is streamed into the embedded log pane, not only the toast
+	if !someLine(e.m.log.Lines(), "podman blew up") {
+		t.Errorf("switch error missing from log pane: %v", e.m.log.Lines())
 	}
 	// exactly one stop and one start — no rollback attempt
 	stops, starts := 0, 0
@@ -572,15 +517,10 @@ func TestMismatchSwitchStartFailureLeavesStopped(t *testing.T) {
 // start.sh): the op fails, the project stays stopped, the error names
 // the missing verification.
 func TestMismatchSwitchNotLiveAfterStartLeavesStopped(t *testing.T) {
-	e := newEnv(t, nil)
-	e.hooks.onStop = func(args []string) { e.hooks.psOut = "" }
-	e.hooks.psOut = "opencode-sandbox-" + e.ids["alpha"]
-	e.hooks.psImagesOut = "opencode-sandbox-" + e.ids["alpha"] + "\topencode-sandbox-swdev"
-	e.rebuild(t)
-	bodyOf(t, e.m, bodyW, bodyH)
-	e.step(keyMsg("enter"))
-	e.reconcileStart()
-	mismatchTo(e, 2)
+	hooks := &runnerHooks{}
+	hooks.onStop = func(args []string) { hooks.psOut = "" }
+	e := mismatchEnv(t, hooks)
+	mismatchTo(e, mismatchSwitch)
 	e.finishOps()
 	if e.startStatus(t, "alpha") != "stopped" {
 		t.Errorf("status = %q, want stopped", e.startStatus(t, "alpha"))
@@ -590,13 +530,7 @@ func TestMismatchSwitchNotLiveAfterStartLeavesStopped(t *testing.T) {
 // "Use current" is still the first choice and Cancel still the second —
 // the switch appends, it never displaces (regression on ticket 115).
 func TestMismatchSwitchAppendsToExistingChoices(t *testing.T) {
-	e := newEnv(t, nil)
-	e.hooks.psOut = "opencode-sandbox-" + e.ids["alpha"]
-	e.hooks.psImagesOut = "opencode-sandbox-" + e.ids["alpha"] + "\topencode-sandbox-swdev"
-	e.rebuild(t)
-	bodyOf(t, e.m, bodyW, bodyH)
-	e.step(keyMsg("enter"))
-	e.reconcileStart()
+	e := mismatchEnv(t, nil)
 	e.finishKeyCmds(e.lastCmd)
 	if e.m.state != stateMismatch {
 		t.Fatalf("state = %v, want mismatch prompt", e.m.state)
@@ -610,32 +544,6 @@ func TestMismatchSwitchAppendsToExistingChoices(t *testing.T) {
 	for _, c := range e.run.Calls[mark:] {
 		if c.Name == "podman" && c.Args[0] != "ps" {
 			t.Errorf("Cancel issued podman %v", c.Args)
-		}
-	}
-}
-
-func containsArg(args []string, want string) bool {
-	for _, a := range args {
-		if a == want {
-			return true
-		}
-	}
-	return false
-}
-
-// The image column, not the config, decides the mismatch: the fake
-// supplies the saved edition in the image too but a real ps only ever
-// shows what truly runs.
-func TestEditionFromImageParsesRegistryAndTags(t *testing.T) {
-	for img, want := range map[string]string{
-		"opencode-sandbox-base":                         "base",
-		"localhost/opencode-sandbox-swdev:latest":       "swdev",
-		"registry.io/team/opencode-sandbox-my-ed":       "my-ed",
-		"registry.io/team/opencode-sandbox-x@sha256:ff": "x",
-		"alpine:3": "",
-	} {
-		if got := discovery.EditionFromImage(img); got != want {
-			t.Errorf("EditionFromImage(%q) = %q, want %q", img, got, want)
 		}
 	}
 }

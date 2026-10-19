@@ -721,7 +721,7 @@ func (m *Model) applyReconcile(msg reconcileMsg) tea.Cmd {
 	}
 	variant := m.variant // empty falls back to the configured option in access
 	if msg.live {
-		if msg.runningEdition != "" && msg.runningEdition != msg.cfg.ContainerEdition {
+		if editionsDiverge(msg.runningEdition, msg.cfg.ContainerEdition) {
 			m.state = stateMismatch
 			m.mismatchSel = 0
 			m.mismatchRunning = msg.runningEdition
@@ -834,6 +834,20 @@ func (m *Model) buildPick(i int) tea.Cmd {
 	}
 }
 
+// editionsDiverge reports whether the live image's edition differs from
+// the saved one: the mismatch prompt (#115) only ever renders on that.
+func editionsDiverge(running, saved string) bool {
+	return running != "" && running != saved
+}
+
+// Prompt choice indices: Use current first, Cancel second, Switch
+// appended third (#115, #116).
+const (
+	mismatchUseCurrent = 0
+	mismatchCancel     = 1
+	mismatchSwitch     = 2
+)
+
 // mismatchOptions are the mismatch-prompt choices: Use current and
 // Cancel from #115, plus — only when the editions actually diverge —
 // the Switch button naming the saved edition it will start (#116; the
@@ -841,7 +855,7 @@ func (m *Model) buildPick(i int) tea.Cmd {
 // gates it).
 func (m *Model) mismatchOptions() []string {
 	opts := []string{"Use current", "Cancel"}
-	if m.mismatchRunning != "" && m.mismatchRunning != m.pendingCfg.ContainerEdition {
+	if editionsDiverge(m.mismatchRunning, m.pendingCfg.ContainerEdition) {
 		opts = append(opts, "Switch to "+m.pendingCfg.ContainerEdition)
 	}
 	return opts
@@ -850,13 +864,13 @@ func (m *Model) mismatchOptions() []string {
 // mismatchPick resolves the edition-mismatch prompt (#115).
 func (m *Model) mismatchPick(i int) tea.Cmd {
 	switch i {
-	case 0: // Use current — route into the running container as today
+	case mismatchUseCurrent: // Use current — route into the running container as today
 		p, cfg := m.pending, m.pendingCfg
 		variant := m.variant
 		m.state = stateList
 		m.mismatchRunning = ""
 		return tea.Batch(m.poll(), m.access(p, cfg, variant, false))
-	case 2: // Switch to <edition> — confirmed replacement (#116)
+	case mismatchSwitch: // Switch to <edition> — confirmed replacement (#116)
 		p, cfg, variant := m.pending, m.pendingCfg, m.variant
 		m.mismatchRunning = ""
 		if !m.mismatchImageOK {
@@ -870,7 +884,7 @@ func (m *Model) mismatchPick(i int) tea.Cmd {
 			return m.poll()
 		}
 		return m.launchSwitch(p, cfg, variant)
-	default: // Cancel — no podman side effects at all
+	default: // Cancel (mismatchCancel; esc also lands here) — no podman side effects at all
 		m.variant = ""
 		m.mismatchRunning = ""
 		m.state = stateList
@@ -986,7 +1000,10 @@ func (m *Model) opDone(msg OpDoneMsg) tea.Cmd {
 		if m.busyKind == opSwitch {
 			// The op already wrote "stopped" after the stop verified
 			// gone — no start rollback: the previous edition's image
-			// still exists, the user can switch back.
+			// still exists, the user can switch back. Surface the
+			// error in the log pane too, not only the toast (#116):
+			// the stop already succeeded, the start is what failed.
+			m.log, _ = m.log.Update(shell.LineMsg("Switch failed — " + msg.Err.Error()))
 			m.toast = "Switch failed — " + msg.Err.Error()
 			return m.poll()
 		}
@@ -1009,12 +1026,19 @@ func (m *Model) opDone(msg OpDoneMsg) tea.Cmd {
 			m.toast = "Image built"
 			return m.reconcileCmd(m.pending)
 		}
-		m.switchAfterBuild = false
-		m.variant = ""
-		m.toast = "Build failed — image still unavailable"
-		m.state = stateList
+		m.buildFailed()
 		return nil
 	}
+}
+
+// buildFailed lands the shared build-failure verdict (#117): the image
+// is still unavailable, the queued switch (if any) is abandoned, and the
+// view returns to the project list.
+func (m *Model) buildFailed() {
+	m.switchAfterBuild = false
+	m.variant = ""
+	m.toast = "Build failed — image still unavailable"
+	m.state = stateList
 }
 
 // switchResumeMsg delivers the post-build image revalidation of a
@@ -1025,9 +1049,7 @@ type switchResumeMsg struct{ missing bool }
 func (m *Model) resumeSwitch(msg switchResumeMsg) tea.Cmd {
 	m.switchAfterBuild = false
 	if msg.missing { // build "succeeded" but the image is still absent
-		m.variant = ""
-		m.toast = "Build failed — image still unavailable"
-		m.state = stateList
+		m.buildFailed()
 		return nil
 	}
 	return m.launchSwitch(m.pending, m.pendingCfg, m.variant)
