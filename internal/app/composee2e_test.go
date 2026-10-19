@@ -185,7 +185,7 @@ func (rec *recorder) contents() []byte {
 func newTUI(t *testing.T, home string, run cmdrun.Runner) (*teatest.TestModel, *recorder) {
 	t.Helper()
 	a := app.Compose(home, run, time.Now)
-	tm := teatest.NewTestModel(t, a.Model, teatest.WithInitialTermSize(120, 40))
+	tm := teatest.NewTestModel(t, a.Model, teatest.WithInitialTermSize(120, 41))
 	rec := &recorder{}
 	rec.pipeFrom(tm.Output())
 	return tm, rec
@@ -239,7 +239,7 @@ func waitScreenAny(t *testing.T, rec *recorder, subs ...string) bool {
 
 func screenOf(t *testing.T, rec *recorder) string {
 	t.Helper()
-	return renderScreen(120, 40, string(rec.contents())).text()
+	return renderScreen(120, 41, string(rec.contents())).text()
 }
 
 // mousePress builds a left-press mouse message at 0-based screen coords.
@@ -303,7 +303,7 @@ func TestE2ECreateSingleClickActivates(t *testing.T) {
 	if !waitScreen(t, rec, false, "singleproj") {
 		t.Fatal("name did not reach the form")
 	}
-	g := renderScreen(120, 40, string(rec.contents()))
+	g := renderScreen(120, 41, string(rec.contents()))
 	_, _, ok := g.find("│  Create Project  │")
 	if !ok {
 		t.Fatal("Create Project button not rendered:\n" + g.String())
@@ -342,7 +342,7 @@ func TestE2EStartFlowKeepsUILiveWhenPodmanStalls(t *testing.T) {
 	if !waitScreen(t, rec, false, "frozenproj") {
 		t.Fatalf("project card never rendered:\n%s", screenOf(t, rec))
 	}
-	g := renderScreen(120, 40, string(rec.contents()))
+	g := renderScreen(120, 41, string(rec.contents()))
 	_, c, ok := g.find("│ ○ frozenproj")
 	if !ok {
 		t.Fatal("card not rendered:\n" + g.String())
@@ -357,6 +357,6 @@ func TestE2EStartFlowKeepsUILiveWhenPodmanStalls(t *testing.T) {
 	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("2")})
 	if !waitScreen(t, rec, false, "Project name") {
 		t.Fatalf("TUI froze while podman ps stalled (bytes %d → %d):\n%s",
-			before, len(rec.contents()), renderScreen(120, 40, string(rec.contents())).String())
+			before, len(rec.contents()), renderScreen(120, 41, string(rec.contents())).String())
 	}
 }

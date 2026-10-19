@@ -5,6 +5,7 @@ import (
 	"os"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/x/term"
 
 	"github.com/shredingerlabs/oc-sandbox/internal/app"
 	"github.com/shredingerlabs/oc-sandbox/internal/cmdrun"
@@ -37,11 +38,29 @@ func main() {
 	runTUI()
 }
 
+// requestMinTermSize asks the terminal to grow to the shell minimum when
+// it starts smaller, via the CSI 8 escape (xterm window-size request,
+// honored by many emulators). Emitters that ignore it fall back to the
+// shell's too-small overlay; an already-large terminal is never shrunk.
+// Startup only — mid-session resizes stay on the overlay guard.
+func requestMinTermSize() {
+	out := os.Stdout
+	if !term.IsTerminal(out.Fd()) {
+		return
+	}
+	w, h, err := term.GetSize(out.Fd())
+	if err != nil || w >= shell.MinWidth && h >= shell.MinHeight {
+		return
+	}
+	fmt.Fprintf(out, "\x1b[8;%d;%dt", shell.MinHeight, shell.MinWidth)
+}
+
 // runTUI runs the composed production TUI (#84). It's the default
 // `oc-sandbox` behavior (the bash TUI's defaults, in one binary), with
 // the story-28 exit-code discipline: 0 clean, 1 error, 2 abort, 130
 // SIGINT — configs stay intact, no temp files leak.
 func runTUI() {
+	requestMinTermSize()
 	home, err := os.UserHomeDir()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "oc-sandbox: resolve home: %v\n", err)

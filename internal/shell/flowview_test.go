@@ -41,8 +41,8 @@ func TestRecoverMsgActivatesAppendedFlowView(t *testing.T) {
 	if m.Active() != 4 {
 		t.Fatalf("active = %d, want the flow view slot 4", m.Active())
 	}
-	lines := viewLines(t, resized(m, 80, 24))
-	if !strings.Contains(lines[3], `BODY:flow sub=0 typed="" keys=[] last= h=20`) {
+	lines := viewLines(t, resized(m, 80, 41))
+	if !strings.Contains(lines[3], `BODY:flow sub=0 typed="" keys=[] last= h=37`) {
 		t.Fatalf("flow body not rendered: %q", lines[3])
 	}
 }
@@ -57,7 +57,7 @@ func TestUninterestedHookPassesRecoverMsgThrough(t *testing.T) {
 
 func TestExitClickStillQuitsWithFlowViewAppended(t *testing.T) {
 	m := flowModel(true)
-	m = resized(m, 80, 24)
+	m = resized(m, 80, 41)
 	rects := MenuRects()
 	exit := rects[len(rects)-1]
 	m, cmd := step(m, press(exit.X, exit.Y))
@@ -66,7 +66,7 @@ func TestExitClickStillQuitsWithFlowViewAppended(t *testing.T) {
 
 func TestFlowViewNotSelectableByHeaderClick(t *testing.T) {
 	m := flowModel(true)
-	m = resized(m, 80, 24)
+	m = resized(m, 80, 41)
 	for _, r := range MenuRects()[:len(MenuItems)-1] {
 		m, _ = step(m, press(r.X, r.Y))
 		if m.Active() == 4 {
@@ -79,7 +79,7 @@ func TestFlowViewNotSelectableByHeaderClick(t *testing.T) {
 }
 
 func TestFourViewsMenuParityUnchanged(t *testing.T) {
-	m := resized(newTestModel(), 80, 24)
+	m := resized(newTestModel(), 80, 41)
 	rects := MenuRects()
 	m, cmd := step(m, press(rects[len(rects)-1].X, rects[len(rects)-1].Y))
 	mustQuit(t, cmd)

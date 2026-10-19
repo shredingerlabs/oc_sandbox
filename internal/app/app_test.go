@@ -37,7 +37,7 @@ func TestComposeWiresSharedTaskQueue(t *testing.T) {
 	if a.Model.Queue == nil {
 		t.Fatal("composed shell has no background-task manager wired")
 	}
-	m, _ := a.Model.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m, _ := a.Model.Update(tea.WindowSizeMsg{Width: 80, Height: 41})
 	a.Model = m.(shell.Model)
 	if a.Model.TooSmall() || a.Model.Active() != 0 {
 		t.Fatalf("composed root too small / not on Open Project (active %d)", a.Model.Active())

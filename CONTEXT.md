@@ -190,6 +190,8 @@
 
 **BubbleTea TUI** — The upcoming GUI replacement for start-tui.sh: full-window, mouse-first, keyboard-available, single Go binary. Built on Charm libraries: BubbleTea (application/controller), Bubbles (components), Lip Gloss (styling). Replaces gum dependency once migrated. _Avoid_: GPU TUI.
 
+**terminal minimum size** — The smallest terminal the Go TUI is designed for: the pane layout (project grid + right pane) must fit at full width, and the Edit Project settings AI provider pane must fit unscrolled with a provider entry opened (80×41). At startup, when the terminal is a TTY and smaller, `oc-sandbox` asks it to grow via the xterm window-size escape (`CSI 8 ; height ; width t`) — emulators that ignore the request fall back to the shell's too-small overlay; an already-large terminal is never shrunk. The overlay guard also covers mid-session shrinks. Startup only — no repeat requests mid-session. _Avoid_: window requirement, hard resize, per-screen minimum.
+
 **release-time build** — Cross-compilation of the Go TUI happens in create-release.sh before the orphan release branch is cut: `dist/bin/oc-sandbox_<goos>_<goarch>` (linux/darwin × amd64/arm64, CGO off), tag injected via `-X main.Version`. Go source lives at repo root outside `dist/` and never enters the release branch. `dist/bin/` is gitignored. _Avoid_: committing binaries, duplicating Go source into dist/.
 
 **terminal handoff** — Full-screen terminal suspension where the TUI pauses, releases the grid to a child process (e.g. `podman exec` console via tea.ExecProcess), and re-renders the window on return. Core event for interactive sessions (console/OpenCode); used for long-running external commands that need raw terminal I/O.

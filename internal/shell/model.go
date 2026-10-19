@@ -13,10 +13,12 @@ import (
 )
 
 // Minimum terminal size (terminal support matrix): below it the shell
-// renders an inline too-small screen instead of the app.
+// renders an inline too-small screen instead of the app. Height covers
+// the AI provider pane in the Edit Project settings screen with an
+// opened provider entry (edit form + Providers list) unscrolled.
 const (
 	MinWidth  = 80
-	MinHeight = 24
+	MinHeight = 41
 )
 
 // SubTabMsg is sent to the active CenterView when the user clicks one of
@@ -127,7 +129,7 @@ func (m Model) Init() tea.Cmd { return nil }
 // Active returns the index of the active center view.
 func (m Model) Active() int { return m.active }
 
-// TooSmall reports whether the terminal is below the 80x24 minimum.
+// TooSmall reports whether the terminal is below the minimum size.
 func (m Model) TooSmall() bool {
 	return m.width < MinWidth || m.height < MinHeight
 }
@@ -303,7 +305,7 @@ func (m Model) broadcastTaskMsg(msg tea.Msg) tea.Cmd {
 // View implements tea.Model.
 func (m Model) View() string {
 	if m.TooSmall() {
-		return fmt.Sprintf("Terminal too small — recommended 80x24, got %dx%d.\nResize to continue.", m.width, m.height)
+		return fmt.Sprintf("Terminal too small — recommended %dx%d, got %dx%d.\nResize to continue.", MinWidth, MinHeight, m.width, m.height)
 	}
 	items, selected := m.views[m.active].SubTabs()
 	tabs, _ := SubTabsRow(items, selected)

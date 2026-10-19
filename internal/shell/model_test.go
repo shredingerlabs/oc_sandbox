@@ -106,10 +106,10 @@ func mustQuit(t *testing.T, cmd tea.Cmd) {
 }
 
 func TestViewRendersChrome(t *testing.T) {
-	m := resized(newTestModel(), 100, 30)
+	m := resized(newTestModel(), 100, 41)
 	lines := viewLines(t, m)
-	if len(lines) != 30 {
-		t.Fatalf("view has %d lines, want 30", len(lines))
+	if len(lines) != 41 {
+		t.Fatalf("view has %d lines, want 41", len(lines))
 	}
 	if !strings.Contains(lines[0], "oc-sandbox") || !strings.Contains(lines[0], "Open Project") {
 		t.Errorf("header row = %q", lines[0])
@@ -128,13 +128,13 @@ func TestViewRendersChrome(t *testing.T) {
 		t.Errorf("footer = %q", footer)
 	}
 	// body gets height-4 rows
-	if !strings.Contains(lines[3], "h=26") {
+	if !strings.Contains(lines[3], "h=37") {
 		t.Errorf("body height = %q, want 26", lines[3])
 	}
 }
 
 func TestHitRectsLandOnTheirElements(t *testing.T) {
-	m := resized(newTestModel(), 100, 30)
+	m := resized(newTestModel(), 100, 41)
 	lines := viewLines(t, m)
 	for i, r := range MenuRects() {
 		got := lines[0][min(r.X, len(lines[0])):]
@@ -155,13 +155,13 @@ func TestHitRectsLandOnTheirElements(t *testing.T) {
 }
 
 func TestSubTabRectsStableAcrossSizesAndViews(t *testing.T) {
-	m := resized(newTestModel(), 100, 30)
+	m := resized(newTestModel(), 100, 41)
 	rects := m.SubTabRects()
-	m2 := resized(newTestModel(), 120, 40)
+	m2 := resized(newTestModel(), 120, 41)
 	if fmt.Sprint(m2.SubTabRects()) != fmt.Sprint(rects) {
 		t.Errorf("sub-tab rects moved with window size: %v vs %v", m2.SubTabRects(), rects)
 	}
-	m3, _ := step(resized(newTestModel(), 120, 40), keyMsg("2"))
+	m3, _ := step(resized(newTestModel(), 120, 41), keyMsg("2"))
 	want := []Rect{{X: TitleWidth(), Y: 2, W: Width("Blank Project") + 2, H: 1},
 		{X: TitleWidth() + Width("Blank Project") + 2, Y: 2, W: Width("From URL") + 2, H: 1}}
 	if fmt.Sprint(m3.SubTabRects()) != fmt.Sprint(want) {
@@ -170,7 +170,7 @@ func TestSubTabRectsStableAcrossSizesAndViews(t *testing.T) {
 }
 
 func TestKeyTableViewSwitch(t *testing.T) {
-	m := resized(newTestModel(), 100, 30)
+	m := resized(newTestModel(), 100, 41)
 	for key, want := range map[string]string{"1": "BODY:one", "2": "BODY:two", "3": "BODY:three", "4": "BODY:four"} {
 		m, _ = step(m, keyMsg(key))
 		if !strings.Contains(m.View(), want) {
@@ -194,7 +194,7 @@ func (a *activatingView) Activate() tea.Cmd {
 func TestActivateOnViewSwitch(t *testing.T) {
 	av := &activatingView{fakeView: fakeView{name: "one", subTabs: []string{"Alpha Tab"}}}
 	fv := &fakeView{name: "two"}
-	m := resized(New(av, fv), 100, 30)
+	m := resized(New(av, fv), 100, 41)
 	if av.activated != 0 {
 		t.Fatalf("Activate ran before any switch (count=%d)", av.activated)
 	}
@@ -234,7 +234,7 @@ func TestViewSwitchSuppressedWhileTextFocused(t *testing.T) {
 		{name: "one", textFocused: true, subTabs: []string{"Alpha Tab"}},
 		{name: "two"},
 	}
-	m := resized(New(views[0], views[1]), 100, 30)
+	m := resized(New(views[0], views[1]), 100, 41)
 
 	m, cmd := step(m, keyMsg("2")) // suppressed: must type into the view
 	if cmd != nil {
@@ -263,7 +263,7 @@ func TestViewSwitchSuppressedWhileTextFocused(t *testing.T) {
 
 func TestQuitKeys(t *testing.T) {
 	for _, k := range []string{"q", "esc"} {
-		m := resized(newTestModel(), 100, 30)
+		m := resized(newTestModel(), 100, 41)
 		_, cmd := step(m, keyMsg(k))
 		mustQuit(t, cmd)
 		if !strings.Contains(m.View(), "BODY:one") {
@@ -273,7 +273,7 @@ func TestQuitKeys(t *testing.T) {
 }
 
 func TestKeysForwardedToActiveView(t *testing.T) {
-	m := resized(newTestModel(), 100, 30)
+	m := resized(newTestModel(), 100, 41)
 	for _, k := range []string{"down", "up", "j", "k", "tab", "shift+tab", "enter", " ", "x"} {
 		m, _ = step(m, keyMsg(k))
 	}
@@ -283,7 +283,7 @@ func TestKeysForwardedToActiveView(t *testing.T) {
 }
 
 func TestMouseHeaderMenu(t *testing.T) {
-	m := resized(newTestModel(), 100, 30)
+	m := resized(newTestModel(), 100, 41)
 	rects := MenuRects()
 	m, _ = step(m, press(rects[2].X+1, 0)) // "Container"
 	if !strings.Contains(m.View(), "BODY:three") {
@@ -294,7 +294,7 @@ func TestMouseHeaderMenu(t *testing.T) {
 }
 
 func TestMouseSubTabsAndBody(t *testing.T) {
-	m := resized(newTestModel(), 100, 30)
+	m := resized(newTestModel(), 100, 41)
 	rects := m.SubTabRects()
 	m, _ = step(m, press(rects[1].X+1, SubTabRowY)) // "Beta Tab"
 	if !strings.Contains(m.View(), "sub=1") {
@@ -307,7 +307,7 @@ func TestMouseSubTabsAndBody(t *testing.T) {
 }
 
 func TestNavRequestMsgSwitchesView(t *testing.T) {
-	m := resized(newTestModel(), 100, 30)
+	m := resized(newTestModel(), 100, 41)
 	m, _ = step(m, NavRequestMsg{Index: 1})
 	if m.Active() != 1 || !strings.Contains(m.View(), "BODY:two") {
 		t.Errorf("NavRequestMsg{1} did not switch to view 1 (active=%d)", m.Active())
@@ -325,7 +325,7 @@ func TestTooSmallGuardAsciiSnapshot(t *testing.T) {
 
 	m := newTestModel()
 	got := m.View() // 0x0 before any WindowSizeMsg
-	want := "Terminal too small — recommended 80x24, got 0x0.\nResize to continue."
+	want := "Terminal too small — recommended 80x41, got 0x0.\nResize to continue."
 	if got != want {
 		t.Errorf("initial guard = %q, want %q", got, want)
 	}
@@ -334,15 +334,15 @@ func TestTooSmallGuardAsciiSnapshot(t *testing.T) {
 	}
 	for _, sz := range [][2]int{{79, 24}, {80, 23}, {40, 10}} {
 		m = resized(newTestModel(), sz[0], sz[1])
-		want := fmt.Sprintf("Terminal too small — recommended 80x24, got %dx%d.\nResize to continue.", sz[0], sz[1])
+		want := fmt.Sprintf("Terminal too small — recommended 80x41, got %dx%d.\nResize to continue.", sz[0], sz[1])
 		if m.View() != want {
 			t.Errorf("%dx%d guard = %q, want %q", sz[0], sz[1], m.View(), want)
 		}
 	}
 	// restore on resize
-	m, _ = step(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	m, _ = step(m, tea.WindowSizeMsg{Width: 80, Height: 41})
 	if !strings.Contains(m.View(), "BODY:one") {
-		t.Errorf("resize to 80x24 did not restore the app: %q", StripANSI(m.View()))
+		t.Errorf("resize to 80x41 did not restore the app: %q", StripANSI(m.View()))
 	}
 	// shrink again re-arms the guard
 	m, _ = step(m, tea.WindowSizeMsg{Width: 79, Height: 24})
@@ -375,7 +375,7 @@ func (h *hookedView) HookMsg(msg tea.Msg) (bool, tea.Cmd) {
 func TestHookSeesMessagesBeforeActiveView(t *testing.T) {
 	hv := &hookedView{fakeView: fakeView{name: "hooked"}}
 	fv := &fakeView{name: "other"}
-	m := resized(New(hv, fv), 80, 24)
+	m := resized(New(hv, fv), 80, 41)
 
 	// Active view (other) receives a plain key normally; the hook sees
 	// everything first but only consumes its own probe type and Nav.
@@ -388,7 +388,7 @@ func TestHookSeesMessagesBeforeActiveView(t *testing.T) {
 func TestHookConsumesRecoverMsgAndFocuses(t *testing.T) {
 	hv := &hookedView{fakeView: fakeView{name: "hooked"}, consumes: func(typ string) bool { return typ == "shell.RecoverMsg" }}
 	fv := &fakeView{name: "other"}
-	m := resized(New(fv, hv), 80, 24)
+	m := resized(New(fv, hv), 80, 41)
 
 	// While view 0 is active, view 1's hook consumes RecoverMsg and the
 	// root focuses view 1 (index of the hook).
@@ -411,7 +411,7 @@ func TestHookConsumesRecoverMsgAndFocuses(t *testing.T) {
 func TestRecoverMsgSwallowedByHookStillRoutes(t *testing.T) {
 	hv := &hookedView{fakeView: fakeView{name: "hooked"}, consumes: func(typ string) bool { return typ == "shell.RecoverMsg" }}
 	fv := &fakeView{name: "other"}
-	m := resized(New(hv, fv), 80, 24)
+	m := resized(New(hv, fv), 80, 41)
 
 	next, _ := step(m, NavRequestMsg{Index: 1})
 	if next.Active() != 1 {
@@ -427,7 +427,7 @@ func TestRecoverMsgSwallowedByHookStillRoutes(t *testing.T) {
 func TestHookPassiveForOtherViews(t *testing.T) {
 	hv := &hookedView{fakeView: fakeView{name: "hooked"}}
 	fv := &fakeView{name: "other"}
-	m := resized(New(hv, fv), 80, 24)
+	m := resized(New(hv, fv), 80, 41)
 
 	// A non-RecoverMsg reaches the ACTIVE view only; hook stays passive
 	// (returned consumed=false).
