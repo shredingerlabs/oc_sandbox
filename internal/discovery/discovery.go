@@ -140,6 +140,50 @@ func RunningContainers(run cmdrun.Runner) []string {
 	return cmdrun.Lines(out)
 }
 
+// ContainerImage is one live `podman ps` row: the container name and
+// the image it runs (the edition read is off the image, never config).
+type ContainerImage struct {
+	Name  string
+	Image string
+}
+
+// RunningContainersWithImages lists live opencode-sandbox containers
+// with their image names (`podman ps`); errors yield an empty list
+// (bash `|| true`).
+func RunningContainersWithImages(run cmdrun.Runner) []ContainerImage {
+	out, err := run.Output("podman", "ps", "--format", "{{.Names}}\t{{.Image}}", "--filter", "name=opencode-sandbox-")
+	if err != nil {
+		return nil
+	}
+	var all []ContainerImage
+	for _, l := range cmdrun.Lines(out) {
+		name, image, ok := strings.Cut(l, "\t")
+		if !ok {
+			continue
+		}
+		all = append(all, ContainerImage{Name: name, Image: image})
+	}
+	return all
+}
+
+// EditionFromImage parses the edition out of an
+// `opencode-sandbox-<edition>` image reference, ignoring any registry
+// prefix and tag/digest suffix; "" when the image is not an edition
+// image (bare podman build images are tagged exactly
+// `opencode-sandbox-<stage>`, so the suffix right after the marker is
+// the edition).
+func EditionFromImage(image string) string {
+	i := strings.LastIndex(image, "opencode-sandbox-")
+	if i < 0 {
+		return ""
+	}
+	ed := image[i+len("opencode-sandbox-"):]
+	if j := strings.IndexAny(ed, ":@"); j >= 0 {
+		ed = ed[:j]
+	}
+	return ed
+}
+
 // ContainerState is one `podman ps -a` row: the container name and its
 // lifecycle state ("running", "exited", "created", …).
 type ContainerState struct {

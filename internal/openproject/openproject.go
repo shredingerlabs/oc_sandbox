@@ -61,6 +61,7 @@ type viewState int
 const (
 	stateList  viewState = iota // card grid + settings pane
 	stateBuild                  // Build now / Build later / Go back prompt
+	stateMismatch               // Edition mismatch prompt (Use current / Cancel)
 	stateBusy                   // long op runs, embedded log pane
 )
 
@@ -122,6 +123,9 @@ type Model struct {
 	state    viewState
 	buildSel int
 	opTitle  string
+
+	mismatchSel     int    // selected mismatch-prompt choice
+	mismatchRunning string // edition the live container actually runs
 
 	busyID     int
 	busyKey    string // queue key of the in-flight op (id-disambiguation)
@@ -348,6 +352,18 @@ func (m *Model) key(msg tea.KeyMsg) tea.Cmd {
 			return m.buildPick(m.buildSel)
 		}
 		return nil
+	case stateMismatch:
+		switch k {
+		case "up", "k":
+			m.mismatchSel = max(0, m.mismatchSel-1)
+		case "down", "j":
+			m.mismatchSel = min(len(mismatchPromptOptions)-1, m.mismatchSel+1)
+		case "enter", " ":
+			return m.mismatchPick(m.mismatchSel)
+		case "esc":
+			return m.mismatchPick(1) // esc = Cancel
+		}
+		return nil
 	}
 	m.layout()     // refresh navigable rows from the last known size
 	m.follow.Arm() // keys re-engage the pull that wheel scrolling paused
@@ -557,9 +573,12 @@ func (m *Model) mouse(msg tea.MouseMsg) tea.Cmd {
 		return nil
 	}
 	switch m.state {
-	case stateBuild:
+	case stateBuild, stateMismatch:
 		for i, r := range m.promptRects {
 			if r.Hit(msg.X, msg.Y) {
+				if m.state == stateMismatch {
+					return m.mismatchPick(i)
+				}
 				return m.buildPick(i)
 			}
 		}
@@ -627,6 +646,9 @@ type reconcileMsg struct {
 	cfg     sandboxcfg.Config
 	cfgErr  string
 	lastErr string
+	// runningEdition is the edition parsed off the live container's
+	// image ("" = not live, or the image is not an edition image).
+	runningEdition string
 }
 
 // reconcileCmd runs the event-loop-blocking part of the start flow
@@ -651,6 +673,17 @@ func (m *Model) reconcileCmd(p registry.Project) tea.Cmd {
 		msg.cfg = cfg
 		// 3. Missing edition image → Build now / Build later / Go back.
 		msg.imageOK = discovery.ImageExists(deps.Runner, cfg.ContainerEdition)
+		// 4. Edition mismatch (#115): the live container's image is the
+		// truth about what runs — parse its edition and let the model
+		// prompt when it diverges from the saved one.
+		if msg.live {
+			for _, c := range discovery.RunningContainersWithImages(deps.Runner) {
+				if c.Name == registry.ContainerName(p.ContainerID) {
+					msg.runningEdition = discovery.EditionFromImage(c.Image)
+					break
+				}
+			}
+		}
 		return msg
 	}
 }
@@ -673,6 +706,14 @@ func (m *Model) applyReconcile(msg reconcileMsg) tea.Cmd {
 	}
 	variant := m.variant // empty falls back to the configured option in access
 	if msg.live {
+		if msg.runningEdition != "" && msg.runningEdition != msg.cfg.ContainerEdition {
+			m.state = stateMismatch
+			m.mismatchSel = 0
+			m.mismatchRunning = msg.runningEdition
+			m.pending = p
+			m.pendingCfg = msg.cfg
+			return dots
+		}
 		return tea.Batch(dots, m.access(p, msg.cfg, variant, false))
 	}
 	if !msg.imageOK {
@@ -766,6 +807,27 @@ func (m *Model) buildPick(i int) tea.Cmd {
 		if m.deps.Tasks != nil {
 			m.deps.Tasks.CancelQueued(m.pending.ContainerID)
 		}
+		m.state = stateList
+		return nil
+	}
+}
+
+// mismatchPromptOptions are the working mismatch-prompt choices (#115);
+// ticket 116 adds the Switch button between them.
+var mismatchPromptOptions = []string{"Use current", "Cancel"}
+
+// mismatchPick resolves the edition-mismatch prompt (#115).
+func (m *Model) mismatchPick(i int) tea.Cmd {
+	switch i {
+	case 0: // Use current — route into the running container as today
+		p, cfg := m.pending, m.pendingCfg
+		variant := m.variant
+		m.state = stateList
+		m.mismatchRunning = ""
+		return tea.Batch(m.poll(), m.access(p, cfg, variant, false))
+	default: // Cancel — no podman side effects at all
+		m.variant = ""
+		m.mismatchRunning = ""
 		m.state = stateList
 		return nil
 	}
@@ -1040,6 +1102,16 @@ func (m *Model) Body(width, height int) string {
 				"",
 			},
 			buildPromptOptions, m.buildSel)
+	case stateMismatch:
+		indent := paneX - leftW
+		right = m.promptPane(indent, paneW, height,
+			[]string{
+				shell.StyleWarn.Render("Edition mismatch"),
+				shell.StyleMutedAlt.Render("Running: opencode-sandbox-" + m.mismatchRunning),
+				shell.StyleMutedAlt.Render("Saved:   opencode-sandbox-" + m.pendingCfg.ContainerEdition),
+				"",
+			},
+			mismatchPromptOptions, m.mismatchSel)
 	default:
 		rows := m.layout()
 		indent := paneX - leftW

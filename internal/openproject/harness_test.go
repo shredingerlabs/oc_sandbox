@@ -28,7 +28,8 @@ const startHelpOut = "Usage: start.sh [project]\n  --skills  enable skills mode\
 
 type runnerHooks struct {
 	helpOut  string // `bash start.sh --help` output ("" = startHelpOut)
-	psOut    string // `podman ps` output
+	psOut    string // `podman ps` output (names format)
+	psImagesOut string // `podman ps` output (names+images format; "" = psOut)
 	imageErr error  // `podman image exists` error (nil = image exists)
 	portErr  error  // `podman port` error
 	startErr error
@@ -61,6 +62,9 @@ func (h *runnerHooks) output(name string, args []string) (string, error) {
 		}
 		return "configured", h.configureErr
 	case name == "podman" && args[0] == "ps":
+		if h.psImagesOut != "" && len(args) > 2 && args[2] == "{{.Names}}\t{{.Image}}" {
+			return h.psImagesOut, nil
+		}
 		return h.psOut, nil
 	case name == "podman" && args[0] == "image":
 		return "", h.imageErr
