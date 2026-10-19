@@ -136,6 +136,8 @@
 
 **runtime detection** — Dynamic discovery of available container editions and modes at runtime, avoiding hardcoded lists. Editions come from the Dockerfile stage registry (ADR 0019): every `FROM ... AS opencode-sandbox-<name>` stage in `dist/Dockerfile` or `dist/Dockerfile.custom`, grepped live at each menu render. Modes are still parsed from start.sh help text. _Avoid_: hardcoded edition lists, help-text edition parsing.
 
+**base edition** — The parent stage `opencode-sandbox-base` in `dist/Dockerfile` that all shipped editions build `FROM`: infrastructure, not a user-facing edition. The Go TUI never offers it as a selectable edition for a project (New Project wizard, change-settings, re-selection); it remains discoverable and buildable via the Container center Build tab, `build-container.sh`, and `start.sh`. Projects stored with `container_edition: "base"` stay valid. _Avoid_: base image edition, selectable base.
+
 **custom edition Dockerfile** — User-editable `dist/Dockerfile.custom` holding user-defined edition stages as standalone build recipes (typically `FROM opencode-sandbox-base`, ending `USER dev` + `ENTRYPOINT ["/bin/bash","-l"]`). Shipped as a commented example template on install; never overwritten on update — recreated only if absent. The main `dist/Dockerfile` is still overwritten on update, so it is not a sanctioned home for user stages. _Avoid_: edition manifest, editions.json.
 
 **native script enhancement** — Strategy of extending existing scripts (start.sh, build-container.sh, init-project.sh) with additional parameters (like --start_opencode) rather than creating parallel TUI-specific implementations, preserving backward compatibility and avoiding code duplication.

@@ -69,6 +69,27 @@ func TestEditionsErrors(t *testing.T) {
 	}
 }
 
+func TestSelectableEditionsDropsBase(t *testing.T) {
+	base := filepath.Join("testdata", "Dockerfile")
+	got, err := SelectableEditions(base, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"web", "embedded", "swdev", "matlab", "ros2", "writing"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("selectable editions = %v, want %v", got, want)
+	}
+}
+
+func TestSelectableEditionsOnlyBaseErrors(t *testing.T) {
+	dir := t.TempDir()
+	only := filepath.Join(dir, "Dockerfile")
+	os.WriteFile(only, []byte("FROM ubuntu AS opencode-sandbox-base\n"), 0o644)
+	if _, err := SelectableEditions(only, ""); err == nil {
+		t.Fatal("only-base stages must not be project-selectable")
+	}
+}
+
 func TestModesFromRealHelpOutput(t *testing.T) {
 	help, err := os.ReadFile(filepath.Join("testdata", "start_help.txt"))
 	if err != nil {

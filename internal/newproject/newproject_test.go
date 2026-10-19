@@ -370,6 +370,26 @@ func TestOptionsRenderedInFixedOrderWithSymbols(t *testing.T) {
 	}
 }
 
+// TestEditionRowHidesBase: the parent-image stage `base` is infrastructure
+// (ADR 0019 amendment) — never offered as a project edition in the wizard.
+func TestEditionRowHidesBase(t *testing.T) {
+	m, _, _ := newTestModel(t, func(_ *recOps, _ *cmdrun.Fake) {})
+	docker := "FROM scratch AS opencode-sandbox-base\nFROM scratch AS opencode-sandbox-swdev\nFROM scratch AS opencode-sandbox-webdev\n"
+	if err := os.WriteFile(m.cfg.Dockerfile, []byte(docker), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ed := lineContaining(t, m, "Edition")
+	if ed == "" {
+		t.Fatalf("edition row missing:\n%s", plain(t, m))
+	}
+	if strings.Contains(ed, "base") {
+		t.Fatalf("base offered as selectable edition: %q", ed)
+	}
+	if !strings.Contains(ed, "swdev") || !strings.Contains(ed, "webdev") {
+		t.Fatalf("real editions missing from row: %q", ed)
+	}
+}
+
 func lineContaining(t *testing.T, m *Model, s string) string {
 	t.Helper()
 	for _, l := range strings.Split(plain(t, m), "\n") {

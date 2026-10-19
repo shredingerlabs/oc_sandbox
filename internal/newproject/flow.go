@@ -19,7 +19,7 @@ import (
 // --- live discovery adapters (fresh per call, data map §2) ---------------
 
 func editionsLive(cfg Config) ([]string, error) {
-	return discovery.Editions(cfg.Dockerfile, cfg.DockerfileCustom)
+	return discovery.SelectableEditions(cfg.Dockerfile, cfg.DockerfileCustom)
 }
 
 func modesLive(run cmdrun.Runner, cfg Config) ([]string, error) {

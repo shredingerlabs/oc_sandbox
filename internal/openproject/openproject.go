@@ -448,11 +448,11 @@ func (m *Model) cycleOption(forward bool) {
 	var opts []string
 	switch row.section {
 	case "edition":
-		editions, err := discovery.Editions(m.deps.Dockerfile, m.deps.DockerfileCustom)
+		eds, err := m.editionOptions(m.staged)
 		if err != nil {
 			return
 		}
-		opts = editions
+		opts = eds
 	case "start":
 		opts = startOptions
 	case "proxy":
@@ -481,6 +481,21 @@ func (m *Model) cycleOption(forward bool) {
 			return
 		}
 	}
+}
+
+// editionOptions lists the editions a project may switch to: the selectable
+// stages without `base` (ADR 0019 amendment). While `base` is the staged
+// edition it stays in the list, so legacy stored-base projects keep a
+// coherent display and option cycle.
+func (m *Model) editionOptions(s staged) ([]string, error) {
+	eds, err := discovery.SelectableEditions(m.deps.Dockerfile, m.deps.DockerfileCustom)
+	if err != nil {
+		return nil, err
+	}
+	if s.edition == "base" {
+		return append([]string{"base"}, eds...), nil
+	}
+	return eds, nil
 }
 
 func (m *Model) applyOption(section, value string) {
@@ -970,7 +985,7 @@ func (m *Model) settingsRows(paneW int) []paneRow {
 	}
 	add(shell.StyleMutedAlt.Render(divider(min(paneW-2, 30)))) // separate the pane from the options above
 	add(shell.StyleFieldLabel.Render("Project Settings — " + s.name))
-	editions, edErr := discovery.Editions(m.deps.Dockerfile, m.deps.DockerfileCustom)
+	editions, edErr := m.editionOptions(s)
 	modes, modeErr := discovery.Modes(m.deps.Runner, m.deps.StartScript)
 	if s.editionGone {
 		add(shell.StyleWarn.Render(truncate("stored edition '"+s.edition+"' no longer available", paneW-2)))

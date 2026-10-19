@@ -129,6 +129,79 @@ func TestSettingsPaneListsMutedAlternatives(t *testing.T) {
 	}
 }
 
+// TestSettingsPaneHidesBaseForNonBaseProject: the parent-image stage `base`
+// is no selectable alternative (ADR 0019 amendment) — unless it is the
+// project's stored edition (legacy values stay valid and displayed).
+func TestSettingsPaneHidesBaseForNonBaseProject(t *testing.T) {
+	e := newEnv(t, nil)
+	e.addProject(t, "delta", "swdev", "console")
+	e.m.Activate() // card built at rebuild; a later registration needs refresh
+	e.step(tea.WindowSizeMsg{Width: bodyW, Height: bodyH})
+	e.finishOps()
+	lines := bodyOf(t, e.m, bodyW, bodyH)
+	for i := 0; i < 5; i++ {
+		if _, ok := findLine(lines, "Project Settings — delta"); ok {
+			break
+		}
+		e.finishOps()
+		e.step(keyMsg("down"))
+		e.finishOps()
+		lines = bodyOf(t, e.m, bodyW, bodyH)
+	}
+	if _, ok := findLine(lines, "Project Settings — delta"); !ok {
+		t.Fatalf("delta settings pane missing after selection:\n%s", strings.Join(lines, "\n"))
+	}
+	pane := paneOf(t, e.m, lines, "delta")
+	if someLine(pane, "base") {
+		t.Errorf("base listed as alternative for a swdev project:\n%s", strings.Join(pane, "\n"))
+	}
+	if !someLine(pane, "● swdev") {
+		t.Errorf("stored swdev not shown current:\n%s", strings.Join(pane, "\n"))
+	}
+}
+
+// TestStoredBaseProjectKeepsBaseListed: legacy projects stored with
+// container_edition "base" stay valid; base stays visible, current, and
+// savable (save without changes must persist base).
+func TestStoredBaseProjectKeepsBaseListed(t *testing.T) {
+	e := newEnv(t, nil)
+	lines := bodyOf(t, e.m, bodyW, bodyH)
+	pane := paneOf(t, e.m, lines, "alpha")
+	if !someLine(pane, "● base") {
+		t.Errorf("stored base not shown current:\n%s", strings.Join(pane, "\n"))
+	}
+	goToPaneRow(t, e, "Save Settings")
+	e.step(keyMsg("enter"))
+	e.finishOps()
+	if got := e.cfgEdition(t, "alpha"); got != "base" {
+		t.Errorf("save must keep stored base (edition=%q)", got)
+	}
+}
+
+// paneOf extracts the settings pane slice for one project: everything from
+// its "Project Settings — name" line to the next such line (or the end).
+func paneOf(t *testing.T, m *Model, lines []string, name string) []string {
+	t.Helper()
+	start := -1
+	for i, l := range lines {
+		if strings.Contains(l, "Project Settings — "+name) {
+			start = i
+			break
+		}
+	}
+	if start < 0 {
+		t.Fatalf("pane for %s not found", name)
+	}
+	end := len(lines)
+	for i := start + 1; i < len(lines); i++ {
+		if strings.Contains(lines[i], "Project Settings — ") {
+			end = i
+			break
+		}
+	}
+	return lines[start:end]
+}
+
 func TestEmptyRegistryHintState(t *testing.T) {
 	e := newEnv(t, nil)
 	os.Remove(e.projectsFile(t))

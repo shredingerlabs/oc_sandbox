@@ -52,6 +52,29 @@ func Editions(dockerfile, dockerfileCustom string) ([]string, error) {
 	return editions, nil
 }
 
+// SelectableEditions returns the editions offered in the menus that select a
+// project's edition: the raw stage list without `base`, whose stage is the
+// parent image other editions build FROM — infrastructure, not project
+// material (ADR 0019 amendment). Container center Build tab, build-container.sh
+// and start.sh keep using Editions.
+func SelectableEditions(dockerfile, dockerfileCustom string) ([]string, error) {
+	eds, err := Editions(dockerfile, dockerfileCustom)
+	if err != nil {
+		return nil, err
+	}
+	var selectable []string
+	for _, e := range eds {
+		if e == "base" {
+			continue
+		}
+		selectable = append(selectable, e)
+	}
+	if len(selectable) == 0 {
+		return nil, errors.New("no selectable container editions in Dockerfile/Dockerfile.custom (only 'base')")
+	}
+	return selectable, nil
+}
+
 func extractStages(path string) []string {
 	f, err := os.Open(path)
 	if err != nil {
