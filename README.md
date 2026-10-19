@@ -251,7 +251,10 @@ Deinstallations-Wizard (TUI-Label „Uninstall“) finden sich unter **Settings*
 Untermenüs und ist beim Öffnen vorausgewählt. Es zeigt alle registrierten
 Projekte als Karten (das zuletzt genutzte ist vorgewählt); pro Karte öffnen
 **vcs**, **AI Provider** und **remove** den rechten Bereich — der Knopf mit
-geöffnetem Bereich ist wie ein gewählter Menü-Eintrag hervorgehoben. Der
+geöffnetem Bereich ist wie ein gewählter Menü-Eintrag hervorgehoben. Bei
+knapper Höhe scrollt der rechte Bereich (AI Provider / remove): Mausrad
+scrolled freihändig, Tab-Navigation holt das fokussierte Element ins Bild.
+Der
 **vcs**-Bereich bündelt die
 nachträgliche VCS-Pflege eines Projekts: Tracker-Auswahl (`none`, `github.com`,
 `gitlab.com`, `own GitLab`, `others` – vorbelegt aus `vcs_tracking` der

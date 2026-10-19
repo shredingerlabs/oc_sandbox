@@ -64,6 +64,8 @@ type View struct {
 	width           int
 	gridScroll      int
 	gridFollow      shell.Follow // wheel turns it off; selection pulls again
+	paneScroll      int          // right-pane (AI / removal) scroll offset
+	paneFollow      shell.Follow // wheel turns it off; pane-item focus pulls again
 
 	cardRects   []shell.Rect // one hit rect per rendered card
 	buttonRects []shell.Rect // vcs / AI Provider on the selected card
@@ -120,6 +122,7 @@ func New(d Deps) *View {
 		ops:             d.Ops,
 		Deps:            d,
 		gridFollow:      shell.NewFollow(true, false),
+		paneFollow:      shell.NewFollow(true, false),
 	}
 	v.Reload()
 	return v
@@ -226,6 +229,12 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 			if msg.Button == tea.MouseButtonWheelUp {
 				dir = -1
 			}
+			if v.pane != paneNone && msg.X >= leftWidth(v.width) {
+				// the scrolled panes: wheel over the right half (the
+				// grid pane keeps its own wheel idiom over the left)
+				v.paneFollow.Wheel(&v.paneScroll, dir)
+				return nil
+			}
 			v.gridFollow.Wheel(&v.gridScroll, dir)
 		}
 	}
@@ -250,11 +259,13 @@ func (v *View) Toast(text string) { v.toast = text }
 
 func (v *View) key(msg tea.KeyMsg) {
 	switch msg.String() {
-	case "tab":
-		v.tabFocus(1)
-		return
-	case "shift+tab":
-		v.tabFocus(-1)
+	case "tab", "shift+tab":
+		v.paneFollow.Arm() // keys re-engage the pull that wheel scrolling paused
+		if msg.String() == "tab" {
+			v.tabFocus(1)
+		} else {
+			v.tabFocus(-1)
+		}
 		return
 	case "esc":
 		if v.aiConfirm != nil {
@@ -735,8 +746,9 @@ func (v *View) recordButtons(rc shell.Rect) {
 }
 
 // paneBody renders the right pane card (variant C frame): the empty
-// hint, the VCS pane (staged fields + save), or the AI provider pane
-// (add form + entry list, hit rects recorded).
+// hint, the VCS pane (staged fields + save), or the AI provider /
+// removal panes — the latter two scroll (paneCard) when the content
+// overflows the frame.
 func (v *View) paneBody(paneW, height int) string {
 	var rows []string
 	cw := max(1, paneW-4) // content width: the card frame adds padding+border (cw+4)
@@ -746,13 +758,9 @@ func (v *View) paneBody(paneW, height int) string {
 	case v.pane == paneVCS:
 		rows = append(rows, shell.StyleFieldLabel.Render("VCS — "+v.paneProject()))
 	case v.pane == paneAI:
-		aiRows := v.aiPaneRows(paneW)
-		v.paneRectRows(aiRows, leftWidth(v.width)+4, shell.BodyTop+1)
-		return v.paneCard(aiRows, paneW, height)
+		return v.paneCard(v.aiPaneRows(paneW), paneW, height)
 	case v.pane == paneRemove:
-		rmRows := v.removePaneRows(paneW)
-		v.paneRectRows(rmRows, leftWidth(v.width)+4, shell.BodyTop+1)
-		return v.paneCard(rmRows, paneW, height)
+		return v.paneCard(v.removePaneRows(paneW), paneW, height)
 	default:
 		rows = append(rows, shell.StyleMutedAlt.Render(hintText))
 	}
@@ -776,17 +784,41 @@ func (v *View) paneBody(paneW, height int) string {
 	return padLines(lines, 0, paneW, height)
 }
 
-// paneCard wraps pre-clipped pane rows into the pane card (as the AI
-// pane renders): card frame, leading column, then padded to the pane.
+// paneCard wraps pane rows into the pane card with the scroll window
+// (as the AI pane renders): the focused pane item pulls the window on a
+// focus change, wheel scrolling free-scrolls, and the interactive hit
+// rects are recorded for the visible rows in screen space.
 func (v *View) paneCard(rows []paneRow, paneW, height int) string {
-	card := make([]string, len(rows))
-	for i, r := range rows {
-		card[i] = r.text // rows are pre-clipped to the pane width
+	contentH := max(0, height-2)
+	focusRow := -1
+	if v.focus > 0 {
+		for i, r := range rows {
+			if r.ai == v.focus {
+				focusRow = i
+				break
+			}
+		}
 	}
-	for len(card) < max(0, height-2) {
+	v.paneFollow.Pull(&v.paneScroll, v.focus, focusRow, len(rows), contentH)
+	visible := rows
+	if off := v.paneScroll; off > 0 {
+		if off >= len(rows) {
+			visible = nil
+		} else {
+			visible = rows[off:]
+		}
+	}
+	if len(visible) > contentH {
+		visible = visible[:contentH]
+	}
+	v.paneRectRows(visible, leftWidth(v.width)+4, shell.BodyTop+1)
+	card := make([]string, 0, contentH)
+	for _, r := range visible {
+		card = append(card, r.text) // rows are pre-clipped to the pane width
+	}
+	for len(card) < contentH {
 		card = append(card, "")
 	}
-	card = card[:max(0, height-2)]
 	var lines []string
 	for _, l := range strings.Split(shell.Card(card), "\n") {
 		lines = append(lines, " "+l)

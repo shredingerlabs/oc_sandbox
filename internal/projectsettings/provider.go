@@ -731,6 +731,7 @@ func (v *View) removeAt(idx int) tea.Cmd {
 // back to its empty default).
 func (v *View) resetPane() {
 	v.focus = 0
+	v.paneScroll = 0
 	v.paneRects = v.paneRects[:0]
 	v.paneIdx = v.paneIdx[:0]
 	v.paneEnts = v.paneEnts[:0]
