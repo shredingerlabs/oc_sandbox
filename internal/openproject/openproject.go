@@ -128,6 +128,17 @@ type Model struct {
 
 	mismatchSel     int    // selected mismatch-prompt choice
 	mismatchRunning string // edition the live container actually runs
+	// mismatchImageOK is the reconcile's missing-image verdict for the
+	// saved edition, latched when the mismatch prompt enters (#117): the
+	// Switch pick needs it to route into the missing-image build prompt
+	// BEFORE any stop command can be issued.
+	mismatchImageOK bool
+
+	// switchAfterBuild marks a build prompt opened on behalf of a
+	// mismatch switch (#117): the switch resumes (stop → start → the
+	// originally clicked access) once the build ends and the image
+	// revalidates.
+	switchAfterBuild bool
 
 	busyID     int
 	busyKey    string // queue key of the in-flight op (id-disambiguation)
@@ -287,6 +298,8 @@ func (m *Model) Update(msg tea.Msg) tea.Cmd {
 		return m.opDone(msg)
 	case reconcileMsg:
 		return m.applyReconcile(msg)
+	case switchResumeMsg:
+		return m.resumeSwitch(msg)
 	case runningMsg:
 		m.running = msg
 		return nil
@@ -712,6 +725,7 @@ func (m *Model) applyReconcile(msg reconcileMsg) tea.Cmd {
 			m.state = stateMismatch
 			m.mismatchSel = 0
 			m.mismatchRunning = msg.runningEdition
+			m.mismatchImageOK = msg.imageOK
 			m.pending = p
 			m.pendingCfg = msg.cfg
 			return dots
@@ -802,6 +816,10 @@ func (m *Model) buildPick(i int) tea.Cmd {
 		}
 		return tea.Batch(m.deps.Ops.Launch(op), m.log.Spin())
 	case 1: // Build later — deferred build, stays stopped
+		// a switch routed here (#117) is abandoned: the mismatch stays
+		// unresolved and a later start click re-runs detection
+		m.switchAfterBuild = false
+		m.variant = ""
 		m.toast = "Build later — project stays stopped until the image is built"
 		m.state = stateList
 		return nil
@@ -809,6 +827,8 @@ func (m *Model) buildPick(i int) tea.Cmd {
 		if m.deps.Tasks != nil {
 			m.deps.Tasks.CancelQueued(m.pending.ContainerID)
 		}
+		m.switchAfterBuild = false // same abandonment as Build later (#117)
+		m.variant = ""
 		m.state = stateList
 		return nil
 	}
@@ -839,6 +859,16 @@ func (m *Model) mismatchPick(i int) tea.Cmd {
 	case 2: // Switch to <edition> — confirmed replacement (#116)
 		p, cfg, variant := m.pending, m.pendingCfg, m.variant
 		m.mismatchRunning = ""
+		if !m.mismatchImageOK {
+			// #117, never destroy without a replacement: build the
+			// saved edition's image first (the old container keeps
+			// running throughout), then the switch resumes — reconcile
+			// latched the missing-image verdict before any pick.
+			m.state = stateBuild
+			m.buildSel = 0
+			m.switchAfterBuild = true
+			return m.poll()
+		}
 		return m.launchSwitch(p, cfg, variant)
 	default: // Cancel — no podman side effects at all
 		m.variant = ""
@@ -964,16 +994,43 @@ func (m *Model) opDone(msg OpDoneMsg) tea.Cmd {
 		return m.poll()
 	default: // opBuild
 		if msg.Err == nil {
+			if m.switchAfterBuild {
+				// #117: the build ran for a pending switch. Revalidate
+				// the image off the event loop, then resume the switch
+				// (stop → start → the originally clicked access): the
+				// old container was never touched during the build.
+				ed, run := m.pendingCfg.ContainerEdition, m.deps.Runner
+				return func() tea.Msg {
+					return switchResumeMsg{missing: !discovery.ImageExists(run, ed)}
+				}
+			}
 			// Image check off the event loop: re-reconcile; it launches
 			// the start when the image is really there.
 			m.toast = "Image built"
 			return m.reconcileCmd(m.pending)
 		}
+		m.switchAfterBuild = false
 		m.variant = ""
 		m.toast = "Build failed — image still unavailable"
 		m.state = stateList
 		return nil
 	}
+}
+
+// switchResumeMsg delivers the post-build image revalidation of a
+// mismatch switch that routed into the missing-image build prompt (#117).
+type switchResumeMsg struct{ missing bool }
+
+// resumeSwitch continues a pending switch after the build (#117).
+func (m *Model) resumeSwitch(msg switchResumeMsg) tea.Cmd {
+	m.switchAfterBuild = false
+	if msg.missing { // build "succeeded" but the image is still absent
+		m.variant = ""
+		m.toast = "Build failed — image still unavailable"
+		m.state = stateList
+		return nil
+	}
+	return m.launchSwitch(m.pending, m.pendingCfg, m.variant)
 }
 
 // access resolves the chosen start variant directly (card flow, no
