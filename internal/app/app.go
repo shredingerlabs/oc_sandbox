@@ -52,11 +52,9 @@ func LayoutFor(home string) Layout {
 	}
 }
 
-// App is the composed production TUI: the root shell model and the
-// concurrent-instance warning surfaces before the program starts.
+// App is the composed production TUI: the root shell model.
 type App struct {
-	Model   shell.Model
-	Warning string
+	Model shell.Model
 }
 
 // Compose builds the real app for one home: shell.NewWithQueue over
@@ -115,8 +113,7 @@ func Compose(home string, run cmdrun.Runner, now func() time.Time) App {
 	})
 
 	return App{
-		Model:   shell.NewWithQueue(mgr, open, np, cv, settings, flow),
-		Warning: config.MultipleInstanceWarning(run, "oc-sandbox"),
+		Model: shell.NewWithQueue(mgr, open, np, cv, settings, flow),
 	}
 }
 

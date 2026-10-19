@@ -16,7 +16,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/shredingerlabs/oc-sandbox/internal/cmdrun"
 	"github.com/shredingerlabs/oc-sandbox/internal/jsonfmt"
 )
 
@@ -253,16 +252,6 @@ func IsGeneralConfigFile(home, path string) bool {
 		return true
 	}
 	return strings.Contains(p, "/.opencode_config/")
-}
-
-// MultipleInstanceWarning returns the bash TUI's concurrent-instance warning
-// when more than one process matches pattern, else "".
-func MultipleInstanceWarning(run cmdrun.Runner, pattern string) string {
-	out, _ := run.Output("pgrep", "-f", pattern)
-	if len(cmdrun.Lines(out)) > 1 {
-		return "Warning: Multiple TUI instances detected\nConcurrent operations may cause conflicts"
-	}
-	return ""
 }
 
 // GlobalConfig models global_config.json.

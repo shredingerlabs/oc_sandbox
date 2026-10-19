@@ -48,9 +48,6 @@ func runTUI() {
 		os.Exit(1)
 	}
 	a := app.Compose(home, cmdrun.ExecRunner{}, nil)
-	if a.Warning != "" { // concurrent-instance warning (bash parity)
-		fmt.Println(a.Warning)
-	}
 	p := tea.NewProgram(a.Model, tea.WithAltScreen(), tea.WithMouseCellMotion())
 	final, err := p.Run()
 	code := app.ExitCode(final.(shell.Model), err)

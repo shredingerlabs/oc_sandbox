@@ -8,8 +8,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/shredingerlabs/oc-sandbox/internal/cmdrun"
 )
 
 func writeFile(t *testing.T, path, content string) {
@@ -241,23 +239,5 @@ func TestWriteSecretFilePermissions(t *testing.T) {
 	matches, _ := filepath.Glob(filepath.Join(filepath.Dir(path), "*.tmp.*"))
 	if len(matches) != 0 {
 		t.Fatalf("temp files left behind: %v", matches)
-	}
-}
-
-func TestMultipleInstanceWarning(t *testing.T) {
-	fake := &cmdrun.Fake{Script: func(name string, args []string) (string, error) {
-		if name == "pgrep" && args[0] == "-f" && args[1] == "oc-sandbox" {
-			return "111\n222\n", nil
-		}
-		return "", nil
-	}}
-	got := MultipleInstanceWarning(fake, "oc-sandbox")
-	want := "Warning: Multiple TUI instances detected\nConcurrent operations may cause conflicts"
-	if got != want {
-		t.Fatalf("got %q, want %q", got, want)
-	}
-	fake2 := &cmdrun.Fake{Script: func(string, []string) (string, error) { return "111\n", nil }}
-	if got := MultipleInstanceWarning(fake2, "oc-sandbox"); got != "" {
-		t.Fatalf("single instance: got %q, want empty", got)
 	}
 }

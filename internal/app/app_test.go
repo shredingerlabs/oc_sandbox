@@ -43,21 +43,3 @@ func TestComposeWiresSharedTaskQueue(t *testing.T) {
 		t.Fatalf("composed root too small / not on Open Project (active %d)", a.Model.Active())
 	}
 }
-
-func TestComposeSurfacesInstanceWarning(t *testing.T) {
-	run := cmdrun.Fake{Script: func(name string, args []string) (string, error) {
-		if name == "pgrep" {
-			return "11\n22\n", nil
-		}
-		return "", nil
-	}}
-	if a := app.Compose(t.TempDir(), &run, time.Now); a.Warning == "" {
-		t.Fatal("concurrent-instances warning missing with a busy pgrep")
-	}
-	silent := cmdrun.Fake{Script: func(name string, args []string) (string, error) {
-		return "", nil
-	}}
-	if a := app.Compose(t.TempDir(), &silent, time.Now); a.Warning != "" {
-		t.Fatalf("unexpected warning with an idle pgrep: %q", a.Warning)
-	}
-}
