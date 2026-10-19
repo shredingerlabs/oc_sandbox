@@ -992,8 +992,9 @@ func (m *Model) settingsRows(paneW int) []paneRow {
 		add(shell.StyleMutedAlt.Render("choose another"))
 	}
 	addSection := func(label, section string, opts []string, err error, cur func(string) bool) {
-		rows = append(rows, paneRow{text: shell.StyleFieldLabel.Render(label)})
+		rows = append(rows, paneRow{text: ""}) // spacer
 		rows = append(rows, paneRow{text: shell.StyleMutedAlt.Render(divider(min(paneW-2, 30)))})
+		rows = append(rows, paneRow{text: shell.StyleFieldLabel.Render(label)})
 		if err != nil {
 			rows = append(rows, paneRow{text: shell.StyleMutedAlt.Render("(unavailable: " + truncate(err.Error(), paneW-16) + ")")})
 			return

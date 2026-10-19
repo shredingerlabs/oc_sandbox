@@ -453,6 +453,10 @@ func (v *View) vcsDone(msg taskmgr.DoneMsg) {
 
 const vcsLabelW = 11 // "Git email:" is the widest label + 1
 
+// TextClipMin is the widest value clip the boxed inputs in the settings
+// panes allow (the label truncation headroom shared with the AI form).
+const TextClipMin = 8
+
 // vcsRows renders the pane content rows and records the hit rects
 // (tracker tokens, field values, save) in screen space.
 func (v *View) vcsRows(w int, contentX, contentY int) []string {
@@ -492,32 +496,20 @@ func (v *View) vcsRows(w int, contentX, contentY int) []string {
 	}
 
 	for i, f := range fs {
+		// boxed text area (newproject parity): label row, then the
+		// 3-line input box (border / value / border)
 		val := *f.val
 		if f.masked {
 			if n := len([]rune(val)); n > 0 {
 				val = strings.Repeat("•", n)
 			}
 		}
-		if p.focus == i+1 {
-			c := *f.cur
-			rs := []rune(val)
-			if c > len(rs) {
-				c = len(rs)
-			}
-			val = string(rs[:c]) + "▌" + string(rs[c:])
-		}
-		var disp string
-		switch {
-		case val == "":
-			disp = shell.StyleMutedAlt.Render("…")
-		case p.focus == i+1:
-			disp = shell.StyleSelectedRow.Render(truncate(val, w-vcsLabelW-1))
-		default:
-			disp = shell.StyleCurrentVal.Render(truncate(val, w-vcsLabelW-1))
-		}
-		rows = append(rows, padTo(vcsLabelW, f.label)+disp)
+		val = truncate(val, max(TextClipMin, w-8))
+		rows = append(rows, padTo(vcsLabelW, f.label))
+		top, mid, bot := shell.TextFieldBoxLines(val, *f.cur, p.focus == i+1)
+		rows = append(rows, top, mid, bot)
 		p.fieldRects = append(p.fieldRects, shell.Rect{
-			X: contentX + vcsLabelW + 1, Y: contentY + len(rows) - 1, W: max(1, w-vcsLabelW-1), H: 1,
+			X: contentX + 2, Y: contentY + len(rows) - 2, W: max(1, w-4), H: 1,
 		})
 	}
 

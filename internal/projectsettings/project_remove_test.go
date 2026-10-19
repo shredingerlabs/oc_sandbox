@@ -20,7 +20,7 @@ import (
 // openRemovePane opens the removal pane on the selected (first) card.
 func openRemovePane(t *testing.T, v *View) {
 	t.Helper()
-	v.Body(76, 26)
+	v.Body(76, 60)
 	clickCard(t, v, "remove")
 	if !someLine(bodyLines(t, v), "Remove project from list") {
 		t.Fatalf("removal pane not open:\n%s", join(bodyLines(t, v)))
@@ -208,7 +208,7 @@ func TestRemoveKeyboardParity(t *testing.T) {
 func TestSelectedButtonHighlightRidesTheOpenPane(t *testing.T) {
 	e := newEnv(t, "alpha", "beta")
 	v := e.view(t)
-	v.Body(76, 26)
+	v.Body(76, 60)
 	if got, want := cardButtonWidths(v), []int{3, 11, 6}; !intsEq(got, want) {
 		t.Fatalf("idle widths = %v, want %v", got, want)
 	}
@@ -234,9 +234,9 @@ func TestSelectedButtonHighlightRidesTheOpenPane(t *testing.T) {
 func TestHighlightedButtonUsesHeaderSelectedStyle(t *testing.T) {
 	e := newEnv(t, "alpha")
 	v := e.view(t)
-	v.Body(76, 26)
+	v.Body(76, 60)
 	clickCard(t, v, "remove")
-	raw := v.Body(76, 26)
+	raw := v.Body(76, 60)
 	if !strings.Contains(raw, shell.StyleHeaderItemSel.Render("remove")) {
 		t.Errorf("highlighted button not rendered with the selected menu-entry style")
 	}

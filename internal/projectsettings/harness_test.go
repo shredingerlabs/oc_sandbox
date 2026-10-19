@@ -258,7 +258,7 @@ func bodyLines(t *testing.T, v *View) []string {
 	lipgloss.SetColorProfile(termenv.Ascii)
 	t.Cleanup(func() { lipgloss.SetColorProfile(saved) })
 	var out []string
-	for _, l := range strings.Split(shell.StripANSI(v.Body(76, 26)), "\n") {
+	for _, l := range strings.Split(shell.StripANSI(v.Body(76, 60)), "\n") {
 		out = append(out, strings.TrimRight(l, " "))
 	}
 	return out

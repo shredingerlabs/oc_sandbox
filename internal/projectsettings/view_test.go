@@ -46,7 +46,7 @@ func TestOpenProjectPreselected(t *testing.T) {
 func TestButtonRectsGeometry(t *testing.T) {
 	e := newEnv(t, "alpha", "beta")
 	v := e.view(t)
-	v.Body(76, 26)
+	v.Body(76, 60)
 	want := []shell.Rect{
 		{X: 3, Y: 7, W: 3, H: 1},
 		{X: 8, Y: 7, W: 11, H: 1},
@@ -71,7 +71,7 @@ func TestPaneStartsEmpty(t *testing.T) {
 func TestCardClickSelectsAndResetsPane(t *testing.T) {
 	e := newEnv(t, "alpha", "beta")
 	v := e.view(t)
-	v.Body(76, 26)
+	v.Body(76, 60)
 	// open the pane on alpha first, then switch cards
 	clickCard(t, v, "vcs")
 	if !someLine(bodyLines(t, v), "VCS — alpha") {
@@ -94,7 +94,7 @@ func TestCardClickSelectsAndResetsPane(t *testing.T) {
 func TestButtonOpensPane(t *testing.T) {
 	e := newEnv(t, "alpha", "beta")
 	v := e.view(t)
-	v.Body(76, 26)
+	v.Body(76, 60)
 	clickCard(t, v, "vcs")
 	if !someLine(bodyLines(t, v), "VCS — alpha") {
 		t.Fatalf("vcs pane missing:\n%s", join(bodyLines(t, v)))
@@ -109,7 +109,7 @@ func TestButtonOpensPane(t *testing.T) {
 func TestUnselectedButtonOnlySelects(t *testing.T) {
 	e := newEnv(t, "alpha", "beta")
 	v := e.view(t)
-	v.Body(76, 26)
+	v.Body(76, 60)
 	v.Update(clickAt(1, 10)) // beta card
 	if !someLine(bodyLines(t, v), "select a card, then vcs, AI Provider") {
 		t.Fatalf("pane should stay empty on mere selection")
@@ -124,7 +124,7 @@ func TestUnselectedButtonOnlySelects(t *testing.T) {
 func TestKeyboardMovesSelection(t *testing.T) {
 	e := newEnv(t, "alpha", "beta")
 	v := e.view(t)
-	v.Body(76, 26)
+	v.Body(76, 60)
 	clickCard(t, v, "vcs") // pane open on alpha
 	v.Update(keyMsg("right"))
 	lines := bodyLines(t, v)
@@ -146,7 +146,7 @@ func TestKeyboardMovesSelection(t *testing.T) {
 func TestTabCyclesFocus(t *testing.T) {
 	e := newEnv(t, "alpha", "beta")
 	v := e.view(t)
-	v.Body(76, 26)
+	v.Body(76, 60)
 	v.Update(keyMsg("tab"))
 	v.Update(keyMsg("tab"))  // pane has no items: back to the grid
 	v.Update(keyMsg("down")) // still moves the grid selection
@@ -160,7 +160,7 @@ func TestTabCyclesFocus(t *testing.T) {
 func TestEnterOnGridDoesNothing(t *testing.T) {
 	e := newEnv(t, "alpha", "beta")
 	v := e.view(t)
-	v.Body(76, 26)
+	v.Body(76, 60)
 	if cmd := v.Update(keyMsg("enter")); cmd != nil {
 		t.Fatalf("enter on the grid produced a cmd %v", cmd)
 	}

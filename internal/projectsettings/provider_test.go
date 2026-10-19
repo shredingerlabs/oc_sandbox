@@ -93,7 +93,7 @@ func (e *env) openJSONIDs(t *testing.T, root string) []string {
 func aiPane(t *testing.T, e *env) *View {
 	t.Helper()
 	v := e.view(t)
-	v.Body(76, 26)
+	v.Body(76, 60)
 	clickCard(t, v, "AI Provider")
 	return v
 }
@@ -483,7 +483,7 @@ func TestAIAddThroughSharedTaskQueue(t *testing.T) {
 	mgr := taskmgr.New()
 	v := e.view(t)
 	v.Deps.Ops = mgr
-	v.Body(76, 26)
+	v.Body(76, 60)
 	clickCard(t, v, "AI Provider")
 	cmd := fillForm(t, v, "My API", "https://api.example.com/v1", "fresh-secret")
 	if len(e.launch.ops) != 0 {

@@ -14,7 +14,7 @@ import (
 // openVCS opens the VCS pane for the currently selected card.
 func openVCS(t *testing.T, v *View) {
 	t.Helper()
-	v.Body(76, 26)
+	v.Body(76, 60)
 	clickCard(t, v, "vcs")
 	if v.vcs == nil {
 		t.Fatalf("vcs pane did not open")

@@ -57,13 +57,13 @@ func TestAIEditPrefillFromConfigFiles(t *testing.T) {
 	if !someLine(lines, "Edit provider") {
 		t.Fatalf("edit form header missing:\n%s", join(lines))
 	}
-	if _, ok := findLine(lines, "Name: My API"); !ok {
+	if _, ok := findLine(lines, "My API"); !ok {
 		t.Errorf("name not prefilled:\n%s", join(lines))
 	}
-	if _, ok := findLine(lines, "Endpoint: https://api.example.com/v1"); !ok {
+	if _, ok := findLine(lines, "https://api.example.com/v1"); !ok {
 		t.Errorf("endpoint not prefilled:\n%s", join(lines))
 	}
-	if n := countLines(lines, "Token: •"); n != 1 {
+	if n := countLines(lines, "•••"); n != 1 {
 		t.Errorf("stored token not prefilled masked (bullet rows=%d):\n%s", n, join(lines))
 	}
 	if !someLine(lines, "Save") {
@@ -83,7 +83,7 @@ func TestAIEditFieldsTypeable(t *testing.T) {
 		t.Fatalf("clicking the entry did not focus its name field")
 	}
 	clearAndType(t, v, len("My API"), "Renamed API")
-	if !someLine(bodyLines(t, v), "Name: Renamed API") {
+	if !someLine(bodyLines(t, v), "Renamed API") {
 		t.Fatalf("rename typing did not land:\n%s", join(bodyLines(t, v)))
 	}
 	v.Update(keyMsg("tab"))

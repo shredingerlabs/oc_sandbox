@@ -652,26 +652,23 @@ func (v *View) aiPaneRows(paneW int) []paneRow {
 	return rows
 }
 
-// aiFieldRow renders one add-form field as an inline "Label: value" row;
-// the focused field shows the caret, the token renders masked.
+// aiFieldRow renders one add-form field as a boxed text area (label row
+// plus the 3-line input box, newproject parity); the focused box shows
+// the caret, the token renders masked. Every row stays clickable so a
+// click anywhere on the field takes focus.
 func (v *View) aiFieldRow(rows *[]paneRow, idx int, label string, f field, paneW int) {
 	val := f.val
 	if idx == piToken || idx == piEditToken {
 		val = strings.Repeat("•", len([]rune(val)))
 	}
 	focused := v.pane == paneAI && v.focus == idx && v.aiConfirm == nil
-	if focused {
-		rs := []rune(val)
-		cur := f.cur
-		if cur < 0 || cur > len(rs) {
-			cur = len(rs)
-		}
-		val = string(rs[:cur]) + "▌" + string(rs[cur:])
+	val = truncate(val, max(TextClipMin, paneW-8))
+	add := func(text string) { *rows = append(*rows, paneRow{text: text, ai: idx, ent: -1}) }
+	add(shell.StyleFieldLabel.Render(label + ":"))
+	top, mid, bot := shell.TextFieldBoxLines(val, f.cur, focused)
+	for _, t := range []string{top, mid, bot} {
+		add(t)
 	}
-	*rows = append(*rows, paneRow{
-		text: shell.StyleFieldLabel.Render(label+": ") + shell.StyleCurrentVal.Render(truncate(val, paneW-10)),
-		ai:   idx, ent: -1,
-	})
 }
 
 // paneRectRows records the hit rects of laid-out pane rows (AI-pane
