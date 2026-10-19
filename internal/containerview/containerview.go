@@ -377,7 +377,7 @@ func (m *Model) refreshTab(t int) tea.Cmd {
 	case TabStart:
 		return tea.Batch(m.refreshRunning(), m.refreshProjects())
 	case TabStop:
-		return m.refreshRunning()
+		return tea.Batch(m.refreshRunning(), m.refreshProjects())
 	case TabDelete:
 		return tea.Batch(m.refreshContainers(), m.refreshProjects())
 	}
@@ -1129,9 +1129,11 @@ func (m *Model) rows(t, width int) []chkRow {
 	case TabStop:
 		rows := make([]chkRow, 0, len(m.running))
 		for _, name := range m.running {
-			rows = append(rows, chkRow{key: name,
-				main: truncate(name, 44) + m.runningMarker(name),
-			})
+			main := truncate(name, 44)
+			if p, err := m.projectFor(name); err == nil {
+				main = truncate(p.Name, 34) + "  " + shell.StyleMutedAlt.Render(truncate(name, 44))
+			}
+			rows = append(rows, chkRow{key: name, main: truncate(main, width-4) + m.runningMarker(name)})
 		}
 		return rows
 	case TabDelete:
