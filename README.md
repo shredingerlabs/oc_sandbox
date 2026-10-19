@@ -247,9 +247,12 @@ Deinstallations-Wizard (TUI-Label „Uninstall“) finden sich unter **Settings*
 
 ### Edit Project settings (Settings)
 
-**Settings → Edit Project settings** zeigt alle registrierten Projekte als
-Karten (das zuletzt genutzte ist vorgewählt); pro Karte öffnen **vcs** und
-**AI Provider** den rechten Bereich. Der **vcs**-Bereich bündelt die
+**Settings → Edit Project settings** steht an erster Stelle des Settings-
+Untermenüs und ist beim Öffnen vorausgewählt. Es zeigt alle registrierten
+Projekte als Karten (das zuletzt genutzte ist vorgewählt); pro Karte öffnen
+**vcs**, **AI Provider** und **remove** den rechten Bereich — der Knopf mit
+geöffnetem Bereich ist wie ein gewählter Menü-Eintrag hervorgehoben. Der
+**vcs**-Bereich bündelt die
 nachträgliche VCS-Pflege eines Projekts: Tracker-Auswahl (`none`, `github.com`,
 `gitlab.com`, `own GitLab`, `others` – vorbelegt aus `vcs_tracking` der
 `sandbox_config.json`), Git-Identität (vorbelegt aus der projekt-lokalen
@@ -266,6 +269,13 @@ bereits Zugangsdaten vor, schützt ein **Keep existing / Replace**-Popup
 oder Tokens mit Whitespace werden beim Speichern abgewiesen (Fehleranzeige,
 ohne Schreibzugriff).
 
+Der **remove**-Bereich nimmt ein Projekt nur aus der Projekt-Registry
+(projects.json): Projektordner, `sandbox_config.json` und der Container
+bleiben unberührt — ein laufender Container läuft einfach weiter (untracked).
+Der Kartenknopf öffnet nur den beschreibenden Bereich; entfernt wird erst
+über **Remove project from list** hinter dem Bestätigungs-Popup (siehe
+unten).
+
 ### Bestätigungs-Popup (Confirmation Popup)
 
 Schwere bzw. destruktive Aktionen bestätigt die Go-TUI vor dem Ausführen in
@@ -277,7 +287,8 @@ Project** (Zusammenfassung der aktuellen Konfiguration mit `Create`/`Back`),
 (rote `Delete`-Bestätigung; laufende Container werden zuvor mit dem
 Stopp-Hinweis abgewiesen) und **Settings → Uninstall**
 (rote `Uninstall`-Bestätigung nach dem getippten „uninstall“, mit Echo der
-gewählten Optionen). Fokus startet auf der abbrechenden Taste (`Back`/`Cancel`);
+gewählten Optionen) und **Edit Project settings → Remove project from
+list** (rote `Remove`-Bestätigung; nur der Registry-Eintrag wird entfernt). Fokus startet auf der abbrechenden Taste (`Back`/`Cancel`);
 `←`/`→`/`Tab` wechselt die Taste, `↵` aktiviert die fokussierte Taste,
 `esc`/`q` bricht ab, Klick außerhalb des Panels ebenfalls. Der projektstartnahe
 Prompt **Build now / Build later / Go back** bleibt davon unberührt.

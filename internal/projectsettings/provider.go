@@ -674,9 +674,9 @@ func (v *View) aiFieldRow(rows *[]paneRow, idx int, label string, f field, paneW
 	})
 }
 
-// aiPaneRects records the hit rects of the AI pane rows (fields, Add,
-// Save, confirm options, editable entries) as rendered at (x, y).
-func (v *View) aiPaneRects(rows []paneRow, x, y int) {
+// paneRectRows records the hit rects of laid-out pane rows (AI-pane
+// fields/button rows, removal-pane rows) as rendered at (x, y).
+func (v *View) paneRectRows(rows []paneRow, x, y int) {
 	v.paneRects = v.paneRects[:0]
 	v.paneIdx = v.paneIdx[:0]
 	v.paneEnts = v.paneEnts[:0]
@@ -704,6 +704,11 @@ func (v *View) paneClick(idx int) {
 		v.lastCmd = v.resolveAIConfirm(false)
 	case piReplace:
 		v.lastCmd = v.resolveAIConfirm(true)
+	case piRemovePane:
+		if v.pane == paneRemove { // panes keep separate namespaces (this id
+			// collides with the AI pane's piName focus index)
+			v.lastCmd = v.armProjectRemoval()
+		}
 	default:
 		v.lastCmd = v.removeAt(idx) // #112: a Remove button's focus index
 	}

@@ -98,7 +98,7 @@ func (v *View) exportActivate() tea.Cmd {
 		files := v.activeConfigs()
 		switch {
 		case len(files) == 0:
-			v.sub, v.scroll, v.expStage = 0, 0, 0
+			v.sub, v.scroll, v.expStage = subImport, 0, 0
 			return nil
 		case v.expFocus < len(files):
 			v.doSelectExport(v.expFocus)

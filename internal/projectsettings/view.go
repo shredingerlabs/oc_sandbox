@@ -31,18 +31,20 @@ var tabs = []string{"Edit Project settings"}
 const (
 	cardInnerW = 26                   // content width → shell.CardWidth 30
 	rowStride  = shell.CardHeight + 1 // card + gap
-	hintText   = "select a card, then vcs or AI Provider"
+	hintText   = "select a card, then vcs, AI Provider or remove"
 )
 
 // cardButtons are the per-card actions; no start-variant buttons — this
-// screen never starts anything.
-var cardButtons = []string{"vcs", "AI Provider"}
+// screen never starts anything. remove opens the removal pane, never
+// removes by itself (glossary: remove project from list).
+var cardButtons = []string{"vcs", "AI Provider", "remove"}
 
-// paneKinds of the right pane: placeholder, VCS, AI provider.
+// paneKinds of the right pane: placeholder, VCS, AI provider, remove.
 const (
 	paneNone = iota
 	paneVCS
 	paneAI
+	paneRemove
 )
 
 // View is the Edit Project settings screen.
@@ -189,8 +191,11 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 	case tea.KeyMsg:
 		if v.confirm.IsOpen() { // the popup consumes keys (ADR-0021)
 			was := true
-			v.confirm.Key(msg)
-			return v.afterConfirm(was)
+			cmd := v.confirm.Key(msg)
+			if ac := v.afterConfirm(was); ac != nil {
+				cmd = tea.Batch(cmd, ac)
+			}
+			return cmd
 		}
 		if v.vcsKey(msg) {
 			return nil
@@ -266,6 +271,10 @@ func (v *View) key(msg tea.KeyMsg) {
 		}
 		return
 	}
+	if v.pane == paneRemove && v.focus != 0 {
+		v.removePaneKey(msg)
+		return
+	}
 	if v.pane == paneAI && v.focus != 0 {
 		v.paneKey(msg)
 		return
@@ -287,6 +296,17 @@ func (v *View) key(msg tea.KeyMsg) {
 // pane's items (grid → name → endpoint → token → Add → confirm rows →
 // grid); with the confirm open only the confirm rows cycle.
 func (v *View) tabFocus(dir int) {
+	if v.pane == paneRemove {
+		switch {
+		case v.focus == 0 && dir > 0:
+			v.focus = piRemovePane // grid → the list button
+		case v.focus == piRemovePane && dir < 0:
+			v.focus = 0 // back to the grid
+		case v.focus == piRemovePane && dir > 0:
+			v.focus = 0 // the pane ends with the list button
+		}
+		return
+	}
 	if v.pane != paneAI {
 		return
 	}
@@ -436,6 +456,16 @@ func (v *View) click(x, y int) {
 			return
 		}
 	}
+	if v.pane == paneRemove {
+		for i, r := range v.paneRects {
+			if r.Hit(x, y) {
+				idx := v.paneIdx[i]
+				v.focus = idx
+				v.paneClick(idx)
+				return
+			}
+		}
+	}
 	// The open AI pane's interactive rows take precedence; entry rows
 	// open the entry edit form, everything else routes by focus index.
 	if v.pane == paneAI {
@@ -470,14 +500,19 @@ func (v *View) click(x, y int) {
 		for j, br := range v.buttonRects {
 			if br.Hit(x, y) {
 				v.pending = nil
-				if j == 0 {
+				switch j {
+				case 0:
 					if v.sel >= 0 && v.sel < len(v.projects) {
 						v.openVCS(v.projects[v.sel])
 					} else {
 						v.pane = paneVCS
 					}
-				} else {
+				case 1:
 					v.pane = paneAI
+					v.vcs = nil
+					v.resetPane()
+				default:
+					v.pane = paneRemove // removal pane, never removes itself
 					v.vcs = nil
 					v.resetPane()
 				}
@@ -623,13 +658,49 @@ func (v *View) cardRows(idx int) []string {
 }
 
 // buttonRow renders the selected card's action buttons with 2-space
-// gaps: vcs  AI Provider. Label order and gaps mirror recordButtons.
+// gaps: vcs  AI Provider  remove. Label order and widths mirror
+// recordButtons; the button whose pane is open renders in the selected
+// menu-entry style (accent fill).
 func (v *View) buttonRow() string {
+	active := v.activeButton()
 	styled := make([]string, len(cardButtons))
 	for i, lbl := range cardButtons {
+		if i == active { // highlight: same style as a selected menu entry
+			styled[i] = shell.StyleHeaderItemSel.Render(lbl)
+			continue
+		}
 		styled[i] = lipgloss.NewStyle().Foreground(shell.ColCardFg).Render(lbl)
 	}
 	return joinWide(styled)
+}
+
+// activeButton is the card button whose pane is open (-1 when the pane
+// is the empty hint).
+func (v *View) activeButton() int {
+	switch v.pane {
+	case paneVCS:
+		return 0
+	case paneAI:
+		return 1
+	case paneRemove:
+		return 2
+	}
+	return -1
+}
+
+// styledButtonWidths returns, per card button, its rendered width
+// (highlight styles add their two padding columns to the label).
+func (v *View) styledButtonWidths() []int {
+	active := v.activeButton()
+	widths := make([]int, len(cardButtons))
+	for i, lbl := range cardButtons {
+		if i == active { // StyleHeaderItemSel pads 0 1 on both sides
+			widths[i] = shell.Width(lbl) + 2
+			continue
+		}
+		widths[i] = shell.Width(lbl)
+	}
+	return widths
 }
 
 // mutedButtonRow renders an unselected card's buttons (muted: a click
@@ -652,11 +723,12 @@ func joinWide(parts []string) string {
 }
 
 // recordButtons pins the button hit rects on the selected card's button
-// row (content row 4, two cells in from the border).
+// row (content row 4, two cells in from the border). The highlighted
+// button's rect carries its padded width, mirroring buttonRow.
 func (v *View) recordButtons(rc shell.Rect) {
 	x, y, w := rc.X+2, rc.Y+4, 0
-	for _, lbl := range cardButtons {
-		rect := shell.Rect{X: x + w, Y: y, W: shell.Width(lbl), H: 1}
+	for _, bw := range v.styledButtonWidths() {
+		rect := shell.Rect{X: x + w, Y: y, W: bw, H: 1}
 		v.buttonRects = append(v.buttonRects, rect)
 		w += rect.W + 2
 	}
@@ -675,20 +747,12 @@ func (v *View) paneBody(paneW, height int) string {
 		rows = append(rows, shell.StyleFieldLabel.Render("VCS — "+v.paneProject()))
 	case v.pane == paneAI:
 		aiRows := v.aiPaneRows(paneW)
-		v.aiPaneRects(aiRows, leftWidth(v.width)+4, shell.BodyTop+1)
-		card := make([]string, len(aiRows))
-		for i, r := range aiRows {
-			card[i] = r.text // rows are pre-clipped to the pane width
-		}
-		for len(card) < max(0, height-2) {
-			card = append(card, "")
-		}
-		card = card[:max(0, height-2)]
-		var lines []string
-		for _, l := range strings.Split(shell.Card(card), "\n") {
-			lines = append(lines, " "+l)
-		}
-		return padLines(lines, 1, paneW, height)
+		v.paneRectRows(aiRows, leftWidth(v.width)+4, shell.BodyTop+1)
+		return v.paneCard(aiRows, paneW, height)
+	case v.pane == paneRemove:
+		rmRows := v.removePaneRows(paneW)
+		v.paneRectRows(rmRows, leftWidth(v.width)+4, shell.BodyTop+1)
+		return v.paneCard(rmRows, paneW, height)
 	default:
 		rows = append(rows, shell.StyleMutedAlt.Render(hintText))
 	}
@@ -710,6 +774,24 @@ func (v *View) paneBody(paneW, height int) string {
 		lines = append(lines, l)
 	}
 	return padLines(lines, 0, paneW, height)
+}
+
+// paneCard wraps pre-clipped pane rows into the pane card (as the AI
+// pane renders): card frame, leading column, then padded to the pane.
+func (v *View) paneCard(rows []paneRow, paneW, height int) string {
+	card := make([]string, len(rows))
+	for i, r := range rows {
+		card[i] = r.text // rows are pre-clipped to the pane width
+	}
+	for len(card) < max(0, height-2) {
+		card = append(card, "")
+	}
+	card = card[:max(0, height-2)]
+	var lines []string
+	for _, l := range strings.Split(shell.Card(card), "\n") {
+		lines = append(lines, " "+l)
+	}
+	return padLines(lines, 1, paneW, height)
 }
 
 // paneContentX is the screen column of the pane card's content column 0:

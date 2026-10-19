@@ -21,7 +21,7 @@ func TestRestorePopupContentAndCancel(t *testing.T) {
 	writeBackup(t, home, "projects.json.20260101T000000000.aaa111", backup1)
 
 	v := newSettings(t, home, nil)
-	v.Update(shell.SubTabMsg{Index: 2})
+	v.Update(shell.SubTabMsg{Index: subRestore})
 	key(v, "down") // focus the Restore button → popup (ADR-0021)
 	key(v, "enter")
 
@@ -49,7 +49,7 @@ func TestUninstallPopupContentCancelAndConfirm(t *testing.T) {
 	home := homeFixture(t)
 	run := fakeRunner()
 	v := newSettings(t, home, run)
-	v.Update(shell.SubTabMsg{Index: 3})
+	v.Update(shell.SubTabMsg{Index: subUninstall})
 	key(v, " ") // option 0 on for the echo
 	key(v, "down")
 	key(v, "down")
@@ -92,7 +92,7 @@ func TestRestorePopupConfirmRunsRestore(t *testing.T) {
 	writeFile(t, pp, before)
 	writeBackup(t, home, "projects.json.20260101T000000000.aaa111", "{\n  \"projects\": []\n}")
 	v := newSettings(t, home, nil)
-	v.Update(shell.SubTabMsg{Index: 2})
+	v.Update(shell.SubTabMsg{Index: subRestore})
 	key(v, "down") // Restore button → popup
 	key(v, "enter")
 	key(v, "tab")

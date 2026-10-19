@@ -84,6 +84,9 @@ func ContainerName(containerID string) string {
 // ErrNotFound reports a missing projects.json.
 var ErrNotFound = errors.New("projects.json not found")
 
+// ErrProjectNotFound reports a lookup/removal that hits no registry entry.
+var ErrProjectNotFound = errors.New("project not found")
+
 // ErrNameExists / ErrPathExists mirror the bash registry refusals.
 var (
 	ErrNameExists = errors.New("project already exists in registry")
@@ -214,6 +217,32 @@ func (r *Registry) UpdateRepoURL(path, repoURL string) error {
 	return r.updateProject(path, func(d *jsonfmt.Doc) { d.Set("repo_url", repoURL) })
 }
 
+// RemoveProject deletes one project entry (by container identity of the
+// canonical path): registry metadata only — files, configs and the
+// container are out of scope. Unknown paths fail loudly; unknown top-level
+// fields and the nested formatting of surviving entries are preserved.
+func (r *Registry) RemoveProject(path string) error {
+	doc, err := r.readDoc()
+	if err != nil {
+		return err
+	}
+	id := ContainerIdentity(path)
+	found := false
+	kept := []any{}
+	for _, v := range projectsArray(doc) {
+		if d, ok := v.(*jsonfmt.Doc); ok && d.GetString("container_id", "") == id {
+			found = true
+			continue
+		}
+		kept = append(kept, v)
+	}
+	if !found {
+		return ErrProjectNotFound
+	}
+	doc.Set("projects", kept)
+	return r.writeDoc(doc)
+}
+
 // AllOrdered lists projects most-recently-used first, reproducing jq's
 // `sort_by(.last_used) | reverse` (stable sort, whole-array reverse —
 // same-second ties come in reversed insertion order).
@@ -258,7 +287,7 @@ func (r *Registry) find(pred func(Project) bool) (Project, error) {
 			return p, nil
 		}
 	}
-	return Project{}, errors.New("project not found")
+	return Project{}, ErrProjectNotFound
 }
 
 func (r *Registry) ByName(name string) (Project, error) {

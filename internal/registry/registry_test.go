@@ -241,6 +241,58 @@ func TestAbsentRepoURLAndGitTrackingFallbacks(t *testing.T) {
 	}
 }
 
+// RemoveProject deletes one project entry (by canonical path); the other
+// entries' metadata and unknown top-level fields survive.
+func TestRemoveProjectDeletesOnlyTargetEntry(t *testing.T) {
+	r := newTestRegistry(t)
+	path := config.Paths{Home: r.Home}.ProjectsPath()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(`{"projects":[],"version":"1.0","extra":"keep"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.AddProject(AddRequest{Name: "p1", Path: "/x/proj1"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.AddProject(AddRequest{Name: "p2", Path: "/x/proj2", GitTracking: "gitlab.com"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.RemoveProject("/x/proj1/../proj1"); err != nil {
+		t.Fatalf("remove: %v", err)
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), `"extra": "keep"`) {
+		t.Fatalf("unknown top-level field dropped: %s", b)
+	}
+	if strings.Contains(string(b), "proj1") || strings.Contains(string(b), "p1") {
+		t.Fatalf("target entry not deleted: %s", b)
+	}
+	projs, err := r.AllOrdered()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(projs) != 1 || projs[0].Name != "p2" || projs[0].GitTracking != "gitlab.com" {
+		t.Fatalf("unexpected survivors: %+v", projs)
+	}
+	// Removing again (or an unknown path) is an error, not a silent ok.
+	if err := r.RemoveProject("/x/proj1"); err == nil {
+		t.Fatal("removal of a missing project succeeded")
+	}
+	// The removed entry's files may still exist: out of the registry's scope.
+}
+
+// RemoveProject on a missing projects.json surfaces the registry error.
+func TestRemoveProjectMissingFile(t *testing.T) {
+	r := newTestRegistry(t)
+	if err := r.RemoveProject("/x/proj"); err != ErrNotFound {
+		t.Fatalf("err = %v, want ErrNotFound", err)
+	}
+}
+
 func TestAddProjectPreservesUnknownFieldsSemantically(t *testing.T) {
 	// Round-trip: bash reads/writes through jq which preserves unknown
 	// fields; Go must not drop them.

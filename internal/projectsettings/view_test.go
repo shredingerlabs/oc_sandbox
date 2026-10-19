@@ -36,7 +36,7 @@ func TestOpenProjectPreselected(t *testing.T) {
 	if i, _ := findLine(lines, "vcs  AI Provider"); i != 4 {
 		t.Fatalf("button row at line %d, want 4 (first card)", i)
 	}
-	if got := v.Rects(); len(got) != 2 || got[0].Y != 7 {
+	if got := v.Rects(); len(got) != 3 || got[0].Y != 7 {
 		t.Fatalf("button rects not on the first card: %+v", got)
 	}
 }
@@ -50,6 +50,7 @@ func TestButtonRectsGeometry(t *testing.T) {
 	want := []shell.Rect{
 		{X: 3, Y: 7, W: 3, H: 1},
 		{X: 8, Y: 7, W: 11, H: 1},
+		{X: 21, Y: 7, W: 6, H: 1},
 	}
 	if got := v.Rects(); !rectsEqual(got, want) {
 		t.Fatalf("rects = %+v, want %+v", got, want)
@@ -61,7 +62,7 @@ func TestPaneStartsEmpty(t *testing.T) {
 	e := newEnv(t, "alpha", "beta")
 	v := e.view(t)
 	lines := bodyLines(t, v)
-	if !someLine(lines, "select a card, then vcs or AI Provider") {
+	if !someLine(lines, "select a card, then vcs, AI Provider") {
 		t.Fatalf("empty-pane hint missing:\n%s", join(lines))
 	}
 }
@@ -79,11 +80,11 @@ func TestCardClickSelectsAndResetsPane(t *testing.T) {
 
 	v.Update(clickAt(1, 10))
 	lines := bodyLines(t, v)
-	if !someLine(lines, "select a card, then vcs or AI Provider") {
+	if !someLine(lines, "select a card, then vcs, AI Provider") {
 		t.Fatalf("pane not reset to hint after card switch:\n%s", join(lines))
 	}
 	// Selection moved to beta: its card now holds the button rects.
-	if got := v.Rects(); len(got) != 2 || got[0].Y != 14 {
+	if got := v.Rects(); len(got) != 3 || got[0].Y != 14 {
 		t.Fatalf("button rects not on beta's card: %+v", got)
 	}
 }
@@ -110,7 +111,7 @@ func TestUnselectedButtonOnlySelects(t *testing.T) {
 	v := e.view(t)
 	v.Body(76, 26)
 	v.Update(clickAt(1, 10)) // beta card
-	if !someLine(bodyLines(t, v), "select a card, then vcs or AI Provider") {
+	if !someLine(bodyLines(t, v), "select a card, then vcs, AI Provider") {
 		t.Fatalf("pane should stay empty on mere selection")
 	}
 	clickCard(t, v, "vcs")
@@ -127,15 +128,15 @@ func TestKeyboardMovesSelection(t *testing.T) {
 	clickCard(t, v, "vcs") // pane open on alpha
 	v.Update(keyMsg("right"))
 	lines := bodyLines(t, v)
-	if !someLine(lines, "select a card, then vcs or AI Provider") {
+	if !someLine(lines, "select a card, then vcs, AI Provider") {
 		t.Fatalf("pane not reset after keyboard selection:\n%s", join(lines))
 	}
-	if got := v.Rects(); len(got) != 2 || got[0].Y != 14 {
+	if got := v.Rects(); len(got) != 3 || got[0].Y != 14 {
 		t.Fatalf("selection did not move to beta: %+v", got)
 	}
 	v.Update(keyMsg("left"))
 	bodyLines(t, v) // re-render so the rects reflect the selection
-	if got := v.Rects(); len(got) != 2 || got[0].Y != 7 {
+	if got := v.Rects(); len(got) != 3 || got[0].Y != 7 {
 		t.Fatalf("selection did not move back to alpha: %+v", got)
 	}
 }
@@ -150,7 +151,7 @@ func TestTabCyclesFocus(t *testing.T) {
 	v.Update(keyMsg("tab"))  // pane has no items: back to the grid
 	v.Update(keyMsg("down")) // still moves the grid selection
 	bodyLines(t, v)          // re-render so the rects reflect the selection
-	if got := v.Rects(); len(got) != 2 || got[0].Y != 14 {
+	if got := v.Rects(); len(got) != 3 || got[0].Y != 14 {
 		t.Fatalf("focus lost after tab cycle: %+v", got)
 	}
 }
@@ -163,7 +164,7 @@ func TestEnterOnGridDoesNothing(t *testing.T) {
 	if cmd := v.Update(keyMsg("enter")); cmd != nil {
 		t.Fatalf("enter on the grid produced a cmd %v", cmd)
 	}
-	if !someLine(bodyLines(t, v), "select a card, then vcs or AI Provider") {
+	if !someLine(bodyLines(t, v), "select a card, then vcs, AI Provider") {
 		t.Fatalf("enter must not open the pane")
 	}
 }

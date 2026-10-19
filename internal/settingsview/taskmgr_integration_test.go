@@ -29,7 +29,7 @@ func TestUninstallThroughSharedQueue(t *testing.T) {
 	home := homeFixture(t)
 	run := fakeRunner()
 	v, mgr := queueSettings(t, home, run)
-	v.Update(shell.SubTabMsg{Index: 3})
+	v.Update(shell.SubTabMsg{Index: subUninstall})
 	for i := 0; i < 3; i++ {
 		key(v, "down")
 	}
@@ -61,7 +61,7 @@ func TestExportThroughSharedQueue(t *testing.T) {
 	pp := config.Paths{Home: home}.ProjectsPath()
 	writeFile(t, pp, "{\n  \"projects\": [],\n  \"version\": \"1.0\"\n}")
 	dest := filepath.Join(home, "exported-projects.json")
-	v.Update(shell.SubTabMsg{Index: 1})
+	v.Update(shell.SubTabMsg{Index: subExport})
 	clickLabel(t, v, "Export Config…")
 	clearField(v, len(home)+129)
 	typeText(v, dest)
@@ -88,7 +88,7 @@ func TestRestoreThroughSharedQueueWritesActiveFile(t *testing.T) {
 	const before = "{\n    \"projects\": []\n  }"
 	writeFile(t, pp, before)
 	writeBackup(t, home, "projects.json.20260101T000000000.aaa111", "{\n  \"projects\": [\n    { \"restored\": true }\n  ],\n  \"version\": \"1.0\"\n}")
-	v.Update(shell.SubTabMsg{Index: 2})
+	v.Update(shell.SubTabMsg{Index: subRestore})
 	cmd := v.doRestore() // restore action directly (keyboard parity tested elsewhere)
 	if !mgr.BusyKey("settings") {
 		t.Fatal("restore op not queued")

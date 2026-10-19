@@ -268,6 +268,7 @@ func TestImportPickerGolden(t *testing.T) {
 	sandboxRoot(t, home, "alpha", "python", []string{"bridge"}, "terminal")
 	plainDir(t, home, "plain")
 	v := newSettings(t, home, nil)
+	v.Update(shell.SubTabMsg{Index: subImport})
 	golden(t, "import-picker", home, v.Body(76, 26))
 }
 
@@ -275,6 +276,7 @@ func TestNonMatchingFolderPromptAndWizardCmd(t *testing.T) {
 	home := homeFixture(t)
 	plainDir(t, home, "plain")
 	v := newSettings(t, home, nil)
+	v.Update(shell.SubTabMsg{Index: subImport})
 
 	// pick the plain dir through the chooser: descend into other/plain
 	// and select that folder into the path entry
@@ -308,6 +310,7 @@ func TestImportBrokenConfigPrompt(t *testing.T) {
 	root := sandboxRoot(t, home, "broken", "python", []string{"bridge"}, "terminal")
 	writeFile(t, sandboxcfg.Path(root), "{not json]}")
 	v := newSettings(t, home, nil)
+	v.Update(shell.SubTabMsg{Index: subImport})
 	typePath(t, v, root)
 	clickLabel(t, v, "Import Project")
 	if b := body(v); !strings.Contains(b, "Config is broken") {
@@ -321,6 +324,7 @@ func TestImportRegistersCompleteRootStoppedNoCopy(t *testing.T) {
 	before := dirEntries(t, root)
 
 	v := newSettings(t, home, nil)
+	v.Update(shell.SubTabMsg{Index: subImport})
 	typePath(t, v, root)
 	clickLabel(t, v, "Import Project") // structure check passes → summary
 
@@ -365,6 +369,7 @@ func TestImportDuplicatePathToast(t *testing.T) {
 		t.Fatal(err)
 	}
 	v := newSettings(t, home, nil)
+	v.Update(shell.SubTabMsg{Index: subImport})
 	typePath(t, v, root)
 	clickLabel(t, v, "Import Project")
 	if b := body(v); !strings.Contains(b, "Already registered") {
@@ -377,7 +382,7 @@ func TestImportDuplicatePathToast(t *testing.T) {
 func TestExportGolden(t *testing.T) {
 	home := homeFixture(t)
 	v := newSettings(t, home, nil)
-	v.Update(shell.SubTabMsg{Index: 1})
+	v.Update(shell.SubTabMsg{Index: subExport})
 	golden(t, "export-main", home, v.Body(76, 26))
 }
 
@@ -388,7 +393,7 @@ func TestExportSnapshotThroughBackupMachinery(t *testing.T) {
 	writeFile(t, pp, content)
 
 	v := newSettings(t, home, nil)
-	v.Update(shell.SubTabMsg{Index: 1})
+	v.Update(shell.SubTabMsg{Index: subExport})
 	clickLabel(t, v, "Export Config…")
 	clearField(v, len(home)+129)
 	typeText(v, filepath.Join(home, "exported-projects.json"))
@@ -412,7 +417,7 @@ func TestExportSnapshotThroughBackupMachinery(t *testing.T) {
 func TestExportSaveAsGolden(t *testing.T) {
 	home := homeFixture(t)
 	v := newSettings(t, home, nil)
-	v.Update(shell.SubTabMsg{Index: 1})
+	v.Update(shell.SubTabMsg{Index: subExport})
 	clickLabel(t, v, "Export Config…")
 	golden(t, "export-saveas", home, v.Body(76, 26))
 }
@@ -420,7 +425,7 @@ func TestExportSaveAsGolden(t *testing.T) {
 func TestExportCancel(t *testing.T) {
 	home := homeFixture(t)
 	v := newSettings(t, home, nil)
-	v.Update(shell.SubTabMsg{Index: 1})
+	v.Update(shell.SubTabMsg{Index: subExport})
 	clickLabel(t, v, "Export Config…")
 	key(v, "down")
 	key(v, "down")
@@ -436,7 +441,7 @@ func TestExportCancel(t *testing.T) {
 func TestRestoreNoBackupsGolden(t *testing.T) {
 	home := homeFixture(t)
 	v := newSettings(t, home, nil)
-	v.Update(shell.SubTabMsg{Index: 2})
+	v.Update(shell.SubTabMsg{Index: subRestore})
 	golden(t, "restore-empty", home, v.Body(76, 26))
 }
 
@@ -453,7 +458,7 @@ func TestRestoreOrderedWriteIsNoBackup(t *testing.T) {
 	writeBackup(t, home, "projects.json.20260102T000000000.bbb222", "{\n  \"projects\": [],\n  \"version\": \"1.0\"\n}")
 
 	v := newSettings(t, home, nil)
-	v.Update(shell.SubTabMsg{Index: 2})
+	v.Update(shell.SubTabMsg{Index: subRestore})
 	key(v, "down") // focus backup row 1 (older backup)
 	key(v, "enter")
 	key(v, "down") // focus the Restore button → popup (ADR-0021)
@@ -485,7 +490,7 @@ func TestRestoreInvalidJSONLeavesActiveUntouched(t *testing.T) {
 	writeBackup(t, home, "projects.json.20260101T000000000.ccc333", "{broken")
 
 	v := newSettings(t, home, nil)
-	v.Update(shell.SubTabMsg{Index: 2})
+	v.Update(shell.SubTabMsg{Index: subRestore})
 	key(v, "down")  // backup row → Restore button
 	key(v, "enter") // popup (ADR-0021)
 	key(v, "tab")
@@ -512,7 +517,7 @@ func writeBackup(t *testing.T, home, name, content string) {
 func TestUninstallGoldenWithRunningContainers(t *testing.T) {
 	home := homeFixture(t)
 	v := newSettings(t, home, fakeRunner("opencode-sandbox-alpha", "opencode-sandbox-beta"))
-	v.Update(shell.SubTabMsg{Index: 3})
+	v.Update(shell.SubTabMsg{Index: subUninstall})
 	golden(t, "uninstall-running", home, v.Body(76, 26))
 	// clipped rows keep the warning + stop-hint prefix visible; the full
 	// podman-stop command appears once the window has the room for it.
@@ -529,7 +534,7 @@ func TestUninstallInvocationMapsFlags(t *testing.T) {
 	home := homeFixture(t)
 	run := fakeRunner()
 	v := newSettings(t, home, run)
-	v.Update(shell.SubTabMsg{Index: 3})
+	v.Update(shell.SubTabMsg{Index: subUninstall})
 	for i := 0; i < 3; i++ {
 		key(v, "down") // 3 option rows → confirm field
 	}
@@ -567,7 +572,7 @@ func TestUninstallFlagCombos(t *testing.T) {
 	home := homeFixture(t)
 	run := fakeRunner()
 	v := newSettings(t, home, run)
-	v.Update(shell.SubTabMsg{Index: 3})
+	v.Update(shell.SubTabMsg{Index: subUninstall})
 	// option 0 (remove config): on = --remove-config
 	key(v, " ")
 	// option 1 (symlinks, on): off = --no-symlinks
@@ -596,7 +601,7 @@ func TestUninstallNotArmedNoInvocation(t *testing.T) {
 	home := homeFixture(t)
 	run := fakeRunner()
 	v := newSettings(t, home, run)
-	v.Update(shell.SubTabMsg{Index: 3})
+	v.Update(shell.SubTabMsg{Index: subUninstall})
 	for i := 0; i < 4; i++ {
 		key(v, "down") // options → confirm → button
 	}
@@ -614,7 +619,7 @@ func TestUninstallNotArmedNoInvocation(t *testing.T) {
 func TestUninstallTogglesViaSpaceEnterClick(t *testing.T) {
 	home := homeFixture(t)
 	v := newSettings(t, home, fakeRunner())
-	v.Update(shell.SubTabMsg{Index: 3})
+	v.Update(shell.SubTabMsg{Index: subUninstall})
 	key(v, " ") // space toggles the focused row (config default off)
 	if b := body(v); !strings.Contains(b, "[x] Remove config") {
 		t.Errorf("space did not toggle the config row:\n%s", b)
@@ -635,6 +640,7 @@ func TestUninstallTogglesViaSpaceEnterClick(t *testing.T) {
 func TestHitRectsOnRenderedRows(t *testing.T) {
 	home := homeFixture(t)
 	v := newSettings(t, home, nil)
+	v.Update(shell.SubTabMsg{Index: subImport})
 	v.Body(76, 26)
 	if len(v.Rects()) == 0 {
 		t.Fatal("no hit rects rendered for the import picker")
@@ -660,7 +666,7 @@ func TestHitRectsOnRenderedRows(t *testing.T) {
 func TestHitRectRegressionFocusShift(t *testing.T) {
 	home := homeFixture(t)
 	v := newSettings(t, home, fakeRunner())
-	v.Update(shell.SubTabMsg{Index: 3})
+	v.Update(shell.SubTabMsg{Index: subUninstall})
 	for i := 0; i < 4; i++ {
 		key(v, "down") // confirm → button
 	}
@@ -678,7 +684,7 @@ func TestHitRectRegressionFocusShift(t *testing.T) {
 func TestKeyboardParityScroll(t *testing.T) {
 	home := homeFixture(t)
 	v := newSettings(t, home, fakeRunner())
-	v.Update(shell.SubTabMsg{Index: 3})
+	v.Update(shell.SubTabMsg{Index: subUninstall})
 	for i := 0; i < 4; i++ {
 		key(v, "down")
 	}
@@ -692,7 +698,7 @@ func TestKeyboardParityScroll(t *testing.T) {
 func TestWheelScrollsPaneRestores(t *testing.T) {
 	home := homeFixture(t)
 	v := newSettings(t, home, fakeRunner())
-	v.Update(shell.SubTabMsg{Index: 3})
+	v.Update(shell.SubTabMsg{Index: subUninstall})
 	top := shell.StripANSI(v.Body(76, 12))
 	v.Update(tea.MouseMsg{Button: tea.MouseButtonWheelDown})
 	moved := shell.StripANSI(v.Body(76, 12))
@@ -714,7 +720,7 @@ func TestUninstallRunningRowClipsToWindowWidth(t *testing.T) {
 	home := homeFixture(t)
 	name := "opencode-sandbox-a-very-long-registry-style-web-container-name"
 	v := newSettings(t, home, fakeRunner(name))
-	v.Update(shell.SubTabMsg{Index: 3})
+	v.Update(shell.SubTabMsg{Index: subUninstall})
 	b := v.Body(76, 26)
 	for _, l := range strings.Split(b, "\n") {
 		if w := shell.Width(l); w > 76 {

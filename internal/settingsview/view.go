@@ -22,10 +22,20 @@ import (
 	"github.com/shredingerlabs/oc-sandbox/internal/taskmgr"
 )
 
-// Sub-menu tab items (approved layout record #72); "Edit Project
-// settings" (index 4) delegates its pane surface to the projectsettings
-// view (ticket #108).
-var tabs = []string{"Import project", "Export Config", "Restore Config", "Uninstall", "Edit Project settings"}
+// Sub-menu tab items; "Edit Project settings" first (feedback: it is the
+// starting tab), the core panes follow in their order. "Edit Project
+// settings" delegates its pane surface to the projectsettings view
+// (ticket #108).
+var tabs = []string{"Edit Project settings", "Import project", "Export Config", "Restore Config", "Uninstall"}
+
+// Pane indexes into tabs: which pane each sub-menu position routes to.
+const (
+	subEdit      = 0 // full delegation to projectsettings (#108)
+	subImport    = 1
+	subExport    = 2
+	subRestore   = 3
+	subUninstall = 4
+)
 
 // View is the Settings center view. Home is $HOME; the config layout,
 // registry, backups and the default install root hang off it. Tasks is
@@ -44,7 +54,7 @@ type View struct {
 	opSeq        int // view-assigned task handles
 	queuePending map[int]func(err error) tea.Cmd
 
-	sub   int // 0..3 core panes, 4 edit-project-settings (delegated)
+	sub   int // pane index (subImport..subUninstall, subEdit delegated)
 	toast string
 
 	ps *projectsettings.View // Edit Project settings screen (#108)
@@ -145,7 +155,7 @@ func (v *View) SubTabs() ([]string, int) { return tabs, v.sub }
 // TextFocused implements shell.CenterView: true while a text input holds
 // focus so the shell suppresses 1–4/q/esc and letters type.
 func (v *View) TextFocused() bool {
-	if v.sub == 4 {
+	if v.sub == subEdit {
 		return v.ps.TextFocused()
 	}
 	return v.focusedField() != nil
@@ -155,7 +165,7 @@ func (v *View) TextFocused() bool {
 // out by the last Body render (regression-tested geometry); the Edit
 // Project settings tab delegates to its view.
 func (v *View) Rects() []shell.Rect {
-	if v.sub == 4 {
+	if v.sub == subEdit {
 		return v.ps.Rects()
 	}
 	return v.rects
@@ -164,7 +174,7 @@ func (v *View) Rects() []shell.Rect {
 // ConfirmOpen implements shell.ConfirmView (ADR-0021): the popup is up —
 // the pane's own or the delegated Edit Project settings view's.
 func (v *View) ConfirmOpen() bool {
-	return v.confirm.IsOpen() || (v.sub == 4 && v.ps.ConfirmOpen())
+	return v.confirm.IsOpen() || (v.sub == subEdit && v.ps.ConfirmOpen())
 }
 
 // Update implements shell.CenterView.
@@ -187,7 +197,7 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 		if v.confirm.IsOpen() { // the popup consumes keys (ADR-0021)
 			return v.confirm.Key(msg)
 		}
-		if v.sub == 4 { // Edit Project settings: full delegation (#108)
+		if v.sub == subEdit { // Edit Project settings: full delegation (#108)
 			return v.ps.Update(msg)
 		}
 		return v.key(msg)
@@ -198,7 +208,7 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 					return cmd
 				}
 			}
-			if v.sub == 4 {
+			if v.sub == subEdit {
 				return v.ps.Update(msg)
 			}
 			v.click(msg.X, msg.Y)
@@ -207,7 +217,7 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 			return cmd
 		}
 		if msg.Button == tea.MouseButtonWheelUp || msg.Button == tea.MouseButtonWheelDown {
-			if v.sub == 4 {
+			if v.sub == subEdit {
 				return v.ps.Update(msg)
 			}
 			dir := 1
@@ -241,15 +251,15 @@ func (v *View) taskDone(msg taskmgr.DoneMsg) (tea.Cmd, bool) {
 // fresh per entry, never cached across renders).
 func (v *View) enterPane() {
 	switch v.sub {
-	case 2:
+	case subRestore:
 		v.resBackups = listBackups(v.home)
 		if v.resSel >= len(v.resBackups) {
 			v.resSel = 0
 		}
-	case 3:
+	case subUninstall:
 		v.unSeen = true
 		v.unRunning = discovery.RunningContainers(v.run)
-	case 4:
+	case subEdit:
 		v.ps.Reload() // fresh registry: cards reflect the current fixtures
 	}
 }
@@ -261,13 +271,13 @@ func (v *View) Body(width, height int) string {
 	var hits []hitRow
 	var focusRow int
 	switch v.sub {
-	case 0:
+	case subImport:
 		rows, hits, focusRow = v.importPane()
-	case 1:
+	case subExport:
 		rows, hits, focusRow = v.exportPane()
-	case 2:
+	case subRestore:
 		rows, hits, focusRow = v.restorePane()
-	case 3:
+	case subUninstall:
 		rows, hits, focusRow = v.uninstallPane(width)
 	default:
 		return v.ps.Body(width, height) // Edit Project settings (#108)
@@ -320,18 +330,18 @@ const cardX = 4
 // focusedField returns the currently focused text input, if any.
 func (v *View) focusedField() *field {
 	switch v.sub {
-	case 0:
+	case subImport:
 		if v.impStage == 0 && v.impFocus == 0 {
 			return &field{&v.impPath, &v.impCur}
 		}
 		if v.impStage == 1 && v.impFocus == 0 {
 			return &field{&v.impName, &v.impNameCur}
 		}
-	case 1:
+	case subExport:
 		if v.expStage == 1 && v.expFocus == 0 {
 			return &field{&v.expDest, &v.expCur}
 		}
-	case 3:
+	case subUninstall:
 		if v.unFocus == 3 {
 			return &field{&v.unConfirm, &v.unCur}
 		}
@@ -347,7 +357,7 @@ type field struct {
 // focusCount is the number of focusable items in the current pane.
 func (v *View) focusCount() int {
 	switch v.sub {
-	case 0:
+	case subImport:
 		switch v.impStage {
 		case 0:
 			return 1 + len(v.chooserRows()) + 1 // path field, chooser rows, import button
@@ -356,12 +366,12 @@ func (v *View) focusCount() int {
 		default:
 			return 2 // new-project wizard, back
 		}
-	case 1:
+	case subExport:
 		if v.expStage == 0 {
 			return 1
 		}
 		return 3 // dest field, save, cancel
-	case 2:
+	case subRestore:
 		return len(v.resBackups) + 1 // backup rows, restore button
 	default:
 		return 5 // 3 option rows, confirm field, button
@@ -376,13 +386,13 @@ func (v *View) moveFocus(d int) {
 // applyMoveFocus steps the current pane's focus cursor with wraparound.
 func (v *View) applyMoveFocus(d int) {
 	switch v.sub {
-	case 0:
+	case subImport:
 		v.impFocus = (v.impFocus + d + v.focusCount()) % v.focusCount()
-	case 1:
+	case subExport:
 		if v.expStage != 0 {
 			v.expFocus = (v.expFocus + d + v.focusCount()) % v.focusCount()
 		}
-	case 2:
+	case subRestore:
 		v.resFocus = (v.resFocus + d + v.focusCount()) % v.focusCount()
 	default:
 		v.unFocus = (v.unFocus + d + v.focusCount()) % v.focusCount()
@@ -424,7 +434,7 @@ func (v *View) key(msg tea.KeyMsg) tea.Cmd {
 	case "enter":
 		return v.activate()
 	case " ":
-		if v.sub == 3 && v.unFocus < 3 {
+		if v.sub == subUninstall && v.unFocus < 3 {
 			v.toggleUninstallOpt(v.unFocus)
 		}
 	case "backspace":
@@ -448,16 +458,16 @@ func (v *View) click(x, y int) {
 // activate runs the focused item's action (keyboard parity for clicks).
 func (v *View) activate() tea.Cmd {
 	switch v.sub {
-	case 0:
+	case subImport:
 		return v.importActivate()
-	case 1:
+	case subExport:
 		return v.exportActivate()
-	case 2:
+	case subRestore:
 		return v.restoreActivate()
-	case 3:
+	case subUninstall:
 		return v.uninstallActivate()
 	}
-	return nil // case 4 (Edit Project settings) is fully delegated
+	return nil // case subEdit (Edit Project settings) is fully delegated
 }
 
 func insertRune(f *field, r rune) {

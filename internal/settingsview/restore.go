@@ -22,7 +22,7 @@ func (v *View) restorePane() ([]string, []hitRow, int) {
 			muted("Config writes and the Export Config card create"),
 			muted("backups under ~/.config/oc-sandbox/backups."),
 		}, "Back", false, func() tea.Cmd {
-			v.sub, v.resBackups, v.scroll, v.resSel = 0, nil, 0, 0
+			v.sub, v.resBackups, v.scroll, v.resSel = subImport, nil, 0, 0
 			return nil
 		})
 		return rows, []hitRow{back}, back.row

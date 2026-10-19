@@ -37,3 +37,13 @@ remains its own three-option decision.
   (one op at a time, log streaming).
 - **Quit keeps bash parity**: ask only while background work runs, clean
   exit 0 otherwise; `ctrl+c` exits 130 without asking.
+
+## Update — Remove project from list (added later)
+
+The fifth application: **Edit Project settings → Remove project from
+list** (the removal pane button, glossary "remove project from list") gets
+the shared popup with a red `Remove` confirm and default-focus `Cancel`.
+The context is thicker than the one-line rule — three lines (what the
+removal touches, what stays, the running-container warning) were judged
+worth the read, following the Uninstall echo precedent. The card's
+`remove` button stays above the gate: it opens the pane only.
