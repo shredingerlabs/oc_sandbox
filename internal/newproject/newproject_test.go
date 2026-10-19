@@ -322,6 +322,21 @@ func TestSubTabsAndRepoURLFieldAppearsWithFromURL(t *testing.T) {
 	}
 }
 
+// TestFromURLFieldOrderURLNamePath: the From URL card mirrors the bash
+// wizard (start-tui.sh): Repo URL first, then Project name, then Project
+// path; entering the tab lands focus on the URL row (bash parity, where
+// the URL is the first prompt and the name prefills from it).
+func TestFromURLFieldOrderURLNamePath(t *testing.T) {
+	m, _, _ := newTestModel(t)
+	m.Update(shell.SubTabMsg{Index: 1})
+	if got := m.fields[:3]; got[0] != fURL || got[1] != fName || got[2] != fPath {
+		t.Fatalf("From URL field order = %v, want [fURL fName fPath]", got)
+	}
+	if f := m.fields[m.focus]; f != fURL {
+		t.Fatalf("focus = field %d, want the Repo URL row", f)
+	}
+}
+
 // --- fixed order + ● / ○ tokens -----------------------------------------
 
 func TestOptionsRenderedInFixedOrderWithSymbols(t *testing.T) {

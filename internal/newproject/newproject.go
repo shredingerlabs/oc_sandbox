@@ -768,7 +768,9 @@ func (m *Model) refresh() {
 func (m *Model) fieldList() []int {
 	fs := []int{fName, fPath}
 	if m.source == srcURL {
-		fs = append(fs, fURL)
+		// From URL mirrors the bash wizard (start-tui.sh): the repo URL is
+		// asked first, the name prefills from it and the path from the name.
+		fs = []int{fURL, fName, fPath}
 	}
 	fs = append(fs, fEdition)
 	// "Image build" radio row directly under the editions while the

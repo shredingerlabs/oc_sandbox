@@ -59,12 +59,10 @@ func TestBuildRowClickableAtSmallHeight(t *testing.T) {
 func testBuildRowClick(t *testing.T, source int, h int) {
 	m, ops, reg := newTestModel(t, func(ops *recOps, run *cmdrun.Fake) { withoutImage(run) })
 	if source == srcURL {
-		// switch to the From URL source tab, fill name, then tab to the
-		// URL field and give it a repo URL (validation requires one).
+		// switch to the From URL source tab: the Repo URL row is first, so
+		// focus already sits there; type the repo URL (name/path prefills
+		// from it, and validation requires one).
 		m.Update(shell.SubTabMsg{Index: srcURL})
-		typeKeys(t, m, "deferred")
-		m.Update(tea.KeyMsg{Type: tea.KeyTab}) // fName → fPath
-		m.Update(tea.KeyMsg{Type: tea.KeyTab}) // fPath → fURL
 		typeKeys(t, m, "https://github.com/user/deferred.git")
 	} else {
 		typeKeys(t, m, "deferred")
