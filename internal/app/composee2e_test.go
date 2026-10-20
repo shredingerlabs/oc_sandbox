@@ -320,8 +320,17 @@ func TestE2ECreateSingleClickActivates(t *testing.T) {
 		t.Fatalf("single click did not run the create flow; screen:\n%s", screenOf(t, rec))
 	}
 	reg := &registry.Registry{Home: home, Now: time.Now}
-	if _, err := reg.ByName("singleproj"); err != nil {
-		t.Fatalf("registry write missing: %v", err)
+	// The create-flow log pane announces "Creating project" the moment
+	// the chain is queued — poll until the registry write lands.
+	deadline := time.Now().Add(15 * time.Second)
+	for {
+		if _, err := reg.ByName("singleproj"); err == nil {
+			break
+		}
+		if !time.Now().Before(deadline) {
+			t.Fatalf("registry write missing; screen:\n%s", screenOf(t, rec))
+		}
+		time.Sleep(50 * time.Millisecond)
 	}
 }
 

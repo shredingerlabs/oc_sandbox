@@ -3,6 +3,8 @@ package newproject
 import (
 	"strings"
 
+	"github.com/charmbracelet/lipgloss"
+
 	"github.com/shredingerlabs/oc-sandbox/internal/shell"
 )
 
@@ -291,12 +293,20 @@ func (m *Model) optionIsCurrent(f int, o string) bool {
 // the scroll window are dropped and all recorded rects shift up by the
 // scroll offset.
 func (m *Model) Body(width, height int) string {
+	// The streamed create-chain pane rides below the card while an op
+	// runs (spinner head + live output); after a failure it stays
+	// readable next to the failure toast.
+	showPane := m.paneVisible()
 	rows, btnRect := m.fullRows(width)
 	// Scroll bookkeeping: the follow pulls the focused row into the
 	// window (wheel free-scroll pauses it — the follow only fires when
 	// the focused field moved since the last pass), windowed rows sit
 	// inside the card border (it consumes 2 rows of the body region).
+	// While the pane shows, the card yields ~8 body rows to it.
 	avail := max(1, height-2)
+	if showPane {
+		avail = max(3, avail-8)
+	}
 	m.follow.Pull(&m.npScroll, m.focus, m.focusFirstRow(), len(rows), avail)
 	end := min(len(rows), m.npScroll+avail)
 	vis := rows[m.npScroll:end]
@@ -331,6 +341,11 @@ func (m *Model) Body(width, height int) string {
 	body := shell.PadLeft(BodyPad, card)
 	if m.confirm.IsOpen() { // the popup overlays the form card (ADR-0021)
 		body = m.confirm.Overlay(width, height, shell.BodyTop)
+	} else if showPane {
+		if rest := height - lipgloss.Height(card); rest > 1 {
+			m.log = m.log.SetSize(width-BodyPad, rest)
+			body = body + "\n" + shell.PadLeft(BodyPad, m.log.View())
+		}
 	}
 	return body
 }

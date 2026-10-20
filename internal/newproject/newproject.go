@@ -125,6 +125,10 @@ type Model struct {
 	// taskmgr.DoneMsg; without it the flow stays synchronous (legacy).
 	Tasks *taskmgr.Manager
 
+	log         shell.LogPane // create-chain streaming pane (build/init/creds)
+	busy        bool          // a create-chain op runs (Tasks mode only)
+	chainFailed bool          // last chain failed: the pane stays readable
+
 	opSeq   int                             // view-assigned op handles
 	pending map[int]func(err error) tea.Cmd // op id → continuation
 
@@ -202,6 +206,7 @@ func New(cfg Config, run cmdrun.Runner, ops Ops, reg *registry.Registry) *Model 
 		buildNow: true,
 		imgKnown: map[string]bool{},
 		pending:  map[int]func(err error) tea.Cmd{},
+		log:      shell.NewLogPane(),
 	}
 	m.follow = shell.NewFollow(false, true)
 	m.follow.Arm()
@@ -212,6 +217,13 @@ func New(cfg Config, run cmdrun.Runner, ops Ops, reg *registry.Registry) *Model 
 // Created reports whether the project has been created and registered.
 func (m *Model) Created() bool { return m.created }
 
+// paneVisible reports whether the create-chain log pane shows below the
+// form card: while a chain op runs (spinner + streamed lines), or after
+// a failed chain (readable output next to the failure toast).
+func (m *Model) paneVisible() bool {
+	return m.busy || (m.chainFailed && len(m.log.Lines()) > 0)
+}
+
 // SubTabs implements shell.CenterView: the project source tabs.
 func (m *Model) SubTabs() ([]string, int) {
 	return []string{"Blank Project", "From URL"}, m.source
@@ -219,6 +231,9 @@ func (m *Model) SubTabs() ([]string, int) {
 
 // TextFocused implements shell.CenterView.
 func (m *Model) TextFocused() bool {
+	if m.busy { // the create chain runs: keys scroll the log, the form is inert
+		return false
+	}
 	if m.confirm.IsOpen() { // popup keys override the form
 		return false
 	}
@@ -248,12 +263,30 @@ func (m *Model) Update(msg tea.Msg) tea.Cmd {
 		return nil
 	case taskmgr.DoneMsg:
 		return m.taskDone(msg)
+	case taskmgr.LineEvent:
+		// Key-only filter: the queue runs one create flow at a time
+		// ("newproject" key), so the id cannot collide within the key.
+		if msg.Key == "newproject" {
+			var cmd tea.Cmd
+			m.log, cmd = m.log.Update(shell.LineMsg(msg.Text))
+			return cmd
+		}
+		return nil
 	case tea.KeyMsg:
+		if m.busy { // the form is inert while the chain runs: keys scroll the log
+			m.log, _ = m.log.Update(msg)
+			return nil
+		}
 		if m.confirm.IsOpen() { // the popup consumes keys (ADR-0021)
 			return m.confirm.Key(msg)
 		}
 		return m.key(msg)
 	case tea.MouseMsg:
+		if m.paneVisible() { // the running/failed pane takes the wheel
+			var cmd tea.Cmd
+			m.log, cmd = m.log.Update(msg)
+			return cmd
+		}
 		if msg.Button == tea.MouseButtonWheelUp || msg.Button == tea.MouseButtonWheelDown {
 			dir := 1
 			if msg.Button == tea.MouseButtonWheelUp {
@@ -267,6 +300,12 @@ func (m *Model) Update(msg tea.Msg) tea.Cmd {
 			}
 		}
 		return m.mouse(msg)
+	default:
+		if m.busy { // spinner ticks and other pane traffic while the chain runs
+			var cmd tea.Cmd
+			m.log, cmd = m.log.Update(msg)
+			return cmd
+		}
 	}
 	return nil
 }
@@ -284,7 +323,13 @@ func (m *Model) taskDone(msg taskmgr.DoneMsg) tea.Cmd {
 	if msg.Err != nil {
 		m.toast = msg.Err.Error()
 	}
-	return after(msg.Err)
+	cmd := after(msg.Err)
+	if len(m.pending) == 0 { // chain idle: spinner off; a failure keeps the pane readable
+		m.busy = false
+		m.log = m.log.Run(false)
+		m.chainFailed = msg.Err != nil
+	}
+	return cmd
 }
 
 // queueScript routes ONE script invocation through the shared task
@@ -296,9 +341,12 @@ func (m *Model) queueScript(title string, run func() (string, error), after func
 		_, err := run()
 		return after(err)
 	}
+	m.busy = true
+	m.log, _ = m.log.Update(shell.LineMsg("==> " + title)) // step header in the streamed pane
+	m.log = m.log.Run(true)
 	m.opSeq++
 	m.pending[m.opSeq] = after
-	return m.Tasks.Launch(taskmgr.Op{
+	cmd := m.Tasks.Launch(taskmgr.Op{
 		ID:    m.opSeq,
 		Key:   "newproject", // one create flow at a time
 		Title: title,
@@ -310,6 +358,10 @@ func (m *Model) queueScript(title string, run func() (string, error), after func
 			return err
 		},
 	})
+	if spin := m.log.Spin(); spin != nil {
+		return tea.Batch(cmd, spin)
+	}
+	return cmd
 }
 
 // promptVals returns the option tokens of the credential confirm row.

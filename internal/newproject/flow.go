@@ -14,6 +14,7 @@ import (
 	"github.com/shredingerlabs/oc-sandbox/internal/providerid"
 	"github.com/shredingerlabs/oc-sandbox/internal/registry"
 	"github.com/shredingerlabs/oc-sandbox/internal/sandboxcfg"
+	"github.com/shredingerlabs/oc-sandbox/internal/shell"
 )
 
 // --- live discovery adapters (fresh per call, data map §2) ---------------
@@ -128,6 +129,10 @@ func (m *Model) create() tea.Cmd {
 	if m.edition == "" {
 		m.toast = "No container editions found in Dockerfile/Dockerfile.custom."
 		return nil
+	}
+	if m.Tasks != nil && !m.busy { // fresh streamed pane per create chain
+		m.log = shell.NewLogPane()
+		m.chainFailed = false
 	}
 	if !imageExistsLive(m.run, m.edition) {
 		if !m.buildNow {
