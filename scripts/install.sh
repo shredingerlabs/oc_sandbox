@@ -25,9 +25,10 @@ DOWNLOADED_VERSION=""
 USER_AGENT="opencode-sandbox-install-script"
 PRESERVE_ALLOWLIST=true
 # Go TUI binary: when true, symlink/desktop shortcut point at the oc-sandbox
-# binary in <install>/bin instead of the bash start-tui.sh (bash TUI remains
-# default until the Go TUI parity gate passes — see issue #68 / #60).
-BINARY_TUI=false
+# binary in <install>/bin instead of the bash start-tui.sh. Default since the
+# parity-gate flip (issue #98 / #73); --bash-tui restores the bash TUI as
+# escape hatch — see issue #68 / #60, ADR 0020.
+BINARY_TUI=true
 BINARY_NAME="oc-sandbox"
 
 # --- Go TUI Binary Selection ---------------------------------------------------
@@ -59,8 +60,8 @@ install_dir_binary() {
   printf '%s/%s/%s\n' "$install_dir" "$subpath" "$(go_binary_platform_name)"
 }
 
-# Entry-Point-Pfad: das Go-Binary hinter --bin, sonst die Bash-TUI
-# (Default bis der Parity-Gate-Flip kommt).
+# Entry-Point-Pfad: das Go-Binary (Default), mit --bash-tui die Bash-TUI
+# als Ausweichoption.
 entry_point_path() {
   local install_dir="$1"
   if $BINARY_TUI; then
@@ -577,17 +578,17 @@ install_files() {
 }
 
 # Plattform passendes oc-sandbox-Binary nach <install>/bin/oc-sandbox
-# kopieren — unabhängig von --bin, damit ein späterer Flag-Flip den Entry-
-# Point ohne Neuinstallation umschalten kann. Nur bei --bin ist ein fehlendes
-# Binary ein Fehler (Symlink/Shortcut könnten sonst ins Leere zeigen).
+# kopieren — unabhängig vom Entry-Point-Ziel, damit ein Update die Datei
+# immer nachlegt. Ohne Binary im Release bricht die Installation ab
+# (Symlink/Shortcut würden sonst ins Leere zeigen); --bash-tui umgeht das.
 extract_go_binary() {
   local install_dir="$1"
   local source_binary
   
   if [[ ! -d "${install_dir}/bin" && ! -d "${install_dir}/dist/bin" ]]; then
-    # Release ohne Go-Binaries (vor dem Parity-Gate): nur bei --bin ein Fehler
+    # Release ohne Go-Binaries: nur mit --bash-tui fortsetzbar
     if $BINARY_TUI; then
-      exit_with_error "Kein Go-Binary im Release (bin/ fehlt). --bin weglassen, um die Bash-TUI zu installieren."
+      exit_with_error "Kein Go-Binary im Release (bin/ fehlt). --bash-tui verwenden, um die Bash-TUI zu installieren."
     fi
     log_verbose "Kein bin/ im Release – Go-Binary-Extraktion übersprungen."
     return 0
@@ -596,7 +597,7 @@ extract_go_binary() {
   source_binary=$(install_dir_binary "$install_dir")
   if [[ ! -f "$source_binary" ]]; then
     if $BINARY_TUI; then
-      exit_with_error "Go-Binary für Plattform fehlt im Release: ${source_binary} (--bin weglassen, um die Bash-TUI zu installieren)"
+      exit_with_error "Go-Binary für Plattform fehlt im Release: ${source_binary} (--bash-tui verwenden, um die Bash-TUI zu installieren)"
     fi
     log_verbose "Kein Binary für Plattform (${source_binary}) – übersprungen."
     return 0
@@ -637,8 +638,8 @@ create_symlinks() {
     fi
   done < <(find "$bin_dir" -maxdepth 1 -type l -print0 2>/dev/null)
   
-  # Erzeuge einzelnen Entry-Point-Symlink (Go-Binary hinter --bin,
-  # sonst Bash-TUI)
+  # Erzeuge einzelnen Entry-Point-Symlink (Go-Binary als Default,
+  # mit --bash-tui die Bash-TUI)
   local script
   script=$(entry_point_path "$install_dir")
   
@@ -838,10 +839,17 @@ create_shortcut_wsl() {
     return 1
   fi
 
+  # Binary-Entry-Point wird von wsl.exe direkt ausgeführt; das Bash-Script
+  # braucht den bash-Aufruf (bash <elf> würde fehlschlagen).
+  local run_prefix="bash "
+  if $BINARY_TUI; then
+    run_prefix=""
+  fi
+
   if ! command -v powershell.exe &>/dev/null; then
     log_warn "Desktop-Shortcut übersprungen: powershell.exe nicht verfügbar (WSL-Interop deaktiviert?)."
     echo "  Manuelle Lösung: Start-Menu-Verknüpfung von Hand anlegen, die folgendes aufruft:" >&2
-    echo "  wsl.exe -e bash ${script}" >&2
+    echo "  wsl.exe -e ${run_prefix}${script}" >&2
     return 1
   fi
 
@@ -854,7 +862,7 @@ create_shortcut_wsl() {
   if [[ -z "$win_start_menu" ]]; then
     log_warn "Desktop-Shortcut übersprungen: Windows-Startmenu-Verzeichnis nicht gefunden."
     echo "  Manuelle Lösung: Start-Menu-Verknüpfung von Hand anlegen, die folgendes aufruft:" >&2
-    echo "  wsl.exe -e bash ${script}" >&2
+    echo "  wsl.exe -e ${run_prefix}${script}" >&2
     return 1
   fi
 
@@ -925,7 +933,7 @@ create_shortcut_macos() {
 
   if ! command -v osascript &>/dev/null; then
     log_warn "Desktop-Shortcut übersprungen: osascript nicht gefunden."
-    echo "  Manuelle Lösung: App-Bundle unter ${app_dir} von Hand anlegen, das start-tui.sh in einem Terminal öffnet." >&2
+    echo "  Manuelle Lösung: App-Bundle unter ${app_dir} von Hand anlegen, das ${script} in einem Terminal öffnet." >&2
     return 1
   fi
 
@@ -1055,7 +1063,7 @@ validate_installation() {
     fi
   done
   
-  # Go-Binary prüfen, wenn --bin gesetzt ist
+  # Go-Binary prüfen (Default-Entry-Point)
   if $BINARY_TUI; then
     local binary="${install_dir}/bin/${BINARY_NAME}"
     if [[ ! -x "$binary" ]]; then
@@ -1131,9 +1139,10 @@ Optionen:
   --symlinks             Symlinks in \$HOME/.local/bin erstellen
   --shortcut             Desktop-Shortcut für die TUI erstellen (Linux: .desktop,
                          WSL: Windows-Startmenu .lnk, macOS: .app in ~/Applications)
-  --bin                  Entry-Points (Symlink/Shortcut) auf das Go-Binary
-                         oc-sandbox in <install>/bin richten statt auf die
-                         Bash-TUI (start-tui.sh bleibt Default)
+  --bin                  (ohne Wirkung – Go-Binary ist jetzt Default)
+  --bash-tui             Entry-Points (Symlink/Shortcut) auf die Bash-TUI
+                         (start-tui.sh) richten statt auf das Go-Binary —
+                         Ausweichoption
   --verbose              Detaillierte Ausgabe aktivieren
   --help                 Diese Hilfe anzeigen und beenden
 
@@ -1199,7 +1208,11 @@ parse_arguments() {
         shift
         ;;
       --bin)
-        BINARY_TUI=true
+        # Ohne Wirkung: Go-Binary ist seit dem Parity-Gate-Flip Default (#98)
+        shift
+        ;;
+      --bash-tui)
+        BINARY_TUI=false
         shift
         ;;
       --verbose)
@@ -1310,7 +1323,8 @@ main() {
   echo "     ${INSTALL_PATH}/scripts/start.sh ~/projects/dein-projekt --edition web"
   echo ""
   echo "  5. Interaktive TUI starten:"
-  echo "     ${INSTALL_PATH}/scripts/start-tui.sh"
+  echo "     ${INSTALL_PATH}/bin/${BINARY_NAME}"
+  echo "     (Ausweichoption: ${INSTALL_PATH}/scripts/start-tui.sh)"
 
   if $SYMLINKS; then
     echo ""
@@ -1321,8 +1335,12 @@ main() {
 
   if $BINARY_TUI; then
     echo ""
-    echo "Go-TUI-Binary aktiviert (--bin): Entry-Points zeigen auf"
+    echo "Entry-Points zeigen auf das Go-TUI-Binary:"
     echo "  ${INSTALL_PATH}/bin/${BINARY_NAME}"
+  else
+    echo ""
+    echo "Bash-TUI aktiviert (--bash-tui): Entry-Points zeigen auf"
+    echo "  ${INSTALL_PATH}/scripts/start-tui.sh"
   fi
 
   if $SHORTCUT_CREATED; then

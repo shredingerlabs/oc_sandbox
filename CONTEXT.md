@@ -84,7 +84,7 @@
 
 **disk space check** — Validates minimum 500MB available disk space before starting installation.
 
-**symlinks** — Optional `--symlinks` flag creates a single symlink `oc-sandbox` → `scripts/start-tui.sh` in `$HOME/.local/bin` for easier command access. With `--bin`, symlink and desktop shortcut point at the Go binary `<install>/bin/oc-sandbox` instead (bash TUI stays default until the parity gate flips the default; ADR-0020).
+**symlinks** — Optional `--symlinks` flag creates a single symlink `oc-sandbox` → `bin/oc-sandbox` (the Go TUI binary) in `$HOME/.local/bin` for easier command access. Desktop shortcut points at the binary too. Since the parity-gate flip (#98) the Go binary is the default entry point; `--bash-tui` points symlink and shortcut back at `scripts/start-tui.sh` as escape hatch (ADR-0020).
 
 **color output** — Install script output uses plain text only for maximum compatibility. The TUI may use color through gum (e.g. the red `UNINSTALL` confirmation prompt), with plain-text fallback.
 
@@ -110,7 +110,7 @@
 
 **signal handling** — Handles SIGINT (Ctrl+C) gracefully to clean up temporary files before exiting.
 
-**symlink creation** — Creates a single entry-point symlink `oc-sandbox` → `scripts/start-tui.sh` when `--symlinks` flag is used; removes stale symlinks in `$HOME/.local/bin` pointing into the install path first. With `--bin`, the symlink targets the extracted Go binary `<install>/bin/oc-sandbox` instead (ADR-0020).
+**symlink creation** — Creates a single entry-point symlink `oc-sandbox` → `bin/oc-sandbox` (Go TUI binary, default since the parity-gate flip #98; `--bash-tui` targets `scripts/start-tui.sh` instead) when `--symlinks` flag is used; removes stale symlinks in `$HOME/.local/bin` pointing into the install path first (ADR-0020).
 
 **symlink overwriting** — Overwrites existing symlinks without prompting when using `--symlinks` flag.
 

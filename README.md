@@ -36,7 +36,7 @@ der TUI auf.
 - **Dokumente**: LibreOffice + pandoc in `writing` (odt/odp, docx/pptx, PDF)
 - **Code-Intelligence**: codebase-memory-mcp (Knowledge-Graph-Indexing, auto-konfiguriert für OpenCode, UI auf Port 9749 mit `--cbm_ui` — [Referenz](https://github.com/DeusData/codebase-memory-mcp))
 - **Proxy**: Squid-Egress-Allowlist (optional, per `--use_proxy`)
-- **TUI**: Terminal-UI für interaktive Sandbox-Steuerung (`start-tui.sh`)
+- **TUI**: Terminal-UI für interaktive Sandbox-Steuerung (Go-TUI `oc-sandbox`)
 
 Die TUI kann bei der Projekteinrichtung `none`, GitHub, öffentliches GitLab,
 eigenes GitLab oder einen anderen VCS-Host auswählen. Tokens werden verborgen
@@ -117,7 +117,7 @@ ignoriert. Um Flags wie `--symlinks` zu übergeben, muss `bash -s --` verwendet
 werden – alles nach `--` wird als Argument an das Skript durchgereicht:
 
 ```bash
-# Mit Symlink (oc-sandbox → start-tui.sh in ~/.local/bin)
+# Mit Symlink (oc-sandbox → Go-TUI in ~/.local/bin)
 curl -sL https://raw.githubusercontent.com/shredingerlabs/oc_sandbox/main/scripts/install.sh | bash -s -- --symlinks
 
 # wget-Variante
@@ -140,7 +140,7 @@ Das Skript:
 - Ermittelt automatisch das neueste Release (oder eine feste Version per `--version`)
 - Fragt vor dem Überschreiben einer bestehenden Installation nach
 - Erhält bei Updates vorhandene `proxy/allowlist.txt`-Anpassungen
-- Installiert `gum` für die TUI (Fallback-Modus, falls die Installation scheitert)
+- Installiert die Go-TUI als Binary `oc-sandbox`
 - Verwendet nie automatisch `sudo`
 
 **Optionen:**
@@ -148,17 +148,13 @@ Das Skript:
 - `--install_path <pfad>` – Installationspfad (default: `~/.oc-sandbox`)
 - `--version <tag>` – Spezifische Version installieren (default: latest)
 - `--force` – Vorhandene Installation ohne Nachfrage überschreiben
-- `--symlinks` – Symlink `oc-sandbox` → `start-tui.sh` in `~/.local/bin` erstellen
+- `--symlinks` – Symlink `oc-sandbox` → Go-TUI-Binary in `~/.local/bin` erstellen
   (single entry point, keine weiteren Skript-Symlinks)
 - `--shortcut` – Desktop-Shortcut für die TUI erstellen (unabhängig von `--symlinks`);
   Linux: `.desktop`-Datei im Anwendungs-Menü, WSL: `OC Sandbox.lnk` im
   Windows-Startmenü, macOS: minimal `OC Sandbox.app` in `~/Applications`.
   Fehler beim Erstellen warnen nur und brechen die Installation nie ab
   (siehe [ADR-0015](docs/adr/0015-desktop-shortcuts-via-shortcut-flag.md))
-- `--bin` – Entry-Points (Symlink/Shortcut) auf das Go-Binary
-  `oc-sandbox` in `<install>/bin` richten statt auf die Bash-TUI.
-  Default bleibt `start-tui.sh`, bis das Go-TUI den Parity-Gate passiert
-  (siehe [ADR-0020](docs/adr/0020-go-tui-built-at-release-time.md))
 - `--verbose` – Detaillierte Ausgabe
 - `--help` – Hilfe anzeigen und beenden
 
@@ -185,16 +181,12 @@ oc-sandbox
 Ohne Symlink direkt über den Installationspfad:
 
 ```bash
-~/.oc-sandbox/scripts/start-tui.sh
+~/.oc-sandbox/bin/oc-sandbox
 ```
 
-Mit `--bin` zeigt der Symlink (und der Desktop-Shortcut) stattdessen direkt
-auf das Go-Binary `~/.oc-sandbox/bin/oc-sandbox` (siehe
-[ADR-0020](docs/adr/0020-go-tui-built-at-release-time.md)); die Bash-TUI
-bleibt bis zum Parity-Gate der Default.
-
-Die TUI nutzt `gum` (wird von `install.sh` automatisch installiert) und fällt
-ohne `gum` auf einen einfachen Textmodus zurück.
+Die TUI ist eine eigenständige Go-Anwendung (`oc-sandbox`), die beim Release
+gebaut und als Binary installiert wird (siehe
+[ADR-0020](docs/adr/0020-go-tui-built-at-release-time.md)).
 
 ### Hauptmenü
 
@@ -624,9 +616,9 @@ rm -rf ~/projects/kunde-x/.opencode_config/* ~/projects/kunde-x/.opencode_data/*
 │   ├── Dockerfile                <- Multi-Stage: base, web, embedded, swdev, matlab, ros2, writing
 │   ├── Dockerfile.custom          <- Vorlage für eigene Editionen (auto-entdeckt)
 │   ├── README.md                 <- Kurzanleitung für Produktion
+│   ├── bin/                      <- Go-TUI-Binary `oc-sandbox` (wird beim Release gebaut)
 │   ├── scripts/
 │   │   ├── start.sh              <- Einheitliches Start-Skript (--edition flag)
-│   │   ├── start-tui.sh          <- TUI-Variante des Start-Skripts (Haupt-Einstiegspunkt)
 │   │   ├── build-container.sh    <- Baut Sandbox-Editionen + Proxy
 │   │   ├── init-project.sh       <- Legt Projekt-Root-Struktur an
 │   │   └── uninstall.sh          <- Deinstallation
@@ -666,7 +658,7 @@ rm -rf ~/projects/kunde-x/.opencode_config/* ~/projects/kunde-x/.opencode_data/*
 └── README.md
 ```
 
-**Hinweis:** Die Laufzeit-Skripte (`start.sh`, `start-tui.sh`, `build-container.sh`,
+**Hinweis:** Die Laufzeit-Skripte (`start.sh`, `build-container.sh`,
 `init-project.sh`, `uninstall.sh`) liegen in `dist/scripts/` – der `dist/` Ordner
 ist die Quelle für Releases. Alle anderen Ordner (`docs/`, `tests/`, `specs/`,
 `scripts/install.sh`, etc.) sind nur für die Entwicklung und werden nicht in
@@ -877,4 +869,10 @@ Dank an folgende Open-Source-Projekte und Tools:
 
 - **codebase-memory-mcp** (https://github.com/DeusData/codebase-memory-mcp) — Knowledge-Graph-Indexing und auto-konfigurierte Code-Intelligence für opencode mit Web-UI und cross-repo-Verbindungen.
 
-- **Gum** (https://github.com/charmbracelet/gum) — Ein Tool für schöne Kommandozeilen-TUIs, verwendet für das interaktive Sandbox-Start-Skript (`start-tui.sh`).
+- **opencode-models-discovery** (https://github.com/yuhp/opencode-models-discovery) — Modell-Discovery für opencode: findet verfügbare Modelle und Provider dynamisch, statt sie von Hand zu pflegen.
+
+- **Gum** (https://github.com/charmbracelet/gum) — Ein Tool für schöne Kommandozeilen-TUIs.
+
+## Disclaimer
+
+This project is not built by the OpenCode team and is not affiliated with OpenCode in any way.

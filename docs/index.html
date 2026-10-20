@@ -158,8 +158,8 @@ du können.</p>
 <p>oc-sandbox stellt dir pro Projekt einen <strong>Podman-Container</strong> bereit –
 eine abgeschlossene, gehärtete Linux-Umgebung, in der dein Projektcode liegt
 und in der OpenCode (Terminal- und Weboberfläche) läuft. Deine Zentrale ist die
-<strong>TUI</strong> (Text-Oberfläche im Terminal, basierend auf
-<a href="https://github.com/charmbracelet/gum">gum</a>): Sie führt durch Container-Bau,
+<strong>TUI</strong> (Go-TUI <code>oc-sandbox</code>, Text-Oberfläche im
+Terminal): Sie führt durch Container-Bau,
 Projekt-Einrichtung und Start.</p>
 
 <p>Es gibt verschiedene <strong>Editionen</strong>, je nach Bedarf. Die
@@ -302,8 +302,8 @@ ans Skript durchgereicht. Hier bedeuten die Flags:</p>
   <tr><td><code>--force</code></td><td>Bestehende Installation ohne Nachfrage überschreiben.</td></tr>
 </table>
 
-<p>Das Skript installiert außerdem <code>gum</code> für die TUI (sollte das
-scheitern, läuft die TUI in einem einfachen Textmodus weiter) und benutzt
+<p>Das Skript installiert außerdem die Go-TUI als Binary
+<code>oc-sandbox</code> und benutzt
 <strong>nie automatisch sudo</strong>.</p>
 
 <h2 id="first-setup">5. First Setup: erster Build, erstes Projekt, erste Session</h2>
@@ -489,7 +489,7 @@ nichts – sie bleiben auf dem Host und werden als interne Verbindungen benutzt.
 
 <p>Oder durch den Desktop-/Windows-Startmenü-Shortcut (via <code>--shortcut</code>).
 <br>Alternativ direkt über den Installationspfad:
-<code>~/.oc-sandbox/scripts/start-tui.sh</code>.</p>
+<code>~/.oc-sandbox/bin/oc-sandbox</code>.</p>
 
 <h3>7.2 Hauptmenü</h3>
 
@@ -583,12 +583,6 @@ der Fortschritt aber komplett stillsteht, TUI beenden, Container prüfen
 <p>Beim ersten Start nach einem System- oder WSL-Neustart muss die
 Podman-Umgebung neu hochfahren – das dauert. Einfach abwarten; ab dem
 zweiten Projektstart in derselben Sitzung geht es deutlich schneller.</p>
-
-<h3>„Die TUI sieht anders aus / hat keine bunten Menüs“</h3>
-<p>Das Skript konnte <code>gum</code> nicht installieren und die TUI ist in den
-einfachen <strong>Fallback-Textmodus</strong> gefallen. Alle Funktionen sind
-trotzdem da, nur optisch schlichter. Internetverbindung prüfen, dann
-Installation wiederholen (<code>--force</code>).</p>
 
 <h3>„Web-URL nicht erreichbar“</h3>
 <p>Die URL (z.B. <code>http://127.0.0.1:4096</code>) gilt <em>auf dem Rechner,

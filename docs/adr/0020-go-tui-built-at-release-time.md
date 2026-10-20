@@ -2,7 +2,9 @@
 
 ## Status
 
-Accepted (2026-10-07, issue #68)
+Accepted (2026-10-07, issue #68).
+Flag default flipped 2026-10: the parity gate (#73 checklist, issue #98) passed,
+so entry points now default to the Go binary; `--bash-tui` is the escape hatch.
 
 ## Context
 
