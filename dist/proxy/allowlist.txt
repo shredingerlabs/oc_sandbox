@@ -8,6 +8,9 @@ raw.githubusercontent.com
 objects.githubusercontent.com
 api.github.com
 
+# --- GitLab.com: ---
+gitlab.com
+
 # --- Eigener GitLab-Server: ---
 gitlab.reutlingen-university.de
 .reutlingen-university.de
@@ -37,6 +40,9 @@ security.ubuntu.com
 
 # OpenCode API
 opencode.ai
-*.opencode.ai
+.opencode.ai
 api.opencode.ai
+
+# OpenCode Modell-Katalog
+models.dev
 
