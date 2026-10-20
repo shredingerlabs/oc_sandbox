@@ -11,7 +11,6 @@ dist/
 ├── Dockerfile                    <- Multi-Stage: base, web, embedded, swdev, matlab, ros2, writing
 ├── scripts/
 │   ├── start.sh                  <- Einheitliches Start-Skript (--edition flag)
-│   ├── start-tui.sh              <- TUI-Variante des Start-Skripts
 │   ├── configure-project.sh      <- Projekt-Konfiguration (Git-Identität, VCS-Credentials, AI-Provider)
 │   ├── build-container.sh        <- Baut Sandbox-Editionen + Proxy
 │   ├── init-project.sh           <- Legt Projekt-Root-Struktur an
@@ -104,9 +103,8 @@ never included in general configuration backups.
 The Settings menu also offers **Uninstall**: a guided wizard with a warning
 screen (running containers with their `podman stop` commands), option checkboxes
 for symlinks/config/backup ("Create backup" is only available when "Remove
-config" is selected), a summary with `UNINSTALL` text confirmation, and
-cancel/back navigation at every screen. Confirmation uses a red `gum input`
-prompt when gum is available and a plain `read` fallback otherwise.
+config" is selected), a summary with a typed `uninstall` confirmation, and
+cancel/back navigation at every screen.
 
 ## Editionen
 
@@ -151,7 +149,7 @@ automatisch `sudo`.
 - `--install_path <pfad>` – Installationspfad (default: `$HOME/.oc-sandbox`)
 - `--version <tag>` – Spezifische Version installieren (default: latest)
 - `--force` – Vorhandene Installation ohne Nachfrage überschreiben
-- `--symlinks` – Symlink `oc-sandbox` → `scripts/start-tui.sh` in `~/.local/bin` erstellen
+- `--symlinks` – Symlink `oc-sandbox` → `bin/oc-sandbox` (Go-TUI-Binary) in `~/.local/bin` erstellen
   (single entry point, keine weiteren Skript-Symlinks)
 - `--shortcut` – Desktop-Shortcut für die TUI erstellen (Linux: `.desktop`,
   WSL: Windows-Startmenü `.lnk`, macOS: `.app` in `~/Applications`)
@@ -187,17 +185,17 @@ oc-sandbox
 Ohne Symlink direkt über den Installationspfad bzw. aus diesem Ordner:
 
 ```bash
-~/.oc-sandbox/scripts/start-tui.sh
-./scripts/start-tui.sh
+~/.oc-sandbox/bin/oc-sandbox
+./bin/oc-sandbox
 ```
 
-Die TUI nutzt `gum` (wird von `install.sh` automatisch installiert) und fällt
-ohne `gum` auf einen einfachen Textmodus zurück. Über das Hauptmenü
-(**Start last used project**, **Open Project**, **New Project**, **Build
-Container**, **Settings**) laufen alle weiteren Schritte: Edition bauen,
-Projekt-Root anlegen, VCS/Tokens verborgen abfragen, Start-Option wählen
-(`console`, `opencode` oder `web`) und die Sandbox starten. Laufende Container
-werden per `podman exec` wiederverwendet statt neu gestartet.
+Die TUI ist ein einzelnes Go-Binary (BubbleTea, volles Fenster, maus- und
+tastaturbedienbar). Über die Hauptansicht
+(**Open Project**, **New Project**, **Build Container**, **Settings**) laufen
+alle weiteren Schritte: Edition bauen, Projekt-Root anlegen, VCS/Tokens
+verborgen abfragen, Start-Option wählen (`console`, `opencode` oder `web`) und
+die Sandbox starten. Laufende Container werden per `podman exec` wiederverwendet
+statt neu gestartet.
 
 ## Direkte Skript-Nutzung (Legacy)
 

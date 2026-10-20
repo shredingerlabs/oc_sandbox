@@ -1,0 +1,14 @@
+{
+  "projects": [
+    {
+      "name": "my-project",
+      "path": "@HOME@/ws/prj",
+      "container_id": "a3bc1e1119b9",
+      "last_used": "2026-10-20T12:18:15Z",
+      "container_status": "stopped",
+      "git_tracking": "github.com",
+      "repo_url": ""
+    }
+  ],
+  "version": "1.0"
+}

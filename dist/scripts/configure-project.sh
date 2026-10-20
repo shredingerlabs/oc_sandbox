@@ -3,9 +3,9 @@
 # OpenCode Sandbox - Project configuration backend
 #
 # Per-concern subcommands for project configuration, migrated from the
-# inline logic in start-tui.sh. Both TUIs (bash/gum and the upcoming Go
-# TUI) call this script instead of holding their own copies; prompts stay
-# in the calling TUI, this script only validates and writes.
+# inline logic of the former bash TUI (start-tui.sh, deleted in #99). The
+# Go TUI calls this script instead of holding its own copy; prompts stay
+# in the TUI, this script only validates and writes.
 #
 # Nutzung:
 #   scripts/configure-project.sh <subcommand> ... (non-interactive flags)

@@ -58,7 +58,7 @@ func skipAll(note string) []Item {
 
 func distTreePresent(root string) bool {
 	for _, p := range []string{
-		"dist/scripts/start-tui.sh", "dist/scripts/start.sh",
+		"dist/scripts/start.sh",
 		"dist/Dockerfile", "dist/Dockerfile.custom",
 	} {
 		if _, err := os.Stat(filepath.Join(root, p)); err != nil {
@@ -96,10 +96,10 @@ func (p *phase) finish() Item {
 	return it
 }
 
-// runBash sources the bash TUI in a child bash whose HOME is home, then
-// runs body. The body inherits set -euo pipefail from the TUI script.
-func runBash(home, script, body string) (string, error) {
-	Body := "export HOME=" + shPath(home) + "\nsource " + shPath(script) + "\n" + body + "\n"
+// runBash runs body in a child bash whose HOME is home and whose shell
+// options match the script discipline (set -euo pipefail).
+func runBash(home, body string) (string, error) {
+	Body := "export HOME=" + shPath(home) + "\nset -euo pipefail\n" + body + "\n"
 	return cmdrun.ExecRunner{}.Output("bash", "-c", Body)
 }
 
@@ -157,8 +157,8 @@ func relPath(dir, p string) string {
 	return filepath.ToSlash(rel)
 }
 
-// tempLeftovers reports *.tmp.* files still present under root (bash keeps
-// tracked temp files in TUI_TEMP_FILES and removes them on signals).
+// tempLeftovers reports *.tmp.* files still present under root (the
+// atomic-write discipline leaves no temp files behind after signals).
 func tempLeftovers(root string) ([]string, error) {
 	var found []string
 	err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {

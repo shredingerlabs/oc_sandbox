@@ -12,7 +12,7 @@ The install script's `--symlinks` flag previously created one symlink per script
 
 With `--symlinks`, the install script creates exactly one symlink:
 
-- `~/.local/bin/oc-sandbox` → `<install_path>/scripts/start-tui.sh`
+- `~/.local/bin/oc-sandbox` → `<install_path>/bin/oc-sandbox` (the Go TUI binary; pointed at `scripts/start-tui.sh` before the parity-gate flip #98, which also deleted the bash TUI — #99)
 
 The TUI is the primary user-facing entry point; all other scripts are internal and invoked via the TUI or by path.
 

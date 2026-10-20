@@ -6,7 +6,7 @@
 
 **CBM (codebase-memory-mcp)** — Knowledge-graph indexing tool. Uses `auto_index` and `auto_watch` config (persisted to `.cbm_cache/`) instead of manual entrypoint hooks. UI variant is always installed; `--cbm_ui` flag toggles runtime behavior only.
 
-**TUI (Text-based User Interface)** — Primary user interaction method using gum (https://github.com/charmbracelet/gum) with bash select fallback, providing structured navigation, validation, and project management while maintaining terminal compatibility.
+**TUI (Text-based User Interface)** — Primary user interaction method: the single Go binary `oc-sandbox` (BubbleTea), providing structured navigation, validation, and project management while maintaining terminal compatibility. The former gum/bash TUI (`start-tui.sh`) was deleted after the parity-gate flip (#98, cleanup #99).
 
 **sandbox_config.json** — Per-project configuration file stored in `<project_root>/.opencode_config/` containing container edition, modes, auto-start options, CBM settings, and setup completion status.
 
@@ -84,9 +84,9 @@
 
 **disk space check** — Validates minimum 500MB available disk space before starting installation.
 
-**symlinks** — Optional `--symlinks` flag creates a single symlink `oc-sandbox` → `bin/oc-sandbox` (the Go TUI binary) in `$HOME/.local/bin` for easier command access. Desktop shortcut points at the binary too. Since the parity-gate flip (#98) the Go binary is the default entry point; `--bash-tui` points symlink and shortcut back at `scripts/start-tui.sh` as escape hatch (ADR-0020).
+**symlinks** — Optional `--symlinks` flag creates a single symlink `oc-sandbox` → `bin/oc-sandbox` (the Go TUI binary) in `$HOME/.local/bin` for easier command access. Desktop shortcut points at the binary too. Default entry point since the parity-gate flip (#98); the former `--bash-tui` escape hatch went away with the bash TUI deletion (#99, ADR-0020).
 
-**color output** — Install script output uses plain text only for maximum compatibility. The TUI may use color through gum (e.g. the red `UNINSTALL` confirmation prompt), with plain-text fallback.
+**color output** — Install script output uses plain text only for maximum compatibility. Helper scripts may use gum for prompts (e.g. the uninstall wizard's red confirmation input), with plain-text fallback; the Go TUI renders via Lip Gloss.
 
 **exit codes** — Standard exit codes: 0 (success), 1 (general error), 2 (user abort), 3 (missing dependencies).
 
@@ -110,7 +110,7 @@
 
 **signal handling** — Handles SIGINT (Ctrl+C) gracefully to clean up temporary files before exiting.
 
-**symlink creation** — Creates a single entry-point symlink `oc-sandbox` → `bin/oc-sandbox` (Go TUI binary, default since the parity-gate flip #98; `--bash-tui` targets `scripts/start-tui.sh` instead) when `--symlinks` flag is used; removes stale symlinks in `$HOME/.local/bin` pointing into the install path first (ADR-0020).
+**symlink creation** — Creates a single entry-point symlink `oc-sandbox` → `bin/oc-sandbox` (Go TUI binary, default since the parity-gate flip #98) when `--symlinks` flag is used; removes stale symlinks in `$HOME/.local/bin` pointing into the install path first (ADR-0020).
 
 **symlink overwriting** — Overwrites existing symlinks without prompting when using `--symlinks` flag.
 
@@ -190,7 +190,7 @@
 
 **edition mismatch** — Divergence between the edition recorded in sandbox_config.json and the edition a project's running container actually runs (read from the container's image name `opencode-sandbox-<edition>` via `podman ps`; no labels, nothing stored in the registry). Surfaced only by the Open Project start buttons (Console / OpenCode / Web) as a three-way prompt: **Switch** (explicitly confirmed `podman stop` of the old container, then a normal start with rebuilt args — all current settings ride along — continuing into the requested access), **Use current** (access the old container unchanged), **Cancel**. The old container is never stopped until the new edition's image exists (missing image gets the start-time build prompt first); a switch whose start fails leaves the project stopped with the error in the busy pane. Container center Start is unaffected and keeps reuse-running. _Avoid_: live apply, restart (the switch is an explicit, confirmed replacement, never a silent one).
 
-**BubbleTea TUI** — The upcoming GUI replacement for start-tui.sh: full-window, mouse-first, keyboard-available, single Go binary. Built on Charm libraries: BubbleTea (application/controller), Bubbles (components), Lip Gloss (styling). Replaces gum dependency once migrated. _Avoid_: GPU TUI.
+**BubbleTea TUI** — The TUI: full-window, mouse-first, keyboard-available, single Go binary (`oc-sandbox`). Built on Charm libraries: BubbleTea (application/controller), Bubbles (components), Lip Gloss (styling). Sole TUI since the parity-gate flip (#98) and the bash TUI deletion (#99); gum remains in use by the helper scripts only. _Avoid_: GPU TUI.
 
 **terminal minimum size** — The smallest terminal where the Go TUI renders at all: the too-small overlay guard trips below 80×24. At startup, when the terminal is a TTY and smaller than the layout target 80×41 (the Edit Project settings AI provider pane unfolds with a provider entry opened unscrolled), `oc-sandbox` asks it to grow via the xterm window-size escape (`CSI 8 ; height ; width t`) — emulators that ignore the request fall back to the overlay at 80×24; an already-large terminal is never shrunk. The overlay text names both the minimum (80×24) and the recommended size (115×41). Startup only, no repeat requests mid-session. _Avoid_: window requirement, hard resize, per-screen minimum.
 

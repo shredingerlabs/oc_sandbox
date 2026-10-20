@@ -262,7 +262,7 @@ test_dependency_check() {
 
 # --- Desktop-Shortcut-Tests ------------------------------------------------------
 
-# Fixture: Installationsverzeichnis mit start-tui.sh + plattform-Binary
+# Fixture: Installationsverzeichnis mit plattform-Binary
 # im isolierten HOME (Go-Binary ist seit dem Parity-Gate-Flip Default)
 setup_shortcut_env() {
   local test_name="$1"
@@ -271,8 +271,6 @@ setup_shortcut_env() {
   local home="$test_dir/home"
   local install_dir="$home/.oc-sandbox"
   mkdir -p "$install_dir/scripts" "$install_dir/bin"
-  echo "#!/usr/bin/env bash" > "$install_dir/scripts/start-tui.sh"
-  chmod +x "$install_dir/scripts/start-tui.sh"
   printf '#!/usr/bin/env bash\necho oc-sandbox-fake\n' > "$install_dir/bin/oc-sandbox_linux_amd64"
   printf '#!/usr/bin/env bash\necho oc-sandbox-fake\n' > "$install_dir/bin/oc-sandbox"
   chmod +x "$install_dir/bin/oc-sandbox_linux_amd64" "$install_dir/bin/oc-sandbox"
@@ -316,9 +314,9 @@ test_shortcut_flag_accepted() {
   cleanup_test_env "$test_dir"
 }
 
-# --- Go-Binary (--bin) Tests ------------------------------------------------------
+# --- Go-Binary-Entry-Point Tests ---------------------------------------------------
 
-# Fixture: Installationsverzeichnis mit start-tui.sh + plattform-Binary
+# Fixture: Installationsverzeichnis mit plattform-Binary
 setup_binary_env() {
   local test_name="$1"
   local test_dir
@@ -326,8 +324,6 @@ setup_binary_env() {
   local home="$test_dir/home"
   local install_dir="$home/.oc-sandbox"
   mkdir -p "$install_dir/scripts" "$install_dir/bin"
-  echo "#!/usr/bin/env bash" > "$install_dir/scripts/start-tui.sh"
-  chmod +x "$install_dir/scripts/start-tui.sh"
   # Plattform passendes Fake-Binary (Linux/x86_64 -> oc-sandbox_linux_amd64)
   printf '#!/usr/bin/env bash\necho oc-sandbox-fake\n' > "$install_dir/bin/oc-sandbox_linux_amd64"
   # Fremdplattform-Binary, darf nie gewählt werden
@@ -344,64 +340,54 @@ test_help_shows_bin_flag() {
     echo "Help output missing --bin option"
     return 1
   fi
-  if [[ "$output" != *"--bash-tui"* ]]; then
-    echo "Help output missing --bash-tui option"
-    return 1
-  fi
 
   return 0
 }
 
 test_bin_flag_accepted() {
-  # Führe flag parsing direkt aus (main läuft beim Sourcen nicht)
+  # --bin ist ohne Wirkung (Go-Binary ist Default), wird aber akzeptiert
   local test_dir
   test_dir=$(setup_test_env "bin-flag-parse")
   local home="$test_dir/home"
   mkdir -p "$home"
 
-  local result
-  result=$(
-    source "$INSTALL_SCRIPT" --help >/dev/null 2>&1
-    parse_arguments --bin
-    echo "$BINARY_TUI"
-  ) || { echo "$result"; cleanup_test_env "$test_dir"; return 1; }
+  local rc=0
+  (source "$INSTALL_SCRIPT" --help >/dev/null 2>&1
+   parse_arguments --bin) || rc=$?
 
-  assert_equals "true" "$result" "--bin setzt BINARY_TUI=true" || { echo "$result"; cleanup_test_env "$test_dir"; return 1; }
+  assert_equals "0" "$rc" "--bin wird ohne Wirkung akzeptiert" || { cleanup_test_env "$test_dir"; return 1; }
   cleanup_test_env "$test_dir"
 }
 
-test_bash_tui_flag_accepted() {
-  # --bash-tui ist die Ausweichoption: Entry-Points zurück auf die Bash-TUI
+test_bash_tui_flag_rejected() {
+  # Die Bash-TUI wurde mit dem Cleanup (#99) gelöscht; ihr Flag ist unbekannt
   local test_dir
   test_dir=$(setup_test_env "bash-tui-flag-parse")
   local home="$test_dir/home"
   mkdir -p "$home"
 
-  local result
-  result=$(
-    source "$INSTALL_SCRIPT" --help >/dev/null 2>&1
-    parse_arguments --bash-tui
-    echo "$BINARY_TUI"
-  ) || { echo "$result"; cleanup_test_env "$test_dir"; return 1; }
+  local rc=0
+  (source "$INSTALL_SCRIPT" --help >/dev/null 2>&1
+   parse_arguments --bash-tui) >/dev/null 2>&1 || rc=$?
 
-  assert_equals "false" "$result" "--bash-tui setzt BINARY_TUI=false" || { echo "$result"; cleanup_test_env "$test_dir"; return 1; }
+  assert_equals "1" "$rc" "--bash-tui ist ein Unbekanntes Argument (Exit 1)" || { cleanup_test_env "$test_dir"; return 1; }
   cleanup_test_env "$test_dir"
 }
 
-test_default_is_binary_tui() {
+test_default_entry_point_is_binary() {
   # Parity-Gate-Flip (#98): Go-Binary ist Default, ohne Flag
   local test_dir
   test_dir=$(setup_test_env "default-binary")
   local home="$test_dir/home"
-  mkdir -p "$home"
+  local install_dir="$home/.oc-sandbox"
 
   local result
   result=$(
     source "$INSTALL_SCRIPT" --help >/dev/null 2>&1
-    echo "$BINARY_TUI"
-  ) || { echo "$result"; cleanup_test_env "$test_dir"; return 1; }
+    entry_point_path "$install_dir"
+  )
 
-  assert_equals "true" "$result" "Go-Binary ist Default-Entry-Point" || { echo "$result"; cleanup_test_env "$test_dir"; return 1; }
+  assert_equals "${install_dir}/bin/oc-sandbox" "$result" "Go-Binary ist Default-Entry-Point" || { echo "$result"; cleanup_test_env "$test_dir"; return 1; }
   cleanup_test_env "$test_dir"
 }
 
@@ -439,7 +425,6 @@ test_extract_go_binary_copies_platform_match() {
     source "$INSTALL_SCRIPT" --help >/dev/null 2>&1
     PLATFORM_OS="Linux"
     PLATFORM_ARCH="x86_64"
-    BINARY_TUI=true
     extract_go_binary "$install_dir"
     "$install_dir/bin/oc-sandbox"
   ) || { echo "$result"; cleanup_test_env "$test_dir"; return 1; }
@@ -464,12 +449,11 @@ test_extract_go_binary_missing_fails_clearly() {
     source "$INSTALL_SCRIPT" --help >/dev/null 2>&1
     PLATFORM_OS="Darwin"
     PLATFORM_ARCH="arm64"
-    BINARY_TUI=true
     extract_go_binary "$install_dir"
     echo "KEIN-ABBRUCH"
   } 2>&1) || rc=$?
 
-  assert_equals "1" "$rc" "Fehlendes release-bin/-Verzeichnis bricht --bin-Installation ab" || { echo "$result"; cleanup_test_env "$test_dir"; return 1; }
+  assert_equals "1" "$rc" "Fehlendes release-bin/-Verzeichnis bricht die Installation ab" || { echo "$result"; cleanup_test_env "$test_dir"; return 1; }
   if [[ "$result" == *"KEIN-ABBRUCH"* ]]; then
     echo "Fehlendes Binary hat die Installation nicht abgebrochen"
     echo "$result"
@@ -479,64 +463,6 @@ test_extract_go_binary_missing_fails_clearly() {
   if [[ "$result" != *"Kein Go-Binary im Release"* ]]; then
     echo "Fehlermeldung fehlt: Kein Go-Binary im Release"
     echo "$result"
-    cleanup_test_env "$test_dir"
-    return 1
-  fi
-  cleanup_test_env "$test_dir"
-}
-
-test_extract_works_without_bin_flag() {
-  # Extraktion ist unconditional: Release mit Binary → bin/oc-sandbox,
-  # unabhängig von --bin (späterer Flag-Flip braucht keine Neuinstallation).
-  local test_dir
-  test_dir=$(setup_binary_env "bin-extract-default")
-  local home="$test_dir/home"
-  local install_dir="$home/.oc-sandbox"
-
-  local result
-  result=$(
-    source "$INSTALL_SCRIPT" --help >/dev/null 2>&1
-    PLATFORM_OS="Linux"
-    PLATFORM_ARCH="x86_64"
-    BINARY_TUI=false
-    extract_go_binary "$install_dir"
-    "$install_dir/bin/oc-sandbox"
-  ) || { echo "$result"; cleanup_test_env "$test_dir"; return 1; }
-
-  if [[ "$result" != "oc-sandbox-fake" ]]; then
-    echo "Ohne --bin wurde kein Binary extrahiert: $result"
-    cleanup_test_env "$test_dir"
-    return 1
-  fi
-  cleanup_test_env "$test_dir"
-}
-
-test_extract_silent_without_release_bin() {
-  # Release ohne bin/ (vor Parity-Gate): ohne --bin still übersprungen.
-  local test_dir
-  test_dir=$(setup_test_env "bin-extract-silent")
-  local home="$test_dir/home"
-  local install_dir="$home/.oc-sandbox"
-  mkdir -p "$install_dir/scripts"
-
-  local result
-  result=$(
-    source "$INSTALL_SCRIPT" --help >/dev/null 2>&1
-    PLATFORM_OS="Linux"
-    PLATFORM_ARCH="x86_64"
-    BINARY_TUI=false
-    extract_go_binary "$install_dir"
-    echo "DURCHGELAUFEN"
-  ) || { echo "$result"; cleanup_test_env "$test_dir"; return 1; }
-
-  if [[ "$result" != *"DURCHGELAUFEN"* ]]; then
-    echo "Extraktion ohne Release-Binary darf ohne --bin nicht abbrechen"
-    echo "$result"
-    cleanup_test_env "$test_dir"
-    return 1
-  fi
-  if [[ -f "$install_dir/bin/oc-sandbox" ]]; then
-    echo "Ohne Release-Binary darf kein bin/oc-sandbox entstehen"
     cleanup_test_env "$test_dir"
     return 1
   fi
@@ -554,7 +480,6 @@ test_bin_symlink_points_at_binary() {
     source "$INSTALL_SCRIPT" --help >/dev/null 2>&1
     PLATFORM_OS="Linux"
     PLATFORM_ARCH="x86_64"
-    BINARY_TUI=true
     HOME="$home"
     extract_go_binary "$install_dir"
     create_symlinks "$install_dir"
@@ -580,7 +505,6 @@ test_bin_shortcut_points_at_binary() {
     source "$INSTALL_SCRIPT" --help >/dev/null 2>&1
     init_shortcut_functions "$home" "Linux"
     PLATFORM_ARCH="x86_64"
-    BINARY_TUI=true
     extract_go_binary "$install_dir"
     create_shortcut "$install_dir"
     cat "$home/.local/share/applications/oc-sandbox.desktop"
@@ -615,32 +539,6 @@ test_default_symlink_points_at_binary() {
 
   if [[ "$result" != "${install_dir}/bin/oc-sandbox" ]]; then
     echo "Default-Symlink zeigt nicht auf das Go-Binary: $result"
-    cleanup_test_env "$test_dir"
-    return 1
-  fi
-  cleanup_test_env "$test_dir"
-}
-
-test_bash_tui_symlink_points_at_start_tui() {
-  # Ausweichoption: --bash-tui richtet den Symlink auf start-tui.sh
-  local test_dir
-  test_dir=$(setup_binary_env "escape-hatch-entry")
-  local home="$test_dir/home"
-  local install_dir="$home/.oc-sandbox"
-
-  local result
-  result=$(
-    source "$INSTALL_SCRIPT" --help >/dev/null 2>&1
-    PLATFORM_OS="Linux"
-    PLATFORM_ARCH="x86_64"
-    HOME="$home"
-    parse_arguments --bash-tui
-    create_symlinks "$install_dir"
-    readlink "$home/.local/bin/oc-sandbox"
-  ) || { echo "$result"; cleanup_test_env "$test_dir"; return 1; }
-
-  if [[ "$result" != "${install_dir}/scripts/start-tui.sh" ]]; then
-    echo "--bash-tui-Symlink zeigt nicht auf start-tui.sh: $result"
     cleanup_test_env "$test_dir"
     return 1
   fi
@@ -720,7 +618,7 @@ test_linux_shortcut_failure_warns_but_install_succeeds() {
   local home="$test_dir/home"
   mkdir -p "$home/.local/share/applications"
 
-  # Fehlendes start-tui.sh -> Shortcut schlägt fehl, aber create_shortcut
+  # Fehlender Entry-Point -> Shortcut schlägt fehl, aber create_shortcut
   # liefert trotzdem Exit 0 (warn-and-continue Nemessis: Installation Exit-Code 0)
   local rc=0
   (source "$INSTALL_SCRIPT" --help >/dev/null 2>&1
@@ -892,9 +790,9 @@ test_wsl_shortcut_uses_powershell_shim() {
   test_dir=$(setup_test_env "shortcut-wsl")
   local home="$test_dir/home"
   local install_dir="$home/.oc-sandbox"
-  mkdir -p "$install_dir/scripts"
-  echo "#!/usr/bin/env bash" > "$install_dir/scripts/start-tui.sh"
-  chmod +x "$install_dir/scripts/start-tui.sh"
+  mkdir -p "$install_dir/bin"
+  printf '#!/usr/bin/env bash\necho oc-sandbox-fake\n' > "$install_dir/bin/oc-sandbox"
+  chmod +x "$install_dir/bin/oc-sandbox"
   mkdir -p "$install_dir/icons/windows"
   touch "$install_dir/icons/windows/oc-sandbox.ico"
 
@@ -969,7 +867,6 @@ EOF
    HOME="$home"
    INSTALL_PATH="$install_dir"
    PLATFORM_OS="Linux"
-   BINARY_TUI=false
    OC_SANDBOX_WIN_ROOT="$mnt_c"
    is_wsl() { return 0; }
    PATH="$test_bin:/nonexistent-oc-sandbox-test"
@@ -982,8 +879,8 @@ EOF
   assert_file_exists "$test_dir/ps-commands" || { cleanup_test_env "$test_dir"; return 1; }
   assert_file_exists "$test_dir/ps-calls" || { cleanup_test_env "$test_dir"; return 1; }
 
-  if ! grep -q "start-tui.sh" "$test_dir/ps-commands"; then
-    echo ".lnk-Aufruf referenziert start-tui.sh nicht"
+  if ! grep -qF "${install_dir}/bin/oc-sandbox" "$test_dir/ps-commands"; then
+    echo ".lnk-Aufruf referenziert das Go-Binary nicht"
     cat "$test_dir/ps-commands"
     cleanup_test_env "$test_dir"
     return 1
@@ -1020,9 +917,9 @@ test_wsl_shortcut_resolves_startmenu_via_powershell() {
   test_dir=$(setup_test_env "shortcut-wsl-relocated")
   local home="$test_dir/home"
   local install_dir="$home/.oc-sandbox"
-  mkdir -p "$install_dir/scripts"
-  echo "#!/usr/bin/env bash" > "$install_dir/scripts/start-tui.sh"
-  chmod +x "$install_dir/scripts/start-tui.sh"
+  mkdir -p "$install_dir/bin"
+  printf '#!/usr/bin/env bash\necho oc-sandbox-fake\n' > "$install_dir/bin/oc-sandbox"
+  chmod +x "$install_dir/bin/oc-sandbox"
 
   local test_bin="$test_dir/bin"
   mkdir -p "$test_bin"
@@ -1081,7 +978,6 @@ EOF
    HOME="$home"
    INSTALL_PATH="$install_dir"
    PLATFORM_OS="Linux"
-   BINARY_TUI=false
    OC_SANDBOX_WIN_ROOT="$mnt_c"
    is_wsl() { return 0; }
    PATH="$test_bin:/nonexistent-oc-sandbox-test"
@@ -1104,8 +1000,8 @@ EOF
     cleanup_test_env "$test_dir"
     return 1
   fi
-  if ! grep -q "start-tui.sh" "$test_dir/ps-commands"; then
-    echo ".lnk-Aufruf referenziert start-tui.sh nicht"
+  if ! grep -qF "${install_dir}/bin/oc-sandbox" "$test_dir/ps-commands"; then
+    echo ".lnk-Aufruf referenziert das Go-Binary nicht"
     cat "$test_dir/ps-commands"
     cleanup_test_env "$test_dir"
     return 1
@@ -1119,9 +1015,9 @@ test_wsl_missing_mnt_c_leaves_install_exit_0() {
   test_dir=$(setup_test_env "shortcut-wsl-nointero")
   local home="$test_dir/home"
   local install_dir="$home/.oc-sandbox"
-  mkdir -p "$install_dir/scripts"
-  echo "#!/usr/bin/env bash" > "$install_dir/scripts/start-tui.sh"
-  chmod +x "$install_dir/scripts/start-tui.sh"
+  mkdir -p "$install_dir/bin"
+  printf '#!/usr/bin/env bash\necho oc-sandbox-fake\n' > "$install_dir/bin/oc-sandbox"
+  chmod +x "$install_dir/bin/oc-sandbox"
 
   # Kein /mnt/c vorhanden und kein powershell.exe -> nur Warnung, Exit 0
   local rc=0
@@ -1130,7 +1026,6 @@ test_wsl_missing_mnt_c_leaves_install_exit_0() {
    HOME="$home"
    INSTALL_PATH="$install_dir"
    PLATFORM_OS="Linux"
-   BINARY_TUI=false
    is_wsl() { return 0; }
    PATH="/nonexistent-oc-sandbox-test"
    create_shortcut "$install_dir") 2>&1) || rc=$?
@@ -1151,9 +1046,9 @@ test_macos_shortcut_shim() {
   test_dir=$(setup_test_env "shortcut-macos")
   local home="$test_dir/home"
   local install_dir="$home/.oc-sandbox"
-  mkdir -p "$install_dir/scripts"
-  echo "#!/usr/bin/env bash" > "$install_dir/scripts/start-tui.sh"
-  chmod +x "$install_dir/scripts/start-tui.sh"
+  mkdir -p "$install_dir/bin"
+  printf '#!/usr/bin/env bash\necho oc-sandbox-fake\n' > "$install_dir/bin/oc-sandbox"
+  chmod +x "$install_dir/bin/oc-sandbox"
 
   local test_bin="$test_dir/bin"
   mkdir -p "$test_bin"
@@ -1170,7 +1065,6 @@ EOF
    HOME="$home"
    INSTALL_PATH="$install_dir"
    PLATFORM_OS="Darwin"
-   BINARY_TUI=false
    PATH="$test_bin:$PATH"
    create_shortcut "$install_dir")
   local rc=$?
@@ -1182,8 +1076,8 @@ EOF
   assert_file_exists "$home/Applications/OC Sandbox.app/Contents/Info.plist" || { cleanup_test_env "$test_dir"; return 1; }
   assert_file_exists "$home/Applications/OC Sandbox.app/Contents/MacOS/OC Sandbox" || { cleanup_test_env "$test_dir"; return 1; }
 
-  if ! grep -q "start-tui.sh" "$home/Applications/OC Sandbox.app/Contents/MacOS/OC Sandbox"; then
-    echo "App-Stub referenziert start-tui.sh nicht"
+  if ! grep -qF "${install_dir}/bin/oc-sandbox" "$home/Applications/OC Sandbox.app/Contents/MacOS/OC Sandbox"; then
+    echo "App-Stub referenziert das Go-Binary nicht"
     cleanup_test_env "$test_dir"
     return 1
   fi
@@ -1201,16 +1095,15 @@ test_macos_shortcut_without_osascript_warns() {
   test_dir=$(setup_test_env "shortcut-macos-nosc")
   local home="$test_dir/home"
   local install_dir="$home/.oc-sandbox"
-  mkdir -p "$install_dir/scripts"
-  echo "#!/usr/bin/env bash" > "$install_dir/scripts/start-tui.sh"
-  chmod +x "$install_dir/scripts/start-tui.sh"
+  mkdir -p "$install_dir/bin"
+  printf '#!/usr/bin/env bash\necho oc-sandbox-fake\n' > "$install_dir/bin/oc-sandbox"
+  chmod +x "$install_dir/bin/oc-sandbox"
 
   local rc=0
   (source "$INSTALL_SCRIPT" --help >/dev/null 2>&1
    HOME="$home"
    INSTALL_PATH="$install_dir"
    PLATFORM_OS="Darwin"
-   BINARY_TUI=false
    PATH="/nonexistent-oc-sandbox-test"
    create_shortcut "$install_dir") >/dev/null 2>&1 || rc=$?
 
@@ -1492,17 +1385,14 @@ main() {
   run_test "Help shows --shortcut" test_help_shows_shortcut_flag
   run_test "Help shows --bin" test_help_shows_bin_flag
   run_test "--bin-Flag akzeptiert" test_bin_flag_accepted
-  run_test "--bash-tui-Flag akzeptiert" test_bash_tui_flag_accepted
-  run_test "Default: Go-Binary ist Entry-Point" test_default_is_binary_tui
+  run_test "--bash-tui-Flag abgelehnt" test_bash_tui_flag_rejected
+  run_test "Default: Go-Binary ist Entry-Point" test_default_entry_point_is_binary
   run_test "install_dir_binary nutzt Go-Naming" test_install_dir_binary_uses_go_naming
   run_test "--bin: Plattform-Binary extrahiert" test_extract_go_binary_copies_platform_match
   run_test "--bin: fehlendes Binary bricht klar ab" test_extract_go_binary_missing_fails_clearly
-  run_test "Ohne --bin wird Binary trotzdem extrahiert" test_extract_works_without_bin_flag
-  run_test "Ohne Release-bin/ wird still übersprungen" test_extract_silent_without_release_bin
   run_test "--bin: Symlink zeigt auf Binary" test_bin_symlink_points_at_binary
   run_test "--bin: Shortcut zeigt auf Binary" test_bin_shortcut_points_at_binary
   run_test "Default: Symlink zeigt auf Go-Binary" test_default_symlink_points_at_binary
-  run_test "--bash-tui: Symlink zeigt auf start-tui.sh" test_bash_tui_symlink_points_at_start_tui
   run_test "Linux: .desktop-Datei erstellt" test_linux_shortcut_creation
   run_test "Linux: .desktop-Datei mit Icon" test_linux_shortcut_with_icon
   run_test "Linux: fehlgeschlagener Shortcut bricht Installation nicht ab" test_linux_shortcut_failure_warns_but_install_succeeds

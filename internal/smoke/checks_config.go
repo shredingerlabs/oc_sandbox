@@ -1,10 +1,11 @@
 package smoke
 
 import (
-	"fmt"
+	"bytes"
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"strings"
 
 	"github.com/shredingerlabs/oc-sandbox/internal/config"
@@ -12,30 +13,41 @@ import (
 	"github.com/shredingerlabs/oc-sandbox/internal/sandboxcfg"
 )
 
-// A1 — files the bash TUI writes must read correctly in the Go TUI and
-// vice versa (issue #73 A1): live round-trips with the bash script's own
-// functions in a throwaway HOME, values via the Go models.
+// A1 — config compatibility (issue #73 A1): the fixtures under
+// testdata/bashera were produced by the deleted bash TUI (start-tui.sh,
+// last shipped in v0.1.13) and pin the on-disk formats that bash-era
+// installs carry; the Go models read them without mutation. auth.json is
+// byte-accurate bash-era output (not valid JSON) and is only checked for
+// no-mutation. The second half round-trips the Go data layer's own writes.
 func checkConfigCompat(home, root string) Item {
-	p := newPhase("A1", "Bash-era config files read by the Go TUI; Go-written files read by bash")
+	p := newPhase("A1", "Bash-era config files (fixtures) read by the Go TUI; Go round-trip stable")
 	bh := filepath.Join(home, "A1")
 	proj := filepath.Join(bh, "ws", "prj")
-	sc := sandboxcfg.Path(proj)
-	ghcli := filepath.Join(proj, ".git_local", "gh-cli", "hosts.yml")
-	creds := filepath.Join(proj, ".git_local", "credentials")
-	auth := filepath.Join(proj, ".opencode_data", "auth.json")
-	out, err := runBash(bh, filepath.Join(root, "dist", "scripts", "start-tui.sh"), fmt.Sprintf(`
-mkdir -p %s
-create_global_config %s
-create_projects_json
-add_project_to_registry my-project %s github.com
-create_sandbox_config %s swdev offline hil_mode console gwdg-saia
-update_sandbox_config_field %s vcs_tracking github.com
-write_secret_file %s '{github.com: {user: oauth2}}'
-write_secret_file %s 'https://user:token@github.com'
-write_secret_file %s '{"gwdg-saia": {type: "api"}}'
-`, shPath(proj), shPath(bh), shPath(proj), shPath(proj), shPath(sc), shPath(ghcli), shPath(creds), shPath(auth)))
-	if err != nil {
-		p.reasonf("bash bring-up failed: %v out=%s", err, out)
+	fixtures := map[string]string{
+		".config/oc-sandbox/global_config.json":       "global_config.json",
+		".config/oc-sandbox/projects.json":            "projects.json",
+		"ws/prj/.opencode_config/sandbox_config.json": "sandbox_config.json",
+		"ws/prj/.git_local/gh-cli/hosts.yml":          "hosts.yml",
+		"ws/prj/.git_local/credentials":               "credentials",
+		"ws/prj/.opencode_data/auth.json":             "auth.json",
+	}
+	for dst, src := range fixtures {
+		b, err := os.ReadFile(filepath.Join(root, "internal", "smoke", "testdata", "bashera", src))
+		if err != nil {
+			p.reasonf("fixture %s: %v", src, err)
+			continue
+		}
+		b = bytes.ReplaceAll(b, []byte("@HOME@"), []byte(bh))
+		dstPath := filepath.Join(bh, dst)
+		if err := os.MkdirAll(filepath.Dir(dstPath), 0o700); err != nil {
+			p.reasonf("fixture dir %s: %v", dst, err)
+			continue
+		}
+		if err := os.WriteFile(dstPath, b, 0o600); err != nil {
+			p.reasonf("fixture write %s: %v", dst, err)
+		}
+	}
+	if p.reasons != nil {
 		return p.finish()
 	}
 	before, err := snapshot(bh)
@@ -54,38 +66,26 @@ write_secret_file %s '{"gwdg-saia": {type: "api"}}'
 	projs, err := reg.AllOrdered()
 	if err != nil {
 		p.reasonf("registry read: %v", err)
+	} else if len(projs) != 1 {
+		p.reasonf("registry read: got %d projects, want 1", len(projs))
 	} else {
-		want := registry.Project{
-			Name:            "my-project",
-			Path:            registry.CanonicalPath(proj),
-			ContainerID:     registry.ContainerIdentity(proj),
-			ContainerStatus: "stopped",
-			GitTracking:     "github.com",
-		}
 		got := projs[0]
-		got.LastUsed = want.LastUsed // bash stamps differ per run; ordering checked separately
-		if got != want {
-			p.reasonf("registry read mismatch: got %+v want %+v", projs[0], want)
+		if got.Name != "my-project" || got.Path != registry.CanonicalPath(proj) ||
+			got.ContainerStatus != "stopped" || got.GitTracking != "github.com" || got.RepoURL != "" {
+			p.reasonf("registry read mismatch: got %+v", got)
+		}
+		if matched, _ := regexp.MatchString("^[0-9a-f]{12}$", got.ContainerID); !matched {
+			p.reasonf("container_id not the 12-hex identity shape: %q", got.ContainerID)
+		}
+		if got.LastUsed != "2026-10-20T12:18:15Z" {
+			p.reasonf("last_used not parsed as stored: %q", got.LastUsed)
 		}
 	}
-	cfg, err := sandboxcfg.Read(sc)
+	cfg, err := sandboxcfg.Read(sandboxcfg.Path(proj))
 	if err != nil {
 		p.reasonf("sandbox_config read: %v", err)
-	} else {
-		want := sandboxcfg.Config{
-			ContainerEdition: "swdev",
-			ContainerModes:   []string{"offline", "hil_mode"},
-			StartOption:      "console",
-			CBMAutoIndex:     true,
-			CBMAutoWatch:     true,
-			AIProvider:       "gwdg-saia",
-			ProjectSource:    "empty",
-			VCSTracking:      "github.com",
-			Version:          "1.0",
-		}
-		if !reflect.DeepEqual(cfg.ContainerModes, want.ContainerModes) || cfg.ContainerEdition != want.ContainerEdition || cfg.StartOption != want.StartOption || cfg.AIProvider != want.AIProvider || cfg.ProjectSource != want.ProjectSource || cfg.VCSTracking != want.VCSTracking || cfg.CBMAutoIndex != want.CBMAutoIndex || cfg.CBMAutoWatch != want.CBMAutoWatch || cfg.Version != want.Version {
-			p.reasonf("sandbox_config read mismatch: got %+v want %+v", cfg, want)
-		}
+	} else if cfg.ContainerEdition != "swdev" || !reflect.DeepEqual(cfg.ContainerModes, []string{"offline", "hil_mode"}) || cfg.StartOption != "console" || cfg.AIProvider != "gwdg-saia" || cfg.ProjectSource != "empty" || cfg.Version != "1.0" {
+		p.reasonf("sandbox_config read mismatch: got %+v", cfg)
 	}
 	after, err := snapshot(bh)
 	if err != nil {
@@ -94,7 +94,7 @@ write_secret_file %s '{"gwdg-saia": {type: "api"}}'
 		p.reasonf("Go reads mutated bash-era files: %s", d)
 	}
 
-	// Reverse: the Go data layer writes, the bash TUI reads.
+	// Go round-trip: the data layer writes and reads back its own files.
 	goHome := filepath.Join(home, "A1-go")
 	gproj := filepath.Join(goHome, "ws", "gp")
 	if err := os.MkdirAll(filepath.Join(goHome, "ws"), 0o755); err != nil {
@@ -123,51 +123,41 @@ write_secret_file %s '{"gwdg-saia": {type: "api"}}'
 	if err := sandboxcfg.PatchString(goHome, gsc, "vcs_tracking", "own GitLab"); err != nil {
 		p.reasonf("PatchString: %v", err)
 	}
-	out, err = runBash(goHome, filepath.Join(root, "dist", "scripts", "start-tui.sh"), fmt.Sprintf(`
-mkdir -p %s
-order=$(get_all_projects_ordered | jq -r '.name')
-[ "$order" = "go-proj" ] || { echo "ORDER:$order"; exit 1; }
-cid=$(jq -r '.projects[0].container_id' "$HOME/.config/oc-sandbox/projects.json")
-want=$(project_container_identity %s)
-[ "$cid" = "$want" ] || { echo "CID:$cid!=$want"; exit 1; }
-st=$(jq -r '.projects[0].container_status' "$HOME/.config/oc-sandbox/projects.json")
-[ "$st" = "running" ] || { echo "STATUS:$st"; exit 1; }
-sc=%s
-[ "$(jq -r .container_edition "$sc")" = "swdev" ] || { echo "EDITION"; exit 1; }
-[ "$(jq -r '.container_modes | join(",")' "$sc")" = "offline" ] || { echo "MODES"; exit 1; }
-[ "$(jq -r .start_option "$sc")" = "web" ] || { echo "STARTOPT"; exit 1; }
-[ "$(jq -r .vcs_tracking "$sc")" = "own GitLab" ] || { echo "VCS"; exit 1; }
-[ "$(jq -r .ai_provider "$sc")" = "gwdg-saia" ] || { echo "AI"; exit 1; }
-echo BASHREADOK
-`, shPath(filepath.Dir(gproj)), shPath(gproj), shPath(gsc)))
-	if err != nil || !strings.Contains(out, "BASHREADOK") {
-		p.reasonf("bash reading Go-written files failed: %v out=%s", err, out)
+	gprojs, err := greg.AllOrdered()
+	if err != nil {
+		p.reasonf("registry round-trip read: %v", err)
+	} else if len(gprojs) != 1 {
+		p.reasonf("registry round-trip: got %d projects, want 1", len(gprojs))
+	} else {
+		got := gprojs[0]
+		want := registry.Project{
+			Name:            "go-proj",
+			Path:            registry.CanonicalPath(gproj),
+			ContainerID:     registry.ContainerIdentity(gproj),
+			ContainerStatus: "running",
+			GitTracking:     "gitlab.com",
+			RepoURL:         "https://gitlab.com/u/g",
+		}
+		got.LastUsed = want.LastUsed // timestamp differs per run; shape checked via the fixture above
+		if got != want {
+			p.reasonf("registry round-trip mismatch: got %+v want %+v", got, want)
+		}
+	}
+	gcfg, err := sandboxcfg.Read(gsc)
+	if err != nil {
+		p.reasonf("sandbox_config round-trip read: %v", err)
+	} else if gcfg.ContainerEdition != "swdev" || !reflect.DeepEqual(gcfg.ContainerModes, []string{"offline"}) || gcfg.StartOption != "web" || gcfg.AIProvider != "gwdg-saia" || gcfg.VCSTracking != "own GitLab" {
+		p.reasonf("sandbox_config round-trip mismatch: got %+v", gcfg)
 	}
 	return p.finish()
 }
 
-// A4 — new-project write shapes (issue #73 A4): sandbox_config.json byte
-// match, projects.json append shape, no web port anywhere.
+// A4 — new-project write shapes (issue #73 A4): sandbox_config.json bytes
+// match the bash-era fixture shape, projects.json append shape, no web
+// port anywhere.
 func checkNewProjectWrites(home, root string) Item {
 	p := newPhase("A4", "New-project writes: sandbox_config.json key set, projects.json append shape, no web port stored")
 	sub := filepath.Join(home, "A4")
-	bproj := filepath.Join(sub, "b", "ws", "prj")
-	broot := filepath.Dir(bproj)
-	out, err := runBash(sub, filepath.Join(root, "dist", "scripts", "start-tui.sh"), fmt.Sprintf(`
-mkdir -p %s
-create_projects_json
-create_sandbox_config %s swdev offline hil_mode console gwdg-saia
-add_project_to_registry my-project %s github.com
-`, shPath(broot), shPath(bproj), shPath(bproj)))
-	if err != nil {
-		p.reasonf("bash new-project writes failed: %v out=%s", err, out)
-		return p.finish()
-	}
-	bashSandbox, err := os.ReadFile(sandboxcfg.Path(bproj))
-	if err != nil {
-		p.reasonf("read bash sandbox_config: %v", err)
-		return p.finish()
-	}
 	goproj := filepath.Join(sub, "g")
 	gproj := filepath.Join(goproj, "ws", "prj")
 	if err := os.MkdirAll(filepath.Dir(gproj), 0o755); err != nil {
@@ -182,8 +172,16 @@ add_project_to_registry my-project %s github.com
 		p.reasonf("read Go sandbox_config: %v", err)
 		return p.finish()
 	}
-	if string(bashSandbox) != string(goSandbox) {
-		p.reasonf("sandbox_config.json bytes differ:\nbash: %q\ngo:   %q", bashSandbox, goSandbox)
+	// Byte shape: the deleted bash TUI's create_sandbox_config produced
+	// exactly this file (fixture, captured from v0.1.13) for the same
+	// arguments — the write shape must not drift.
+	wantSandbox, err := os.ReadFile(filepath.Join(root, "internal", "smoke", "testdata", "bashera", "sandbox_config.json"))
+	if err != nil {
+		p.reasonf("read fixture sandbox_config: %v", err)
+		return p.finish()
+	}
+	if string(goSandbox) != string(wantSandbox) {
+		p.reasonf("sandbox_config.json bytes differ:\nwant: %q\ngo:   %q", wantSandbox, goSandbox)
 	}
 
 	greg := &registry.Registry{Home: goproj}
@@ -210,7 +208,7 @@ add_project_to_registry my-project %s github.com
 			p.reasonf("projects.json append shape mismatch: got %+v want %+v", got, want)
 		}
 	}
-	for _, f := range []string{sandboxcfg.Path(bproj), sandboxcfg.Path(gproj), registryPath(goproj)} {
+	for _, f := range []string{sandboxcfg.Path(gproj), registryPath(goproj)} {
 		if b, err := os.ReadFile(f); err == nil && strings.Contains(string(b), "4096") {
 			p.reasonf("web port stored in %s", f)
 		}

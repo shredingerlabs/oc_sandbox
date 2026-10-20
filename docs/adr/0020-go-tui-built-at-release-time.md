@@ -4,7 +4,8 @@
 
 Accepted (2026-10-07, issue #68).
 Flag default flipped 2026-10: the parity gate (#73 checklist, issue #98) passed,
-so entry points now default to the Go binary; `--bash-tui` is the escape hatch.
+so entry points now default to the Go binary. The bash TUI and its
+`--bash-tui` escape hatch were deleted one release later (cleanup #99).
 
 ## Context
 
@@ -26,9 +27,9 @@ orphan release branch is cut:
   committed source).
 - The release branch therefore carries the binaries at `bin/`, and
   `install.sh` picks the platform-matched one into `<install>/bin/oc-sandbox`.
-- `install.sh --bin` points the entry points (symlink `oc-sandbox`,
-  desktop shortcut) at the binary; default remains the bash `start-tui.sh`
-  until the Go TUI passes the parity gate, when the flag default flips.
+- `install.sh` points the entry points (symlink `oc-sandbox`,
+  desktop shortcut) at the binary — the default since the parity-gate
+  flip (#98); the bash TUI was the pre-flip default and is now deleted (#99).
 - CI/CD is out of scope for now; the build runs on the release operator's
   machine (Go 1.22+ required).
 

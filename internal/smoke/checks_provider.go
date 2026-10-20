@@ -27,7 +27,7 @@ func checkAIProviderBackend(home, root string) Item {
 	}
 	cfg := func(script, body string) (string, error) {
 		t := strings.ReplaceAll(body, "@CONFIG@", shPath(configure))
-		return runBash(sub, filepath.Join(root, "dist", "scripts", "start-tui.sh"), t)
+		return runBash(sub, t)
 	}
 
 	proj := filepath.Join(sub, "ws", "prj")
