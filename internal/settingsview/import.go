@@ -27,6 +27,10 @@ const newProjectViewIndex = 1
 // older or partially-cleaned roots stay importable.
 var importDirs = []string{"project", ".opencode_config", ".opencode_data", ".ssh_local", ".git_local", ".cbm_cache"}
 
+// selectFolderRow is the chooser's action row label: the required step
+// that copies the browsed folder into the path entry before Import.
+const selectFolderRow = "Select this folder"
+
 // matchesStructure is the import structure check: a sandbox_config.json
 // file and a project/.git worktree (ADR 0017, relaxed — the infra
 // directories are self-healing at container start; v1 checks .git
@@ -114,7 +118,11 @@ func (v *View) importPane() ([]string, []hitRow, int) {
 
 	rows = append(rows, "", focusLabel("Folders — "+v.impDir))
 	for j, label := range chooser {
-		rows = append(rows, chooserRow(label, j == v.impSel))
+		row := chooserRow(label, j == v.impSel)
+		if label == selectFolderRow {
+			row = chooserActionRow(label, j == v.impSel)
+		}
+		rows = append(rows, row)
 		if v.impFocus == 1+j {
 			focusRow = len(rows) - 1
 		}

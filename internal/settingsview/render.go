@@ -38,6 +38,17 @@ func chooserRow(label string, selected bool) string {
 	return "   " + shell.StyleMutedAlt.Render(label)
 }
 
+// chooserActionRow renders the picker's "Select this folder" action row:
+// accent-bold with a leading arrow so it reads as a required step, not
+// one folder among many; ▶ marks selection as usual.
+func chooserActionRow(label string, selected bool) string {
+	mark := "   "
+	if selected {
+		mark = " ▶ "
+	}
+	return mark + shell.StyleFieldLabel.Foreground(shell.ColAccent).Render("→ " + label)
+}
+
 // optionRow renders a toggleable option row ([x]/[ ] never rides on color).
 func optionRow(label string, on, focused bool) string {
 	box := "[ ]"
@@ -97,7 +108,7 @@ func muted(text string) string { return shell.StyleMutedAlt.Render(text) }
 func (v *View) chooserRows() []string {
 	rows := []string{".. (up one level)"}
 	rows = append(rows, v.impDirs...)
-	rows = append(rows, "Select this folder")
+	rows = append(rows, selectFolderRow)
 	return rows
 }
 
