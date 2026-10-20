@@ -8,10 +8,13 @@ a TUI folder picker that starts at the configured `DEFAULT_PROJECT_PATH`
 
 The flow handles two outcomes per folder:
 
-1. **Matching root → register only.** The strict structure check passes:
-   `sandbox_config.json` in `.opencode_config/` plus all expected directories
-   (`project/`, `.opencode_config/`, `.opencode_data/`, `.ssh_local/`,
-   `.git_local/`,    `.cbm_cache/`) plus a `project/.git` worktree. A summary screen (name
+1. **Matching root → register only.** The structure check passes:
+   a valid `sandbox_config.json` in `.opencode_config/` plus a
+   `project/.git` worktree. The infrastructure directories
+   (`.opencode_data/`, `.ssh_local/`, `.git_local/`, `.cbm_cache/`) are
+   **not** required: start.sh re-creates any of them at every container
+   start (`mkdir -p`), so older roots (created before a directory was
+   added) and partially-cleaned roots stay importable. A summary screen (name
    prefilled from the folder basename, path, edition/modes/start option from
    the config) confirms
    registration; afterwards only `projects.json` changes. Nothing is scaffolded,
@@ -29,9 +32,12 @@ The flow handles two outcomes per folder:
 
 Considered and rejected:
 
-- **Loose criteria** (only the config file, or only the directories) — rejected:
-  structure-only checks false-positive on lookalike folders and yield
-  half-broken projects; the strict check is cheap and unambiguous.
+- **Loose criteria** (only the config file, or only the directories) — rejected
+  for the *config file*: a bare config without a project worktree yields
+  half-broken projects. Requiring all infrastructure directories was relaxed
+  (2026, after user reports): start.sh self-heals them at every start, so
+  demanding them only refused genuine former project roots. `sandbox_config.json`
+  plus `project/.git` remains unambiguous.
 - **Broken-JSON as mere "not matching"** — rejected: the prompt must state that
   the config is *broken* (parse failure), not merely absent, so the user can
   repair the actual cause.
@@ -42,7 +48,9 @@ Considered and rejected:
 Edge rules:
 
 - Already-registered path or duplicate project name → info page, back to the
-  picker; no silent rename, no overwrite.
+  picker; no silent rename, no overwrite. The already-registered check takes
+  **precedence** over the structure check: a registered path gets the guard
+  even when its folder is incomplete (the referrer prompt would be misleading).
 - Structurally matching root with unparsable `sandbox_config.json` is treated
   as case 2 with the dedicated broken-config message.
 - v1 does not detect git worktrees/detached `gitdir:` pointers under `project/`;

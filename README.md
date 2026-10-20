@@ -285,6 +285,8 @@ Schwere bzw. destruktive Aktionen bestätigt die Go-TUI vor dem Ausführen in
 einem zentrierten Popup über der Ansicht (Details siehe
 [ADR-0021](docs/adr/0021-confirmation-popups.md)): **New Project → Create
 Project** (Zusammenfassung der aktuellen Konfiguration mit `Create`/`Back`),
+**Settings → Export Config** bei bereits existierender Zieldatei
+(`Overwrite`/`Cancel`),
 **Settings → Restore Config** (ausgewähltes Backup → Zieldatei),
 **Build Container** (Editionen; nur im Leerlauf), **Delete Container**
 (rote `Delete`-Bestätigung; laufende Container werden zuvor mit dem
@@ -305,13 +307,16 @@ project** erneut registrieren (z. B. nach Umzug oder Registry-Verlust; siehe
 - Ein Ordner-Browser startet im Default-Projektpfad (Fallback: `$HOME`);
   Unterverzeichnisse wählt man an, per **Select this folder** wird der Ordner
   übernommen.
-- Der Import gelingt nur bei **vollständiger Projektstruktur** (`project/`,
-  `.opencode_config/` inkl. gültigem `sandbox_config.json`, `.opencode_data/`,
-  `.ssh_local/`, `.git_local/`, `.cbm_cache/`). Zusammenfassung prüfen →
+- Der Import gelingt bei **gültigem `sandbox_config.json`** in
+  `.opencode_config/` und einem `project/`-Git-Worktree (`project/.git`).
+  Fehlende Infrastruktur-Ordner (`.opencode_data/`, `.ssh_local/`,
+  `.git_local/`, `.cbm_cache/`) sind kein Hindernis – `start.sh` legt sie
+  bei jedem Containerstart neu an. Zusammenfassung prüfen →
   **Register** – es ändert sich nur die Registry, nichts am Ordner.
 - Nicht passende Ordner oder defektes `sandbox_config.json` werden nicht
   migriert; die TUI weist auf den New-Project-Wizard mit Git-Import hin.
-- Bereits registrierte Pfade oder doppelte Namen werden abgelehnt.
+- Bereits registrierte Pfade oder doppelte Namen werden abgelehnt
+  (registrierte Pfade unabhängig vom Zustand ihres Ordners).
 
 ### Projektquelle: „Clone existing repo via URL“ (New Project Wizard)
 

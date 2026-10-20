@@ -48,13 +48,11 @@ func (ops DefaultOps) RunUninstall(script string, args []string) error {
 	return err
 }
 
-// ExportSnapshot implements Ops: read the active file, atomic-write the
-// byte-exact copy to dest (an existing destination file is backed up
-// through the rotating backup machinery first).
-// ExportSnapshot implements Ops: backup the active file through the
-// rotating backup machinery (as bash backup_config_manually does),
-// writing the byte-exact copy to dest (an existing destination file is
-// meaningfully through AtomicWrite: backed up first itself).
+// ExportSnapshot implements Ops: backup the active file src through the
+// rotating backup machinery (as bash backup_config_manually does), then
+// write the byte-exact copy to dest. An existing destination file is
+// overwritten without a backup of its own — the view asks the user for
+// an explicit overwrite confirmation before calling this.
 func (ops DefaultOps) ExportSnapshot(home, src, dest string) error {
 	if _, err := os.Stat(src); err != nil {
 		return err
@@ -66,7 +64,7 @@ func (ops DefaultOps) ExportSnapshot(home, src, dest string) error {
 	if err != nil {
 		return err
 	}
-	return config.AtomicWrite(home, dest, string(data))
+	return config.WriteWithoutBackup(dest, string(data))
 }
 
 // RestoreConfig implements Ops in the ADR 0009 restore ordering:

@@ -1,9 +1,11 @@
 # Confirmation Popups for Destructive and Heavy Actions
 
-A shared centered modal confirm (ADR-0021) is shown before four triggered
+A shared centered modal confirm (ADR-0021) is shown before triggered
 actions run — Create Project (button), Restore Config (button), Build
-(Container view button and edition-card double-click/Enter), and Uninstall
-(button click, after the typed `"uninstall"` confirm). Quit does not get a
+(Container view button and edition-card double-click/Enter), Uninstall
+(button click, after the typed `"uninstall"` confirm), and Export Config
+(button, only when the destination file already exists — `Overwrite`
+replaces it without a destination backup). Quit does not get a
 popup: the existing guarded-exit footer prompt stays, and `ctrl+c` keeps the
 SIGINT path. The start-time "Build now / Build later / Go back" prompt
 remains its own three-option decision.

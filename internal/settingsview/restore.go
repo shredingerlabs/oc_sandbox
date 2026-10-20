@@ -41,8 +41,11 @@ func (v *View) restorePane() ([]string, []hitRow, int) {
 			act: v.resChooserAct(j)})
 	}
 	rows, h := buttonBlock(rows, "Restore", v.resFocus == len(v.resBackups), v.askRestore)
+	// the button's hit rect is always registered: clicking it activates
+	// the restore no matter where the keyboard focus sits.
+	hits = append(hits, h)
 	if v.resFocus == len(v.resBackups) {
-		return rows, append(hits, h), h.row
+		return rows, hits, h.row
 	}
 	return rows, hits, v.resSel
 }

@@ -2,6 +2,7 @@ package settingsview
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -28,11 +29,11 @@ func (v *View) exportPane() ([]string, []hitRow, int) {
 			hits = append(hits, back)
 			return rows, hits, back.row
 		}
-		rows := append([]string{},
-			muted("Copies an active config file, byte-exact, to a"),
-			muted("destination you pick (save-as). An existing destination"),
-			muted("file is backed up first (backup machinery)."),
-			"",
+	rows := append([]string{},
+		muted("Copies an active config file, byte-exact, to a"),
+		muted("destination you pick (save-as). An existing destination"),
+		muted("file is overwritten after a confirmation prompt."),
+		"",
 			focusLabel("Config files"),
 		)
 		for j, path := range files {
@@ -125,7 +126,8 @@ func (v *View) exportCancel() tea.Cmd {
 }
 
 // doExport writes the byte-exact snapshot: missing destination → error
-// toast; success → toast with the destination.
+// toast; existing destination → overwrite confirmation popup first
+// (ADR-0021); success → toast with the destination.
 func (v *View) doExport() tea.Cmd {
 	files := v.activeConfigs()
 	if files == nil {
@@ -143,6 +145,18 @@ func (v *View) doExport() tea.Cmd {
 		return nil
 	}
 	dest = registry.CanonicalPath(dest)
+	if _, err := os.Stat(dest); err == nil {
+		v.confirm.Open("Overwrite the destination file?", "Overwrite", "Cancel",
+			[]string{dest, "The existing file is replaced without a backup."},
+			false, func() tea.Cmd { return v.runExport(src, dest) })
+		return nil
+	}
+	return v.runExport(src, dest)
+}
+
+// runExport queues the snapshot write for a confirmed (or new)
+// destination.
+func (v *View) runExport(src, dest string) tea.Cmd {
 	srcName := configBaseName(src)
 	return v.queueOp("Exporting config snapshot",
 		func() (string, error) { return "", v.ops.ExportSnapshot(v.home, src, dest) },
@@ -151,7 +165,7 @@ func (v *View) doExport() tea.Cmd {
 				v.toast = "Export failed: " + err.Error()
 				return nil
 			}
-			v.toast = fmt.Sprintf("Exported %s to %s (backup made if the destination existed).", srcName, dest)
+			v.toast = fmt.Sprintf("Exported %s to %s.", srcName, dest)
 			return nil
 		})
 }

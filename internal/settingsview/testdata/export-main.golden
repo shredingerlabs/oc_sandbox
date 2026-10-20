@@ -1,7 +1,7 @@
   ╭─────────────────────────────────────────────────────────╮
   │ Copies an active config file, byte-exact, to a          │
   │ destination you pick (save-as). An existing destination │
-  │ file is backed up first (backup machinery).             │
+  │ file is overwritten after a confirmation prompt.        │
   │                                                         │
   │ Config files                                            │
   │  ▶ projects.json                                        │

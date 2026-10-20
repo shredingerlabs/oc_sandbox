@@ -179,7 +179,15 @@ func (v *View) ConfirmOpen() bool {
 
 // Update implements shell.CenterView.
 func (v *View) Update(msg tea.Msg) tea.Cmd {
-	v.toast = ""
+	switch msg.(type) {
+	case taskmgr.DoneMsg, taskmgr.StatusMsg, taskmgr.LineEvent:
+		// task-manager events must not wipe a toast a continuation just
+		// set: a fast op's Running StatusMsg is broadcast AFTER its
+		// DoneMsg (the op goroutine starts at Launch), so clearing here
+		// would erase completion toasts before the next frame renders.
+	default:
+		v.toast = ""
+	}
 	switch msg := msg.(type) {
 	case shell.SubTabMsg:
 		if msg.Index >= 0 && msg.Index < len(tabs) && msg.Index != v.sub {

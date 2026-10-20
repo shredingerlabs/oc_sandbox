@@ -131,12 +131,13 @@ func createTemp(path string) (string, error) {
 }
 
 // BackupFile copies path into home's backups directory, then rotates.
-// Secret/unsupported files are refused (and never copied).
+// Secret/unsupported files are refused (and never copied) — the refusal
+// is returned as an error; nothing is written to stderr (the Go TUI
+// owns the terminal).
 func BackupFile(home, path string) (string, error) {
 	if !IsGeneralConfigFile(home, path) {
-		msg := fmt.Sprintf("Refusing to back up secret or unsupported configuration: %s\n", path)
-		os.Stderr.WriteString(msg)
-		return "", fmt.Errorf("%s", strings.TrimRight(msg, "\n"))
+		msg := fmt.Sprintf("Refusing to back up secret or unsupported configuration: %s", path)
+		return "", fmt.Errorf("%s", msg)
 	}
 	backupDir := Paths{Home: home}.BackupsDir()
 	if err := os.MkdirAll(backupDir, 0o755); err != nil {

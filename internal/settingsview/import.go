@@ -21,19 +21,17 @@ import (
 // (shell.MenuItems order) — the import prompt refers into it (ADR 0017).
 const newProjectViewIndex = 1
 
-// importDirs are the sandbox-root directories the strict structure check
-// requires (bash folder_matches_project_structure).
+// importDirs are the sandbox directories a NEW project gets from
+// init-project.sh. They are not required for import: start.sh
+// re-creates missing ones at every container start (mkdir -p), so
+// older or partially-cleaned roots stay importable.
 var importDirs = []string{"project", ".opencode_config", ".opencode_data", ".ssh_local", ".git_local", ".cbm_cache"}
 
-// matchesStructure is the strict import structure check: all sandbox
-// directories, a sandbox_config.json file, and a project/.git worktree
-// (existence only, v1 — ADR 0017).
+// matchesStructure is the import structure check: a sandbox_config.json
+// file and a project/.git worktree (ADR 0017, relaxed — the infra
+// directories are self-healing at container start; v1 checks .git
+// existence only).
 func matchesStructure(root string) bool {
-	for _, d := range importDirs {
-		if fi, err := os.Stat(filepath.Join(root, d)); err != nil || !fi.IsDir() {
-			return false
-		}
-	}
 	if fi, err := os.Stat(sandboxcfg.Path(root)); err != nil || fi.IsDir() {
 		return false
 	}
@@ -214,8 +212,8 @@ func (v *View) importPromptPane() ([]string, []hitRow, int) {
 			focusLabel("Import isn't possible here"),
 			"",
 			muted("This folder does not match the opencode-sandbox"),
-			muted("project structure: sandbox_config.json, the sandbox"),
-			muted("directories, and a project/ git worktree."),
+			muted("project structure: a sandbox_config.json in"),
+			muted(".opencode_config/ and a project/ git worktree."),
 			"",
 			muted("Use the New Project workflow instead and clone"),
 			muted("the repo there via URL (in-container clone)."),
@@ -289,6 +287,13 @@ func (v *View) importActivate() tea.Cmd {
 func (v *View) doImport() tea.Cmd {
 	root := registry.CanonicalPath(strings.TrimRight(v.impPath, "/"))
 	v.impRoot = root
+	// already-registered takes precedence over the structure check
+	// (ADR 0017: a registered path gets the info guard, never the
+	// referrer prompt — even when its folder is incomplete).
+	if _, err := v.registryView().ByPath(root); err == nil {
+		v.toast = "Already registered — this path is a registered project."
+		return nil
+	}
 	cfgPath := sandboxcfg.Path(root)
 	if data, err := os.ReadFile(cfgPath); err == nil {
 		if _, perr := jsonfmt.Parse(data); perr != nil {
@@ -298,10 +303,6 @@ func (v *View) doImport() tea.Cmd {
 	}
 	if !matchesStructure(root) {
 		v.impStage, v.impBrokenCfg, v.impFocus, v.scroll = 2, false, 0, 0
-		return nil
-	}
-	if _, err := v.registryView().ByPath(root); err == nil {
-		v.toast = "Already registered — this path is a registered project."
 		return nil
 	}
 	cfg, err := sandboxcfg.Read(cfgPath)
