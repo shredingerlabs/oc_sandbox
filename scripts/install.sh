@@ -61,14 +61,9 @@ entry_point_path() {
   printf '%s/bin/%s\n' "$install_dir" "$BINARY_NAME"
 }
 
-# --- Gum Configuration ---------------------------------------------------------
-GUM_VERSION="${GUM_VERSION:-0.17.0}"
-GUM_BIN="${DEFAULT_INSTALL_PATH}/gum/gum"
+# --- Platform-Variablen --------------------------------------------------------
 PLATFORM_OS=""
 PLATFORM_ARCH=""
-# Temp-Verzeichnis der gum-Installation – global, damit der EXIT-Trap cleanup_gum
-# nach Funktionsende noch darauf zugreifen kann (set -u).
-tmpdir=""
 
 # --- Signal-Handling -----------------------------------------------------------
 cleanup() {
@@ -77,10 +72,6 @@ cleanup() {
       echo "Räume temporäres Verzeichnis auf: $TEMP_DIR"
     fi
     rm -rf "$TEMP_DIR"
-  fi
-  if [[ -n "$tmpdir" && -d "$tmpdir" ]]; then
-    rm -rf "$tmpdir"
-    tmpdir=""
   fi
 }
 
@@ -194,107 +185,6 @@ detect_platform() {
       return 1
       ;;
   esac
-}
-
-# --- Gum Installation ----------------------------------------------------------
-gum_available() {
-  if command -v gum &>/dev/null; then
-    return 0
-  fi
-  if [[ -x "$GUM_BIN" ]]; then
-    return 0
-  fi
-  return 1
-}
-
-# --- Gum Installation ----------------------------------------------------------
-# Wählt die Basis für das gum-Install-Temp-Verzeichnis. In WSL können TMPDIR/
-# TEMP/TMP über WSLENV auf ein Windows-Laufwerk (/mnt/c/...) zeigen; auf drvfs/
-# 9p schlägt das Entpacken mit "Function not implemented" fehl. Daher nur
-# Verzeichnisse auf Linux-Dateisystemen zulassen.
-select_gum_tmpdir_parent() {
-  local candidate
-  for candidate in "${TMPDIR:-}" "${TEMP:-}" "${TMP:-}" /tmp "$HOME"; do
-    if [[ -n "$candidate" && -d "$candidate" && ! "$candidate" =~ ^/mnt/[a-z]($|/) ]]; then
-      printf '%s\n' "$candidate"
-      return 0
-    fi
-  done
-  printf '/tmp\n'
-}
-
-install_gum() {
-  local tarball_name url checksums_url sha_cmd expected actual
-
-  detect_platform || return 1
-
-  tarball_name="gum_${GUM_VERSION}_${PLATFORM_OS}_${PLATFORM_ARCH}.tar.gz"
-  url="https://github.com/charmbracelet/gum/releases/download/v${GUM_VERSION}/${tarball_name}"
-  checksums_url="https://github.com/charmbracelet/gum/releases/download/v${GUM_VERSION}/checksums.txt"
-
-  if ! command -v curl &>/dev/null; then
-    log_error "curl wird für die Installation benötigt, ist aber nicht vorhanden."
-    return 1
-  fi
-
-  if command -v sha256sum &>/dev/null; then
-    sha_cmd="sha256sum"
-  elif command -v shasum &>/dev/null; then
-    sha_cmd="shasum -a 256"
-  else
-    log_warn "Kein sha256sum/shasum gefunden – Checksum-Prüfung wird übersprungen."
-    sha_cmd=""
-  fi
-
-  # Temp-Verzeichnis nur auf Linux-Dateisystemen extrahieren (siehe
-  # select_gum_tmpdir_parent). Das Aufräumen übernimmt der globale cleanup-Trap.
-  tmpdir=$(mktemp -d "$(select_gum_tmpdir_parent)/gum-install.XXXXXX")
-
-  log_info "Lade gum v${GUM_VERSION} für ${PLATFORM_OS}/${PLATFORM_ARCH} herunter ..."
-  if ! curl -fsSL "$url" -o "$tmpdir/$tarball_name"; then
-    log_error "Download fehlgeschlagen: $url"
-    return 1
-  fi
-
-  if [[ -n "$sha_cmd" ]]; then
-    log_info "Verifiziere Checksum ..."
-    if ! curl -fsSL "$checksums_url" -o "$tmpdir/checksums.txt"; then
-      log_warn "checksums.txt konnte nicht geladen werden – Prüfung wird übersprungen."
-    else
-      expected=$(grep " ${tarball_name}\$" "$tmpdir/checksums.txt" | awk '{print $1}')
-      if [[ -z "$expected" ]]; then
-        log_warn "Kein Checksum-Eintrag für ${tarball_name} gefunden – Prüfung wird übersprungen."
-      else
-        actual=$($sha_cmd "$tmpdir/$tarball_name" | awk '{print $1}')
-        if [[ "$expected" != "$actual" ]]; then
-          log_error "Checksum-Mismatch! Erwartet: $expected, erhalten: $actual"
-          return 1
-        fi
-        log_info "Checksum OK."
-      fi
-    fi
-  fi
-
-  log_info "Entpacke und installiere nach ${INSTALL_PATH} ..."
-  if ! tar -xzf "$tmpdir/$tarball_name" -C "$tmpdir"; then
-    log_error "Entpacken des gum-Archivs fehlgeschlagen (tmpdir: ${tmpdir})."
-    return 1
-  fi
-
-  local extracted_bin
-  extracted_bin=$(find "$tmpdir" -type f -name gum | head -n1)
-  if [[ -z "$extracted_bin" ]]; then
-    log_error "Binary 'gum' im Archiv nicht gefunden."
-    return 1
-  fi
-
-  mkdir -p "$INSTALL_PATH"
-  mkdir -p "$(dirname "$GUM_BIN")"
-  cp "$extracted_bin" "$GUM_BIN"
-  chmod +x "$GUM_BIN"
-
-  log_info "gum erfolgreich installiert: $GUM_BIN"
-  tmpdir=""
 }
 
 # --- Disk-Space-Checking ------------------------------------------------------
@@ -412,7 +302,7 @@ download_via_git() {
       rm -rf "$target_dir"
     fi
     
-    if git clone --depth 1 --branch "$tag" "$repo_url" "$target_dir" 2>&1; then
+    if git -c advice.detachedHead=false clone --depth 1 --branch "$tag" "$repo_url" "$target_dir" 2>&1; then
       return 0
     fi
     
@@ -1249,43 +1139,24 @@ main() {
     create_shortcut "$INSTALL_PATH"
   fi
 
-  # Installiere gum für TUI-Unterstützung
-  echo "Installiere gum für interaktive TUI..."
-  if ! gum_available; then
-    if install_gum; then
-      echo "gum erfolgreich installiert."
-    else
-      log_warn "gum-Installation fehlgeschlagen – TUI wird auf Fallback-Modi zurückgreifen."
-    fi
-  else
-    log_verbose "gum ist bereits installiert."
-  fi
-
   # Erfolgsmeldung
   echo ""
   echo "==> Installation erfolgreich!"
   echo "    Pfad: $INSTALL_PATH"
   echo "    Version: $DOWNLOADED_VERSION"
   echo ""
-  if [[ -x "$GUM_BIN" ]]; then
-    echo "    gum: $GUM_BIN (installiert)"
-  fi
-  echo ""
   echo "Nächste Schritte:"
-  echo "  1. Podman installieren (falls nicht vorhanden):"
+  echo "  1. Podman installieren (falls noch nicht vorhanden):"
   echo "     sudo apt-get install -y podman pasta fuse-overlayfs"
   echo ""
-  echo "  2. Images bauen:"
-  echo "     ${INSTALL_PATH}/scripts/build-container.sh all"
-  echo ""
-  echo "  3. Projekt initialisieren:"
-  echo "     ${INSTALL_PATH}/scripts/init-project.sh ~/projects/dein-projekt"
-  echo ""
-  echo "  4. Sandbox starten:"
-  echo "     ${INSTALL_PATH}/scripts/start.sh ~/projects/dein-projekt --edition web"
-  echo ""
-  echo "  5. Interaktive TUI starten:"
+  echo "  2. Interaktive TUI starten:"
+  echo "     über Startmenu  -> OC Sandbox"
+  echo "     im Terminal     -> oc-sandbox  oder aus dem Installationsverzeichnis"
   echo "     ${INSTALL_PATH}/bin/${BINARY_NAME}"
+  echo ""
+  echo "  Die TUI führt durch Image-Bau und Projekterstellung."
+  echo ""
+
 
   if $SYMLINKS; then
     echo ""
@@ -1293,10 +1164,6 @@ main() {
     echo "Sie können die Sandbox jetzt von überall starten:"
     echo "  oc-sandbox"
   fi
-
-  echo ""
-  echo "Entry-Points zeigen auf das Go-TUI-Binary:"
-  echo "  ${INSTALL_PATH}/bin/${BINARY_NAME}"
 
   if $SHORTCUT_CREATED; then
     echo ""
