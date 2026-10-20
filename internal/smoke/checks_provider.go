@@ -225,7 +225,7 @@ func checkProviderBlock(p *phase, raw []byte, id, name, endpoint, tag string) {
 		blk.Options.ModelsDiscovery.Models.ExcludeBy[0].Field != "id":
 		fail += " excludeBy differs"
 	}
-	if len(doc.Plugin) != 1 || doc.Plugin[0] != "opencode-models-discovery@1.5.3" {
+	if len(doc.Plugin) != 1 || doc.Plugin[0] != "opencode-models-discovery@2.0.0" {
 		fail += fmt.Sprintf(" plugin %v", doc.Plugin)
 	}
 	if tag == "fresh" {

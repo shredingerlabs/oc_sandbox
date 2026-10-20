@@ -58,9 +58,9 @@ reopens the settings with current values.
 
 Project setup also selects a start option: `console` (shell), `opencode`
 (OpenCode TUI), or `web` (OpenCode web surface). With `web`, the container runs
-`opencode web --port 4096` permanently as a background service, published on
-`127.0.0.1` (port scan 4096-4196); the TUI prints the URL after start and when
-accessing the running project.
+the OpenCode background service (v2) permanently on port 4096, published on
+`127.0.0.1` (port scan 4096-4196); the TUI prints a one-time sign-in link
+(`opencode pair`) after start and when accessing the running project.
 
 When a project is opened while its container is already running, the TUI asks
 how to access it every time: with `opencode` the choice is `OpenCode
@@ -244,7 +244,7 @@ später aus `<url>` geklont.
 - `--hil_mode` – HIL-Tests mit USB-Geräten (Oszilloskop, MCU)
 - `--cbm_ui` – CBM Knowledge-Graph-UI (Port 9749)
 - `--start_opencode` – OpenCode direkt nach Container-Start starten
-- `--start_web` – OpenCode-Weboberfläche starten (`opencode web --port 4096`, veröffentlicht auf 127.0.0.1, Port-Scan 4096-4196; mit `--detach` läuft der Server als Container-Hauptprozess und die URL wird ausgegeben)
+- `--start_web` – OpenCode-Weboberfläche starten (v2-Hintergrunddienst auf Container-Port 4096, veröffentlicht auf 127.0.0.1, Port-Scan 4096-4196; mit `--detach` läuft der Dienst als Container-Hauptprozess, Zugriff über einmaligen Pair-Link; ohne `--detach` läuft `opencode serve` im Vordergrund)
 
 ## Deinstallation
 

@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -32,6 +33,7 @@ type runnerHooks struct {
 	psImagesOut string // `podman ps` output (names+images format; "" = psOut)
 	imageErr    error  // `podman image exists` error (nil = image exists)
 	portErr     error  // `podman port` error
+	pairOut     string // `podman exec ... opencode pair` output ("" = pair fails)
 	stopErr     error  // `podman stop` error
 	startErr    error
 	buildErr    error
@@ -77,6 +79,8 @@ func (h *runnerHooks) output(name string, args []string) (string, error) {
 		return "", h.stopErr
 	case name == "podman" && args[0] == "port":
 		return "127.0.0.1:4096", h.portErr
+	case name == "podman" && args[0] == "exec" && slices.Contains(args, "pair"):
+		return h.pairOut, nil
 	}
 	return "", nil
 }

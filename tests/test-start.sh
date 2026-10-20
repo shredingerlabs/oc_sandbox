@@ -51,7 +51,10 @@ if ! bash "$PROJECT_ROOT/dist/scripts/start.sh" "$test_home" --edition swdev --s
 fi
 
 grep -q -- '-p 127.0.0.1:4097:4096' "$PODMAN_LOG"
-grep -q -- '-c opencode web --port 4096' "$PODMAN_LOG"
+grep -q -- 'opencode service set port 4096' "$PODMAN_LOG"
+grep -q -- 'opencode service start' "$PODMAN_LOG"
+grep -q -- 'exec sleep infinity' "$PODMAN_LOG"
+! grep -q -- 'opencode web' "$PODMAN_LOG"
 grep -q -- '-e START_WEB=false' "$PODMAN_LOG"
 grep -q 'OpenCode Web: http://127.0.0.1:4097' "$web_output"
 

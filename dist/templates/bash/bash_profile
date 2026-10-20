@@ -3,8 +3,8 @@
 # on container start. It handles automatic opencode startup when requested.
 
 if [[ "${START_WEB}" == "true" ]]; then
-  echo "Starting OpenCode Web on port 4096..."
-  opencode web --port 4096
+  echo "Starting OpenCode Web (serve) on port 4096... Ctrl+C stops and removes the container."
+  exec opencode serve --hostname 0.0.0.0 --port 4096
 elif [[ "${START_OPENCODE}" == "true" ]]; then
   echo "Starting OpenCode..."
   opencode

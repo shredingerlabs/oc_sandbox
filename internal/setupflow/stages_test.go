@@ -202,8 +202,13 @@ func TestCBMAndSkillsArgv(t *testing.T) {
 		t.Fatal("skills stage must be interactive (ADR 0014)")
 	}
 	argv := p.ExecFor(StageSkills, root)
-	if len(argv) == 0 || !containsAll(argv, []string{"podman", "exec", "-it", "--user", "dev", name}) {
+	if len(argv) == 0 || !containsAll(argv, []string{"podman", "exec", "-it", "--user", "dev", name, "opencode", "mini", "--prompt"}) {
 		t.Fatalf("skills argv wrong: %v", argv)
+	}
+	for _, w := range argv { // v2: no -m model pin (ADR 0024)
+		if w == "-m" || w == "opencode/big-pickle" {
+			t.Fatalf("skills argv pins a model: %v", argv)
+		}
 	}
 	if argv := p.ExecFor(StageCBM, root); argv != nil {
 		t.Fatalf("CBM ExecFor must be nil, got %v", argv)

@@ -12,10 +12,6 @@ import (
 // container Dirname conventions (start-tui.sh container_name_for_project).
 const containerPrefix = "opencode-sandbox-"
 
-// SetupModel is the model used for the interactive skills session
-// (ADR 0014: a free OpenCode Zen model, not the project's ai_provider).
-const SetupModel = "opencode/big-pickle"
-
 // RunnerFactory builds a per-project PipelineStager; main wiring passes
 // the app's cmdrun.Runner and script paths here. It is the thin ops seam
 // this flow launches its stages through (#82's task-manager retrofit
@@ -110,8 +106,10 @@ func (p *PipelineStager) containerName() (string, error) {
 }
 
 func (p *PipelineStager) skillsArgv(container string, _ string) []string {
+	// v2: `mini` is the interactive drop-in (ADR 0014/0024); the model
+	// comes from the config default — no -m (the v2 TUI lost it).
 	return []string{"podman", "exec", "-it", "--user", "dev", container,
-		"opencode", "--prompt", "run skill setup-matt-pocock-skills", "-m", SetupModel}
+		"opencode", "mini", "--prompt", "run skill setup-matt-pocock-skills"}
 }
 
 // startContainer implements build-or-reuse (data-map §3, the start

@@ -1086,12 +1086,20 @@ func (m *Model) access(p registry.Project, cfg sandboxcfg.Config, variant string
 		cmd := exec.Command("podman", "exec", "-it", "--user", "dev", registry.ContainerName(p.ContainerID), arg)
 		return m.deps.Exec(cmd, func(err error) tea.Msg { return accessDoneMsg{Err: err} })
 	}
-	// web: show the published URL (never open a browser)
+	// web: announce the published URL with a fresh one-time pair link
+	// (v2 web sign-in, ADR 0024; never open a browser). During first-run
+	// setup the pairing is skipped — the recovery handoff follows anyway.
 	port := discovery.WebPort(m.deps.Runner, registry.ContainerName(p.ContainerID))
-	if port != "" {
-		m.toast = "OpenCode Web: http://" + port
-	} else {
+	if port == "" {
 		m.toast = "OpenCode Web is not published for this project"
+	} else if !firstRun {
+		if link := discovery.PairLink(m.deps.Runner, registry.ContainerName(p.ContainerID), "http://"+port); link != "" {
+			m.toast = "OpenCode Web: " + link
+		} else {
+			m.toast = "OpenCode Web: http://" + port
+		}
+	} else {
+		m.toast = "OpenCode Web: http://" + port
 	}
 	if firstRun && !cfg.SetupComplete { // no handoff here — recover right away
 		return func() tea.Msg { return shell.RecoverMsg{Path: p.Path} }

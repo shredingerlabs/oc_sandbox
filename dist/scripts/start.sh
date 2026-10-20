@@ -425,7 +425,9 @@ CONTAINER_COMMAND=()
 if $DETACH; then
   RUN_MODE=(-d)
   if $START_WEB; then
-    CONTAINER_COMMAND=(-c 'opencode web --port 4096')
+    # v2: shared background service pinned to container port 4096, then
+    # keep-alive (ADR 0024). Published host port comes from the 4096 scan.
+    CONTAINER_COMMAND=(-c 'opencode service set hostname 0.0.0.0 && opencode service set port 4096 && opencode service start && exec sleep infinity')
   else
     CONTAINER_COMMAND=(-c 'sleep infinity')
   fi
@@ -465,4 +467,5 @@ podman run --rm "${RUN_MODE[@]}" \
 
 if $START_WEB && $DETACH; then
   echo "OpenCode Web: http://127.0.0.1:${WEB_HOST_PORT}"
+  echo "Anmeldung (einmaliger Pair-Link): podman exec -it $CONTAINER_NAME opencode pair"
 fi

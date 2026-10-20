@@ -282,7 +282,7 @@ cmd_opencode_config() {
   local config
   local provider_block
   provider_block=$(PROVIDER_ID="$p_id" PROVIDER_NAME="$name" PROVIDER_ENDPOINT="$endpoint" jq -n '
-    {plugin: ["opencode-models-discovery@1.5.3"],
+    {plugin: ["opencode-models-discovery@2.0.0"],
      provider: {($ENV.PROVIDER_ID): {
        npm: "@ai-sdk/openai-compatible",
        name: $ENV.PROVIDER_NAME,

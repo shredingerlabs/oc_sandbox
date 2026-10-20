@@ -730,6 +730,38 @@ func TestWebButtonOnRunningCardShowsURL(t *testing.T) {
 	}
 }
 
+// Web access on a published container announces a one-time pair link
+// (v2, ADR 0024): `opencode pair --url` runs inside the container and
+// the printed link carries the published host authority.
+func TestWebAccessAnnouncesPairLink(t *testing.T) {
+	e := newEnv(t, &runnerHooks{
+		pairOut: "  URL  http://127.0.0.1:4096/auth/connect/abc123\n  ██ QR ██\n",
+	})
+	sandboxcfg.PatchString(e.home, sandboxcfg.Path(e.roots["alpha"]), "start_option", "web")
+	sandboxcfg.PatchBool(e.home, sandboxcfg.Path(e.roots["alpha"]), "setup_complete", true) // pair runs on non-first-run access
+	e.rebuild(t)
+	e.step(keyMsg("enter")) // configured web is the preselected variant
+	e.finishOps()
+	body := strings.Join(bodyOf(t, e.m, bodyW, bodyH), "\n")
+	if !strings.Contains(body, "/auth/connect/abc123") {
+		t.Errorf("pair link not announced:\n%s", body)
+	}
+	// the pair call passed the published host URL into the container
+	var execArgs []string
+	for _, c := range e.run.Calls {
+		if c.Name == "podman" && len(c.Args) > 1 && c.Args[0] == "exec" {
+			execArgs = c.Args
+		}
+	}
+	if execArgs == nil {
+		t.Fatal("pair was not exec'd")
+	}
+	joined := strings.Join(execArgs, " ")
+	if !strings.Contains(joined, "pair --url http://127.0.0.1:4096") {
+		t.Errorf("pair call missing --url host binding: %s", joined)
+	}
+}
+
 func TestWebStartShowsURLAndMissingPortNotice(t *testing.T) {
 	e := newEnv(t, nil)
 	sandboxcfg.PatchString(e.home, sandboxcfg.Path(e.roots["alpha"]), "start_option", "web")

@@ -28,7 +28,9 @@ RUN GLAB_VER=$(curl -s https://gitlab.com/api/v4/projects/gitlab-org%2Fcli/relea
         | tar xz --strip-components=1 -C /usr/local/bin bin/glab
 
 # --- OpenCode ----------------------------------------------------------------
-RUN curl -fsSL https://github.com/anomalyco/opencode/releases/latest/download/opencode-linux-x64.tar.gz \
+# v2, floating on the update API's latest channel (ADR 0024); GitHub
+# releases/latest stays v1-only.
+RUN curl -fsSL https://opencode.ai/update/api/latest/cli/opencode/opencode-linux-x64.tar.gz \
         | tar xz -C /usr/local/bin opencode \
     && chmod +x /usr/local/bin/opencode
 

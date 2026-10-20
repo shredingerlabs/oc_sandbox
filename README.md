@@ -56,9 +56,10 @@ kehrt zum übergeordneten Wizard zurück.
 
 Bei der Projekteinrichtung wählt die TUI zusätzlich eine Start-Option:
 `console` (Shell), `opencode` (OpenCode-TUI) oder `web` (OpenCode-Weboberfläche).
-Bei `web` läuft im Container dauerhaft `opencode web --port 4096` als
-Hintergrunddienst, veröffentlicht auf `127.0.0.1` (Port-Scan 4096-4196); die
-TUI zeigt nach dem Start bzw. beim Zugriff auf das laufende Projekt die URL an.
+Bei `web` läuft im Container dauerhaft der OpenCode-Hintergrunddienst (v2) auf
+Port 4096, veröffentlicht auf `127.0.0.1` (Port-Scan 4096-4196); die TUI zeigt
+nach dem Start bzw. beim Zugriff auf das laufende Projekt einen einmaligen
+Anmelde-Link (`opencode pair`) zur Weboberfläche an.
 
 Wird ein Projekt geöffnet, dessen Container bereits läuft, fragt die TUI bei
 jedem Zugriff, wie zugegriffen werden soll: Bei `opencode` zwischen
@@ -71,11 +72,12 @@ Start-Option nicht.
 With a missing image for the selected edition, in the new project creation the "Image build" selection appears directly below the edition row with **Build now**/**Build later** (default: Build now; `Create Project` executes the decision — Build later registers the project as stopped). Under project start, missing images offer **Build now**, **Build later** or **Go back**.
 Neue Projekte werden für die Einrichtung detached gestartet. Die CBM-Konfiguration
 läuft nicht-interaktiv; die Skills-Einrichtung startet anschließend über ein
-interaktives `podman exec -it` eine OpenCode-TUI-Sitzung mit dem Modell
-`opencode/big-pickle` und dem Prompt „run skill setup-matt-pocock-skills",
+interaktives `podman exec -it` eine OpenCode-Mini-TUI-Sitzung (`opencode mini`)
+mit dem Prompt „run skill setup-matt-pocock-skills",
 sodass Fragen des Skills direkt beantwortet werden können, bevor die
 ausgewählte Console- oder OpenCode-Sitzung angeschlossen wird (bei der
-Start-Option `web` wird stattdessen die URL der Weboberfläche ausgegeben).
+Start-Option `web` wird stattdessen ein einmaliger Anmelde-Link zur
+Weboberfläche ausgegeben).
 Schlägt die Ersteinrichtung fehl, bleibt das Projekt registriert und bietet
 `Retry`, `Go back` oder `Exit`; ein erneuter Versuch wiederholt nur den
 unvollständigen Einrichtungsschritt.
@@ -216,7 +218,7 @@ gebaut und als Binary installiert wird (siehe
    
    - `opencode` – OpenCode-TUI
    
-   - `web` – OpenCode-Weboberfläche (`opencode web --port 4096`, Hintergrunddienst)
+   - `web` – OpenCode-Weboberfläche (Hintergrunddienst auf Port 4096)
    
    Nach erfolgreichem Anlegen (**Ersteinrichtung** startet) wird der Wizard
    zurückgesetzt – alle Eingaben werden verworfen, der nächste New-Project-Gang
@@ -572,7 +574,7 @@ dist/scripts/start.sh ~/projects/kunde-x --start_web --detach
 > **Hinweis zu `--cbm_ui`:** Der `codebase-memory-mcp` Dienst startet im Hintergrund mit `autoindex: true` und bietet eine Web-UI auf Port 9749. Die Graph-UI benötigt Netzwerkzugriff und funktioniert daher nicht mit `--offline` (network=none). In allen anderen Modi kombinierbar. Siehe [codebase-memory-mcp](https://github.com/DeusData/codebase-memory-mcp).
 > Ist Port 9749 bereits belegt, wählt `start.sh` automatisch den nächsten freien Port bis 9849 und gibt die URL aus.
 
-> **Hinweis zu `--start_web`:** Startet `opencode web --port 4096` im Container und veröffentlicht ihn auf `127.0.0.1` (Port-Scan 4096-4196, wenn 4096 belegt ist). Mit `--detach` läuft der Webserver als Container-Hauptprozess, die URL wird nach dem Start ausgegeben. Ohne `--detach` läuft der Server im Vordergrund; Strg+C beendet und entfernt den Container. Im TUI-Startdialog als Start-Option „web" wählbar (läuft dort immer als Hintergrunddienst im Container).
+> **Hinweis zu `--start_web`:** Startet den OpenCode-Webdienst (v2-Hintergrunddienst, fest auf Container-Port 4096) und veröffentlicht ihn auf `127.0.0.1` (Port-Scan 4096-4196, wenn 4096 belegt ist). Mit `--detach` läuft der Dienst als Container-Hauptprozess, die URL bzw. ein einmaliger Anmelde-Link wird beim Zugriff ausgegeben. Ohne `--detach` läuft `opencode serve` im Vordergrund; Strg+C beendet und entfernt den Container. Im TUI-Startdialog als Start-Option „web" wählbar (läuft dort immer als Hintergrunddienst im Container).
 
 > **Hinweis zu `--hil_mode` und USB-Sicherheit:**
 > Das Skript ermittelt zur Laufzeit den realen Pfad von `/dev/scope0`

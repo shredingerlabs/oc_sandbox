@@ -231,3 +231,22 @@ func WebPort(run cmdrun.Runner, container string) string {
 	}
 	return lines[0]
 }
+
+// PairLink runs `opencode pair --url <hostURL>` inside the container
+// (v2 web sign-in, ADR 0024) and returns the first printed one-time
+// link, or "" when pairing fails. hostURL is the published host binding
+// as "<host>:<port>" — pair prints links with that authority so the
+// browser can reach them.
+func PairLink(run cmdrun.Runner, container, hostURL string) string {
+	out, err := run.Output("podman", "exec", "--user", "dev", container,
+		"opencode", "pair", "--url", hostURL)
+	if err != nil {
+		return ""
+	}
+	for _, f := range strings.Fields(out) {
+		if strings.HasPrefix(f, "http://") || strings.HasPrefix(f, "https://") {
+			return f
+		}
+	}
+	return ""
+}
