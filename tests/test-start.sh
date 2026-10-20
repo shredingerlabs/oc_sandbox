@@ -28,7 +28,7 @@ chmod +x "$fake_bin/ss"
 export PATH="$fake_bin:/usr/bin:/bin"
 export PODMAN_LOG="$test_home/podman.log"
 
-if ! bash "$PROJECT_ROOT/dist/scripts/start.sh" "$test_home" --edition full --cbm_ui --detach 2>/dev/null; then
+if ! bash "$PROJECT_ROOT/dist/scripts/start.sh" "$test_home" --edition swdev --cbm_ui --detach 2>/dev/null; then
   printf 'start script failed with mocked podman\n' >&2
   exit 1
 fi
@@ -45,7 +45,7 @@ printf 'start networking and CBM port tests passed\n'
 
 : > "$PODMAN_LOG"
 web_output="$test_home/web-output"
-if ! bash "$PROJECT_ROOT/dist/scripts/start.sh" "$test_home" --edition full --start_web --detach > "$web_output"; then
+if ! bash "$PROJECT_ROOT/dist/scripts/start.sh" "$test_home" --edition swdev --start_web --detach > "$web_output"; then
   printf 'start script failed with mocked podman (--start_web)\n' >&2
   exit 1
 fi
@@ -56,7 +56,7 @@ grep -q -- '-e START_WEB=false' "$PODMAN_LOG"
 grep -q 'OpenCode Web: http://127.0.0.1:4097' "$web_output"
 
 : > "$PODMAN_LOG"
-if ! bash "$PROJECT_ROOT/dist/scripts/start.sh" "$test_home" --edition full --start_web > "$web_output"; then
+if ! bash "$PROJECT_ROOT/dist/scripts/start.sh" "$test_home" --edition swdev --start_web > "$web_output"; then
   printf 'start script failed with mocked podman (--start_web foreground)\n' >&2
   exit 1
 fi
@@ -81,7 +81,7 @@ existing_head="$(git -C "$test_home/project" rev-parse HEAD)"
 
 : > "$PODMAN_LOG"
 heal_output="$test_home/heal-output"
-if ! bash "$PROJECT_ROOT/dist/scripts/start.sh" "$test_home" --edition full --detach > "$heal_output" 2>&1; then
+if ! bash "$PROJECT_ROOT/dist/scripts/start.sh" "$test_home" --edition swdev --detach > "$heal_output" 2>&1; then
   printf 'start script failed with mocked podman (existing repo)\n' >&2
   exit 1
 fi
@@ -93,13 +93,13 @@ printf 'start git heal tests passed\n'
 # Cloned-Quelle (project_source == "cloned") -> kein git init in project/
 rm -rf "$test_home/project"
 mkdir -p "$test_home/project"
-bash "$PROJECT_ROOT/dist/scripts/start.sh" "$test_home" --edition full --detach > /dev/null 2>&1
+bash "$PROJECT_ROOT/dist/scripts/start.sh" "$test_home" --edition swdev --detach > /dev/null 2>&1
 cloned_project="$test_home/cloned-root"
 mkdir -p "$cloned_project/project" "$cloned_project/.opencode_config"
 printf '%s' '{"project_source":"cloned"}' > "$cloned_project/.opencode_config/sandbox_config.json"
 
 : > "$PODMAN_LOG"
-if ! bash "$PROJECT_ROOT/dist/scripts/start.sh" "$cloned_project" --edition full --detach > /dev/null 2>&1; then
+if ! bash "$PROJECT_ROOT/dist/scripts/start.sh" "$cloned_project" --edition swdev --detach > /dev/null 2>&1; then
   printf 'start script failed with mocked podman (cloned source)\n' >&2
   exit 1
 fi
@@ -136,7 +136,7 @@ if run_start "$cloned_project" --edition doesnotexist; then
   exit 1
 fi
 out="$(cat "$test_home/edition-output")"
-for known in base web embedded full rust; do
+for known in base web embedded swdev rust; do
   if ! grep -q "$known" "$test_home/edition-output"; then
     printf 'edition list does not mention %s\n' "$known" >&2
     exit 1
