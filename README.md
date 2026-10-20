@@ -871,7 +871,7 @@ Dank an folgende Open-Source-Projekte und Tools:
 
 - **opencode-models-discovery** (https://github.com/yuhp/opencode-models-discovery) — Modell-Discovery für opencode: findet verfügbare Modelle und Provider dynamisch, statt sie von Hand zu pflegen.
 
-- **Gum** (https://github.com/charmbracelet/gum) — Ein Tool für schöne Kommandozeilen-TUIs.
+- **Bubble Tea** (https://github.com/charmbracelet/bubbletea) — Go-Framework für Terminal-UIs, zusammen mit **Bubbles** (https://github.com/charmbracelet/bubbles) und **Lip Gloss** (https://github.com/charmbracelet/lipgloss) die Grundlage der TUI.
 
 ## Disclaimer
 
