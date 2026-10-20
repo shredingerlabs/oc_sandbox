@@ -62,11 +62,12 @@ Port 4096, veröffentlicht auf `127.0.0.1` (Port-Scan 4096-4196); die TUI zeigt
 nach dem Start bzw. beim Zugriff auf das laufende Projekt einen einmaligen
 Anmelde-Link (`opencode pair`) zur Weboberfläche an.
 
-Wird ein Projekt geöffnet, dessen Container bereits läuft, fragt die TUI bei
-jedem Zugriff, wie zugegriffen werden soll: Bei `opencode` zwischen
-`OpenCode (configured)` und `Console (bash)`, bei `web` zwischen
-`Show Web URL` und `Console (bash)` (ohne veröffentlichten Port erscheint
-beim URL-Eintrag ein Hinweis), bei `console` direkt. Eine Console-Sitzung ist
+Wird ein Projekt geöffnet, dessen Container bereits läuft, wird die gewählte
+Variante direkt betreten: Bei `opencode`/`console` per `podman exec`, bei `web`
+erscheint ein einmaliger Anmelde-Link — läuft der Container ohne veröffentlichten
+Web-Port, wird er durch einen verifizierten Neustart mit `--start_web` ersetzt
+(Auto-Adopt; als Hintergrund-Auftrag „Starting OpenCode Web" sichtbar). Eine
+Console-Sitzung ist
 eine unabhängige Bash-Shell über `podman exec` und ändert die konfigurierte
 Start-Option nicht.
 

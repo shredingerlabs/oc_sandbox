@@ -1,6 +1,7 @@
 package openproject
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -33,6 +34,8 @@ type runnerHooks struct {
 	psImagesOut string // `podman ps` output (names+images format; "" = psOut)
 	imageErr    error  // `podman image exists` error (nil = image exists)
 	portErr     error  // `podman port` error
+	portOut     string // `podman port` output ("" = default binding)
+	portFail    *int   // `podman port` calls still failing (unpublished); decremented each call
 	pairOut     string // `podman exec ... opencode pair` output ("" = pair fails)
 	stopErr     error  // `podman stop` error
 	startErr    error
@@ -78,6 +81,13 @@ func (h *runnerHooks) output(name string, args []string) (string, error) {
 		}
 		return "", h.stopErr
 	case name == "podman" && args[0] == "port":
+		if h.portFail != nil && *h.portFail > 0 {
+			*h.portFail--
+			return "", errors.New("port not published")
+		}
+		if h.portOut != "" {
+			return h.portOut, h.portErr
+		}
 		return "127.0.0.1:4096", h.portErr
 	case name == "podman" && args[0] == "exec" && slices.Contains(args, "pair"):
 		return h.pairOut, nil

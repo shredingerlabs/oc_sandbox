@@ -703,9 +703,51 @@ func TestWebButtonStartsWithStartWebAndShowsURL(t *testing.T) {
 	}
 }
 
-// The Web button clicked on an already-RUNNING card never starts and
-// never execs: it announces the published URL (or the not-published
-// notice — a container started without web cannot adopt web live).
+// The Web button clicked on an already-RUNNING card never execs: it
+// announces the published URL — or, when the container runs without a
+// published web port, it relaunches the container with --start_web
+// (verified stop → start) and announces the fresh URL. A bare toast
+// would leave no UI path to web at all.
+func TestWebButtonOnRunningCardRelaunchesWithWeb(t *testing.T) {
+	portFail := 1 // live container started without web: port unpublished
+	var e *env
+	hooks := &runnerHooks{portFail: &portFail}
+	hooks.onStop = func(args []string) { // after stop the ps polls show nothing
+		hooks.psOut = ""
+		hooks.psImagesOut = ""
+	}
+	hooks.onStart = func(args []string) { // the relaunched container is live again
+		hooks.psOut = "opencode-sandbox-" + e.ids["alpha"]
+		hooks.psImagesOut = "opencode-sandbox-" + e.ids["alpha"] + "\topencode-sandbox-base"
+	}
+	e = newEnv(t, hooks)
+	hooks.psOut = "opencode-sandbox-" + e.ids["alpha"]
+	e.rebuild(t)
+	hooks.psOut = "opencode-sandbox-" + e.ids["alpha"]
+	e.rebuild(t)
+
+	lines := bodyOf(t, e.m, bodyW, bodyH)
+	var rect shell.Rect
+	for _, r := range e.m.CardRects() {
+		if strings.Contains(paneRowRowAt(lines, r, 1), "alpha") {
+			rect = r
+		}
+	}
+	e.step(clickAt(rect.X+19+2, rect.Y+4)) // Web button, alpha already selected
+	e.finishOps()
+	calls := e.startCalls(t)
+	if len(calls) == 0 {
+		t.Fatalf("web access on an unpublished running container did not relaunch with web; body:\n%s", strings.Join(bodyOf(t, e.m, bodyW, bodyH), "\n"))
+	}
+	got := strings.Join(calls[0], " ")
+	if !strings.Contains(got, "--start_web") || !strings.HasSuffix(got, "--detach") {
+		t.Errorf("web relaunch start args = %q", got)
+	}
+	if !someLine(bodyOf(t, e.m, bodyW, bodyH), "http://") {
+		t.Error("web URL not announced after relaunch")
+	}
+}
+
 func TestWebButtonOnRunningCardShowsURL(t *testing.T) {
 	e := newEnv(t, nil)
 	e.hooks.psOut = "opencode-sandbox-" + e.ids["alpha"]

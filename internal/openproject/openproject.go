@@ -146,6 +146,11 @@ type Model struct {
 	pending    registry.Project
 	pendingCfg sandboxcfg.Config
 	variant    string // start variant of the start in flight (console/opencode/web)
+	// webAdopt latches the running-container web relaunch: a web access
+	// on a live container without a published 4096 port replaces it
+	// with a --start_web start (one attempt per access chain — the flag
+	// clears on resolve so a retry stays possible without loops).
+	webAdopt bool
 	// resumeRecover queues the first-run recovery shell hook for after
 	// the access handoff returns: tea.Batch does not sequence, so the
 	// setup machine must not race a suspended TUI.
@@ -647,6 +652,7 @@ func (m *Model) beginStart(idx int, variant string) tea.Cmd {
 	p := m.projects[idx]
 	m.pending = p
 	m.variant = variant
+	m.webAdopt = false
 	m.reconciling = true
 	m.toast = ""
 	m.reg.UpdateLastUsed(p.Path) // bump BEFORE anything else (file write)
@@ -883,7 +889,7 @@ func (m *Model) mismatchPick(i int) tea.Cmd {
 			m.switchAfterBuild = true
 			return m.poll()
 		}
-		return m.launchSwitch(p, cfg, variant)
+		return m.launchSwitch(p, cfg, variant, "Switching to "+cfg.ContainerEdition)
 	default: // Cancel (mismatchCancel; esc also lands here) — no podman side effects at all
 		m.variant = ""
 		m.mismatchRunning = ""
@@ -898,8 +904,11 @@ func (m *Model) mismatchPick(i int) tea.Cmd {
 // (registry → stopped only after it verifies gone — containers run
 // --rm, so gone = removed), then start with args fully rebuilt from
 // the saved settings (registry → running afterwards, in opDone, only
-// on a verified success).
-func (m *Model) launchSwitch(p registry.Project, cfg sandboxcfg.Config, variant string) tea.Cmd {
+// on a verified success). The same verified stop→start chain also
+// serves the web relaunch: a web access on a live container without a
+// published 4096 port adopts web by replacing it with a --start_web
+// start (title says what the op is doing).
+func (m *Model) launchSwitch(p registry.Project, cfg sandboxcfg.Config, variant, title string) tea.Cmd {
 	if !ValidModes(cfg.ContainerModes) {
 		m.toast = "offline and cbm_ui are mutually exclusive — fix settings first"
 		m.state = stateList
@@ -910,7 +919,7 @@ func (m *Model) launchSwitch(p registry.Project, cfg sandboxcfg.Config, variant 
 	m.busyKind = opSwitch
 	m.pending = p
 	m.pendingCfg = cfg
-	m.opTitle = "Switching to " + cfg.ContainerEdition
+	m.opTitle = title
 	m.log = shell.NewLogPane().Run(true)
 	m.busyID++
 	m.busyKey = p.ContainerID
@@ -1052,7 +1061,7 @@ func (m *Model) resumeSwitch(msg switchResumeMsg) tea.Cmd {
 		m.buildFailed()
 		return nil
 	}
-	return m.launchSwitch(m.pending, m.pendingCfg, m.variant)
+	return m.launchSwitch(m.pending, m.pendingCfg, m.variant, "Switching to "+m.pendingCfg.ContainerEdition)
 }
 
 // access resolves the chosen start variant directly (card flow, no
@@ -1091,15 +1100,29 @@ func (m *Model) access(p registry.Project, cfg sandboxcfg.Config, variant string
 	// setup the pairing is skipped — the recovery handoff follows anyway.
 	port := discovery.WebPort(m.deps.Runner, registry.ContainerName(p.ContainerID))
 	if port == "" {
+		if variant == "web" && !m.webAdopt &&
+			hasString(discovery.RunningContainers(m.deps.Runner), registry.ContainerName(p.ContainerID)) {
+			// The live container runs without a published 4096 port
+			// (started as console/TUI or before the start option
+			// changed): adopt web — replace it with a --start_web
+			// start (one attempt per access chain, the op title says
+			// what the user asked for).
+			m.webAdopt = true
+			return m.launchSwitch(p, cfg, "web", "Starting OpenCode Web")
+		}
+		m.webAdopt = false
 		m.toast = "OpenCode Web is not published for this project"
-	} else if !firstRun {
-		if link := discovery.PairLink(m.deps.Runner, registry.ContainerName(p.ContainerID), "http://"+port); link != "" {
-			m.toast = "OpenCode Web: " + link
+	} else {
+		m.webAdopt = false
+		if !firstRun {
+			if link := discovery.PairLink(m.deps.Runner, registry.ContainerName(p.ContainerID), "http://"+port); link != "" {
+				m.toast = "OpenCode Web: " + link
+			} else {
+				m.toast = "OpenCode Web: http://" + port
+			}
 		} else {
 			m.toast = "OpenCode Web: http://" + port
 		}
-	} else {
-		m.toast = "OpenCode Web: http://" + port
 	}
 	if firstRun && !cfg.SetupComplete { // no handoff here — recover right away
 		return func() tea.Msg { return shell.RecoverMsg{Path: p.Path} }

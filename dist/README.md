@@ -63,11 +63,12 @@ the OpenCode background service (v2) permanently on port 4096, published on
 `127.0.0.1` (port scan 4096-4196); the TUI prints a one-time sign-in link
 (`opencode pair`) after start and when accessing the running project.
 
-When a project is opened while its container is already running, the TUI asks
-how to access it every time: with `opencode` the choice is `OpenCode
-(configured)` or `Console (bash)`; with `web` it is `Show Web URL` or `Console
-(bash)` (the URL entry prints a notice if no port is published); with `console`
-it attaches directly. A console session is an independent bash shell attached
+When a project is opened while its container is already running, the chosen
+variant is entered directly: `opencode`/`console` attach via `podman exec`; `web`
+prints a fresh sign-in link — and when the container runs without a published
+web port, it is replaced by a verified restart with `--start_web` (auto-adopt,
+visible as the background task "Starting OpenCode Web"). A console session is
+an independent bash shell attached
 via `podman exec` and does not change the configured start option.
 
 If the selected container image is missing, the TUI offers `Build now`, `Build
