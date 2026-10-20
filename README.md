@@ -43,10 +43,11 @@ eigenes GitLab oder einen anderen VCS-Host auswählen. Tokens werden verborgen
 abgefragt und ausschließlich projekt-lokal in
 `.git_local/` gespeichert. Die AI-Provider-Auswahl bietet `none` und
 `Custom`; bei `Custom` werden Name, Endpoint (OpenAI-kompatible API) und
-Token verborgen abgefragt, der Provider-Block in `opencode.json` sowie der
-Auth-Eintrag in `.opencode_data/auth.json` werden unter dem aus dem Namen
-abgeleiteten Provider-Id erzeugt (siehe
-[ADR-0022](docs/adr/0022-provider-neutral-ai-configuration.md)). Vorhandene
+Token verborgen abgefragt, der Provider-Block in `opencode.json` (v2-Schema,
+`providers.<id>`) sowie die Token-Datei unter `.opencode_data/credentials/`
+werden unter dem aus dem Namen abgeleiteten Provider-Id erzeugt (siehe
+[ADR-0022](docs/adr/0022-provider-neutral-ai-configuration.md),
+[ADR-0025](docs/adr/0025-opencode-v2-config-schema.md)). Vorhandene
 Zugangsdaten bleiben erhalten, sofern nicht ausdrücklich **Replace** gewählt wird.
 
 Für jede VCS-Auswahl außer `none` fragt die TUI die projekt-lokale Git-Identität

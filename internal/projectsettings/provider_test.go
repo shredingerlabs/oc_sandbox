@@ -25,15 +25,16 @@ import (
 // --- fixtures -------------------------------------------------------------
 
 // writeOpenJSON seeds root/.opencode_config/opencode.json with a
-// provider section for id (name + baseURL).
+// providers.<id> section for id (name + baseURL) — the v2 shape the real
+// opencode-config subcommand writes (ADR 0025).
 func (e *env) writeOpenJSON(t *testing.T, root, id, name, endpoint string) {
 	t.Helper()
 	doc := map[string]any{
-		"provider": map[string]any{
+		"providers": map[string]any{
 			id: map[string]any{
-				"npm":     "@ai-sdk/openai-compatible",
-				"name":    name,
-				"options": map[string]any{"baseURL": endpoint},
+				"package":  "@opencode/ai/providers/openai-compatible",
+				"name":     name,
+				"settings": map[string]any{"baseURL": endpoint},
 			},
 		},
 	}
@@ -46,29 +47,21 @@ func (e *env) writeOpenJSON(t *testing.T, root, id, name, endpoint string) {
 	}
 }
 
-// writeAuth seeds root/.opencode_data/auth.json with a credential entry
-// under id (merged into any existing content).
+// writeAuth seeds root/.opencode_data/credentials/<id> with the stored
+// token "stored-secret" — the disk effect the real ai-provider
+// subcommand leaves (ADR 0025; kept name for call-site stability).
 func (e *env) writeAuth(t *testing.T, root, id string) {
 	t.Helper()
-	dir := filepath.Join(root, ".opencode_data")
+	dir := filepath.Join(root, ".opencode_data", "credentials")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	path := filepath.Join(dir, "auth.json")
-	doc := map[string]any{}
-	if data, err := os.ReadFile(path); err == nil {
-		if json.Unmarshal(data, &doc) != nil {
-			doc = map[string]any{}
-		}
-	}
-	doc[id] = map[string]any{"type": "api", "key": "stored-secret"}
-	data, _ := json.Marshal(doc)
-	if err := os.WriteFile(path, data, 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, id), []byte("stored-secret\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 }
 
-// openJSONIDs lists the provider section ids in root's opencode.json.
+// openJSONIDs lists the providers section ids in root's opencode.json.
 func (e *env) openJSONIDs(t *testing.T, root string) []string {
 	t.Helper()
 	data, err := os.ReadFile(filepath.Join(root, ".opencode_config", "opencode.json"))
@@ -76,13 +69,13 @@ func (e *env) openJSONIDs(t *testing.T, root string) []string {
 		return nil
 	}
 	var doc struct {
-		Provider map[string]json.RawMessage `json:"provider"`
+		Providers map[string]json.RawMessage `json:"providers"`
 	}
 	if json.Unmarshal(data, &doc) != nil {
 		return nil
 	}
 	var ids []string
-	for id := range doc.Provider {
+	for id := range doc.Providers {
 		ids = append(ids, id)
 	}
 	return ids
@@ -500,23 +493,14 @@ func TestAIAddThroughSharedTaskQueue(t *testing.T) {
 	}
 }
 
-// authKey reads the stored key under id from root's auth.json.
+// authKey reads the stored token under id from root's credential file.
 func (e *env) authKey(t *testing.T, root, id string) (string, bool) {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join(root, ".opencode_data", "auth.json"))
+	data, err := os.ReadFile(filepath.Join(root, ".opencode_data", "credentials", id))
 	if err != nil {
 		return "", false
 	}
-	var doc map[string]map[string]any
-	if json.Unmarshal(data, &doc) != nil {
-		return "", false
-	}
-	s, ok := doc[id]
-	if !ok {
-		return "", false
-	}
-	key, _ := s["key"].(string)
-	return key, true
+	return strings.TrimSpace(string(data)), true
 }
 
 // Mouse parity: a field click focuses it, an Add-button click runs the

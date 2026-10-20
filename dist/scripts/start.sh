@@ -250,6 +250,18 @@ if [[ -f "${GIT_DIR}/gh-cli/hosts.yml" ]]; then
   fi
 fi
 
+# --- OpenCode-Konfiguration (v2-Schema, ADR 0025) ------------------------------
+# Bestehende Projekte: eine v1-geformte opencode.json (provider/plugin/
+# permission, flaches mcp) und auth.json-Credentials werden einmalig vor dem
+# Container-Start auf das v2-Schema migriert - bevor der OpenCode-Service
+# das erste Mal die Konfiguration laedt. Idempotent; ein Scheitern blockiert
+# den Start nicht (die Go-TUI liest beide Formate, configure-project.sh
+# migriert lazy bei jedem Provider-Subcommand nach).
+if [[ -f "${CONFIG_DIR}/opencode.json" ]] && command -v jq >/dev/null 2>&1; then
+  bash "${SCRIPT_DIR}/configure-project.sh" migrate-opencode-config "$PROJECT_ROOT" ||
+    echo "Warnung: opencode.json v2-Migration fehlgeschlagen - wiederholt sich beim naechsten Start oder beim ersten Provider-Edit." >&2
+fi
+
 # --- Proxy ----------------------------------------------------------------------
 if $USE_PROXY; then
   if ! podman image exists oc-proxy 2>/dev/null; then

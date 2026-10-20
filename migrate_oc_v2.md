@@ -1,8 +1,11 @@
 # OpenCode v2 Migration Findings
 
-Status: findings, not yet a plan/ADR. Evidence: OpenCode v2 docs (opencode.ai/v2/docs), the
-GitHub releases page, and the real v2 binary (`opencode v2.0.29`, downloaded to `/tmp` for
-`--help` inspection — installed binary in this container is still v1.18.15).
+Status: implemented in two steps — the runtime surface in ADR 0024, the
+config surface (template, provider blocks, credentials, one-time v2
+migration) in ADR 0025. Evidence: OpenCode v2 docs (opencode.ai/v2/docs), the
+GitHub releases page, and the real v2 binary (`opencode v2.0.29` / `v2.1.1`,
+downloaded to `/tmp` for `--help` inspection — installed binary in this
+container is still v1.18.15).
 Reviewed on 2026-10-15.
 
 ## Verdict

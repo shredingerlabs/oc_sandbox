@@ -1,7 +1,6 @@
 package newproject
 
 import (
-	"encoding/json"
 	"errors"
 	"os"
 	"regexp"
@@ -11,6 +10,7 @@ import (
 
 	"github.com/shredingerlabs/oc-sandbox/internal/cmdrun"
 	"github.com/shredingerlabs/oc-sandbox/internal/discovery"
+	"github.com/shredingerlabs/oc-sandbox/internal/projectsettings"
 	"github.com/shredingerlabs/oc-sandbox/internal/providerid"
 	"github.com/shredingerlabs/oc-sandbox/internal/registry"
 	"github.com/shredingerlabs/oc-sandbox/internal/sandboxcfg"
@@ -397,8 +397,8 @@ func aiProviderID(args []string) string {
 
 // needsConfirm reports whether the queued step would overwrite an existing
 // credential file and therefore requires the explicit Keep/Replace prompt:
-// VCS steps watch their CLI host file; the ai-provider step watches
-// auth.json for an existing entry under the derived provider id (id-
+// VCS steps watch their CLI host file; the ai-provider step asks
+// projectsettings.HasCredential for the derived provider id (id-
 // parameterized, bash parity).
 func (m *Model) needsConfirm(st credStep) bool {
 	if st.file != "" {
@@ -407,15 +407,7 @@ func (m *Model) needsConfirm(st credStep) bool {
 		}
 	}
 	if id := aiProviderID(st.args); id != "" && len(st.args) > 1 {
-		data, err := os.ReadFile(st.args[1] + "/.opencode_data/auth.json")
-		if err == nil {
-			var doc map[string]any
-			if json.Unmarshal(data, &doc) == nil {
-				if _, has := doc[id]; has {
-					return true
-				}
-			}
-		}
+		return projectsettings.HasCredential(st.args[1], id)
 	}
 	return false
 }

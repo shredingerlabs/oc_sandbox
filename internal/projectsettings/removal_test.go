@@ -50,7 +50,7 @@ func popupButton(t *testing.T, v *View, label string) tea.Cmd {
 	return nil
 }
 
-// delOpenJSONEntry drops the provider.<id> section from root's
+// delOpenJSONEntry drops the providers.<id> section from root's
 // opencode.json (the disk effect the real ai-provider-remove leaves).
 func (e *env) delOpenJSONEntry(t *testing.T, root, id string) {
 	t.Helper()
@@ -63,7 +63,7 @@ func (e *env) delOpenJSONEntry(t *testing.T, root, id string) {
 	if json.Unmarshal(data, &doc) != nil {
 		t.Fatal("opencode.json is not valid JSON")
 	}
-	prov, _ := doc["provider"].(map[string]any)
+	prov, _ := doc["providers"].(map[string]any)
 	delete(prov, id)
 	out, _ := json.Marshal(doc)
 	if err := os.WriteFile(p, out, 0o644); err != nil {
@@ -71,22 +71,11 @@ func (e *env) delOpenJSONEntry(t *testing.T, root, id string) {
 	}
 }
 
-// delAuthEntry drops the auth.json credential under id (the on-disk
+// delAuthEntry drops the credential file under id (the on-disk
 // effect configure-project.sh ai-provider-remove leaves).
 func (e *env) delAuthEntry(t *testing.T, root, id string) {
 	t.Helper()
-	p := filepath.Join(root, ".opencode_data", "auth.json")
-	data, err := os.ReadFile(p)
-	if err != nil {
-		return
-	}
-	var doc map[string]any
-	if json.Unmarshal(data, &doc) != nil {
-		return
-	}
-	delete(doc, id)
-	out, _ := json.Marshal(doc)
-	if err := os.WriteFile(p, out, 0o600); err != nil {
+	if err := os.Remove(filepath.Join(root, ".opencode_data", "credentials", id)); err != nil && !os.IsNotExist(err) {
 		t.Fatal(err)
 	}
 }

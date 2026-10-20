@@ -18,18 +18,20 @@ import (
 // Ticket #110: the AI provider pane's entry management — the add form
 // (Name / Endpoint / hidden Token + Add button) and the selected
 // project's provider entry list, defined entirely by opencode.json
-// `provider.<id>` sections. Legacy entries (gwdg-saia) are first-class;
-// entries without an auth.json credential render orphaned (read-only
-// with a reconfigure hint). Add writes through the existing
-// `ai-provider [--replace]` + `opencode-config` subcommands via the
-// shared Ops seam ("Configuring AI provider…" queued op, handoff-
-// guarded); the Keep/Replace confirm is id-parameterized when a
-// credential already exists, and empty-token saves merge only when one
-// does. The sandbox_config `ai_provider` field is neither read nor
-// written here (ADR-0023). The pane's write path is wired through the
-// package-level Deps (view.go): the script runner, the
-// configure-project.sh location and the Ops launcher (the shared task
-// manager in production). Zero fields resolve to production defaults.
+// `providers.<id>` sections (v2 schema, ADR 0025; the legacy
+// `provider.<id>` shape is read for pre-migration display only).
+// Legacy entries (gwdg-saia) are first-class; entries without a stored
+// credential render orphaned (read-only with a reconfigure hint). Add
+// writes through the existing `ai-provider [--replace]` +
+// `opencode-config` subcommands via the shared Ops seam ("Configuring
+// AI provider…" queued op, handoff-guarded); the Keep/Replace confirm
+// is id-parameterized when a credential already exists, and empty-token
+// saves merge only when one does. The sandbox_config `ai_provider`
+// field is neither read nor written here (ADR-0023). The pane's write
+// path is wired through the package-level Deps (view.go): the script
+// runner, the configure-project.sh location and the Ops launcher (the
+// shared task manager in production). Zero fields resolve to
+// production defaults.
 
 // pane items (focus indices when the AI pane is open; 0 = card grid):
 // 1..3 = the add form fields, 4 = the Add button, 5/6 = the
@@ -81,7 +83,7 @@ func (f *field) backspace() {
 // resolve it against the edit form's fields and move the old id's
 // section (rename).
 type aiConfirmState struct {
-	id    string // provider id with an existing auth.json entry
+	id    string // provider id with an existing stored credential
 	edit  bool   // pending decision comes from the entry edit form
 	oldID string // edit: the id being renamed away from
 }
@@ -100,21 +102,28 @@ type entry struct {
 	id       string
 	name     string
 	endpoint string
-	token    string // stored credential (auth.json); empty when orphaned
-	orphan   bool   // section without an auth.json credential
+	token    string // stored credential (token file); empty when orphaned
+	orphan   bool   // section without a stored credential
 }
 
 // readEntries reads the selected project's provider entries from
-// opencode.json (the list's single source of truth) and auth.json (the
-// stored tokens), flagging entries whose auth.json credential is
-// missing as orphaned.
+// opencode.json (the list's single source of truth — v2 `providers.<id>`
+// with the legacy `provider.<id>` shape as pre-migration fallback, ADR
+// 0025) and the per-provider token files, flagging entries whose
+// credential is missing as orphaned.
 func readEntries(root string) []entry {
 	data, err := os.ReadFile(filepath.Join(root, ".opencode_config", "opencode.json"))
 	if err != nil {
 		return nil
 	}
 	var doc struct {
-		Provider map[string]struct {
+		Providers map[string]struct {
+			Name     string `json:"name"`
+			Settings struct {
+				BaseURL string `json:"baseURL"`
+			} `json:"settings"`
+		} `json:"providers"`
+		Provider map[string]struct { // legacy v1 shape, display only
 			Name    string `json:"name"`
 			Options struct {
 				BaseURL string `json:"baseURL"`
@@ -124,16 +133,30 @@ func readEntries(root string) []entry {
 	if json.Unmarshal(data, &doc) != nil {
 		return nil
 	}
-	tokens := readAuthKeys(root)
-	ids := make([]string, 0, len(doc.Provider))
-	for id := range doc.Provider {
+	type row struct {
+		name, endpoint string
+	}
+	rows := map[string]row{}
+	idSet := map[string]bool{}
+	for id, p := range doc.Providers {
+		rows[id] = row{name: p.Name, endpoint: p.Settings.BaseURL}
+		idSet[id] = true
+	}
+	for id, p := range doc.Provider { // legacy shape fills the gaps
+		if _, ok := idSet[id]; !ok {
+			rows[id] = row{name: p.Name, endpoint: p.Options.BaseURL}
+			idSet[id] = true
+		}
+	}
+	tokens := storedTokens(root)
+	ids := make([]string, 0, len(rows))
+	for id := range rows {
 		ids = append(ids, id)
 	}
 	sort.Strings(ids)
 	out := make([]entry, 0, len(ids))
 	for _, id := range ids {
-		e := entry{id: id, name: doc.Provider[id].Name,
-			endpoint: doc.Provider[id].Options.BaseURL, token: tokens[id]}
+		e := entry{id: id, name: rows[id].name, endpoint: rows[id].endpoint, token: tokens[id]}
 		if e.name == "" {
 			e.name = id
 		}
@@ -144,10 +167,24 @@ func readEntries(root string) []entry {
 	return out
 }
 
-// readAuthKeys maps auth.json's id → stored api key (missing/invalid
-// file yields an empty map).
-func readAuthKeys(root string) map[string]string {
+// storedTokens maps provider id → stored token. Tokens live in the
+// per-provider credential files (.opencode_data/credentials/<id>, ADR
+// 0025); the legacy auth.json keys serve as a pre-migration fallback.
+// Missing/invalid sources yield entries only for what could be read.
+func storedTokens(root string) map[string]string {
 	out := map[string]string{}
+	credDir := filepath.Join(root, ".opencode_data", "credentials")
+	if files, err := os.ReadDir(credDir); err == nil {
+		for _, f := range files {
+			if f.IsDir() {
+				continue
+			}
+			b, err := os.ReadFile(filepath.Join(credDir, f.Name()))
+			if err == nil {
+				out[f.Name()] = strings.TrimSpace(string(b))
+			}
+		}
+	}
 	data, err := os.ReadFile(filepath.Join(root, ".opencode_data", "auth.json"))
 	if err != nil {
 		return out
@@ -159,13 +196,21 @@ func readAuthKeys(root string) map[string]string {
 		return out
 	}
 	for id, cred := range doc {
-		out[id] = cred.Key
+		if out[id] == "" {
+			out[id] = cred.Key
+		}
 	}
 	return out
 }
 
-// authHasID reports whether root's auth.json holds a credential under id.
-func authHasID(root, id string) bool {
+// HasCredential reports whether root holds a stored credential under
+// id: a token file (.opencode_data/credentials/<id>) or, pre-migration, a
+// legacy auth.json entry. Exported for the newproject flow
+// (needsConfirm), the single keeper of this rule (ADR 0025).
+func HasCredential(root, id string) bool {
+	if _, err := os.Stat(filepath.Join(root, ".opencode_data", "credentials", id)); err == nil {
+		return true
+	}
 	data, err := os.ReadFile(filepath.Join(root, ".opencode_data", "auth.json"))
 	if err != nil {
 		return false
@@ -239,14 +284,14 @@ func (v *View) addProvider() tea.Cmd {
 	root := v.projects[v.sel].Path
 	id := providerid.Slug(v.aiName.val)
 	token := v.aiToken.val
-	idExists := authHasID(root, id)
+	idExists := HasCredential(root, id)
 	merge := []string{"opencode-config", root, "--id", id,
 		"--name", v.aiName.val, "--endpoint", v.aiEndpoint.val}
 	steps := [][]string{}
 	if token == "" {
 		if !idExists {
 			v.aiErr = "Token required — no existing credential entry for '" + id +
-				"' was found in auth.json; type a token to configure this provider."
+				"' was found; type a token to configure this provider."
 			return nil
 		}
 		steps = append(steps, merge) // merge endpoint/name only
@@ -303,7 +348,7 @@ func (v *View) resolveAIConfirm(replace bool) tea.Cmd {
 // --- entry edit flow (#111) ----------------------------------------------------
 
 // openEntryEdit opens the entry edit form with the entry's values
-// prefilled (token from auth.json, rendered masked). Orphaned entries
+// prefilled (token from the stored credential, rendered masked). Orphaned entries
 // are read-only; while a previously triggered save or confirm is
 // pending the click just toasts.
 func (v *View) openEntryEdit(e entry) bool {
@@ -333,7 +378,7 @@ func (v *View) openEntryEdit(e entry) bool {
 // Keep/Replace confirm before any write; empty-token saves merge
 // endpoint/name only; a rename moves the provider id (old section
 // removed after the new values are written) and reads the emptied token
-// back from auth.json so the stored credential moves with it (#111).
+// back from the credential file so the stored credential moves with it (#111).
 func (v *View) saveProviderEdit() tea.Cmd {
 	if !v.gateAIWrite() {
 		return nil
@@ -355,8 +400,8 @@ func (v *View) saveProviderEdit() tea.Cmd {
 	} else {
 		if token == "" && v.aiRename {
 			// renaming must move the stored credential; the emptied
-			// token is read back from auth.json (#111)
-			token = readAuthKeys(root)[oldID]
+			// token is read back from the credential file (#111)
+			token = storedTokens(root)[oldID]
 			if token == "" {
 				v.aiErr = "Token required — renaming moves the stored credential from '" + oldID +
 					"'; type the token and save again."
@@ -369,7 +414,7 @@ func (v *View) saveProviderEdit() tea.Cmd {
 		if id != oldID {
 			steps = append(steps, []string{"ai-provider-remove", root, "--id", oldID})
 		}
-		if authHasID(root, id) { // the Keep/Replace confirm gates the existing credential
+		if HasCredential(root, id) { // the Keep/Replace confirm gates the existing credential
 			v.aiConfirm = &aiConfirmState{id: id, edit: true, oldID: oldID}
 			return nil
 		}
@@ -492,7 +537,7 @@ func (v *View) removeEntry(e entry) tea.Cmd {
 	id := e.id
 	v.confirm.Open("Remove provider?",
 		"Remove", "Cancel",
-		[]string{"Remove '" + id + "' — deletes its auth.json credential " +
+		[]string{"Remove '" + id + "' — deletes its stored credential " +
 			"and opencode.json section from " + v.paneProject() + "."},
 		false,
 		func() tea.Cmd { return v.queueRemove(root, id) })
@@ -618,7 +663,7 @@ func (v *View) aiPaneRows(paneW int) []paneRow {
 		}
 		if e.orphan {
 			add(shell.StyleMutedAlt.Render(mark + " " + truncate(e.name, paneW-4)))
-			add(shell.StyleWarn.Render(truncate("credential missing in auth.json", paneW-4)))
+			add(shell.StyleWarn.Render(truncate("stored credential missing", paneW-4)))
 			add(shell.StyleMutedAlt.Render(truncate("read-only — reconfigure via the add form", paneW-4)))
 		} else {
 			rows = append(rows, paneRow{

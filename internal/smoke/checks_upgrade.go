@@ -47,9 +47,10 @@ func checkUpgradeInPlace(home, root string) Item {
 		p.reasonf("sandbox patch: %v", err)
 	}
 	secrets := map[string]string{
-		filepath.Join(proj, ".git_local", "gh-cli", "hosts.yml"): "{github.com: {user: oauth2}}",
-		filepath.Join(proj, ".git_local", "credentials"):         "https://user:token@github.com",
-		filepath.Join(proj, ".opencode_data", "auth.json"):       `{"gwdg-saia": {type: "api"}}`,
+		filepath.Join(proj, ".git_local", "gh-cli", "hosts.yml"):       "{github.com: {user: oauth2}}",
+		filepath.Join(proj, ".git_local", "credentials"):               "https://user:token@github.com",
+		filepath.Join(proj, ".opencode_data", "auth.json"):             `{"gwdg-saia": {type: "api"}}`,
+		filepath.Join(proj, ".opencode_data", "credentials", "custom"): "custom-tok",
 	}
 	for path, content := range secrets {
 		if err := config.WriteSecretFile(path, content); err != nil {

@@ -2,7 +2,7 @@
 
 ## Glossary
 
-**MCP server config** — OpenCode uses `mcp` (not `mcpServers`) with `type: "local"` and `command` as an array. Claude Desktop's `mcpServers`/`command`-string/`args` schema is incompatible.
+**MCP server config** — OpenCode (v2, ADR 0025) uses `mcp.servers.<name>` with `type: "local"` and `command` as an array. The v1 flat `mcp` map is migrated at project start; legacy `enabled: true` is dropped (`disabled: false` is default). Claude Desktop's `mcpServers`/`command`-string/`args` schema is incompatible.
 
 **CBM (codebase-memory-mcp)** — Knowledge-graph indexing tool. Uses `auto_index` and `auto_watch` config (persisted to `.cbm_cache/`) instead of manual entrypoint hooks. UI variant is always installed; `--cbm_ui` flag toggles runtime behavior only.
 
@@ -38,17 +38,21 @@
 
 **VCS integration** — Version Control System setup (GitHub, GitLab, or custom host) creating host token files (`gh-cli/hosts.yml`, `glab-cli/config.yml` with a `hosts:` block — glab ignores a separate `hosts.yml`, or `vcs/hosts.yml`) in `.git_local/` subdirectories, separate from AI provider configuration.
 
-**AI provider** — The OpenCode model backend available to a project, managed as provider entries inside the project's own config files; which provider's models are used is chosen inside OpenCode at runtime, not by the TUI. A configured provider is an `@ai-sdk/openai-compatible` section in `opencode.json` with its credential in `auth.json` (`.opencode_data/`). The sandbox_config.json `ai_provider` field is legacy: creation still records it, but the project edit flows neither read nor write it. _Avoid_: GWDG preset (removed; `gwdg-saia` survives as a legacy entry that coexists with others; entries lacking a credential render read-only with an orphan hint), vendor preset, assigned provider.
+**AI provider** — The OpenCode model backend available to a project, managed as provider entries inside the project's own config files; which provider's models are used is chosen inside OpenCode at runtime, not by the TUI. A configured provider is an `@opencode/ai/providers/openai-compatible` section in `opencode.json` (v2 `providers.<id>`, ADR 0025) with its credential in the per-provider token file under `.opencode_data/credentials/`. The sandbox_config.json `ai_provider` field is legacy: creation still records it, but the project edit flows neither read nor write it. _Avoid_: GWDG preset (removed; `gwdg-saia` survives as a legacy entry that coexists with others; entries lacking a credential render read-only with an orphan hint), vendor preset, assigned provider.
 
 **custom provider** — Name / Endpoint / Token captured as one block (wizard at creation, Edit Project settings screen for edits). Name is display name and id source; Endpoint is the OpenAI-compatible baseURL; Token is the API key. A project may hold several at the same time. Stored without any vendor preset. _Avoid_: GWDG flow, preset provider.
 
-**provider entry** — One configured provider inside a project: the `provider.<id>` section in opencode.json plus its matching auth.json credential. The smallest manageable unit of AI provider configuration; add, edit and remove act on entries, never across projects. _Avoid_: provider record (ambiguous with the legacy sandbox_config entry), active provider.
+**provider entry** — One configured provider inside a project: the `providers.<id>` section in opencode.json (v2; the legacy `provider.<id>` shape is read for pre-migration display only, ADR 0025) plus its matching credential file. The smallest manageable unit of AI provider configuration; add, edit and remove act on entries, never across projects. _Avoid_: provider record (ambiguous with the legacy sandbox_config entry), active provider.
 
 **provider list** — The set of provider entries of the currently selected project, shown by the Edit Project settings screen; defined entirely by opencode.json. Not a global or cross-project registry. _Avoid_: global provider list, provider registry.
 
-**provider id** — Slugified key derived from the typed provider name (lowercase, non-alphanumeric runs → `-`, trimmed) used as the JSON key in `auth.json` and the `provider.<id>` section in `opencode.json`. Renaming an entry moves its id (the old section is replaced by the slugified new one). Legacy sandbox_config values may reference `gwdg-saia`. _Avoid_: provider name (the display name is separate), auth key.
+**provider id** — Slugified key derived from the typed provider name (lowercase, non-alphanumeric runs → `-`, trimmed) used as the credential-file name under `.opencode_data/credentials/` and the `providers.<id>` section key in `opencode.json`. Renaming an entry moves its id (the old section is replaced by the slugified new one). Legacy sandbox_config values may reference `gwdg-saia`. _Avoid_: provider name (the display name is separate), auth key.
 
-**provider endpoint** — The OpenAI-compatible API base URL (scheme `http://`/`https://`, no whitespace, path allowed) offered by a custom provider, mapped to OpenCode `options.baseURL`. _Avoid_: provider URL (ambiguity with the recorded provider id), host (no scheme/path implied).
+**provider endpoint** — The OpenAI-compatible API base URL (scheme `http://`/`https://`, no whitespace, path allowed) offered by a custom provider, mapped to OpenCode `settings.baseURL` (v2). _Avoid_: provider URL (ambiguity with the recorded provider id), host (no scheme/path implied).
+
+**v2 config migration** — One-time in-place rewrite of a project's v1-shaped `opencode.json` (flat `mcp`, `permission` map, `plugin`/`provider` keys) to the OpenCode v2 schema, plus extraction of legacy `auth.json` tokens into per-provider credential files (the old file is renamed `auth.json.v1-migrated`, never deleted). Idempotent; runs before every container start and lazily before each provider subcommand, so a routine image rebuild restores providers instead of silently dropping them. _Avoid_: config upgrade (reads as general TUI updates), re-import.
+
+**credential file** — Project-local VCS or AI secret configuration stored separately from global TUI metadata, with restrictive permissions and excluded from general configuration backups. AI provider tokens live one file per provider id under `.opencode_data/credentials/` and are referenced from `opencode.json` via the v2 `{file:...}` substitution (ADR 0025), not in `auth.json`.
 
 **install script** — Script that downloads and sets up the opencode-sandbox files to a designated installation directory.
 
@@ -151,8 +155,6 @@
 **deferred build** — Registered project state in which the container image is not yet built; the project remains stopped until a later build and start.
 
 **setup recovery** — Explicit retry path for incomplete first-run setup while preserving setup-complete as false until CBM and skills setup both succeed.
-
-**credential file** — Project-local VCS or AI secret configuration stored separately from global TUI metadata, with restrictive permissions and excluded from general configuration backups.
 
 **credential bridge** — Activated `[credential] helper = store` block in the gitconfig template plus `configure_vcs_credentials` writing a host-scoped `https://<user>:<token>@<host>` entry into `.git_local/credentials` whenever a VCS token is captured — regardless of project source — so HTTPS clone and later push work with the same token in all editions. _Avoid_: credential-store side effect, token persistence.
 

@@ -18,6 +18,7 @@
 #   ai-provider <project-root> --name <n> --endpoint <u> --token <t> [--replace]
 #   opencode-config <project-root> --id <i> --name <n> --endpoint <u>
 #   ai-provider-remove <project-root> --id <i>
+#   migrate-opencode-config <project-root>
 #
 # Exit codes: 0 success, 1 error, 2 usage error.
 #
@@ -31,7 +32,7 @@ die() {
 }
 
 usage() {
-  sed -n '2,26p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+  sed -n '2,27p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
   exit 2
 }
 
@@ -84,6 +85,113 @@ write_config_without_backup() {
     chmod "$(stat -c '%a' "$filepath")" "$temp_file"
   fi
   mv -f -- "$temp_file" "$filepath"
+}
+
+# Credential path prefix as seen inside the container: .opencode_data/
+# mounts at /home/dev/.local/share/opencode (start.sh bind-mounts). The
+# {file:...} substitution in opencode.json must use the container view.
+credential_file_ref() {
+  printf '%s' "/home/dev/.local/share/opencode/credentials/$1"
+}
+
+# migrate_opencode_config rewrites a v1-shaped project opencode.json to the
+# v2 schema (ADR 0025): permission map -> permissions rule array, flat mcp ->
+# mcp.servers, plugin -> plugins, provider.<id> (npm/options) ->
+# providers.<id> (package/settings). Legacy auth.json tokens are extracted
+# into per-provider credential files and wired as settings.apiKey
+# {file:...} references where a provider section lacks one — independent of
+# the config's shape (mixed v2-config/auth.json states are covered too);
+# auth.json is renamed aside afterwards. Idempotent: the config is only
+# rewritten when its content changes.
+migrate_opencode_config() {
+  local project_path="$1"
+  local config_file="${project_path}/.opencode_config/opencode.json"
+  command -v jq >/dev/null 2>&1 || return 0
+
+  local original="" doc=""
+  if [[ -f "$config_file" ]]; then
+    original=$(< "$config_file")
+    doc="$original"
+    local legacy
+    legacy=$(printf '%s' "$doc" | jq -r '
+      [has("provider"), has("plugin"), has("permission"),
+       (.mcp? | type == "object" and (has("servers") | not))] | any' \
+      2>/dev/null) || legacy="false"
+    if [[ "$legacy" == "true" ]]; then
+      doc=$(printf '%s' "$doc" | jq '
+    def v1resource: if endswith("/**") then sub("/\\*\\*$"; "/*")
+                    elif endswith("*") then . else . + "/*" end;
+    def normmcp: (.enabled? == false) as $dis | del(.enabled)
+                  | if $dis then . + {disabled: true} else . end;
+    def normprovider: (if (.npm? // "") == "@ai-sdk/openai-compatible"
+                       then .package = "@opencode/ai/providers/openai-compatible"
+                       elif has("npm") then .package = .npm
+                       else . end)
+                     | del(.npm)
+                     | if has("options") then .settings = ((.settings // {}) * .options) | del(.options) else . end;
+    (if has("permission") and (.permission | type) == "object"
+     then .permissions = [(.permission.external_directory // {}) | to_entries[]
+            | {action: "external_directory", resource: (.key | v1resource), effect: .value}]
+     else . end)
+    | (if has("mcp") and ((.mcp? // null) | type) == "object" and ((.mcp | has("servers")) | not)
+       then .mcp = {servers: (.mcp | with_entries(.value |= normmcp))}
+       else . end)
+    | (if has("plugin")
+       then .plugins = ((.plugins // []) + (.plugin | map(select(type == "string"))) | unique)
+       else . end)
+    | (if has("provider") and ((.provider? // null) | type) == "object"
+       then .providers = ((.providers // {}) * (.provider | with_entries(.value |= normprovider)))
+       else . end)
+    | del(.provider) | del(.plugin) | del(.permission)
+  ') || die "Migrating opencode.json to the v2 schema failed"
+    fi
+  fi
+
+  # Credential extraction: legacy auth.json {id: {type: "api", key}} moves
+  # to per-provider token files; provider sections missing a settings.apiKey
+  # get a {file:...} reference. auth.json is renamed aside (never deleted)
+  # only after the config write has succeeded, so a failed write retries.
+  local auth_file="${project_path}/.opencode_data/auth.json"
+  local cred_dir="${project_path}/.opencode_data/credentials"
+  if [[ -e "$auth_file" ]]; then
+    local ids id tok
+    ids=$(jq -r 'to_entries[] | select(.value.type? == "api" and (.value.key? | length > 0)) | .key' \
+      "$auth_file" 2>/dev/null) || ids=""
+    while IFS= read -r id; do
+      [[ -n "$id" ]] || continue
+      tok=$(jq -r --arg id "$id" '.[$id].key // empty' "$auth_file")
+      [[ -n "$tok" ]] || continue
+      if [[ ! -e "$cred_dir/$id" ]]; then
+        write_secret_file "$cred_dir/$id" "$tok"
+      fi
+      if [[ -n "$doc" ]]; then
+        doc=$(printf '%s' "$doc" | jq --arg id "$id" --arg ref "$(credential_file_ref "$id")" '
+          if ((.providers[$id] | type) == "object")
+             and ((.providers[$id].settings.apiKey // "") == "") then
+            .providers[$id].settings = ((.providers[$id].settings // {})
+              + {apiKey: ("{file:" + $ref + "}")})
+          else . end') || die "Wiring ${id}'s credential into opencode.json failed"
+      fi
+    done <<< "$ids"
+  fi
+
+  if [[ -f "$config_file" && "$doc" != "$original" ]]; then
+    write_config_without_backup "$config_file" "$doc"
+  fi
+
+  if [[ -e "$auth_file" ]]; then
+    mv -f -- "$auth_file" "${auth_file}.v1-migrated"
+    chmod 600 "${auth_file}.v1-migrated" 2>/dev/null || true
+  fi
+}
+
+# migrate-opencode-config: the standalone migration entry point, called by
+# start.sh before every container start (the lazy pre-step below covers the
+# TUI-driven subcommands).
+cmd_migrate_opencode_config() {
+  local project_path="${1:-}"
+  [[ -n "$project_path" ]] || die "Usage: $0 migrate-opencode-config <project-root>" 2
+  migrate_opencode_config "$project_path"
 }
 
 # git-identity: writes user.name / user.email into the project-local
@@ -207,10 +315,11 @@ validate_provider_token() {
   [[ "$token" != *[[:space:]]* && "$token" != *$'\n'* ]] || die "Token must not contain whitespace or newlines" 2
 }
 
-# ai-provider: writes the OpenAI-compatible provider's credential into the
-# project-local auth.json under the slugified provider id. --replace is
-# required when the id already has an entry (the calling TUI confirms
-# replacement with the user first).
+# ai-provider: writes the OpenAI-compatible provider's token into the
+# project-local credential file under the slugified provider id (v2: the
+# {file:...} reference in opencode.json resolves this file; ADR 0025).
+# --replace is required when the id already has a credential file (the
+# calling TUI confirms replacement with the user first).
 cmd_ai_provider() {
   local project_path="" name="" endpoint="" token="" replace=false
   while [[ $# -gt 0 ]]; do
@@ -230,35 +339,26 @@ cmd_ai_provider() {
   validate_provider_endpoint "$endpoint"
   validate_provider_token "$token"
 
+  migrate_opencode_config "$project_path"
+
   local provider_id
   provider_id=$(slugify_provider_id "$name")
   [[ -n "$provider_id" ]] || die "Provider name has no usable characters: ${name}" 2
 
-  local auth_file="${project_path}/.opencode_data/auth.json"
-  local existing='' config
-
-  if [[ -e "$auth_file" ]]; then
-    existing=$(jq -c . "$auth_file") || die "Existing auth.json is not valid JSON"
-    if jq -e --arg id "$provider_id" 'has($id)' <<< "$existing" >/dev/null && [[ "$replace" != "true" ]]; then
-      die "auth.json already contains a ${provider_id} entry; pass --replace to overwrite" 2
-    fi
+  local cred_file="${project_path}/.opencode_data/credentials/${provider_id}"
+  if [[ -e "$cred_file" && "$replace" != "true" ]]; then
+    die "A credential file already exists for ${provider_id}; pass --replace to overwrite" 2
   fi
 
-  if [[ -n "$existing" ]]; then
-    config=$(PROVIDER_ID="$provider_id" PROVIDER_TOKEN="$token" jq \
-      'del(.[$ENV.PROVIDER_ID]) | . + {($ENV.PROVIDER_ID): {type: "api", key: $ENV.PROVIDER_TOKEN}}' <<< "$existing")
-  else
-    config=$(PROVIDER_ID="$provider_id" PROVIDER_TOKEN="$token" jq -n \
-      '{($ENV.PROVIDER_ID): {type: "api", key: $ENV.PROVIDER_TOKEN}}')
-  fi
-  write_secret_file "$auth_file" "$config"
+  write_secret_file "$cred_file" "$token"
 }
 
 # opencode-config: merges the models-discovery plugin entry plus a generated
-# provider.<id> block into the project-local opencode.json; when the file
-# does not exist it is built from the basic template plus plugin plus the
-# provider block. The modelsDiscovery options keep the unchanged GWDG-era
-# settings.
+# providers.<id> block into the project-local opencode.json (v2 schema, ADR
+# 0025); when the file does not exist it is built from the basic template
+# plus plugin plus the provider block. The modelsDiscovery options keep the
+# unchanged GWDG-era settings; the apiKey is a {file:...} reference to the
+# provider's credential file and is only written when that file exists.
 cmd_opencode_config() {
   local project_path="" p_id="" name="" endpoint=""
   while [[ $# -gt 0 ]]; do
@@ -277,16 +377,23 @@ cmd_opencode_config() {
   [[ -n "$endpoint" ]] || die "Missing --endpoint" 2
   validate_provider_endpoint "$endpoint"
 
+  migrate_opencode_config "$project_path"
+
   local config_file="${project_path}/.opencode_config/opencode.json"
   local basic_template="${SCRIPT_DIR}/../templates/opencode/opencode-basic.json"
   local config
   local provider_block
-  provider_block=$(PROVIDER_ID="$p_id" PROVIDER_NAME="$name" PROVIDER_ENDPOINT="$endpoint" jq -n '
-    {plugin: ["opencode-models-discovery@2.0.0"],
-     provider: {($ENV.PROVIDER_ID): {
-       npm: "@ai-sdk/openai-compatible",
+  local cred_ref=""
+  if [[ -e "${project_path}/.opencode_data/credentials/${p_id}" ]]; then
+    cred_ref="$(credential_file_ref "$p_id")"
+  fi
+  provider_block=$(PROVIDER_ID="$p_id" PROVIDER_NAME="$name" PROVIDER_ENDPOINT="$endpoint" \
+    PROVIDER_CREF="$cred_ref" jq -n '
+    {plugins: ["opencode-models-discovery@2.0.0"],
+     providers: {($ENV.PROVIDER_ID): {
+       package: "@opencode/ai/providers/openai-compatible",
        name: $ENV.PROVIDER_NAME,
-       options: {
+       settings: (({
          baseURL: $ENV.PROVIDER_ENDPOINT,
          timeout: false,
          modelsDiscovery: {
@@ -299,13 +406,15 @@ cmd_opencode_config() {
            },
            cache: {enabled: true, ttlSeconds: 3600}
          }
-       }
+       }) + (if ($ENV.PROVIDER_CREF | length) > 0
+             then {apiKey: ("{file:" + $ENV.PROVIDER_CREF + "}")}
+             else {} end))
      }}}')
 
   if [[ -f "$config_file" ]]; then
     config=$(jq --argjson block "$provider_block" '
-      .plugin = ((.plugin // []) + $block.plugin | unique) |
-      .provider = ((.provider // {}) * $block.provider)
+      .plugins = ((.plugins // []) + $block.plugins | unique) |
+      .providers = ((.providers // {}) * $block.providers)
     ' "$config_file") || die "Merging provider block into opencode.json failed"
   else
     if [[ ! -f "$basic_template" ]]; then
@@ -318,10 +427,10 @@ cmd_opencode_config() {
 }
 
 # ai-provider-remove: deletes one provider entry from the project's own
-# config files — the credential key in auth.json and the provider.<id>
-# section in opencode.json. Unknown ids fail loudly; other entries,
-# unrelated sections and the legacy sandbox_config record are untouched
-# (ADR-0023).
+# config files — the credential file under .opencode_data/credentials/ and
+# the providers.<id> section in opencode.json. Unknown ids fail loudly;
+# other entries, unrelated sections and the legacy sandbox_config record
+# are untouched (ADR-0023).
 cmd_ai_provider_remove() {
   local project_path="" p_id=""
   while [[ $# -gt 0 ]]; do
@@ -335,36 +444,32 @@ cmd_ai_provider_remove() {
   [[ -n "$project_path" ]] || die "Usage: $0 ai-provider-remove <project-root> --id <i>" 2
   [[ -n "$p_id" ]] || die "Missing --id" 2
 
-  local auth_file="${project_path}/.opencode_data/auth.json"
-  local config_file="${project_path}/.opencode_config/opencode.json"
-  local existing='' in_auth=false in_config=false
+  migrate_opencode_config "$project_path"
 
-  if [[ -e "$auth_file" ]]; then
-    existing=$(jq -c . "$auth_file") || die "Existing auth.json is not valid JSON"
-    jq -e --arg id "$p_id" 'has($id)' <<< "$existing" >/dev/null && in_auth=true
-  fi
+  local cred_file="${project_path}/.opencode_data/credentials/${p_id}"
+  local config_file="${project_path}/.opencode_config/opencode.json"
+  local in_cred=false in_config=false
+
+  [[ -e "$cred_file" ]] && in_cred=true
   if [[ -f "$config_file" ]]; then
-    jq -e --arg id "$p_id" '.provider | type == "object" and has($id)' \
+    jq -e --arg id "$p_id" '.providers | type == "object" and has($id)' \
       "$config_file" >/dev/null 2>&1 && in_config=true
   fi
 
-  if [[ "$in_auth" != "true" && "$in_config" != "true" ]]; then
+  if [[ "$in_cred" != "true" && "$in_config" != "true" ]]; then
     die "Unknown provider id: ${p_id}" 2
   fi
 
-  if [[ "$in_auth" == "true" ]]; then
-    local auth_config
-    auth_config=$(jq --arg id "$p_id" 'del(.[$id])' <<< "$existing") ||
-      die "Removing ${p_id} from auth.json failed"
-    write_secret_file "$auth_file" "$auth_config"
+  if [[ "$in_cred" == "true" ]]; then
+    rm -f -- "$cred_file" || die "Removing the ${p_id} credential file failed"
   fi
 
   if [[ "$in_config" == "true" ]]; then
     local config
-    config=$(jq --arg id "$p_id" 'del(.provider[$id])' "$config_file") ||
-      die "Removing provider.${p_id} from opencode.json failed"
+    config=$(jq --arg id "$p_id" 'del(.providers[$id])' "$config_file") ||
+      die "Removing providers.${p_id} from opencode.json failed"
     write_config_without_backup "$config_file" "$config" ||
-      die "Writing opencode.json failed; provider.${p_id} section kept"
+      die "Writing opencode.json failed; providers.${p_id} section kept"
   fi
 }
 
@@ -378,6 +483,7 @@ main() {
     ai-provider) cmd_ai_provider "$@" ;;
     opencode-config) cmd_opencode_config "$@" ;;
     ai-provider-remove) cmd_ai_provider_remove "$@" ;;
+    migrate-opencode-config) cmd_migrate_opencode_config "$@" ;;
     -h|--help|help|"") usage ;;
     *) die "Unknown subcommand: ${subcommand} (see --help)" 2 ;;
   esac

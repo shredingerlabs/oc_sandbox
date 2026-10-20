@@ -109,12 +109,46 @@ fi
 [[ ! -e "$cloned_project/project/.git" ]]
 printf 'start cloned-source heal guard tests passed\n'
 
+# --- opencode.json v2-Migration (ADR 0025) ---------------------------------------
+# Legacy v1-Formate (permission-Map, flaches mcp, plugin/provider, auth.json)
+# werden vor dem Containerlauf auf das v2-Schema migriert - nachgebildet mit
+# REAL configure-project.sh, jq lokal vorhanden.
+cat > "$test_home/.opencode_config/opencode.json" <<'EOF'
+{"permission":{"external_directory":{"/tmp/**":"allow"}},"mcp":{"codebase-memory-mcp":{"type":"local","command":["cbm"],"enabled":true}},"plugin":["opencode-models-discovery@1.5.3"],"provider":{"legacy":{"npm":"@ai-sdk/openai-compatible","name":"Legacy","options":{"baseURL":"https://l.example.com/v1"}}},"custom":{"keep":true}}
+EOF
+printf '{"legacy":{"type":"api","key":"legacy-tok"}}' > "$test_home/.opencode_data/auth.json"
+
+: > "$PODMAN_LOG"
+if ! bash "$PROJECT_ROOT/dist/scripts/start.sh" "$test_home" --edition swdev --detach > /dev/null 2>&1; then
+  printf 'start script failed with mocked podman (v2 config migration run)\n' >&2
+  exit 1
+fi
+cfg="$test_home/.opencode_config/opencode.json"
+jq -e '.mcp.servers["codebase-memory-mcp"].command == ["cbm"]' "$cfg" > /dev/null
+jq -e '.permissions == [{action:"external_directory",resource:"/tmp/*",effect:"allow"}]' "$cfg" > /dev/null
+jq -e '.plugins == ["opencode-models-discovery@1.5.3"]' "$cfg" > /dev/null
+jq -e '.providers.legacy.package == "@opencode/ai/providers/openai-compatible"' "$cfg" > /dev/null
+jq -e '.providers.legacy.settings.baseURL == "https://l.example.com/v1"' "$cfg" > /dev/null
+jq -e '.providers.legacy.settings.apiKey == "{file:/home/dev/.local/share/opencode/credentials/legacy}"' "$cfg" > /dev/null
+jq -e '.custom.keep' "$cfg" > /dev/null
+[[ "$(cat "$test_home/.opencode_data/credentials/legacy")" == "legacy-tok" ]]
+[[ ! -e "$test_home/.opencode_data/auth.json" ]]
+[[ -e "$test_home/.opencode_data/auth.json.v1-migrated" ]]
+[[ "$(stat -c '%a' "$test_home/.opencode_data/credentials/legacy")" == "600" ]]
+
+# Idempotent: second start does not rewrite.
+touch -d "2026-01-01" "$cfg"
+bash "$PROJECT_ROOT/dist/scripts/start.sh" "$test_home" --edition swdev --detach > /dev/null 2>&1
+[[ "$(stat -c '%y' "$cfg")" == "2026-01-01 00:00:00.000000000 +0000" ]]
+printf 'start v2 config migration tests passed\n'
+
 # --- Edition-Validierung ---------------------------------------------------------
 # Fixture-Baum: Kopie von dist/scripts + Dockerfiles, damit die
 # Dockerfile.custom ohne Eingriff in das Repo gefüttert werden kann.
 script_fixture="$test_home/dist"
 mkdir -p "$script_fixture/scripts"
 cp "$PROJECT_ROOT/dist/scripts/start.sh" "$script_fixture/scripts/"
+cp "$PROJECT_ROOT/dist/scripts/configure-project.sh" "$script_fixture/scripts/"
 cp "$PROJECT_ROOT/dist/Dockerfile" "$script_fixture/"
 cat > "$script_fixture/Dockerfile.custom" <<'EOF'
 FROM opencode-sandbox-base AS opencode-sandbox-rust
