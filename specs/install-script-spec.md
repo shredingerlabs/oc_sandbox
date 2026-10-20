@@ -40,7 +40,7 @@ Create a downloadable install script and bash one-liner that automates the entir
 
 15. As a developer, I want to see a success message with installation path and version, so that I can confirm the installation completed correctly.
 
-16. As a developer, I want to create convenience symlinks via `--symlinks` flag, so that I can run sandbox commands from anywhere in my system.
+16. As a developer, I want convenience artifacts (symlink and desktop shortcut) created by default so that I launch the sandbox from anywhere or via the application menu without any extra flag.
 
 17. As a developer, I want the script to preserve my `proxy/allowlist.txt` during updates, so that I don't lose my network access configuration.
 
@@ -93,7 +93,9 @@ Create a downloadable install script and bash one-liner that automates the entir
 - `--install_path <path>`: Specify custom installation directory
 - `--version <tag>`: Install specific release version
 - `--force`: Skip prompts during updates
-- `--symlinks`: Create convenience symlinks in `$HOME/.local/bin`
+- `--no_symlinks`: Deselect the default entry-point symlink in `$HOME/.local/bin`
+- `--no_shortcut`: Deselect the default desktop shortcut
+- `--symlinks` / `--shortcut`: Accepted as no-ops for backward compatibility (artifacts are default-on)
 - `--verbose`: Enable detailed logging
 - `--help`: Display usage, flags, examples
 - Exit codes: 0 (success), 1 (general error), 2 (user abort), 3 (missing dependencies)
@@ -121,9 +123,10 @@ Create a downloadable install script and bash one-liner that automates the entir
 **Advanced Features**
 - GitHub API: Unauthenticated, handle rate limits gracefully
 - Special file handling: Only `proxy/allowlist.txt` protected during updates
-- Symlink creation: Single entry-point symlink `oc-sandbox` → `bin/oc-sandbox` (Go TUI binary) in `~/.local/bin` (default since the parity-gate flip, ADR-0020); the bash TUI and its `--bash-tui` escape hatch were deleted one release later (#99); `--bin` is accepted as a no-op for compatibility
+- Symlink creation: Single entry-point symlink `oc-sandbox` → `bin/oc-sandbox` (Go TUI binary) in `~/.local/bin`, created by default and deselected with `--no_symlinks` (default since the parity-gate flip, ADR-0020; the bash TUI and its `--bash-tui` escape hatch were deleted one release later, #99); `--bin`, `--symlinks`, `--shortcut` are accepted as no-ops for compatibility
+- Fail-soft artifacts: Symlink and shortcut creation failures warn and continue — the installation itself never fails because of a convenience artifact
 - Stale symlink cleanup: Removes existing symlinks in `~/.local/bin` pointing into the install path before creating the `oc-sandbox` symlink
-- Existing symlink handling: Overwrite without prompting when using `--symlinks`
+- Existing symlink handling: Overwrite without prompting
 - Logging: stdout/stderr only, no log files created
 
 ## Testing Decisions

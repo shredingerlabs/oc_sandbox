@@ -84,7 +84,9 @@
 
 **disk space check** — Validates minimum 500MB available disk space before starting installation.
 
-**symlinks** — Optional `--symlinks` flag creates a single symlink `oc-sandbox` → `bin/oc-sandbox` (the Go TUI binary) in `$HOME/.local/bin` for easier command access. Desktop shortcut points at the binary too. Default entry point since the parity-gate flip (#98); the former `--bash-tui` escape hatch went away with the bash TUI deletion (#99, ADR-0020).
+**convenience artifacts** — The two launcher-bits the install script creates by default so the TUI is reachable everywhere: the entry-point symlink and the desktop shortcut. Both are opt-out, never fail the installation, and can be deselected individually via `--no_symlinks` / `--no_shortcut`. _Avoid_: convenience features, extra flags.
+
+**symlinks** — The symlink artifact of the convenience artifacts: a single symlink `oc-sandbox` → `bin/oc-sandbox` (the Go TUI binary) in `$HOME/.local/bin` for easier command access. Created by default; deselected with `--no_symlinks` (the former opt-in `--symlinks` flag is accepted as a no-op). Desktop shortcut points at the binary too. Default entry point since the parity-gate flip (#98); the former `--bash-tui` escape hatch went away with the bash TUI deletion (#99, ADR-0020).
 
 **color output** — Install script output uses plain text only for maximum compatibility. Helper scripts may use gum for prompts (e.g. the uninstall wizard's red confirmation input), with plain-text fallback; the Go TUI renders via Lip Gloss.
 
@@ -110,9 +112,9 @@
 
 **signal handling** — Handles SIGINT (Ctrl+C) gracefully to clean up temporary files before exiting.
 
-**symlink creation** — Creates a single entry-point symlink `oc-sandbox` → `bin/oc-sandbox` (Go TUI binary, default since the parity-gate flip #98) when `--symlinks` flag is used; removes stale symlinks in `$HOME/.local/bin` pointing into the install path first (ADR-0020).
+**symlink creation** — Creates a single entry-point symlink `oc-sandbox` → `bin/oc-sandbox` (Go TUI binary, default since the parity-gate flip #98) unless deselected with `--no_symlinks`; removes stale symlinks in `$HOME/.local/bin` pointing into the install path first (ADR-0020). Fail-soft: a failing symlink (e.g. unwritable `$HOME/.local/bin`) warns with a manual `ln -s` hint and continues the installation.
 
-**symlink overwriting** — Overwrites existing symlinks without prompting when using `--symlinks` flag.
+**symlink overwriting** — Overwrites existing symlinks without prompting (default behavior; deselect with `--no_symlinks`).
 
 **temporary file naming** — Uses random names with `mktemp` for temporary files to avoid conflicts.
 
@@ -168,9 +170,9 @@
 
 **skipped files** — Files that could not be removed during uninstallation because of missing permissions; tracked during removal and reported at the end with a hint to clean them up manually (e.g. with sudo).
 
-**desktop shortcut** — OS menu launcher for the TUI created by the install script on request; exactly one platform-appropriate artifact per OS: a `.desktop` file named `oc-sandbox.desktop` with `Terminal=true` under `$HOME/.local/share/applications/` (Linux), a `.lnk` named `OC Sandbox.lnk` in the current Windows user's Start Menu written from inside WSL (Windows), or a minimal `.app` bundle named `OC Sandbox.app` in `~/Applications` (macOS). Display name is `OC Sandbox` on all platforms. Independent of symlinks.
+**desktop shortcut** — OS menu launcher for the TUI created by the install script by default (one of the convenience artifacts, opt-out via `--no_shortcut`); exactly one platform-appropriate artifact per OS: a `.desktop` file named `oc-sandbox.desktop` with `Terminal=true` under `$HOME/.local/share/applications/` (Linux), a `.lnk` named `OC Sandbox.lnk` in the current Windows user's Start Menu written from inside WSL (Windows), or a minimal `.app` bundle named `OC Sandbox.app` in `~/Applications` (macOS). Display name is `OC Sandbox` on all platforms. Independent of symlinks.
 
-**shortcut flag** — Optional `--shortcut` parameter on the install script; creates the desktop shortcut for the detected platform and overwrites an existing artifact silently on re-install.
+**shortcut flag** — The former opt-in `--shortcut` parameter on the install script, now accepted as a no-op: the desktop shortcut is created by default and only deselected via `--no_shortcut`; it overwrites an existing artifact silently on re-install.
 
 **shortcut removal** — Uninstall path for desktop shortcuts, offered as a wizard checkbox mapped to an uninstall.sh flag; removes shortcut artifacts pointing into the installation folder.
 

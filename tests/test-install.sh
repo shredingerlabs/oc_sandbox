@@ -300,6 +300,111 @@ test_help_shows_shortcut_flag() {
   return 0
 }
 
+# --- Convenience-Artifact Opt-out-Tests ------------------------------------------
+
+test_help_shows_no_symlinks_flag() {
+  local output
+  output=$("$INSTALL_SCRIPT" --help 2>&1)
+
+  if [[ "$output" != *"--no_symlinks"* ]]; then
+    echo "Help output missing --no_symlinks option"
+    return 1
+  fi
+
+  return 0
+}
+
+test_help_shows_no_shortcut_flag() {
+  local output
+  output=$("$INSTALL_SCRIPT" --help 2>&1)
+
+  if [[ "$output" != *"--no_shortcut"* ]]; then
+    echo "Help output missing --no_shortcut option"
+    return 1
+  fi
+
+  return 0
+}
+
+test_defaults_create_convenience_artifacts() {
+  # Symlink + Shortcut sind Default-On; Opt-out nur über --no_*-Flags
+  local result
+  result=$(
+    source "$INSTALL_SCRIPT" --help >/dev/null 2>&1
+    echo "SYMLINKS=$SYMLINKS SHORTCUT=$SHORTCUT"
+  )
+
+  assert_equals "SYMLINKS=true SHORTCUT=true" "$result" "Default: Symlink + Shortcut aktiv" || return 1
+}
+
+test_no_flags_deselect_artifacts() {
+  local result
+  result=$(
+    source "$INSTALL_SCRIPT" --help >/dev/null 2>&1
+    parse_arguments --no_symlinks --no_shortcut
+    echo "SYMLINKS=$SYMLINKS SHORTCUT=$SHORTCUT"
+  )
+
+  assert_equals "SYMLINKS=false SHORTCUT=false" "$result" "--no_* Flags wählen Default-Artifacts ab" || return 1
+}
+
+test_symlinks_shortcut_flags_are_noops() {
+  # Alte Opt-in-Flags bleiben akzeptiert (Kompatibilität), aber ohne Wirkung
+  local result
+  result=$(
+    source "$INSTALL_SCRIPT" --help >/dev/null 2>&1
+    parse_arguments --symlinks --shortcut
+    echo "SYMLINKS=$SYMLINKS SHORTCUT=$SHORTCUT"
+  )
+
+  assert_equals "SYMLINKS=true SHORTCUT=true" "$result" "--symlinks/--shortcut ohne Wirkung" || return 1
+}
+
+test_symlink_failure_warns_but_continues() {
+  # Unbeschreibbares bin-Verzeichnis: Symlink schlägt fehl, Installation läuft
+  # weiter (Fail-Soft wie der Shortcut, warn-and-continue)
+  local test_dir
+  test_dir=$(setup_binary_env "symlink-fail-soft")
+  local home="$test_dir/home"
+  local install_dir="$home/.oc-sandbox"
+  printf '#!/usr/bin/env bash\necho oc-sandbox-fake\n' > "$install_dir/bin/oc-sandbox"
+  chmod +x "$install_dir/bin/oc-sandbox"
+  mkdir -p "$home/.local/bin"
+  chmod 0555 "$home/.local/bin"
+
+  local output rc=0
+  output=$( (source "$INSTALL_SCRIPT" --help >/dev/null 2>&1
+   HOME="$home"
+   PLATFORM_OS="Linux"
+   create_symlinks "$install_dir") 2>&1 ) || rc=$?
+
+  chmod 0755 "$home/.local/bin"
+
+  assert_equals "0" "$rc" "Symlink-Fehler bricht nicht ab (warn-and-continue)" || { cleanup_test_env "$test_dir"; return 1; }
+
+  if [[ -L "$home/.local/bin/oc-sandbox" ]]; then
+    echo "Symlink wurde trotz unwahrscheinlichem Fehlerfall erstellt"
+    cleanup_test_env "$test_dir"
+    return 1
+  fi
+
+  if [[ "$output" != *"Symlink-Verzeichnis nicht beschreibbar"* ]]; then
+    echo "Warnung über unbeschreibbares Verzeichnis fehlt"
+    echo "$output"
+    cleanup_test_env "$test_dir"
+    return 1
+  fi
+
+  if [[ "$output" != *"ln -s ${install_dir}/bin/oc-sandbox ${home}/.local/bin/oc-sandbox"* ]]; then
+    echo "Manuelle ln -s-Lösung fehlt in der Warnmeldung"
+    echo "$output"
+    cleanup_test_env "$test_dir"
+    return 1
+  fi
+
+  cleanup_test_env "$test_dir"
+}
+
 test_shortcut_flag_accepted() {
   # Führe flag parsing direkt aus (source without running main)
   local test_dir
@@ -1238,6 +1343,12 @@ main() {
   echo ""
   echo "Running desktop shortcut tests..."
   run_test "Help shows --shortcut" test_help_shows_shortcut_flag
+  run_test "Help shows --no_symlinks" test_help_shows_no_symlinks_flag
+  run_test "Help shows --no_shortcut" test_help_shows_no_shortcut_flag
+  run_test "Default: Symlink + Shortcut aktiv" test_defaults_create_convenience_artifacts
+  run_test "--no_* Flags melden Default ab" test_no_flags_deselect_artifacts
+  run_test "--symlinks/--shortcut ohne Wirkung" test_symlinks_shortcut_flags_are_noops
+  run_test "Symlink-Fehler warnt nur (Fail-Soft)" test_symlink_failure_warns_but_continues
   run_test "Help shows --bin" test_help_shows_bin_flag
   run_test "--bin-Flag akzeptiert" test_bin_flag_accepted
   run_test "--bash-tui-Flag abgelehnt" test_bash_tui_flag_rejected

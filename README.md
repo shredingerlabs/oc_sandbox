@@ -113,27 +113,28 @@ wget -qO- https://raw.githubusercontent.com/shredingerlabs/oc_sandbox/main/scrip
 ```
 
 **Achtung:** Bei `... | bash` ohne weitere Angaben werden eventuelle Argumente
-ignoriert. Um Flags wie `--symlinks` zu übergeben, muss `bash -s --` verwendet
-werden – alles nach `--` wird als Argument an das Skript durchgereicht:
+ignoriert. Um Flags zu übergeben, muss `bash -s --` verwendet werden – alles
+nach `--` wird als Argument an das Skript durchgereicht:
 
 ```bash
-# Mit Symlink (oc-sandbox → Go-TUI in ~/.local/bin)
-curl -sL https://raw.githubusercontent.com/shredingerlabs/oc_sandbox/main/scripts/install.sh | bash -s -- --symlinks
+# Anderer Installationspfad + feste Version
+curl -sL https://raw.githubusercontent.com/shredingerlabs/oc_sandbox/main/scripts/install.sh | bash -s -- --install_path ~/mein-sandbox --version v1.0.0
 
-# wget-Variante
-wget -qO- https://raw.githubusercontent.com/shredingerlabs/oc_sandbox/main/scripts/install.sh | bash -s -- --symlinks
-
-# Anderer Installationspfad + feste Version + Symlinks
-curl -sL https://raw.githubusercontent.com/shredingerlabs/oc_sandbox/main/scripts/install.sh | bash -s -- --install_path ~/mein-sandbox --version v1.0.0 --symlinks
+# Ohne Convenience-Artifacts installieren (kein Symlink, kein Desktop-Shortcut)
+curl -sL https://raw.githubusercontent.com/shredingerlabs/oc_sandbox/main/scripts/install.sh | bash -s -- --no_symlinks --no_shortcut
 
 # Vorhandene Installation ohne Nachfrage überschreiben
-curl -sL https://raw.githubusercontent.com/shredingerlabs/oc_sandbox/main/scripts/install.sh | bash -s -- --force --symlinks
+curl -sL https://raw.githubusercontent.com/shredingerlabs/oc_sandbox/main/scripts/install.sh | bash -s -- --force
 ```
 
-```bash
-# Mit Desktop-Shortcut im Startmenu (unabhängig von --symlinks)
-curl -sL https://raw.githubusercontent.com/shredingerlabs/oc_sandbox/main/scripts/install.sh | bash -s -- --shortcut
-```
+**Symlink und Desktop-Shortcut sind Default:** Die Installation legt
+standardmäßig den Ein-Command-Symlink `oc-sandbox` (→ Go-TUI-Binary in
+`~/.local/bin`, siehe
+[ADR-0013](docs/adr/0013-single-entry-point-symlink.md)) und einen
+Desktop-Shortcut an (siehe
+[ADR-0015](docs/adr/0015-desktop-shortcuts-via-shortcut-flag.md)). Die
+Beispiele oben zeigen, wie beides mit `--no_symlinks` / `--no_shortcut`
+abgewählt wird.
 
 Das Skript:
 
@@ -141,6 +142,8 @@ Das Skript:
 - Fragt vor dem Überschreiben einer bestehenden Installation nach
 - Erhält bei Updates vorhandene `proxy/allowlist.txt`-Anpassungen
 - Installiert die Go-TUI als Binary `oc-sandbox`
+- Erstellt standardmäßig Symlink (`oc-sandbox` → Go-TUI-Binary in `~/.local/bin`)
+  und Desktop-Shortcut für die TUI; beide per Flag abwählbar
 - Verwendet nie automatisch `sudo`
 
 **Optionen:**
@@ -148,13 +151,11 @@ Das Skript:
 - `--install_path <pfad>` – Installationspfad (default: `~/.oc-sandbox`)
 - `--version <tag>` – Spezifische Version installieren (default: latest)
 - `--force` – Vorhandene Installation ohne Nachfrage überschreiben
-- `--symlinks` – Symlink `oc-sandbox` → Go-TUI-Binary in `~/.local/bin` erstellen
-  (single entry point, keine weiteren Skript-Symlinks)
-- `--shortcut` – Desktop-Shortcut für die TUI erstellen (unabhängig von `--symlinks`);
-  Linux: `.desktop`-Datei im Anwendungs-Menü, WSL: `OC Sandbox.lnk` im
-  Windows-Startmenü, macOS: minimal `OC Sandbox.app` in `~/Applications`.
-  Fehler beim Erstellen warnen nur und brechen die Installation nie ab
-  (siehe [ADR-0015](docs/adr/0015-desktop-shortcuts-via-shortcut-flag.md))
+- `--no_symlinks` – Default-Symlink (`oc-sandbox` → Go-TUI-Binary in
+  `~/.local/bin`) nicht erstellen
+- `--no_shortcut` – Default-Desktop-Shortcut nicht erstellen
+- `--symlinks` / `--shortcut` – Ohne Wirkung (Kompatibilität: die
+  Convenience-Artifacts sind Default-on; siehe oben)
 - `--verbose` – Detaillierte Ausgabe
 - `--help` – Hilfe anzeigen und beenden
 
@@ -170,7 +171,7 @@ Sandbox – ohne dass Skripte von Hand aufgerufen werden müssen.
 
 ### TUI starten
 
-Mit dem `--symlinks`-Flag der Installation existiert ein einzelner
+Standardmäßig existiert nach der Installation ein einzelner
 Entry-Point-Symlink (siehe
 [ADR-0013](docs/adr/0013-single-entry-point-symlink.md)):
 

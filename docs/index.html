@@ -255,9 +255,9 @@ sudo apt-get install -y git curl podman passt fuse-overlayfs jq
 <h3>2.4 oc-sandbox installieren</h3>
 
 <p>Weiter mit Abschnitt 4 – dort läuft der Installations-Befehl identisch in
-Ubuntu/WSL. Auch der Desktop-Shortcut funktioniert: Bei <code>--shortcut</code>
-erscheint <strong>„OC Sandbox.lnk“ im Windows-Startmenü</strong> und startet die
-TUI direkt.</p>
+Ubuntu/WSL. Auch der Desktop-Shortcut funktioniert: Er wird standardmäßig
+ angelegt. Du findest dann <strong>„OC Sandbox.lnk“</strong> im
+Windows-Startmenü – er startet die TUI direkt.</p>
 
 <h2 id="voraussetzungen-linux">3. Voraussetzungen (Linux)</h2>
 
@@ -280,7 +280,7 @@ sudo apt-get install -y git curl podman passt fuse-overlayfs jq
 
 <pre><code>curl -sL \
   https://raw.githubusercontent.com/shredingerlabs/oc_sandbox/main/scripts/install.sh \
-  | bash -s -- --symlinks --shortcut
+  | bash
 </code></pre>
 
 <div class="info">
@@ -289,14 +289,25 @@ sudo apt-get install -y git curl podman passt fuse-overlayfs jq
   alle drei Zeilen zusammen kopieren und einfügen.
 </div>
 
-<p><strong>Warum <code>bash -s --</code>?</strong> Der klassische
-<code>… | bash</code>-Aufruf ignoriert Argumente. Alles nach <code>--</code> wird
-ans Skript durchgereicht. Hier bedeuten die Flags:</p>
+<p>Ohne Convenience-Artifacts installieren (kein Symlink, kein Shortcut):</p>
+
+<pre><code>curl -sL \
+  https://raw.githubusercontent.com/shredingerlabs/oc_sandbox/main/scripts/install.sh \
+  | bash -s -- --no_symlinks --no_shortcut
+</code></pre>
+
+<p><strong>Symlink und Desktop-Shortcut sind Standard:</strong> Der simple
+<code>… | bash</code>-Aufruf installiert beide automatisch. Nur wenn du <em>weitere</em>
+Flags übergeben willst (z.&nbsp;B. <code>--install_path</code> oder
+<code>--force</code>), brauchst du <code>bash -s --</code>, weil der klassische
+<code>… | bash</code>-Aufruf Argumente ignoriert – alles nach <code>--</code>
+wird ans Skript durchgereicht. Bedeutung der Flags:</p>
 
 <table>
   <tr><th>Flag</th><th>Wirkung</th></tr>
-  <tr><td><code>--symlinks</code></td><td>Legt den Befehl <code>oc-sandbox</code> in <code>~/.local/bin</code> an – damit startest du die TUI jederzeit mit einem Wort.</td></tr>
-  <tr><td><code>--shortcut</code></td><td>Desktop-Shortcut: Linux → Eintrag „OC Sandbox“ im Anwendungs-Menü; WSL → <code>OC Sandbox.lnk</code> im Windows-Startmenü.</td></tr>
+  <tr><td><code>--no_symlinks</code></td><td>Wählt den Standard-Symlink ab: Es wird kein Befehl <code>oc-sandbox</code> in <code>~/.local/bin</code> angelegt.</td></tr>
+  <tr><td><code>--no_shortcut</code></td><td>Wählt den Standard-Desktop-Shortcut ab, der sonst „OC Sandbox“ ins Anwendungs-Menü (Linux) bzw. <code>OC Sandbox.lnk</code> ins Windows-Startmenü (WSL) legt.</td></tr>
+  <tr><td><code>--symlinks</code> / <code>--shortcut</code></td><td>Ohne Wirkung (aus Kompatibilität akzeptiert – Symlink und Shortcut sind jetzt Standard).</td></tr>
   <tr><td><code>--install_path &lt;pfad&gt;</code></td><td>Installationspfad (Standard: <code>~/.oc-sandbox</code>).</td></tr>
   <tr><td><code>--version &lt;tag&gt;</code></td><td>Bestimmte Version statt dem neuesten Release.</td></tr>
   <tr><td><code>--force</code></td><td>Bestehende Installation ohne Nachfrage überschreiben.</td></tr>
@@ -482,12 +493,14 @@ nichts – sie bleiben auf dem Host und werden als interne Verbindungen benutzt.
 
 <h3>7.1 TUI starten</h3>
 
-<p>Am einfachsten mit dem Symlink (via <code>--symlinks</code> installiert):</p>
+<p>Am einfachsten mit dem Standard-Symlink:</p>
 
 <pre><code>oc-sandbox
 </code></pre>
 
-<p>Oder durch den Desktop-/Windows-Startmenü-Shortcut (via <code>--shortcut</code>).
+<p>Oder durch den Desktop-/Windows-Startmenü-Shortcut (beides wird bei der
+Installation standardmäßig angelegt; per <code>--no_symlinks</code> /
+<code>--no_shortcut</code> abwählbar).
 <br>Alternativ direkt über den Installationspfad:
 <code>~/.oc-sandbox/bin/oc-sandbox</code>.</p>
 

@@ -17,9 +17,10 @@ TEMP_DIR=""
 INSTALL_PATH="$DEFAULT_INSTALL_PATH"
 VERSION=""
 FORCE=false
-SYMLINKS=false
-SHORTCUT=false
+SYMLINKS=true
+SHORTCUT=true
 SHORTCUT_CREATED=false
+SYMLINK_CREATED=false
 VERBOSE=false
 DOWNLOADED_VERSION=""
 USER_AGENT="opencode-sandbox-install-script"
@@ -459,7 +460,7 @@ install_files() {
 
 # Plattform passendes oc-sandbox-Binary nach <install>/bin/oc-sandbox
 # kopieren — das Go-Binary ist der Entry-Point. Ohne Binary im Release
-# bricht die Installation ab (Symlink/Shortcut würden sonst ins Leere
+# bricht die Installation ab (Convenience-Artifacts würden sonst ins Leere
 # zeigen).
 extract_go_binary() {
   local install_dir="$1"
@@ -504,7 +505,7 @@ create_symlinks() {
     local target
     target=$(readlink "$link")
     if [[ "$target" == "$install_dir"* ]]; then
-      rm "$link"
+      rm "$link" 2>/dev/null || true
       log_verbose "Entferne veralteten Symlink: $link -> $target"
     fi
   done < <(find "$bin_dir" -maxdepth 1 -type l -print0 2>/dev/null)
@@ -514,20 +515,27 @@ create_symlinks() {
   script=$(entry_point_path "$install_dir")
   
   if [[ ! -e "$script" ]]; then
-    log_error "Entry-Point nicht gefunden: $script"
-    return 1
+    log_warn "Symlink übersprungen: Entry-Point nicht gefunden: $script"
+    return 0
   fi
   
   local link_target="${bin_dir}/oc-sandbox"
   
   # Entferne existierenden Symlink
   if [[ -L "$link_target" ]]; then
-    rm "$link_target"
+    rm "$link_target" 2>/dev/null || true
     log_verbose "Entferne existierenden Symlink: $link_target"
   fi
   
-  # Erstelle neuen Symlink
-  ln -s "$script" "$link_target"
+  # Erstelle neuen Symlink (Fail-Soft: Convenience-Artifact bricht die
+  # Installation nie ab)
+  if ! ln -s "$script" "$link_target" 2>/dev/null; then
+    log_warn "Symlink-Verzeichnis nicht beschreibbar: $bin_dir"
+    echo "  Manuelle Lösung: von Hand anlegen:" >&2
+    echo "  ln -s ${script} ${link_target}" >&2
+    return 0
+  fi
+  SYMLINK_CREATED=true
   log_verbose "Erzeuge Symlink: $link_target -> $script"
 }
 
@@ -995,16 +1003,23 @@ Optionen:
   --install_path <pfad>  Installationspfad (default: $DEFAULT_INSTALL_PATH)
   --version <tag>        Spezifische Version installieren (default: latest)
   --force                Vorhandene Installation ohne Nachfrage überschreiben
-  --symlinks             Symlinks in \$HOME/.local/bin erstellen
-  --shortcut             Desktop-Shortcut für die TUI erstellen (Linux: .desktop,
-                         WSL: Windows-Startmenu .lnk, macOS: .app in ~/Applications)
+  --no_symlinks          Symlink-Erstellung in \$HOME/.local/bin abwählen
+                         (Default: Symlink <oc-sandbox> wird erstellt)
+  --no_shortcut          Desktop-Shortcut-Erstellung abwählen (Default: erstellt;
+                         Linux: .desktop, WSL: Windows-Startmenu .lnk,
+                         macOS: .app in ~/Applications)
+  --symlinks             Ohne Wirkung – Symlink ist jetzt Default
+  --shortcut             Ohne Wirkung – Desktop-Shortcut ist jetzt Default
   --bin                  (ohne Wirkung – Go-Binary ist jetzt Default)
   --verbose              Detaillierte Ausgabe aktivieren
   --help                 Diese Hilfe anzeigen und beenden
 
 Beispiele:
-  # Installation mit Standardpfad und latest Version
+  # Installation mit Standardpfad, latest Version, Symlink + Shortcut
   $0
+
+  # Installation ohne Convenience-Artifacts
+  $0 --no_symlinks --no_shortcut
 
   # Installation mit benutzerdefiniertem Pfad
   $0 --install_path ~/mein-sandbox
@@ -1015,14 +1030,8 @@ Beispiele:
   # Update erzwingen
   $0 --force
 
-  # Mit Symlinks für einfacheren Zugriff
-  $0 --symlinks
-
-  # Mit Desktop-Shortcut im Startmenu (unabhängig von --symlinks)
-  $0 --shortcut
-
   # Kombinierte Optionen
-  $0 --install_path ~/sandbox --version v1.0.0 --symlinks --verbose
+  $0 --install_path ~/sandbox --version v1.0.0 --verbose
 
 Bash one-liner:
   curl -sL https://raw.githubusercontent.com/shredingerlabs/oc_sandbox/main/scripts/install.sh | bash
@@ -1055,12 +1064,20 @@ parse_arguments() {
         FORCE=true
         shift
         ;;
+      --no_symlinks)
+        SYMLINKS=false
+        shift
+        ;;
+      --no_shortcut)
+        SHORTCUT=false
+        shift
+        ;;
       --symlinks)
-        SYMLINKS=true
+        # Ohne Wirkung: Symlink ist jetzt Default (Opt-out über --no_symlinks)
         shift
         ;;
       --shortcut)
-        SHORTCUT=true
+        # Ohne Wirkung: Shortcut ist jetzt Default (Opt-out über --no_shortcut)
         shift
         ;;
       --bin)
@@ -1129,12 +1146,13 @@ main() {
   # Validiere Installation
   validate_installation "$INSTALL_PATH"
   
-  # Erstelle Symlinks wenn gewünscht
+  # Erstelle Convenience-Artifacts wenn nicht per Flag abgewählt
   if $SYMLINKS; then
     create_symlinks "$INSTALL_PATH"
   fi
 
-  # Erstelle Desktop-Shortcut wenn gewünscht (Fehler brechen die Installation nie ab)
+  # Erstelle Desktop-Shortcut wenn nicht per Flag abgewählt (Fehler brechen die
+  # Installation nie ab)
   if $SHORTCUT; then
     create_shortcut "$INSTALL_PATH"
   fi
@@ -1157,21 +1175,30 @@ main() {
   echo "  Die TUI führt durch Image-Bau und Projekterstellung."
   echo ""
 
-
-  if $SYMLINKS; then
+  if $SYMLINK_CREATED; then
     echo ""
-    echo "Symlink erstellt in \$HOME/.local/bin/."
+    echo "Symlink erstellt in \$HOME/.local/bin/oc-sandbox (Abwählen: --no_symlinks)."
     echo "Sie können die Sandbox jetzt von überall starten:"
     echo "  oc-sandbox"
+  elif $SYMLINKS; then
+    echo ""
+    echo "Symlink konnte nicht erstellt werden – Details oben."
+  else
+    echo ""
+    echo "Symlink nicht erstellt (--no_symlinks). Start über:"
+    echo "  ${INSTALL_PATH}/bin/${BINARY_NAME}"
   fi
 
   if $SHORTCUT_CREATED; then
     echo ""
-    echo "Desktop-Shortcut erstellt – die TUI ist ab jetzt über Ihr Startmenu/Launcher"
-    echo "verfügbar (Eintrag \"OC Sandbox\")."
+    echo "Desktop-Shortcut erstellt (Abwählen: --no_shortcut) – die TUI ist ab jetzt"
+    echo "über Ihr Startmenu/Launcher verfügbar (Eintrag \"OC Sandbox\")."
   elif $SHORTCUT; then
     echo ""
     echo "Desktop-Shortcut konnte nicht erstellt werden – Details oben."
+  else
+    echo ""
+    echo "Desktop-Shortcut nicht erstellt (--no_shortcut)."
   fi
 }
 

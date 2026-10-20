@@ -145,14 +145,20 @@ nachgefragt, eigene Anpassungen an `proxy/allowlist.txt` bleiben erhalten
 (es sei denn, sie werden ausdrücklich überschrieben). Das Skript verwendet nie
 automatisch `sudo`.
 
+**Symlink und Desktop-Shortcut sind Default:** Die Installation legt
+standardmäßig den Symlink `oc-sandbox` → `bin/oc-sandbox` (Go-TUI-Binary,
+single entry point) und einen Desktop-Shortcut für die TUI an (Linux:
+`.desktop`, WSL: Windows-Startmenü `.lnk`, macOS: `.app` in `~/Applications`).
+Fehler beim Erstellen warnen nur und brechen die Installation nie ab.
+
 **Optionen:**
 - `--install_path <pfad>` – Installationspfad (default: `$HOME/.oc-sandbox`)
 - `--version <tag>` – Spezifische Version installieren (default: latest)
 - `--force` – Vorhandene Installation ohne Nachfrage überschreiben
-- `--symlinks` – Symlink `oc-sandbox` → `bin/oc-sandbox` (Go-TUI-Binary) in `~/.local/bin` erstellen
-  (single entry point, keine weiteren Skript-Symlinks)
-- `--shortcut` – Desktop-Shortcut für die TUI erstellen (Linux: `.desktop`,
-  WSL: Windows-Startmenü `.lnk`, macOS: `.app` in `~/Applications`)
+- `--no_symlinks` – Default-Symlink nicht erstellen
+- `--no_shortcut` – Default-Desktop-Shortcut nicht erstellen
+- `--symlinks` / `--shortcut` – Ohne Wirkung (Kompatibilität: die
+  Convenience-Artifacts sind Default-on)
 - `--verbose` – Detaillierte Ausgabe
 
 Deinstallation siehe [unten](#deinstallation).
@@ -176,7 +182,7 @@ podman info --format '{{.Host.Security.Rootless}}'   # sollte "true" liefern
 
 ### 2. TUI starten
 
-Mit dem `--symlinks`-Flag der Installation aus jedem Verzeichnis:
+Mit dem Standard-Symlink aus jedem Verzeichnis:
 
 ```bash
 oc-sandbox
