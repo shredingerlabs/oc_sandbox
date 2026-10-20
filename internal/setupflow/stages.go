@@ -106,10 +106,10 @@ func (p *PipelineStager) containerName() (string, error) {
 }
 
 func (p *PipelineStager) skillsArgv(container string, _ string) []string {
-	// v2: `mini` is the interactive drop-in (ADR 0014/0024); the model
-	// comes from the config default — no -m (the v2 TUI lost it).
+	// v2 regular TUI supports --prompt (root flag), so no `mini` drop-in and
+	// no -m: the model comes from the config default (ADR 0014/0024).
 	return []string{"podman", "exec", "-it", "--user", "dev", container,
-		"opencode", "mini", "--prompt", "run skill setup-matt-pocock-skills"}
+		"opencode", "--prompt", "run the skill /setup-matt-pocock-skills using the skill tool"}
 }
 
 // startContainer implements build-or-reuse (data-map §3, the start

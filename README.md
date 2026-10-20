@@ -73,8 +73,8 @@ Start-Option nicht.
 With a missing image for the selected edition, in the new project creation the "Image build" selection appears directly below the edition row with **Build now**/**Build later** (default: Build now; `Create Project` executes the decision — Build later registers the project as stopped). Under project start, missing images offer **Build now**, **Build later** or **Go back**.
 Neue Projekte werden für die Einrichtung detached gestartet. Die CBM-Konfiguration
 läuft nicht-interaktiv; die Skills-Einrichtung startet anschließend über ein
-interaktives `podman exec -it` eine OpenCode-Mini-TUI-Sitzung (`opencode mini`)
-mit dem Prompt „run skill setup-matt-pocock-skills",
+interaktives `podman exec -it` eine OpenCode-TUI-Sitzung (`opencode`)
+mit dem Prompt „run the skill /setup-matt-pocock-skills using the skill tool",
 sodass Fragen des Skills direkt beantwortet werden können, bevor die
 ausgewählte Console- oder OpenCode-Sitzung angeschlossen wird (bei der
 Start-Option `web` wird stattdessen ein einmaliger Anmelde-Link zur

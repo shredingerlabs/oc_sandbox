@@ -29,12 +29,14 @@ the sandbox to v2 in one flip:
   keep stopping and removing the container, which a daemonized service
   cannot honor.
 - **Skills setup**: the first-run skills stage calls
-  `opencode mini --prompt "run skill setup-matt-pocock-skills"` with no
-  model flag — v2's `mini` is the interactive drop-in and the model
-  comes from the config default. This supersedes the invocation and
+  `opencode --prompt "run the skill /setup-matt-pocock-skills using the skill tool"` —
+  v2's regular TUI carries `--prompt` as a root flag, so the `mini`
+  drop-in is not needed and there is no model flag: the model comes
+  from the config default. This supersedes the invocation and
   model halves of ADR-0014 (the `opencode/big-pickle` pin is dropped;
   the interactive-stage and setup-completion semantics of ADR-0014
-  stand).
+  stand) as well as this ADR's earlier `mini` invocation for this
+  stage.
 - **Plugin**: the models-discovery plugin pins
   `opencode-models-discovery@2.0.0` (the v2 line).
 
