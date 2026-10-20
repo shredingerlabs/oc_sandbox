@@ -332,11 +332,13 @@ func (m Model) View() string {
 }
 
 // Footer renders the help row, or — while a guarded exit waits for
-// confirmation (#82) — the "ops running" strip.
+// confirmation (#82) — the "ops running" strip in its place. One line
+// either way: an extra row would grow the frame past the terminal and
+// scroll the header menu off-screen.
 func (m Model) Footer() string {
 	if m.exitPending {
-		return strings.Join([]string{"", StyleWarn.Render(
-			"● background work running — press q again to quit, any other key cancels")}, "\n")
+		return lipgloss.NewStyle().MaxWidth(m.width).Render(StyleWarn.Render(
+			"● background work running — press q again to quit, any other key cancels"))
 	}
 	return FooterRow(m.width, m.help, m.keys)
 }
