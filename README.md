@@ -200,13 +200,14 @@ gebaut und als Binary installiert wird (siehe
 | **Start last used project** | Startet das zuletzt genutzte Projekt mit gespeicherten Einstellungen |
 | **Open Project**            | Registriertes Projekt auswählen und starten                          |
 | **New Project**             | Projekt-Root neu anlegen (Wizard)                                    |
-| **Build Container**         | Container-Images bauen (Editionen wie `build-container.sh`); jede Editionenzeile zeigt mit `● built` / `○ missing`, ob das Image schon existiert |
+| **Build Images**            | Container-Images bauen (Editionen wie `build-container.sh`); jede Editionenzeile zeigt mit `● built` / `○ missing`, ob das Image schon existiert |
+| **Delete Images**           | Sandbox-Images löschen (`opencode-sandbox-*` und `oc-proxy`) mit `● in use` / `○ unused`-Markierung und Größe; belegte Images werden abgewiesen |
 | **Settings**                | Change Project Settings, Edit Project settings (VCS/AI Provider), Projekt-Import, Config-Backup/-Restore, Stop Container, Uninstall |
 | **Exit**                    | TUI beenden                                                          |
 
 ### Typischer Ablauf
 
-1. **Build Container** – gewünschte Edition bauen (einmalig, oder später über
+1. **Build Images** – gewünschte Edition bauen (einmalig, oder später über
    **Build now**, wenn beim Projektstart ein Image fehlt).
 2. **New Project** – der Wizard fragt zuerst die **Projektquelle** ab
    („New empty project“ oder „Clone existing repo via URL“; Details siehe
@@ -291,7 +292,8 @@ Project** (Zusammenfassung der aktuellen Konfiguration mit `Create`/`Back`),
 **Settings → Export Config** bei bereits existierender Zieldatei
 (`Overwrite`/`Cancel`),
 **Settings → Restore Config** (ausgewähltes Backup → Zieldatei),
-**Build Container** (Editionen; nur im Leerlauf), **Delete Container**
+**Build Images** (Editionen; nur im Leerlauf), **Delete Images**,
+**Delete Container**
 (rote `Delete`-Bestätigung; laufende Container werden zuvor mit dem
 Stopp-Hinweis abgewiesen) und **Settings → Uninstall**
 (rote `Uninstall`-Bestätigung nach dem getippten „uninstall“, mit Echo der

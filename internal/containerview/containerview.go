@@ -1,8 +1,13 @@
-// Package containerview is the Container center view (#79): Build,
-// Start, Stop and Delete sub-tabs on the app shell (#76). Build lists
-// the live edition registry (ADR 0019) as a checklist with educational
-// descriptions and streams build-container.sh output into the embedded
-// log pane — with no config writes (data-map §3). Start lists the
+// Package containerview is the Container center view (#79): Build
+// Images, Delete Images, Start, Stop and Delete Container sub-tabs on
+// the app shell (#76). Build Images lists the live edition registry
+// (ADR 0019) as a checklist with educational descriptions and streams
+// build-container.sh output into the embedded
+// log pane — with no config writes (data-map §3). Delete Images lists
+// every sandbox-family image (tags carrying the opencode-sandbox-
+// naming convention plus oc-proxy) and removes unused ones via podman
+// rmi behind the danger confirmation popup; in-use images are refused
+// with a remove-containers-first hint. Start lists the
 // registered projects with their running marker and starts the checked
 // containers via start.sh with each project's stored sandbox_config.json
 // — status "running" only after every container is verified live.
@@ -95,19 +100,29 @@ type ProjectsMsg struct {
 // from a refresh cmd (Build tab markers): edition → image built.
 type ImageStatusMsg map[string]bool
 
+// ImagesMsg carries the sandbox-family image list back from a refresh
+// cmd (Delete Images rows): tag + size.
+type ImagesMsg []discovery.SandboxImage
+
+// ImageRefsMsg carries every container's image reference back from a
+// refresh cmd (Delete Images use markers).
+type ImageRefsMsg []string
+
 // Sub-tab indices and this view's queue keys.
 const (
 	TabBuild  = 0
-	TabStart  = 1
-	TabStop   = 2
-	TabDelete = 3
+	TabImages = 1
+	TabStart  = 2
+	TabStop   = 3
+	TabDelete = 4
 
 	keyBuild  = "cv-build"
 	keyStart  = "cv-start"
+	keyImages = "cv-images"
 	keyDelete = "cv-delete"
 )
 
-var subTabItems = []string{"Build Container", "Start Container", "Stop Container", "Delete Container"}
+var subTabItems = []string{"Build Images", "Delete Images", "Start Container", "Stop Container", "Delete Container"}
 
 // descriptions are the educational one-liners per known edition; unknown
 // stages get the generic line.
@@ -206,8 +221,9 @@ func clampSel(c *checklist, n int) {
 	}
 }
 
-// Model implements shell.CenterView with the Build, Start, Stop and
-// Delete sub-tabs. All podman / script calls go through the injected
+// Model implements shell.CenterView with the Build Images, Delete
+// Images, Start, Stop and Delete Container sub-tabs. All podman /
+// script calls go through the injected
 // runner; the registry receives verified container_status updates only.
 // Queue is the shared background-task manager (#82): when wired, every
 // op runs through it (one op at a time per key, streaming lines);
@@ -227,12 +243,15 @@ type Model struct {
 	opKey       string // queue key of the in-flight op (id-disambiguation)
 	sub         int
 	buildChk    checklist
+	imgChk      checklist
 	startChk    checklist
 	stopChk     checklist
 	delChk      checklist
 	editions    []string
 	discovErr   string
-	imgOK       map[string]bool // cached image-existence per edition (Build markers)
+	imgOK       map[string]bool          // cached image-existence per edition (Build markers)
+	images      []discovery.SandboxImage // sandbox-family images (Delete Images rows)
+	imgRefs     []string                 // container image refs (Delete Images use markers)
 	projects    []registry.Project
 	projectsErr string
 	running     []string
@@ -284,6 +303,7 @@ func New(run cmdrun.Runner, reg *registry.Registry, dockerfile, dockerfileCustom
 		StartScript:      startScript,
 		Launch:           launch,
 		buildChk:         newChecklist(),
+		imgChk:           newChecklist(),
 		startChk:         newChecklist(),
 		stopChk:          newChecklist(),
 		delChk:           newChecklist(),
@@ -310,7 +330,7 @@ func (m *Model) TextFocused() bool { return false }
 func (m *Model) ConfirmOpen() bool { return m.confirm.IsOpen() }
 
 func (m *Model) activeChk() *checklist {
-	return []*checklist{&m.buildChk, &m.startChk, &m.stopChk, &m.delChk}[m.sub]
+	return []*checklist{&m.buildChk, &m.imgChk, &m.startChk, &m.stopChk, &m.delChk}[m.sub]
 }
 
 // keys returns the ordered selection keys of the tab's rows.
@@ -321,6 +341,12 @@ func (m *Model) keys(t int) []string {
 			return nil
 		}
 		return m.editions
+	case TabImages:
+		tags := make([]string, 0, len(m.images))
+		for _, img := range m.images {
+			tags = append(tags, img.Tag)
+		}
+		return tags
 	case TabStart:
 		names := make([]string, 0, len(m.projects))
 		for _, p := range m.projects {
@@ -352,11 +378,11 @@ func (m *Model) refreshEditions() {
 	clampSel(&m.buildChk, len(m.editions))
 }
 
-// refreshImages checks every discovered edition's image-existence in
-// podman and reports the results as one map (Build tab markers). A
+// refreshImageStatus checks every discovered edition's image-existence
+// in podman and reports the results as one map (Build markers). A
 // failed check counts as missing — the build op surfaces podman errors
 // loudly itself.
-func (m *Model) refreshImages() tea.Cmd {
+func (m *Model) refreshImageStatus() tea.Cmd {
 	run, df, dfc := m.Run, m.Dockerfile, m.DockerfileCustom
 	return func() tea.Msg {
 		out := map[string]bool{}
@@ -367,6 +393,20 @@ func (m *Model) refreshImages() tea.Cmd {
 		}
 		return ImageStatusMsg(out)
 	}
+}
+
+// refreshImages lists the sandbox-family images fresh per entry (tags +
+// sizes, Delete Images rows); errors yield an empty list.
+func (m *Model) refreshImages() tea.Cmd {
+	run := m.Run
+	return func() tea.Msg { return ImagesMsg(discovery.SandboxImages(run)) }
+}
+
+// refreshImageRefs lists the image references of every container in any
+// state (Delete Images use markers); errors yield an empty list.
+func (m *Model) refreshImageRefs() tea.Cmd {
+	run := m.Run
+	return func() tea.Msg { return ImageRefsMsg(discovery.ContainerImageRefs(run)) }
 }
 
 func (m *Model) refreshRunning() tea.Cmd {
@@ -402,7 +442,9 @@ func (m *Model) refreshTab(t int) tea.Cmd {
 	m.activeChk().scroll = 0
 	switch t {
 	case TabBuild:
-		return m.refreshImages()
+		return m.refreshImageStatus()
+	case TabImages:
+		return tea.Batch(m.refreshImages(), m.refreshImageRefs())
 	case TabStart:
 		return tea.Batch(m.refreshRunning(), m.refreshProjects())
 	case TabStop:
@@ -433,7 +475,7 @@ func (m *Model) Update(msg tea.Msg) tea.Cmd {
 			// cancel-on-navigate (#82): switching this view's tab drops
 			// the queued (not running) container ops
 			if m.Queue != nil {
-				for _, key := range []string{keyBuild, keyStart, keyDelete} {
+				for _, key := range []string{keyBuild, keyStart, keyImages, keyDelete} {
 					m.Queue.CancelQueued(key)
 				}
 			}
@@ -463,6 +505,16 @@ func (m *Model) Update(msg tea.Msg) tea.Cmd {
 		return nil
 	case ImageStatusMsg:
 		m.imgOK = msg
+		return nil
+	case ImagesMsg:
+		m.images = msg
+		purge(&m.imgChk, m.keys(TabImages))
+		clampSel(&m.imgChk, len(msg))
+		m.imgChk.follow.Arm()
+		m.imgChk.follow.Force()
+		return nil
+	case ImageRefsMsg:
+		m.imgRefs = msg
 		return nil
 	case OpDoneMsg:
 		return m.opDone(msg)
@@ -562,6 +614,8 @@ func (m *Model) enter() tea.Cmd {
 	switch m.sub {
 	case TabBuild:
 		return m.startBuild()
+	case TabImages:
+		return m.startImagesDelete()
 	case TabStart:
 		return m.startStart()
 	case TabStop:
@@ -909,6 +963,94 @@ func (m *Model) launchDelete() tea.Cmd {
 	})
 }
 
+// inUseAmong returns the checked tags that currently have container
+// references (the popup guard and the op's re-check share one loop —
+// the op re-checks against a fresher ref list).
+func inUseAmong(refs, tags []string) []string {
+	var inUse []string
+	for _, tag := range tags {
+		if discovery.ImageInUse(refs, tag) {
+			inUse = append(inUse, tag)
+		}
+	}
+	return inUse
+}
+
+// startImagesDelete opens the danger confirmation popup (ADR-0021) for
+// the checked images; in-use ones are refused first with the
+// remove-containers-first hint (podman rmi never deletes a referenced
+// image, and the Delete Container tab owns container removal).
+func (m *Model) startImagesDelete() tea.Cmd {
+	if m.opKind != "" {
+		m.toast = "operation already in progress"
+		return nil
+	}
+	tags := m.imgChk.selected(m.keys(TabImages))
+	if len(tags) == 0 {
+		m.toast = "select images to delete"
+		return nil
+	}
+	// refuse from the tab's fresh podman state (the op re-checks)
+	if inUse := inUseAmong(m.imgRefs, tags); len(inUse) > 0 {
+		m.toast = "in use, remove its containers first: " + strings.Join(inUse, " ")
+		return nil
+	}
+	lines := make([]string, 0, len(tags))
+	for _, tag := range tags {
+		lines = append(lines, "image: "+tag)
+	}
+	m.confirm.Open(fmt.Sprintf("Delete %d image(s)?", len(tags)), "Delete", "Cancel", lines, true,
+		func() tea.Cmd { return m.launchImagesDelete() })
+	return nil
+}
+
+// launchImagesDelete runs the image-delete op through the Launcher
+// seam: podman rmi per checked image, verified gone against a fresh
+// sandbox-image list.
+func (m *Model) launchImagesDelete() tea.Cmd {
+	if m.opKind != "" {
+		m.toast = "operation already in progress"
+		return nil
+	}
+	tags := m.imgChk.selected(m.keys(TabImages))
+	if len(tags) == 0 {
+		m.toast = "select images to delete"
+		return nil
+	}
+	m.opKind = "images"
+	m.log = shell.NewLogPane().HideHead()
+	m.toast = fmt.Sprintf("deleting %d image(s)…", len(tags))
+	run := m.Run
+	return m.launch(fmt.Sprintf("deleting %d image(s)", len(tags)), keyImages, func(emit func(string)) error {
+		// refuse images picked up by containers since the popup armed
+		// (same guard as startImagesDelete)
+		if inUse := inUseAmong(discovery.ContainerImageRefs(run), tags); len(inUse) > 0 {
+			return fmt.Errorf("in use, remove its containers first: %s", inUse[0])
+		}
+		for _, tag := range tags {
+			out, err := run.Output("podman", "rmi", tag)
+			for _, l := range cmdrun.Lines(out) {
+				emit(l)
+			}
+			if err != nil {
+				return fmt.Errorf("podman rmi %s failed: %s", tag, strings.TrimSpace(out))
+			}
+		}
+		// verified gone (data map §3): reconcile against a fresh
+		// sandbox-image list.
+		var remaining []string
+		for _, img := range discovery.SandboxImages(run) {
+			remaining = append(remaining, img.Tag)
+		}
+		for _, tag := range tags {
+			if slices.Contains(remaining, tag) {
+				return fmt.Errorf("%s still exists", tag)
+			}
+		}
+		return nil
+	})
+}
+
 // tail returns the last n lines of an output blob.
 func tail(out string, n int) string {
 	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
@@ -985,9 +1127,18 @@ func (m *Model) opDone(msg OpDoneMsg) tea.Cmd {
 		} else {
 			m.toast = "Containers deleted"
 		}
+	case "images":
+		if msg.Err != nil {
+			m.toast = msg.Err.Error()
+		} else {
+			m.toast = "Images deleted"
+		}
 	}
 	if kind == "build" {
-		return m.refreshImages() // the image-existence cache is now stale
+		return m.refreshImageStatus() // the image-existence cache is now stale
+	}
+	if kind == "images" {
+		return tea.Batch(m.refreshTab(TabImages), m.refreshImageStatus()) // Build markers may name deleted images now
 	}
 	return m.refreshTab(m.sub)
 }
@@ -1006,6 +1157,9 @@ func (m *Model) Body(width, height int) string {
 	switch m.sub {
 	case TabBuild:
 		lines = m.buildBody(width, height)
+	case TabImages:
+		lines = m.checklistBody(width, height, m.rows(TabImages, width), &m.imgChk, 1,
+			"no sandbox images found", "Delete")
 	case TabStart:
 		lines = m.checklistBody(width, height, m.rows(TabStart, width), &m.startChk, 1,
 			m.projectsBanner(), "Start")
@@ -1149,6 +1303,14 @@ func (m *Model) rows(t, width int) []chkRow {
 			})
 		}
 		return rows
+	case TabImages:
+		rows := make([]chkRow, 0, len(m.images))
+		for _, img := range m.images {
+			main := truncate(img.Tag, 44) + "  " +
+				shell.StyleMutedAlt.Render(truncate(img.Size, 12)) + useMarker(m.imgRefs, img.Tag)
+			rows = append(rows, chkRow{key: img.Tag, main: truncate(main, width-4)})
+		}
+		return rows
 	case TabStart:
 		rows := make([]chkRow, 0, len(m.projects))
 		for _, p := range m.projects {
@@ -1197,6 +1359,18 @@ func (m *Model) imageMarker(ed string) string {
 		return "  " + shell.StyleStatusRunning.Render(shell.SymOn+" built")
 	}
 	return "  " + shell.StyleMutedAlt.Render(shell.SymOff+" missing")
+}
+
+// useMarker appends the use marker to a delete-images row from the
+// cached fresh-per-entry container refs: "● in use" in the running
+// color when any container in any state references the image, "○
+// unused" muted otherwise — the distinction never rides on color alone
+// (SymOn vs SymOff).
+func useMarker(refs []string, tag string) string {
+	if discovery.ImageInUse(refs, tag) {
+		return "  " + shell.StyleStatusRunning.Render(shell.SymOn+" in use")
+	}
+	return "  " + shell.StyleMutedAlt.Render(shell.SymOff+" unused")
 }
 
 // runningMarker appends the running indicator when the container is

@@ -115,7 +115,7 @@ func (p *PipelineStager) skillsArgv(container string, _ string) []string {
 // startContainer implements build-or-reuse (data-map §3, the start
 // path): a container already running for this project is reused (no
 // restart); a missing image is an error the retry menu surfaces (the
-// Build Container flow is the separate deferred-build path).
+// Build Images flow is the separate deferred-build path).
 func (p *PipelineStager) startContainer(emit func(string)) error {
 	name, err := p.containerName()
 	if err != nil {

@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/shredingerlabs/oc-sandbox/internal/cmdrun"
@@ -210,6 +211,78 @@ func AllContainers(run cmdrun.Runner) []ContainerState {
 		all = append(all, ContainerState{Name: name, State: state})
 	}
 	return all
+}
+
+// SandboxImage is one `podman images` row of the sandbox family: the
+// full tag and the human-readable size.
+type SandboxImage struct {
+	Tag  string
+	Size string
+}
+
+// proxyImage reports whether an image reference is the oc-proxy image:
+// its last path segment (tag/digest suffix stripped) is `oc-proxy`.
+func proxyImage(ref string) bool {
+	if i := strings.LastIndex(ref, "/"); i >= 0 {
+		ref = ref[i+1:]
+	}
+	if j := strings.IndexAny(ref, ":@"); j >= 0 {
+		ref = ref[:j]
+	}
+	return ref == "oc-proxy"
+}
+
+// SandboxImageTag reports whether a podman image reference belongs to
+// the sandbox family: tagged `opencode-sandbox-<edition>` (any registry
+// prefix, tag/digest suffix) or the oc-proxy image.
+func SandboxImageTag(ref string) bool {
+	return EditionFromImage(ref) != "" || proxyImage(ref)
+}
+
+// SandboxImages lists every sandbox-family image with its tag and size
+// (`podman images`); dangling `<none>` images and unrelated host images
+// are filtered out. Errors yield an empty list (podman-output based,
+// like the podman ps adapters).
+func SandboxImages(run cmdrun.Runner) []SandboxImage {
+	out, err := run.Output("podman", "images", "--format", "{{.Repository}}:{{.Tag}}\t{{.Size}}")
+	if err != nil {
+		return nil
+	}
+	var all []SandboxImage
+	for _, l := range cmdrun.Lines(out) {
+		tag, size, ok := strings.Cut(l, "\t")
+		if !ok || !SandboxImageTag(tag) {
+			continue
+		}
+		all = append(all, SandboxImage{Tag: tag, Size: size})
+	}
+	return all
+}
+
+// ContainerImageRefs lists the image references of every container in
+// any state (`podman ps -a`, unfiltered — the oc-proxy container is not
+// an oc-sandbox container); errors yield an empty list (bash `|| true`).
+func ContainerImageRefs(run cmdrun.Runner) []string {
+	out, err := run.Output("podman", "ps", "-a", "--format", "{{.Image}}")
+	if err != nil {
+		return nil
+	}
+	return cmdrun.Lines(out)
+}
+
+// ImageInUse reports whether any container image reference matches a
+// sandbox-family tag: edition images match on the edition suffix (the
+// container's ref carries no registry prefix or tag), oc-proxy on the
+// name substring.
+func ImageInUse(refs []string, tag string) bool {
+	if ed := EditionFromImage(tag); ed != "" {
+		return slices.ContainsFunc(refs, func(ref string) bool {
+			return EditionFromImage(ref) == ed
+		})
+	}
+	return slices.ContainsFunc(refs, func(ref string) bool {
+		return proxyImage(ref) && proxyImage(tag)
+	})
 }
 
 // ImageExists reports whether the edition's image exists in podman.

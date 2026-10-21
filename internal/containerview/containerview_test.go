@@ -168,7 +168,7 @@ func callsMatching(fake *cmdrun.Fake, name, first string) int {
 func TestSubTabsOrder(t *testing.T) {
 	m, _, _, _ := newFixture(t)
 	items, sel := m.SubTabs()
-	want := []string{"Build Container", "Start Container", "Stop Container", "Delete Container"}
+	want := []string{"Build Images", "Delete Images", "Start Container", "Stop Container", "Delete Container"}
 	if len(items) != len(want) || sel != 0 {
 		t.Fatalf("subtabs = %v sel %d", items, sel)
 	}
@@ -180,14 +180,14 @@ func TestSubTabsOrder(t *testing.T) {
 	// switching to Start refreshes the running list + projects
 	cmd := m.Update(shell.SubTabMsg{Index: TabStart})
 	runCmds(t, m, cmd)
-	if _, sel := m.SubTabs(); sel != 1 {
-		t.Fatalf("selected sub-tab = %d, want 1", sel)
+	if _, sel := m.SubTabs(); sel != 2 {
+		t.Fatalf("selected sub-tab = %d, want 2", sel)
 	}
 	// switching to Delete refreshes containers + projects
 	cmd = m.Update(shell.SubTabMsg{Index: TabDelete})
 	runCmds(t, m, cmd)
-	if _, sel := m.SubTabs(); sel != 3 {
-		t.Fatalf("selected sub-tab = %d, want 3", sel)
+	if _, sel := m.SubTabs(); sel != 4 {
+		t.Fatalf("selected sub-tab = %d, want 4", sel)
 	}
 }
 
@@ -258,7 +258,7 @@ func TestBuildTabImageMarkers(t *testing.T) {
 	if got := body(m); strings.Contains(got, "built") || strings.Contains(got, "missing") {
 		t.Fatalf("markers shown before the image check landed:\n%s", got)
 	}
-	runCmds(t, m, m.refreshImages())
+	runCmds(t, m, m.refreshImageStatus())
 	got := body(m)
 	if strings.Count(got, "● built") != 2 {
 		t.Errorf("want 2 built markers:\n%s", got)
@@ -297,7 +297,7 @@ func TestBuildOpRefreshesImageCache(t *testing.T) {
 		}
 		return imgCheck(n, args)
 	}
-	runCmds(t, m, m.refreshImages())
+	runCmds(t, m, m.refreshImageStatus())
 	if strings.Count(body(m), "○ missing") != 1 {
 		t.Fatalf("missing marker not shown before the build:\n%s", body(m))
 	}
@@ -890,6 +890,144 @@ func TestDeleteNoSelectionToasts(t *testing.T) {
 	}
 }
 
+// --- Delete Images tab ---
+
+// imageList scripts `podman images` (rows: "repo:tag\tsize") and the
+// container image-ref list (`podman ps -a --format {{.Image}}`), the
+// use markers' source. Other calls answer empty.
+func imageList(fake *cmdrun.Fake, rows, refs string) {
+	fake.Script = func(n string, args []string) (string, error) {
+		switch {
+		case n == "podman" && args[0] == "images":
+			return rows, nil
+		case n == "podman" && args[0] == "ps" && len(args) > 3 && args[2] == "--format" && args[3] == "{{.Image}}":
+			return refs, nil
+		}
+		return "", nil
+	}
+}
+
+func TestImagesTabGolden(t *testing.T) {
+	m, fake, _, _ := newFixture(t)
+	imageList(fake,
+		"localhost/opencode-sandbox-web:latest\t1.23 GB\n"+
+			"localhost/oc-proxy:latest\t500 MB\n"+
+			"reg.io/opencode-sandbox-swdev:latest\t2.1 GB\n"+
+			"node:20\t900 MB\n"+
+			"<none>:<none>\t1 KB\n", // dangling intermediate: filtered
+		"opencode-sandbox-swdev\noc-proxy\n")
+	runCmds(t, m, m.Update(shell.SubTabMsg{Index: TabImages}))
+	got := body(m)
+	for _, want := range []string{"select all", "opencode-sandbox-web:latest", "1.23 GB",
+		"oc-proxy:latest", "opencode-sandbox-swdev:latest", "○ unused", "Delete"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("images tab missing %q:\n%s", want, got)
+		}
+	}
+	// unrelated host images and dangling intermediates are not listed
+	if strings.Contains(got, "node:20") || strings.Contains(got, "<none>") {
+		t.Errorf("non-family image leaked onto the tab:\n%s", got)
+	}
+	if strings.Count(got, "● in use") != 2 {
+		t.Errorf("use markers wrong:\n%s", got)
+	}
+	// refs refresh is podman-cheap per entry: switching tabs re-checks by
+	// entry, renders don't
+	before := callsMatching(fake, "podman", "images")
+	m.Body(80, 22)
+	if after := callsMatching(fake, "podman", "images"); after != before {
+		t.Errorf("render triggered a fresh image listing")
+	}
+}
+
+func TestImagesDeleteRefusesInUse(t *testing.T) {
+	m, fake, _, _ := newFixture(t)
+	imageList(fake, "localhost/oc-proxy:latest\t500 MB\n", "oc-proxy\n")
+	runCmds(t, m, m.Update(shell.SubTabMsg{Index: TabImages}))
+	m.Body(80, 22)
+	m.Update(mousePress(m.rowRects[0].X, m.rowRects[0].Y))
+	if cmd := m.Update(mousePress(m.opBtn.X+2, m.opBtn.Y)); cmd != nil || m.confirm.IsOpen() {
+		t.Fatalf("delete popup armed for an in-use image")
+	}
+	if got := body(m); !strings.Contains(got, "in use, remove its containers first: localhost/oc-proxy:latest") {
+		t.Errorf("in-use refusal missing:\n%s", got)
+	}
+	if callsMatching(fake, "podman", "rmi") != 0 {
+		t.Fatalf("podman rmi ran: %v", fake.Calls)
+	}
+}
+
+// TestImagesDeleteRemovesUnused pins the full image-delete op: danger
+// popup, podman rmi, verified-gone against a fresh image list.
+func TestImagesDeleteRemovesUnused(t *testing.T) {
+	m, fake, _, _ := newFixture(t)
+	web := "localhost/opencode-sandbox-web:latest"
+	var gone bool
+	fake.Script = func(n string, args []string) (string, error) {
+		switch {
+		case n == "podman" && args[0] == "images":
+			if gone {
+				return "", nil
+			}
+			return web + "\t1.23 GB\n", nil
+		case n == "podman" && args[0] == "ps" && len(args) > 3 && args[2] == "--format" && args[3] == "{{.Image}}":
+			return "", nil // no containers: image unused
+		case n == "podman" && args[0] == "rmi":
+			gone = true
+			return "Untagged: " + web + "\n", nil
+		}
+		return "", nil
+	}
+	runCmds(t, m, m.Update(shell.SubTabMsg{Index: TabImages}))
+	m.Body(80, 22)
+	m.Update(mousePress(m.rowRects[0].X, m.rowRects[0].Y))
+	cmd := m.Update(mousePress(m.opBtn.X+2, m.opBtn.Y))
+	if !m.confirm.IsOpen() {
+		t.Fatal("confirm popup missing")
+	}
+	overlay := shell.StripANSI(m.confirm.Overlay(80, 22, shell.BodyTop))
+	if !strings.Contains(overlay, "image: "+web) || !strings.Contains(overlay, "Delete 1 image(s)?") {
+		t.Fatalf("popup content wrong:\n%s", overlay)
+	}
+	runCmds(t, m, cmd)
+	var post tea.Cmd
+	for _, msg := range flatten(confirmPopup(m)()) {
+		if _, ok := msg.(OpDoneMsg); ok {
+			post = m.Update(msg) // opDone's refresh rides this cmd
+			continue
+		}
+		m.Update(msg)
+	}
+	runCmds(t, m, post) // rows refresh against the fresh image list
+	if got := body(m); !strings.Contains(got, "Images deleted") ||
+		strings.Contains(got, "☐ "+web) || strings.Contains(got, "☒ "+web) {
+		t.Errorf("success toast missing / row not refreshed:\n%s", got)
+	}
+	// the verify re-check and the done-refresh list the family again
+	exact := false
+	for _, c := range fake.Calls {
+		if c.Name == "podman" && strings.Join(c.Args, "\x00") == "rmi\x00"+web {
+			exact = true
+		}
+	}
+	if !exact {
+		t.Fatalf("exact rmi call missing: %v", fake.Calls)
+	}
+}
+
+func TestImagesNoSelectionToasts(t *testing.T) {
+	m, fake, _, _ := newFixture(t)
+	imageList(fake, "localhost/opencode-sandbox-web:latest\t1.23 GB\n", "")
+	runCmds(t, m, m.Update(shell.SubTabMsg{Index: TabImages}))
+	m.Body(80, 22)
+	if cmd := m.Update(mousePress(m.opBtn.X+2, m.opBtn.Y)); cmd != nil || m.confirm.IsOpen() {
+		t.Fatalf("delete armed without selection")
+	}
+	if got := body(m); !strings.Contains(got, "select images to delete") {
+		t.Errorf("no-selection toast missing:\n%s", got)
+	}
+}
+
 // --- keyboard parity / shared mechanics ---
 
 func TestKeyboardParity(t *testing.T) {
@@ -906,17 +1044,17 @@ func TestKeyboardParity(t *testing.T) {
 	if !lastCall(fake, wantCall.Name, wantCall.Args...) {
 		t.Fatalf("keyboard build call = %v, want %v", fake.Calls, wantCall)
 	}
-	// left/right cycle the 4 sub-tabs
+	// left/right cycle the 5 sub-tabs
 	fake.Calls = nil
 	cmd = m.Update(key("right"))
-	runCmds(t, m, cmd) // start tab: refresh (empty)
+	runCmds(t, m, cmd) // images tab: refresh (empty)
 	if _, sel := m.SubTabs(); sel != 1 {
-		t.Fatalf("right did not switch to Start tab (sel %d)", sel)
+		t.Fatalf("right did not switch to Delete Images tab (sel %d)", sel)
 	}
 	cmd = m.Update(key("right"))
 	runCmds(t, m, cmd)
 	if _, sel := m.SubTabs(); sel != 2 {
-		t.Fatalf("right did not switch to Stop tab (sel %d)", sel)
+		t.Fatalf("right did not switch to Start tab (sel %d)", sel)
 	}
 	// left wraps back in the other direction
 	cmd = m.Update(key("left"))
@@ -932,9 +1070,10 @@ func TestHitRectsStableAcrossToasts(t *testing.T) {
 	m, fake, _, _ := newFixture(t)
 	a, b := "opencode-sandbox-aaaaaaaaaaaa", "opencode-sandbox-bbbbbbbbbbbb"
 	psList(fake, a+"\n"+b+"\n", a+"\n"+b+"\n")
-	runCmds(t, m, m.refreshImages()) // populate the marker cache so row widths match
+	runCmds(t, m, m.refreshImageStatus()) // populate the marker cache so row widths match
 	m.Body(80, 22)
 	buildRows, buildBtn := append([]shell.Rect(nil), m.rowRects...), m.opBtn
+	runCmds(t, m, m.Update(key("right"))) // → Delete Images
 	runCmds(t, m, m.Update(key("right"))) // → Start
 	runCmds(t, m, m.Update(key("right"))) // → Stop
 	m.Body(80, 22)
@@ -953,6 +1092,7 @@ func TestHitRectsStableAcrossToasts(t *testing.T) {
 		t.Errorf("stop rects shifted: %+v/%+v", m.selAll, m.opBtn)
 	}
 	runCmds(t, m, m.Update(key("left"))) // → Start
+	runCmds(t, m, m.Update(key("left"))) // → Delete Images
 	runCmds(t, m, m.Update(key("left"))) // → Build
 	m.Body(80, 22)
 	if m.opBtn != buildBtn {

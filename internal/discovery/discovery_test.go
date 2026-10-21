@@ -213,6 +213,57 @@ func TestImageExists(t *testing.T) {
 	}
 }
 
+// TestSandboxImagesAndUse pins the sandbox-family image listing
+// (`podman images` incl. size) and the container-refs use matching:
+// edition images match on the edition suffix, oc-proxy on its last path
+// segment, unrelated host images and dangling <none> images are
+// filtered.
+func TestSandboxImagesAndUse(t *testing.T) {
+	run := &cmdrun.Fake{Script: func(name string, args []string) (string, error) {
+		if name == "podman" && args[0] == "images" {
+			return "localhost/opencode-sandbox-web:latest\t1.23 GB\n" +
+				"localhost/oc-proxy:latest\t500 MB\n" +
+				"reg.io/opencode-sandbox-swdev\t2.1 GB\n" +
+				"node:20\t900 MB\n" +
+				"<none>:<none>\t1 KB\n", nil
+		}
+		return "", nil
+	}}
+	got := SandboxImages(run)
+	want := []SandboxImage{
+		{Tag: "localhost/opencode-sandbox-web:latest", Size: "1.23 GB"},
+		{Tag: "localhost/oc-proxy:latest", Size: "500 MB"},
+		{Tag: "reg.io/opencode-sandbox-swdev", Size: "2.1 GB"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("images = %+v, want %+v", got, want)
+	}
+	if len(run.Calls) != 1 || run.Calls[0].Name != "podman" ||
+		!reflect.DeepEqual(run.Calls[0].Args, []string{"images", "--format", "{{.Repository}}:{{.Tag}}\t{{.Size}}"}) {
+		t.Fatalf("unexpected podman invocation: %+v", run.Calls)
+	}
+	// Errors are swallowed.
+	fail := &cmdrun.Fake{Script: func(string, []string) (string, error) { return "", errFake }}
+	if got := SandboxImages(fail); got != nil {
+		t.Fatalf("failed podman images must yield no images, got %v", got)
+	}
+	// Use matching: the edition suffix maps per edition, oc-proxy by
+	// exact name — never by substring.
+	refs := []string{"opencode-sandbox-swdev", "localhost/oc-proxy:latest", "my-oc-proxy-x:latest"}
+	if ImageInUse(refs, "localhost/opencode-sandbox-web:latest") {
+		t.Error("edition matched although only swdev has a container")
+	}
+	if !ImageInUse(refs, "reg.io/opencode-sandbox-swdev:latest") {
+		t.Error("edition image in use not matched")
+	}
+	if !ImageInUse(refs, "localhost/oc-proxy:latest") || !ImageInUse(refs, "other/oc-proxy") {
+		t.Error("oc-proxy variants must all match their own tag")
+	}
+	if ImageInUse(refs, "localhost/my-oc-proxy-x:latest") {
+		t.Error("substring oc-proxy false positive")
+	}
+}
+
 func TestWebPort(t *testing.T) {
 	run := &cmdrun.Fake{Script: func(name string, args []string) (string, error) {
 		if name == "podman" && args[0] == "port" && args[1] == "opencode-sandbox-abc" && args[2] == "4096/tcp" {

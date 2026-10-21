@@ -199,7 +199,7 @@ Ohne Symlink direkt über den Installationspfad bzw. aus diesem Ordner:
 
 Die TUI ist ein einzelnes Go-Binary (BubbleTea, volles Fenster, maus- und
 tastaturbedienbar). Über die Hauptansicht
-(**Open Project**, **New Project**, **Build Container**, **Settings**) laufen
+(**Open Project**, **New Project**, **Build Images**, **Settings**) laufen
 alle weiteren Schritte: Edition bauen, Projekt-Root anlegen, VCS/Tokens
 verborgen abfragen, Start-Option wählen (`console`, `opencode` oder `web`) und
 die Sandbox starten. Laufende Container werden per `podman exec` wiederverwendet
