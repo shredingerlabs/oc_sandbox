@@ -200,7 +200,7 @@ gebaut und als Binary installiert wird (siehe
 | **Start last used project** | Startet das zuletzt genutzte Projekt mit gespeicherten Einstellungen |
 | **Open Project**            | Registriertes Projekt auswählen und starten                          |
 | **New Project**             | Projekt-Root neu anlegen (Wizard)                                    |
-| **Build Container**         | Container-Images bauen (Editionen wie `build-container.sh`)          |
+| **Build Container**         | Container-Images bauen (Editionen wie `build-container.sh`); jede Editionenzeile zeigt mit `● built` / `○ missing`, ob das Image schon existiert |
 | **Settings**                | Change Project Settings, Edit Project settings (VCS/AI Provider), Projekt-Import, Config-Backup/-Restore, Stop Container, Uninstall |
 | **Exit**                    | TUI beenden                                                          |
 

@@ -144,6 +144,8 @@
 
 **base edition** — The parent stage `opencode-sandbox-base` in `dist/Dockerfile` that all shipped editions build `FROM`: infrastructure, not a user-facing edition. The Go TUI never offers it as a selectable edition for a project (New Project wizard, change-settings, re-selection); it remains discoverable and buildable via the Container center Build tab, `build-container.sh`, and `start.sh`. Projects stored with `container_edition: "base"` stay valid. _Avoid_: base image edition, selectable base.
 
+**image-existence marker (Build Container)** — Status shown on each edition row of the Container center Build tab: `● built` when the edition's image exists in podman, `○ missing` otherwise. Checked once per tab entry and re-checked when a build finishes (a check that fails reads as missing); rows render without any marker before the first check. _Avoid_: live per-render check, missing image (the start-time error about a missing image is a separate concern).
+
 **custom edition Dockerfile** — User-editable `dist/Dockerfile.custom` holding user-defined edition stages as standalone build recipes (typically `FROM opencode-sandbox-base`, ending `USER dev` + `ENTRYPOINT ["/bin/bash","-l"]`). Shipped as a commented example template on install; never overwritten on update — recreated only if absent. The main `dist/Dockerfile` is still overwritten on update, so it is not a sanctioned home for user stages. _Avoid_: edition manifest, editions.json.
 
 **native script enhancement** — Strategy of extending existing scripts (start.sh, build-container.sh, init-project.sh) with additional parameters (like --start_opencode) rather than creating parallel TUI-specific implementations, preserving backward compatibility and avoiding code duplication.

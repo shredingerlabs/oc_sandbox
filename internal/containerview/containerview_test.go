@@ -225,6 +225,104 @@ func TestBuildTabDiscoveryErrorShownLoudly(t *testing.T) {
 	}
 }
 
+// imageExists scripts the podman image checks: editions named in
+// missing have no image, the rest exist.
+func imageExists(fake *cmdrun.Fake, missing ...string) {
+	built := map[string]bool{"base": true, "web": true, "mycustom": true}
+	for _, ed := range missing {
+		delete(built, ed)
+	}
+	imageExistsMap(fake, built)
+}
+
+// imageExistsMap scripts the podman image checks against a live map:
+// editions absent from built have no image. Callers may keep mutating
+// the map (the build-op test flips entries as scripts produce images).
+func imageExistsMap(fake *cmdrun.Fake, built map[string]bool) {
+	fake.Script = func(n string, args []string) (string, error) {
+		if n == "podman" && len(args) > 2 && args[0] == "image" && args[1] == "exists" {
+			ed := strings.TrimPrefix(args[2], "opencode-sandbox-")
+			if !built[ed] {
+				return "", fmt.Errorf("no such image: %s", args[2])
+			}
+			return "", nil
+		}
+		return "", nil
+	}
+}
+
+func TestBuildTabImageMarkers(t *testing.T) {
+	m, fake, _, _ := newFixture(t)
+	imageExists(fake, "mycustom")
+	// before the check lands the rows are markerless (no bare "missing")
+	if got := body(m); strings.Contains(got, "built") || strings.Contains(got, "missing") {
+		t.Fatalf("markers shown before the image check landed:\n%s", got)
+	}
+	runCmds(t, m, m.refreshImages())
+	got := body(m)
+	if strings.Count(got, "● built") != 2 {
+		t.Errorf("want 2 built markers:\n%s", got)
+	}
+	if strings.Count(got, "○ missing") != 1 {
+		t.Errorf("missing marker not shown for mycustom:\n%s", got)
+	}
+	// render and row keys stay podman-cheap: the cache serves them
+	before := callsMatching(fake, "podman", "exists")
+	m.Body(80, 22)
+	m.Update(key("down"))
+	if after := callsMatching(fake, "podman", "exists"); after != before {
+		t.Errorf("render/keypad triggered fresh image checks")
+	}
+}
+
+func TestActivateRefreshesImageCache(t *testing.T) {
+	m, fake, _, _ := newFixture(t)
+	imageExists(fake, "mycustom")
+	runCmds(t, m, m.Activate())
+	if strings.Count(body(m), "● built") != 2 ||
+		strings.Count(body(m), "○ missing") != 1 {
+		t.Fatalf("activation did not populate the image cache:\n%s", body(m))
+	}
+}
+
+func TestBuildOpRefreshesImageCache(t *testing.T) {
+	m, fake, _, _ := newFixture(t)
+	built := map[string]bool{"base": true, "web": true} // mycustom missing
+	imageExistsMap(fake, built)
+	imgCheck := fake.Script
+	fake.Script = func(n string, args []string) (string, error) {
+		if n == "bash" && len(args) > 1 && args[1] == "mycustom" {
+			built["mycustom"] = true // build-container.sh produced the image
+			return "", nil
+		}
+		return imgCheck(n, args)
+	}
+	runCmds(t, m, m.refreshImages())
+	if strings.Count(body(m), "○ missing") != 1 {
+		t.Fatalf("missing marker not shown before the build:\n%s", body(m))
+	}
+	// run a real build of mycustom through the popup flow (ADR-0021)
+	m.Body(80, 22) // stores hit rects
+	r := m.rowRects[2]
+	m.Update(mousePress(r.X+2, r.Y))
+	cmd := m.Update(mousePress(m.opBtn.X+2, m.opBtn.Y)) // popup
+	cmd = confirmPopup(m)
+	// the op lands as one OpDoneMsg; opDone's refresh cmd stays the
+	// harness-returned cmd of the last Update
+	var post tea.Cmd
+	for _, msg := range flatten(cmd()) {
+		if _, ok := msg.(OpDoneMsg); ok {
+			post = m.Update(msg) // opDone's refresh rides this cmd
+			continue
+		}
+		m.Update(msg)
+	}
+	runCmd(t, m, post) // op completion re-checks fresh
+	if strings.Count(body(m), "● built") != 3 {
+		t.Errorf("cache not refreshed after the build op:\n%s", body(m))
+	}
+}
+
 func TestBuildRowClickTogglesThenButtonBuilds(t *testing.T) {
 	m, fake, _, _ := newFixture(t)
 	psList(fake, "", "") // nothing running; image exists default = exists
@@ -834,6 +932,7 @@ func TestHitRectsStableAcrossToasts(t *testing.T) {
 	m, fake, _, _ := newFixture(t)
 	a, b := "opencode-sandbox-aaaaaaaaaaaa", "opencode-sandbox-bbbbbbbbbbbb"
 	psList(fake, a+"\n"+b+"\n", a+"\n"+b+"\n")
+	runCmds(t, m, m.refreshImages()) // populate the marker cache so row widths match
 	m.Body(80, 22)
 	buildRows, buildBtn := append([]shell.Rect(nil), m.rowRects...), m.opBtn
 	runCmds(t, m, m.Update(key("right"))) // → Start

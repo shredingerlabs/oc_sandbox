@@ -91,6 +91,10 @@ type ProjectsMsg struct {
 	Err      string
 }
 
+// ImageStatusMsg carries the per-edition image-existence results back
+// from a refresh cmd (Build tab markers): edition → image built.
+type ImageStatusMsg map[string]bool
+
 // Sub-tab indices and this view's queue keys.
 const (
 	TabBuild  = 0
@@ -228,6 +232,7 @@ type Model struct {
 	delChk      checklist
 	editions    []string
 	discovErr   string
+	imgOK       map[string]bool // cached image-existence per edition (Build markers)
 	projects    []registry.Project
 	projectsErr string
 	running     []string
@@ -293,6 +298,11 @@ func (m *Model) Busy() bool { return m.opKind != "" }
 // SubTabs implements shell.CenterView.
 func (m *Model) SubTabs() ([]string, int) { return subTabItems, m.sub }
 
+// Activate implements shell.ActivableView: refresh the focused tab's
+// data on entry — the Build tab's image-existence cache is empty and
+// markerless until the first refresh lands.
+func (m *Model) Activate() tea.Cmd { return m.refreshTab(m.sub) }
+
 // TextFocused implements shell.CenterView (no text inputs here).
 func (m *Model) TextFocused() bool { return false }
 
@@ -342,6 +352,23 @@ func (m *Model) refreshEditions() {
 	clampSel(&m.buildChk, len(m.editions))
 }
 
+// refreshImages checks every discovered edition's image-existence in
+// podman and reports the results as one map (Build tab markers). A
+// failed check counts as missing — the build op surfaces podman errors
+// loudly itself.
+func (m *Model) refreshImages() tea.Cmd {
+	run, df, dfc := m.Run, m.Dockerfile, m.DockerfileCustom
+	return func() tea.Msg {
+		out := map[string]bool{}
+		if eds, err := discovery.Editions(df, dfc); err == nil {
+			for _, ed := range eds {
+				out[ed] = discovery.ImageExists(run, ed)
+			}
+		}
+		return ImageStatusMsg(out)
+	}
+}
+
 func (m *Model) refreshRunning() tea.Cmd {
 	run := m.Run
 	return func() tea.Msg { return RunningMsg(discovery.RunningContainers(run)) }
@@ -374,6 +401,8 @@ func (m *Model) refreshProjects() tea.Cmd {
 func (m *Model) refreshTab(t int) tea.Cmd {
 	m.activeChk().scroll = 0
 	switch t {
+	case TabBuild:
+		return m.refreshImages()
 	case TabStart:
 		return tea.Batch(m.refreshRunning(), m.refreshProjects())
 	case TabStop:
@@ -431,6 +460,9 @@ func (m *Model) Update(msg tea.Msg) tea.Cmd {
 		clampSel(&m.startChk, len(m.projects))
 		m.startChk.follow.Arm()
 		m.startChk.follow.Force()
+		return nil
+	case ImageStatusMsg:
+		m.imgOK = msg
 		return nil
 	case OpDoneMsg:
 		return m.opDone(msg)
@@ -955,7 +987,7 @@ func (m *Model) opDone(msg OpDoneMsg) tea.Cmd {
 		}
 	}
 	if kind == "build" {
-		return nil // no data dependency; discovery is fresh per render
+		return m.refreshImages() // the image-existence cache is now stale
 	}
 	return m.refreshTab(m.sub)
 }
@@ -1112,7 +1144,7 @@ func (m *Model) rows(t, width int) []chkRow {
 		rows := make([]chkRow, 0, len(m.editions))
 		for _, ed := range m.editions {
 			rows = append(rows, chkRow{key: ed,
-				main: shell.StyleFieldLabel.Render(ed),
+				main: shell.StyleFieldLabel.Render(ed) + m.imageMarker(ed),
 				sub:  shell.StyleMutedAlt.Render(description(ed)),
 			})
 		}
@@ -1149,6 +1181,22 @@ func (m *Model) rows(t, width int) []chkRow {
 		return rows
 	}
 	return nil
+}
+
+// imageMarker appends the image-existence marker to a build row from
+// the cached fresh-per-entry check: "● built" in the running color,
+// "○ missing" muted — the distinction never rides on color alone
+// (SymOn vs SymOff). Editions missing from the cache (check not landed
+// yet) get no marker instead of a bare "missing".
+func (m *Model) imageMarker(ed string) string {
+	ok, known := m.imgOK[ed]
+	if !known {
+		return ""
+	}
+	if ok {
+		return "  " + shell.StyleStatusRunning.Render(shell.SymOn+" built")
+	}
+	return "  " + shell.StyleMutedAlt.Render(shell.SymOff+" missing")
 }
 
 // runningMarker appends the running indicator when the container is
