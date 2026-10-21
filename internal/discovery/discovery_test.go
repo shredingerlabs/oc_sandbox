@@ -264,6 +264,37 @@ func TestSandboxImagesAndUse(t *testing.T) {
 	}
 }
 
+// TestParentStages pins the stage→parent map: comments skipped,
+// Dockerfile precedes Dockerfile.custom on duplicates, unreadable files
+// contribute nothing.
+func TestParentStages(t *testing.T) {
+	dir := t.TempDir()
+	df := filepath.Join(dir, "Dockerfile")
+	dfc := filepath.Join(dir, "Dockerfile.custom")
+	if err := os.WriteFile(df, []byte(
+		"FROM ubuntu:24.04 AS opencode-sandbox-base\n"+
+			"FROM opencode-sandbox-base AS opencode-sandbox-web\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dfc, []byte(
+		"FROM opencode-sandbox-web AS opencode-sandbox-mycustom\n"+
+			"FROM other:1 AS opencode-sandbox-web\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got := ParentStages(df, dfc)
+	want := map[string]string{
+		"base":     "ubuntu:24.04",
+		"web":      "opencode-sandbox-base", // Dockerfile wins the duplicate
+		"mycustom": "opencode-sandbox-web",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("parents = %v, want %v", got, want)
+	}
+	if got := ParentStages(filepath.Join(dir, "missing"), ""); len(got) != 0 {
+		t.Fatalf("missing Dockerfile = %v, want empty", got)
+	}
+}
+
 func TestWebPort(t *testing.T) {
 	run := &cmdrun.Fake{Script: func(name string, args []string) (string, error) {
 		if name == "podman" && args[0] == "port" && args[1] == "opencode-sandbox-abc" && args[2] == "4096/tcp" {

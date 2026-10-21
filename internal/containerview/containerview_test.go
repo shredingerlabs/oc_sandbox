@@ -1028,6 +1028,26 @@ func TestImagesNoSelectionToasts(t *testing.T) {
 	}
 }
 
+// TestImagesParentAwareUse pins the child-image rule: the base image
+// (parent of every edition per the Dockerfile stages) shows in use as
+// soon as a child image exists, even with no container referencing it.
+func TestImagesParentAwareUse(t *testing.T) {
+	m, fake, _, _ := newFixture(t)
+	imageList(fake,
+		"localhost/opencode-sandbox-base:latest\t300 MB\n"+
+			"localhost/opencode-sandbox-web:latest\t1.23 GB\n", "")
+	runCmds(t, m, m.Update(shell.SubTabMsg{Index: TabImages}))
+	got := body(m)
+	if strings.Count(got, "● in use") != 1 {
+		t.Errorf("base not marked in use alongside its existing child:\n%s", got)
+	}
+	// only the base row carries the parent-aware marker: web has no
+	// container of its own
+	if strings.Count(got, "○ unused") != 1 {
+		t.Errorf("unexpected unused rows:\n%s", got)
+	}
+}
+
 // --- keyboard parity / shared mechanics ---
 
 func TestKeyboardParity(t *testing.T) {

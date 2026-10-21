@@ -16,7 +16,7 @@ import (
 	"github.com/shredingerlabs/oc-sandbox/internal/cmdrun"
 )
 
-var stageRe = regexp.MustCompile(`^\s*FROM\s+\S+\s+AS\s+opencode-sandbox-(\S+)\s*(#.*)?$`)
+var stageRe = regexp.MustCompile(`^\s*FROM\s+(\S+)\s+AS\s+opencode-sandbox-(\S+)\s*(#.*)?$`)
 var editionNameRe = regexp.MustCompile(`^[a-z0-9_-]+$`)
 
 // Editions greps Dockerfile and Dockerfile.custom for stage names
@@ -76,6 +76,39 @@ func SelectableEditions(dockerfile, dockerfileCustom string) ([]string, error) {
 	return selectable, nil
 }
 
+// ParentStages maps each discovered edition stage to its FROM parent
+// image (Dockerfile stages first, custom stages appended, custom
+// duplicates of a Dockerfile stage ignored — same precedence as
+// Editions). dockerfileCustom may be "" / missing; unreadable files
+// contribute nothing.
+func ParentStages(dockerfile, dockerfileCustom string) map[string]string {
+	parents := map[string]string{}
+	add := func(path string) {
+		f, err := os.Open(path)
+		if err != nil {
+			return
+		}
+		defer f.Close()
+		sc := bufio.NewScanner(f)
+		for sc.Scan() {
+			line := sc.Text()
+			if strings.HasPrefix(strings.TrimSpace(line), "#") {
+				continue
+			}
+			if m := stageRe.FindStringSubmatch(line); m != nil {
+				if _, dup := parents[m[2]]; !dup { // first definition wins (Editions precedent)
+					parents[m[2]] = m[1]
+				}
+			}
+		}
+	}
+	add(dockerfile)
+	if dockerfileCustom != "" {
+		add(dockerfileCustom)
+	}
+	return parents
+}
+
 func extractStages(path string) []string {
 	f, err := os.Open(path)
 	if err != nil {
@@ -90,7 +123,7 @@ func extractStages(path string) []string {
 			continue
 		}
 		if m := stageRe.FindStringSubmatch(line); m != nil {
-			names = append(names, m[1])
+			names = append(names, m[2])
 		}
 	}
 	return names

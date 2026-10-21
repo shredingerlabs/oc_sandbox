@@ -402,11 +402,28 @@ func (m *Model) refreshImages() tea.Cmd {
 	return func() tea.Msg { return ImagesMsg(discovery.SandboxImages(run)) }
 }
 
-// refreshImageRefs lists the image references of every container in any
-// state (Delete Images use markers); errors yield an empty list.
+// imageRefs computes the enriched ref list pinning images in use: every
+// container's image reference in any state, plus the parent image of
+// every existing family image (parent-aware, per the Dockerfile stage
+// registry — deleting a parent image would break a child edition's
+// rebuild). Errors yield an empty list.
+func (m *Model) imageRefs() []string {
+	refs := discovery.ContainerImageRefs(m.Run)
+	parents := discovery.ParentStages(m.Dockerfile, m.DockerfileCustom)
+	for _, img := range discovery.SandboxImages(m.Run) {
+		if ed := discovery.EditionFromImage(img.Tag); ed != "" {
+			if parent, ok := parents[ed]; ok {
+				refs = append(refs, parent)
+			}
+		}
+	}
+	return refs
+}
+
+// refreshImageRefs lists the image references that pin images in use,
+// fresh per entry (Delete Images use markers).
 func (m *Model) refreshImageRefs() tea.Cmd {
-	run := m.Run
-	return func() tea.Msg { return ImageRefsMsg(discovery.ContainerImageRefs(run)) }
+	return func() tea.Msg { return ImageRefsMsg(m.imageRefs()) }
 }
 
 func (m *Model) refreshRunning() tea.Cmd {
@@ -963,9 +980,9 @@ func (m *Model) launchDelete() tea.Cmd {
 	})
 }
 
-// inUseAmong returns the checked tags that currently have container
-// references (the popup guard and the op's re-check share one loop —
-// the op re-checks against a fresher ref list).
+// inUseAmong returns the checked tags that are pinned in use: the
+// cached fresh-per-entry ref list of the view (the popup guard) or a
+// fresh one (the op re-check) — see imageRefs.
 func inUseAmong(refs, tags []string) []string {
 	var inUse []string
 	for _, tag := range tags {
@@ -1024,7 +1041,7 @@ func (m *Model) launchImagesDelete() tea.Cmd {
 	return m.launch(fmt.Sprintf("deleting %d image(s)", len(tags)), keyImages, func(emit func(string)) error {
 		// refuse images picked up by containers since the popup armed
 		// (same guard as startImagesDelete)
-		if inUse := inUseAmong(discovery.ContainerImageRefs(run), tags); len(inUse) > 0 {
+		if inUse := inUseAmong(m.imageRefs(), tags); len(inUse) > 0 {
 			return fmt.Errorf("in use, remove its containers first: %s", inUse[0])
 		}
 		for _, tag := range tags {
