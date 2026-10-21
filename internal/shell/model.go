@@ -80,8 +80,21 @@ type Model struct {
 	keys          KeyMap
 	help          help.Model
 	Queue         *taskmgr.Manager
+	initCmds      []tea.Cmd // startup commands wired by the composer
 	exitPending   bool
 	exitStatus    int
+}
+
+// Init implements tea.Model: batches the startup commands the composer
+// wired (e.g. the settings view's silent background update check).
+func (m Model) Init() tea.Cmd { return tea.Batch(m.initCmds...) }
+
+// AddInitCmd wires one startup command (pointer receiver: the composer
+// mutates the model before handing it to the program).
+func (m *Model) AddInitCmd(cmd tea.Cmd) {
+	if cmd != nil {
+		m.initCmds = append(m.initCmds, cmd)
+	}
 }
 
 // ExitStatus reports how the shell quit: 0 clean (q/esc/menu Exit) or
@@ -125,9 +138,6 @@ func (m Model) workBusy() bool {
 	return false
 }
 
-// Init implements tea.Model.
-func (m Model) Init() tea.Cmd { return nil }
-
 // Active returns the index of the active center view.
 func (m Model) Active() int { return m.active }
 
@@ -157,6 +167,14 @@ type BusyView interface {
 // popup consumes them instead of quitting or switching.
 type ConfirmView interface {
 	ConfirmOpen() bool
+}
+
+// UpdateBadgeView is a center view that may report a footer badge
+// (update available): badge text plus the sub-tab index a badge click
+// jumps to. The shell polls it in every Footer render and on footer
+// clicks; empty text = no badge.
+type UpdateBadgeView interface {
+	UpdateBadge() (text string, tabIndex int)
 }
 
 // confirmOpen polls the active view's confirmation-popup state.
@@ -280,6 +298,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 				}
 			}
+			if m.height > 0 && msg.Y == m.height-1 { // footer badge → the owning view's update tab
+				if text, tab, vi := m.updateBadge(); text != "" {
+					if r := BadgeRect(text); msg.X >= r.X && msg.X < r.X+r.W {
+						act := m.setActive(vi)
+						return m, tea.Batch(act, m.views[vi].Update(SubTabMsg{Index: tab}))
+					}
+				}
+			}
 		}
 		return m, m.views[m.active].Update(msg)
 	case NavRequestMsg:
@@ -288,6 +314,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	default:
 		return m, m.views[m.active].Update(msg)
 	}
+}
+
+// updateBadge polls the views for an active footer badge: text, the
+// sub-tab index a badge click jumps to, and the owning view index.
+func (m Model) updateBadge() (string, int, int) {
+	for i, v := range m.views {
+		if b, ok := v.(UpdateBadgeView); ok {
+			if text, tab := b.UpdateBadge(); text != "" {
+				return text, tab, i
+			}
+		}
+	}
+	return "", 0, 0
 }
 
 // broadcastTaskMsg hands a task-manager message to the wired queue
@@ -334,11 +373,14 @@ func (m Model) View() string {
 // Footer renders the help row, or — while a guarded exit waits for
 // confirmation (#82) — the "ops running" strip in its place. One line
 // either way: an extra row would grow the frame past the terminal and
-// scroll the header menu off-screen.
+// scroll the header menu off-screen. An update-available badge (if any
+// view reports one) sits right after the keyboard hint.
 func (m Model) Footer() string {
 	if m.exitPending {
 		return lipgloss.NewStyle().MaxWidth(m.width).Render(StyleWarn.Render(
 			"● background work running — press q again to quit, any other key cancels"))
 	}
-	return FooterRow(m.width, m.help, m.keys)
+	badge, _, _ := m.updateBadge()
+	s, _, _ := FooterRow(m.width, m.help, m.keys, badge)
+	return s
 }

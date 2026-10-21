@@ -23,10 +23,10 @@ import (
 )
 
 // Sub-menu tab items; "Edit Project settings" first (feedback: it is the
-// starting tab), the core panes follow in their order. "Edit Project
-// settings" delegates its pane surface to the projectsettings view
-// (ticket #108).
-var tabs = []string{"Edit Project settings", "Import project", "Export Config", "Restore Config", "Uninstall"}
+// starting tab), the core panes follow in their order, "Update" sits
+// directly left of "Uninstall". "Edit Project settings" delegates its
+// pane surface to the projectsettings view (ticket #108).
+var tabs = []string{"Edit Project settings", "Import project", "Export Config", "Restore Config", "Update", "Uninstall"}
 
 // Pane indexes into tabs: which pane each sub-menu position routes to.
 const (
@@ -34,7 +34,8 @@ const (
 	subImport    = 1
 	subExport    = 2
 	subRestore   = 3
-	subUninstall = 4
+	subUpdate    = 4
+	subUninstall = 5
 )
 
 // View is the Settings center view. Home is $HOME; the config layout,
@@ -95,6 +96,17 @@ type View struct {
 	unConfirm string
 	unCur     int
 
+	// Update pane. The check result arrives via HookMsg (any active
+	// view); the installed version is re-read on tab entry and after a
+	// successful update.
+	Version   string                 // compiled-in version of this binary; "" → "unknown"
+	installed string                 // cached installedVersion()
+	upSeen    bool                   // lazy first entry (uninstallPane parity)
+	upChecked bool                   // the startup check has returned
+	upLatest  string                 // latest tag; "" also covers check failure
+	upDone    bool                   // updated this session — restart note up
+	check     func() (string, error) // startup check seam; default defaultCheck
+
 	scroll       int
 	follow       shell.Follow // the focused row pulls the scroll; wheel turns it off
 	focusChanged bool
@@ -116,6 +128,7 @@ func New(home string) *View {
 		run:          cmdrun.ExecRunner{},
 		now:          time.Now,
 		unOptSyml:    true,
+		check:        defaultCheck,
 		queuePending: map[int]func(err error) tea.Cmd{},
 		follow:       shell.NewFollow(true, false),
 	}
@@ -267,6 +280,9 @@ func (v *View) enterPane() {
 	case subUninstall:
 		v.unSeen = true
 		v.unRunning = discovery.RunningContainers(v.run)
+	case subUpdate:
+		v.upSeen = true
+		v.installed = v.installedVersion() // fresh read: catches CLI updates and the just-run install script
 	case subEdit:
 		v.ps.Reload() // fresh registry: cards reflect the current fixtures
 	}
@@ -285,6 +301,8 @@ func (v *View) Body(width, height int) string {
 		rows, hits, focusRow = v.exportPane()
 	case subRestore:
 		rows, hits, focusRow = v.restorePane()
+	case subUpdate:
+		rows, hits, focusRow = v.updatePane()
 	case subUninstall:
 		rows, hits, focusRow = v.uninstallPane(width)
 	default:
@@ -381,6 +399,8 @@ func (v *View) focusCount() int {
 		return 3 // dest field, save, cancel
 	case subRestore:
 		return len(v.resBackups) + 1 // backup rows, restore button
+	case subUpdate:
+		return 1 // the Update button is the pane's only focusable row
 	default:
 		return 5 // 3 option rows, confirm field, button
 	}
@@ -402,6 +422,8 @@ func (v *View) applyMoveFocus(d int) {
 		}
 	case subRestore:
 		v.resFocus = (v.resFocus + d + v.focusCount()) % v.focusCount()
+	case subUpdate:
+		// sole focusable: the Update button stays focused
 	default:
 		v.unFocus = (v.unFocus + d + v.focusCount()) % v.focusCount()
 	}
@@ -472,6 +494,8 @@ func (v *View) activate() tea.Cmd {
 		return v.exportActivate()
 	case subRestore:
 		return v.restoreActivate()
+	case subUpdate:
+		return v.updateActivate()
 	case subUninstall:
 		return v.uninstallActivate()
 	}

@@ -66,7 +66,8 @@ func runTUI() {
 		fmt.Fprintf(os.Stderr, "oc-sandbox: resolve home: %v\n", err)
 		os.Exit(1)
 	}
-	a := app.Compose(home, cmdrun.ExecRunner{}, nil)
+	a := app.Compose(home, Version, cmdrun.ExecRunner{}, nil)
+	a.Model.AddInitCmd(a.StartupCheck) // silent background update check
 	p := tea.NewProgram(a.Model, tea.WithAltScreen(), tea.WithMouseCellMotion())
 	final, err := p.Run()
 	code := app.ExitCode(final.(shell.Model), err)

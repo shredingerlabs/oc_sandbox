@@ -49,3 +49,16 @@ The context is thicker than the one-line rule — three lines (what the
 removal touches, what stays, the running-container warning) were judged
 worth the read, following the Uninstall echo precedent. The card's
 `remove` button stays above the gate: it opens the pane only.
+
+## Update — Update menu (added later)
+
+The sixth application: **Settings → Update** (glossary "update menu")
+gates the install-script run with a plain (non-danger) popup — the update
+mutates the installation but removes nothing, so the red styling is
+reserved and default focus starts on `Cancel` per the shared mechanics.
+The context echoes the preservation facts (the one-line title names the
+script run; the kept-files line is shared with the update pane so the
+pane and popup never drift apart). Idle-only applies as ever: the popup
+fires only when no op is queued/running, and the update op itself runs
+through the shared task manager behind the remove/install serialization
+key.

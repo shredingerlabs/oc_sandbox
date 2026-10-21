@@ -888,6 +888,50 @@ test_existing_install_tty_decline_aborts() {
   cleanup_test_env "$test_dir"
 }
 
+test_yes_flag_sets_force() {
+  # --yes (TUI-Update-Aufruf): nicht-interaktives Überschreiben, Alias von --force
+  local got rc=0
+  got=$( (source "$INSTALL_SCRIPT" --help >/dev/null 2>&1
+          VERBOSE=false
+          parse_arguments --yes
+          echo "FORCE=$FORCE") </dev/null 2>&1 ) || rc=$?
+
+  assert_equals "0" "$rc" "--yes wird als Flag akzeptiert" || return 1
+  assert_equals "FORCE=true" "$got" "--yes setzt FORCE" || return 1
+}
+
+test_main_writes_version_marker() {
+  # Install/Update schreibt $INSTALL_PATH/VERSION — die Versionsquelle
+  # des TUI-Update-Menüs (PRESERVE_ALLOWLIST bleibt beim --yes-Pfad Default: true)
+  local test_dir
+  test_dir=$(setup_test_env "version-marker")
+  local home="$test_dir/home"
+
+  local rc=0
+  (source "$INSTALL_SCRIPT" --help >/dev/null 2>&1
+   HOME="$home"
+   INSTALL_PATH="$home/.oc-sandbox"
+   VERBOSE=false
+   PRESERVE_ALLOWLIST=false   # --yes überschreibt das NICHT zurück: Stub testet nur den Marker
+   VERSION="v0.0.34"
+   check_dependencies() { return 0; }
+   check_disk_space() { return 0; }
+   prepare_installation() { TEMP_DIR=$(mktemp -d); DOWNLOADED_VERSION="$VERSION"; }
+   install_files() { mkdir -p "$INSTALL_PATH"; }
+   extract_go_binary() { return 0; }
+   set_executable_permissions() { return 0; }
+   validate_installation() { return 0; }
+   create_symlinks() { return 0; }
+   create_shortcut() { return 0; }
+   main --yes >/dev/null 2>&1) || rc=$?
+
+  assert_equals "0" "$rc" "Installation mit --yes läuft durch" || { cleanup_test_env "$test_dir"; return 1; }
+  assert_file_exists "$home/.oc-sandbox/VERSION" "VERSION-Marker fehlt" || { cleanup_test_env "$test_dir"; return 1; }
+  assert_equals "v0.0.34" "$(cat "$home/.oc-sandbox/VERSION")" "VERSION-Marker-Inhalt" || { cleanup_test_env "$test_dir"; return 1; }
+
+  cleanup_test_env "$test_dir"
+}
+
 test_wsl_shortcut_uses_powershell_shim() {
   local test_dir
   test_dir=$(setup_test_env "shortcut-wsl")
@@ -1372,6 +1416,10 @@ main() {
   run_test "WSL: fehlende Interop warnt nur" test_wsl_missing_mnt_c_leaves_install_exit_0
   run_test "macOS: .app-Bundle erstellt (Shim)" test_macos_shortcut_shim
   run_test "macOS: fehlendes osascript warnt nur" test_macos_shortcut_without_osascript_warns
+
+  # Update-Menü-Unterstützung (TUI): --yes + VERSION-Marker
+  run_test "--yes setzt FORCE (nicht-interaktives Update)" test_yes_flag_sets_force
+  run_test "Install schreibt VERSION-Marker" test_main_writes_version_marker
 
   # Custom-Edition-Dockerfile-Erhalt
   echo ""

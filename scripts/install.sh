@@ -1003,6 +1003,8 @@ Optionen:
   --install_path <pfad>  Installationspfad (default: $DEFAULT_INSTALL_PATH)
   --version <tag>        Spezifische Version installieren (default: latest)
   --force                Vorhandene Installation ohne Nachfrage überschreiben
+  --yes                  Nicht-interaktives Update: Prompts werden bestätigt
+                         (z.B. vom Update-Menü der TUI; Alias von --force)
   --no_symlinks          Symlink-Erstellung in \$HOME/.local/bin abwählen
                          (Default: Symlink <oc-sandbox> wird erstellt)
   --no_shortcut          Desktop-Shortcut-Erstellung abwählen (Default: erstellt;
@@ -1061,6 +1063,12 @@ parse_arguments() {
         shift 2
         ;;
       --force)
+        FORCE=true
+        shift
+        ;;
+      --yes)
+        # Nicht-interaktives Update (TUI-Aufruf): Prompts vorbestätigt,
+        # allowlist-Preservation bleibt Default (PRESERVE_ALLOWLIST=true).
         FORCE=true
         shift
         ;;
@@ -1145,6 +1153,10 @@ main() {
   
   # Validiere Installation
   validate_installation "$INSTALL_PATH"
+  
+  # Versionsmarker (das Update-Menü der TUI liest ihn): installierte
+  # Version nach jedem Install/Update neu schreiben
+  printf '%s\n' "$DOWNLOADED_VERSION" > "$INSTALL_PATH/VERSION"
   
   # Erstelle Convenience-Artifacts wenn nicht per Flag abgewählt
   if $SYMLINKS; then

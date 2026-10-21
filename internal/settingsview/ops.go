@@ -19,6 +19,9 @@ type Ops interface {
 	// RunUninstall invokes the uninstall script with flags (always
 	// including --force, mapped in uninstall.go).
 	RunUninstall(script string, args []string) error
+	// RunUpdate invokes the install script non-interactively (--yes,
+	// mapped in update.go) for the latest release.
+	RunUpdate(script string, args []string) error
 	// ExportSnapshot writes the byte-exact content of the active config
 	// file src to dest through the backup machinery: AtomicWrite backs
 	// up an existing destination file before overwriting it.
@@ -44,6 +47,13 @@ var (
 // RunUninstall implements Ops: bash <script> <args…> through the view's
 // runner (the same seam all podman/scripts calls go through).
 func (ops DefaultOps) RunUninstall(script string, args []string) error {
+	_, err := ops.view.run.Output("bash", append([]string{script}, args...)...)
+	return err
+}
+
+// RunUpdate implements Ops: bash <script> <args…> through the view's
+// runner (the same seam all podman/scripts calls go through).
+func (ops DefaultOps) RunUpdate(script string, args []string) error {
 	_, err := ops.view.run.Output("bash", append([]string{script}, args...)...)
 	return err
 }

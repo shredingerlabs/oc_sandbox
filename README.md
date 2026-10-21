@@ -156,6 +156,9 @@ Das Skript:
 - `--install_path <pfad>` – Installationspfad (default: `~/.oc-sandbox`)
 - `--version <tag>` – Spezifische Version installieren (default: latest)
 - `--force` – Vorhandene Installation ohne Nachfrage überschreiben
+- `--yes` – Nicht-interaktives Update (Alias von `--force`, vom
+  Update-Menü der TUI genutzt); schreibt den `VERSION`-Versionsmarker
+  im Installationsverzeichnis
 - `--no_symlinks` – Default-Symlink (`oc-sandbox` → Go-TUI-Binary in
   `~/.local/bin`) nicht erstellen
 - `--no_shortcut` – Default-Desktop-Shortcut nicht erstellen
@@ -203,7 +206,7 @@ gebaut und als Binary installiert wird (siehe
 | **New Project**             | Projekt-Root neu anlegen (Wizard)                                    |
 | **Build Images**            | Container-Images bauen (Editionen wie `build-container.sh`); jede Editionenzeile zeigt mit `● built` / `○ missing`, ob das Image schon existiert |
 | **Delete Images**           | Sandbox-Images löschen (`opencode-sandbox-*` und `oc-proxy`) mit `● in use` / `○ unused`-Markierung und Größe; belegte Images werden abgewiesen |
-| **Settings**                | Change Project Settings, Edit Project settings (VCS/AI Provider), Projekt-Import, Config-Backup/-Restore, Stop Container, Uninstall |
+| **Settings**                | Change Project Settings, Edit Project settings (VCS/AI Provider), Projekt-Import, Config-Backup/-Restore, Stop Container, Update, Uninstall |
 | **Exit**                    | TUI beenden                                                          |
 
 ### Typischer Ablauf
@@ -283,6 +286,21 @@ bleiben unberührt — ein laufender Container läuft einfach weiter (untracked)
 Der Kartenknopf öffnet nur den beschreibenden Bereich; entfernt wird erst
 über **Remove project from list** hinter dem Bestätigungs-Popup (siehe
 unten).
+
+### Update: „Settings → Update“ (TUI)
+
+Das Settings-Menü der TUI hat einen **Update**-Reiter (direkt links neben
+**Uninstall**): Er zeigt installierte Version (aus der `VERSION`-Markerdatei
+des Installationsverzeichnisses, Fallback: die in der Binary eingebaute
+Version) und die neueste GitHub-Release-Version. Bei jedem TUI-Start prüft
+die TUI im Hintergrund (ein authentifizierungsloser API-Aufruf,
+fehlschlagend still) ob ein Update vorliegt; dann zeigt die Fußzeile ein
+`update available: <tag>`-Badge, dessen Klick in den Update-Reiter springt.
+Der **Update**-Knopf (hinter dem Bestätigungs-Popup) führt das
+Installationsskript nicht-interaktiv aus (`install.sh --yes`) —
+`proxy/allowlist.txt`, `dist/Dockerfile.custom` und Benutzerkonfigurationen
+bleiben erhalten; danach bittet die TUI um einen Neustart von `oc-sandbox`,
+um die neue Binary zu laden.
 
 ### Bestätigungs-Popup (Confirmation Popup)
 

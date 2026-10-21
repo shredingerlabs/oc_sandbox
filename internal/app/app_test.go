@@ -33,7 +33,7 @@ func TestLayoutForMirrorsInstallLayout(t *testing.T) {
 }
 
 func TestComposeWiresSharedTaskQueue(t *testing.T) {
-	a := app.Compose(t.TempDir(), &cmdrun.Fake{}, time.Now)
+	a := app.Compose(t.TempDir(), "dev", &cmdrun.Fake{}, time.Now)
 	if a.Model.Queue == nil {
 		t.Fatal("composed shell has no background-task manager wired")
 	}

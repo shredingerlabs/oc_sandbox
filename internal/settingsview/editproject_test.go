@@ -48,8 +48,8 @@ func TestEditProjectTabListedFirst(t *testing.T) {
 	home := homeFixture(t)
 	v := newSettings(t, home, nil)
 	items, _ := v.SubTabs()
-	if len(items) != 5 {
-		t.Fatalf("tabs = %v, want 5 entries", items)
+	if len(items) != 6 {
+		t.Fatalf("tabs = %v, want 6 entries", items)
 	}
 	if got := items[0]; got != "Edit Project settings" {
 		t.Fatalf("tab 1 = %q, want Edit Project settings", got)

@@ -184,7 +184,7 @@ func (rec *recorder) contents() []byte {
 // headlessly at 120x40.
 func newTUI(t *testing.T, home string, run cmdrun.Runner) (*teatest.TestModel, *recorder) {
 	t.Helper()
-	a := app.Compose(home, run, time.Now)
+	a := app.Compose(home, "dev", run, time.Now)
 	tm := teatest.NewTestModel(t, a.Model, teatest.WithInitialTermSize(120, 41))
 	rec := &recorder{}
 	rec.pipeFrom(tm.Output())

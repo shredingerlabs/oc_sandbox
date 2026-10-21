@@ -64,9 +64,15 @@
 
 **latest release** — The most recent tagged release on GitHub, used as the default version for installation.
 
-**update mode** — Installation behavior when the installation folder already exists; prompts user to either override existing files or skip.
+**update mode** — Installation behavior when the installation folder already exists; interactively prompts [y/N] to confirm the update, or runs non-interactively when the caller pre-confirms (TUI-invoked updates).
 
 **version flag** — Optional `--version` parameter to install a specific release tag instead of latest.
+
+**VERSION file** — Install-folder marker holding the installed release tag, rewritten by the install script on every install and update; the version shown in the update menu comes from it, falling back to the binary's compiled version when absent. _Avoid_: version number, release tag (the tag value itself).
+
+**update check** — TUI-side background query of the latest GitHub release, run at every startup and compared against the installed version; failure (offline, rate limit) is silent and leaves no badge, and the result is never persisted between runs. _Avoid_: auto-update (nothing is installed automatically), update detection.
+
+**update menu** — Settings sub-tab directly left of Uninstall, showing installed and available oc-sandbox versions with the Update action behind the confirmation popup (ADR-0021); while an update is available, a footer badge appears that jumps here on click, and after an update the menu notes that restarting oc-sandbox applies it. _Avoid_: update tab, upgrade menu.
 
 **github API fallback** — Uses GitHub releases API to detect latest release; falls back to HTML scraping if API fails.
 
@@ -132,7 +138,7 @@
 
 **user agent** — Sets a simple user agent identifying the opencode-sandbox install script for GitHub API requests.
 
-**version comparison** — Always prompts user for update regardless of version comparison; no automatic update detection.
+**version comparison** — The update check's comparison of the installed release tag against the latest GitHub release; non-comparable or unknown tags count as outdated (update offered). The interactive install script itself still prompts regardless of versions.
 
 **special file handling** — Only `proxy/allowlist.txt` gets special treatment during updates; all other files are overwritten.
 
@@ -218,7 +224,7 @@
 
 **background task** — Long-running operation (build/start/stop/export) running in a Go goroutine with progress/status surfaced via footer/health indicators, allowing free navigation while it runs. Completes asynchronously with an inline notification at completion point; queued one-at-a-time per project.
 
-**confirmation popup** — Shared centered modal (shell package) shown over the dimmed card to confirm a triggered action before it runs. Keyboard: ←/→/Tab switch buttons, Enter activates the focused button, esc/q cancels anytime. Pointer: click outside cancels; default focus is Cancel. One-line title + one context line per action; fires only when no op is queued/running. Applied to Create Project (content summary with Confirm/Back), Restore Config, Build (Container view button/card double-click), Uninstall (after the typed confirm, on button click, red Confirm), and Remove project from list (Edit Project settings removal pane, red Confirm). Quit keeps the existing guarded-exit footer prompt; start-time Build-now prompt (Build now / Build later / Go back) stays separate. _Avoid_: yes/no dialog (.Create Project uses Confirm/Back), exit prompt (reserved for guarded exit).
+**confirmation popup** — Shared centered modal (shell package) shown over the dimmed card to confirm a triggered action before it runs. Keyboard: ←/→/Tab switch buttons, Enter activates the focused button, esc/q cancels anytime. Pointer: click outside cancels; default focus is Cancel. One-line title + one context line per action; fires only when no op is queued/running. Applied to Create Project (content summary with Confirm/Back), Restore Config, Build (Container view button/card double-click), Uninstall (after the typed confirm, on button click, red Confirm), Update (update menu, plain Confirm, glossary "update menu"), and Remove project from list (Edit Project settings removal pane, red Confirm). Quit keeps the existing guarded-exit footer prompt; start-time Build-now prompt (Build now / Build later / Go back) stays separate. _Avoid_: yes/no dialog (.Create Project uses Confirm/Back), exit prompt (reserved for guarded exit).
 
 **start variant** — The access a single open-project start resolves to: one of console, OpenCode TUI, or Web. The configured start option preselects the variant (configure it in the Settings pane); an explicit card start button or a keyboard preselection can pick a differing variant for just that start (e.g. Web on a console-configured project launches the container with --start_web) without touching the saved settings. Double-click always starts with the configured start option; Enter starts with the visually preselected one. Web picked while a container runs without a published 4096 port adopts web: the running container is replaced with a verified --start_web relaunch (verified stop → start, one attempt per access chain) — a console container can never switch to web live. _Avoid_: access mode, session kind, per-start override.
 

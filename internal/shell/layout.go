@@ -92,15 +92,40 @@ func SubTabsRow(items []string, selected int) (string, []Rect) {
 	return b.String(), rects
 }
 
-// FooterRow renders the keyboard hint on the left and the bubbles help
-// for the shell KeyMap on the right, one full-width line.
-func FooterRow(width int, h help.Model, k KeyMap) string {
-	hint := StyleFooter.Render("1 open · 2 new project · 3 container · 4 settings")
+// footerHintText is the fixed keyboard hint on the footer's left edge.
+const footerHintText = "1 open · 2 new project · 3 container · 4 settings"
+
+// footerBadgeGap is the space between the hint and the update badge.
+const footerBadgeGap = 3
+
+// BadgeRect returns the update badge's footer hit rect: footer-row-local
+// (Y=0; the caller offsets to the last screen row), x span over the
+// styled badge text.
+func BadgeRect(badge string) Rect {
+	hint := StyleFooter.Render(footerHintText)
+	return Rect{X: Width(hint) + footerBadgeGap, Y: 0, W: Width(StyleCurrentVal.Render(badge))}
+}
+
+// FooterRow renders the keyboard hint on the left, the update badge (when
+// one is up, clickable) next to it and the bubbles help for the shell
+// KeyMap on the right, one full-width line. Returns the badge's rect and
+// ok=false when no badge was passed.
+func FooterRow(width int, h help.Model, k KeyMap, badge string) (string, Rect, bool) {
+	hint := StyleFooter.Render(footerHintText)
 	helpView := h.View(k)
-	lead := width - Width(hint) - Width(helpView)
+	base := Width(hint)
 	footer := hint
-	if lead >= 1 {
-		footer = hint + strings.Repeat(" ", lead) + helpView
+	if badge != "" {
+		b := StyleCurrentVal.Render(badge)
+		base += footerBadgeGap + Width(b)
+		footer += strings.Repeat(" ", footerBadgeGap) + b
 	}
-	return lipgloss.NewStyle().MaxWidth(width).Render(footer)
+	lead := width - base - Width(helpView)
+	if lead >= 1 {
+		footer = footer + strings.Repeat(" ", lead) + helpView
+	}
+	if badge != "" {
+		return lipgloss.NewStyle().MaxWidth(width).Render(footer), BadgeRect(badge), true
+	}
+	return lipgloss.NewStyle().MaxWidth(width).Render(footer), Rect{}, false
 }

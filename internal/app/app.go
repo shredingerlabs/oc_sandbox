@@ -11,8 +11,10 @@ import (
 	"path/filepath"
 	"time"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/shredingerlabs/oc-sandbox/internal/cmdrun"
 	"github.com/shredingerlabs/oc-sandbox/internal/config"
+
 	"github.com/shredingerlabs/oc-sandbox/internal/containerview"
 	"github.com/shredingerlabs/oc-sandbox/internal/newproject"
 	"github.com/shredingerlabs/oc-sandbox/internal/openproject"
@@ -55,14 +57,21 @@ func LayoutFor(home string) Layout {
 // App is the composed production TUI: the root shell model.
 type App struct {
 	Model shell.Model
+	// StartupCheck is the settings view's background update check. The
+	// entry point wires it onto the shell's Init; tests that drive the
+	// model directly (no Init) never run it, so composee2e stays
+	// network-free.
+	StartupCheck tea.Cmd
 }
 
 // Compose builds the real app for one home: shell.NewWithQueue over
 // Open Project / New Project / Container / Settings plus the appended
 // setup-flow view (reachable only via CreatedMsg / RecoverMsg handoff),
 // all sharing one taskmgr.Manager (ops run in the background; legacy
-// sync paths stay dormant).
-func Compose(home string, run cmdrun.Runner, now func() time.Time) App {
+// sync paths stay dormant). Version is the compiled-in oc-sandbox
+// version the update menu and badge compare against; the settings view's
+// startup update check rides on the shell's Init.
+func Compose(home string, version string, run cmdrun.Runner, now func() time.Time) App {
 	if now == nil {
 		now = time.Now
 	}
@@ -99,6 +108,7 @@ func Compose(home string, run cmdrun.Runner, now func() time.Time) App {
 	cv.Queue = mgr
 
 	settings := settingsview.New(home)
+	settings.Version = version
 	settings.Tasks = mgr
 	settings.WireProjectSettingsDeps(projectsettings.Deps{
 		Runner:          run,
@@ -112,8 +122,11 @@ func Compose(home string, run cmdrun.Runner, now func() time.Time) App {
 		StagerFor: setupflow.NewStagerFor(run, home, reg, layout.StartScript, layout.ConfigureScript),
 	})
 
+	m := shell.NewWithQueue(mgr, open, np, cv, settings, flow)
+
 	return App{
-		Model: shell.NewWithQueue(mgr, open, np, cv, settings, flow),
+		Model:        m,
+		StartupCheck: settings.StartupCheck(),
 	}
 }
 
