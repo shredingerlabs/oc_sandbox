@@ -51,12 +51,25 @@ if ! bash "$PROJECT_ROOT/dist/scripts/start.sh" "$test_home" --edition swdev --s
 fi
 
 grep -q -- '-p 127.0.0.1:4097:4096' "$PODMAN_LOG"
-grep -q -- 'opencode service set port 4096' "$PODMAN_LOG"
 grep -q -- 'opencode service start' "$PODMAN_LOG"
 grep -q -- 'exec sleep infinity' "$PODMAN_LOG"
+! grep -q -- 'opencode service set' "$PODMAN_LOG"
 ! grep -q -- 'opencode web' "$PODMAN_LOG"
 grep -q -- '-e START_WEB=false' "$PODMAN_LOG"
 grep -q 'OpenCode Web: http://127.0.0.1:4097' "$web_output"
+# Boot-unabhaengiges Pinnen: hostname/port stehen in der gemounteten service.json
+sq="$test_home/.opencode_config/service.json"
+jq -e '.hostname == "0.0.0.0" and .port == 4096' "$sq" >/dev/null || { printf 'web start did not pin service.json\n' >&2; exit 1; }
+
+# Existierende service.json (z.B. Passwort vom ersten Boot) bleibt erhalten,
+# nur hostname/port werden ergaenzt.
+printf '%s' '{"password":"keepme"}' > "$sq"
+: > "$PODMAN_LOG"
+if ! bash "$PROJECT_ROOT/dist/scripts/start.sh" "$test_home" --edition swdev --start_web --detach > "$web_output"; then
+  printf 'start script failed with mocked podman (--start_web, pins merged)\n' >&2
+  exit 1
+fi
+jq -e '.hostname == "0.0.0.0" and .port == 4096 and .password == "keepme"' "$sq" >/dev/null || { printf 'service.json merge lost fields\n' >&2; exit 1; }
 
 : > "$PODMAN_LOG"
 if ! bash "$PROJECT_ROOT/dist/scripts/start.sh" "$test_home" --edition swdev --start_web > "$web_output"; then

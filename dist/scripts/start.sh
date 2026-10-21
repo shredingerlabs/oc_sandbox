@@ -430,6 +430,23 @@ if $HIL_MODE; then
 fi
 
 # --- Container starten ---------------------------------------------------------
+# v2-Web: Hostname/Port werden bootunabhaengig in die gemountete
+# service-config vorgesehen (ADR 0024), damit der Container start nur noch
+# `service start` braucht. Die alten Aufrufe `service set hostname/port`
+# stoppen jeweils einen laufenden Service (ServiceConfig.set -> Service.stop)
+# und koennen die Bootkette abbrechen ("Server process ... is still running"),
+# sobald ein Container mit lebendem Service neu startet.
+if $START_WEB && $DETACH; then
+  SERVICE_FILE="${CONFIG_DIR}/service.json"
+  if [[ ! -f "$SERVICE_FILE" ]]; then
+    printf '{"hostname": "0.0.0.0", "port": 4096}\n' > "$SERVICE_FILE"
+  elif ! jq -e '.hostname == "0.0.0.0" and .port == 4096' "$SERVICE_FILE" >/dev/null 2>&1; then
+    tmp_service_json="$(mktemp)"
+    jq '."hostname" = "0.0.0.0" | ."port" = 4096' "$SERVICE_FILE" > "$tmp_service_json" \
+      && mv "$tmp_service_json" "$SERVICE_FILE"
+  fi
+fi
+
 CONTAINER_NAME="opencode-sandbox-${CONTAINER_ID:-$(basename "$PROJECT_ROOT")}"
 IMAGE="opencode-sandbox-${EDITION}"
 RUN_MODE=(-it)
@@ -439,7 +456,9 @@ if $DETACH; then
   if $START_WEB; then
     # v2: shared background service pinned to container port 4096, then
     # keep-alive (ADR 0024). Published host port comes from the 4096 scan.
-    CONTAINER_COMMAND=(-c 'opencode service set hostname 0.0.0.0 && opencode service set port 4096 && opencode service start && exec sleep infinity')
+    # Hostname/Port stehen schon in service.json (siehe oben) - der Start
+    # selbst ist ein einziger idempotenter Ensure.
+    CONTAINER_COMMAND=(-c 'opencode service start && exec sleep infinity')
   else
     CONTAINER_COMMAND=(-c 'sleep infinity')
   fi

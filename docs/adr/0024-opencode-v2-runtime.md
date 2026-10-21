@@ -16,11 +16,16 @@ the sandbox to v2 in one flip:
   clients share one server against the mounted session DB. The service
   auto-starts on first `opencode` use; the image must never ship
   `opencode service set disabled true`.
-- **Web start option**: the service is pinned to container port 4096 at
-  container start (`opencode service set hostname 0.0.0.0` — v2
-  listens on localhost by default, which a published port can never
-  reach — then `service set port 4096`, `service start`, and a
-  keep-alive as PID 1). The host side keeps the dynamic 4096–4196 port
+- **Web start option**: the service is pinned to container port 4096 —
+  v2 listens on localhost by default, which a published port can never
+  reach — via the mounted service config: start.sh pre-seeds
+  `.opencode_config/service.json` (hostname `0.0.0.0`, port 4096) before
+  the first start, so the container boot is a single `service start` (an
+  idempotent ensure against the shared service) plus a keep-alive as PID
+  1. Re-running `service set hostname/port` inside the container on
+  every boot was dropped: each `service set` stops a running service
+  and can abort the boot chain ("Server process ... is still running").
+  The host side keeps the dynamic 4096–4196 port
   scan. Access runs `opencode pair --url http://<published-host>` and
   announces the printed one-time sign-in link; pair output is
   ephemeral, so every web access pairs afresh. The direct-CLI
