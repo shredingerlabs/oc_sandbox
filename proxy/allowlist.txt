@@ -1,0 +1,53 @@
+# Eine Domain pro Zeile. Subdomains ggf. mit führendem "." erlauben.
+# WICHTIG: eigene GitLab-Domain unten anpassen!
+
+github.com
+.github.com
+codeload.github.com
+raw.githubusercontent.com
+objects.githubusercontent.com
+api.github.com
+
+# --- GitLab.com: ---
+gitlab.com
+
+# --- Eigener GitLab-Server: ---
+gitlab.reutlingen-university.de
+.reutlingen-university.de
+reutlingen-university.de
+
+# --- GWDG SAIA ENDPOINT: ---
+chat-ai.academiccloud.de
+
+# Node/npm
+registry.npmjs.org
+npmjs.org
+.npmjs.com
+
+# Python
+pypi.org
+files.pythonhosted.org
+pythonhosted.org
+
+# Go
+proxy.golang.org
+sum.golang.org
+.storage.googleapis.com
+
+# System-Pakete (falls im Container apt-Updates nötig sind)
+archive.ubuntu.com
+security.ubuntu.com
+
+# OpenCode API
+opencode.ai
+.opencode.ai
+api.opencode.ai
+
+# OpenCode Modell-Katalog
+models.dev
+
+# Websuche (OpenCode websearch, Exa-/Parallel-Endpoint) + Context7 MCP (Dokumentationssuche)
+mcp.exa.ai
+search.parallel.ai
+mcp.context7.com
+
