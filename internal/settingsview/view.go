@@ -22,11 +22,11 @@ import (
 	"github.com/shredingerlabs/oc-sandbox/internal/taskmgr"
 )
 
-// Sub-menu tab items; "Edit Project settings" first (feedback: it is the
+// Sub-menu tab items; "Project settings" first (feedback: it is the
 // starting tab), the core panes follow in their order, "Update" sits
-// directly left of "Uninstall". "Edit Project settings" delegates its
+// directly left of "Uninstall". "Project settings" delegates its
 // pane surface to the projectsettings view (ticket #108).
-var tabs = []string{"Edit Project settings", "Import project", "Export Config", "Restore Config", "Update", "Uninstall"}
+var tabs = []string{"Project settings", "Import project", "Export Config", "Restore Config", "Update", "Uninstall"}
 
 // Pane indexes into tabs: which pane each sub-menu position routes to.
 const (
@@ -58,7 +58,7 @@ type View struct {
 	sub   int // pane index (subImport..subUninstall, subEdit delegated)
 	toast string
 
-	ps *projectsettings.View // Edit Project settings screen (#108)
+	ps *projectsettings.View // Project settings screen (#108)
 
 	// Import pane: 0 picker, 1 summary, 2 informational prompt.
 	impStage     int
@@ -142,7 +142,7 @@ func New(home string) *View {
 	return v
 }
 
-// psLauncher routes the Edit Project settings view's ops through the
+// psLauncher routes the Project settings view's ops through the
 // shared task manager when wired, else runs them as one batch cmd.
 type psLauncher struct{ v *View }
 
@@ -157,7 +157,7 @@ func (l psLauncher) Launch(op taskmgr.Op) tea.Cmd {
 	}
 }
 
-// WireProjectSettingsDeps wires the Edit Project settings view's write
+// WireProjectSettingsDeps wires the Project settings view's write
 // path (app composition): runner, configure-project.sh and the shared
 // task manager as the Ops launcher.
 func (v *View) WireProjectSettingsDeps(d projectsettings.Deps) { v.ps.Deps = d }
@@ -185,7 +185,7 @@ func (v *View) Rects() []shell.Rect {
 }
 
 // ConfirmOpen implements shell.ConfirmView (ADR-0021): the popup is up —
-// the pane's own or the delegated Edit Project settings view's.
+// the pane's own or the delegated Project settings view's.
 func (v *View) ConfirmOpen() bool {
 	return v.confirm.IsOpen() || (v.sub == subEdit && v.ps.ConfirmOpen())
 }
@@ -218,7 +218,7 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 		if v.confirm.IsOpen() { // the popup consumes keys (ADR-0021)
 			return v.confirm.Key(msg)
 		}
-		if v.sub == subEdit { // Edit Project settings: full delegation (#108)
+		if v.sub == subEdit { // Project settings: full delegation (#108)
 			return v.ps.Update(msg)
 		}
 		return v.key(msg)
@@ -306,7 +306,7 @@ func (v *View) Body(width, height int) string {
 	case subUninstall:
 		rows, hits, focusRow = v.uninstallPane(width)
 	default:
-		return v.ps.Body(width, height) // Edit Project settings (#108)
+		return v.ps.Body(width, height) // Project settings (#108)
 	}
 	rows = append(rows, shell.Toast(v.toast))
 	if v.focusChanged {
@@ -499,7 +499,7 @@ func (v *View) activate() tea.Cmd {
 	case subUninstall:
 		return v.uninstallActivate()
 	}
-	return nil // case subEdit (Edit Project settings) is fully delegated
+	return nil // case subEdit (Project settings) is fully delegated
 }
 
 func insertRune(f *field, r rune) {

@@ -206,7 +206,7 @@ gebaut und als Binary installiert wird (siehe
 | **New Project**             | Projekt-Root neu anlegen (Wizard)                                    |
 | **Build Images**            | Container-Images bauen (Editionen wie `build-container.sh`); jede Editionenzeile zeigt mit `● built` / `○ missing`, ob das Image schon existiert |
 | **Delete Images**           | Sandbox-Images löschen (`opencode-sandbox-*` und `oc-proxy`) mit `● in use` / `○ unused`-Markierung und Größe; belegte Images werden abgewiesen |
-| **Settings**                | Change Project Settings, Edit Project settings (VCS/AI Provider), Projekt-Import, Config-Backup/-Restore, Stop Container, Update, Uninstall |
+| **Settings**                | Change Project Settings, Project settings (VCS/AI Provider), Projekt-Import, Config-Backup/-Restore, Stop Container, Update, Uninstall |
 | **Exit**                    | TUI beenden                                                          |
 
 ### Typischer Ablauf
@@ -253,9 +253,9 @@ Pfad + kurze SHA-256-Container-Identität). Settings-Backup/Restore und der
 Deinstallations-Wizard (TUI-Label „Uninstall“) finden sich unter **Settings** – Details siehe
 [Deinstallation](#deinstallation).
 
-### Edit Project settings (Settings)
+### Project settings (Settings)
 
-**Settings → Edit Project settings** steht an erster Stelle des Settings-
+**Settings → Project settings** steht an erster Stelle des Settings-
 Untermenüs und ist beim Öffnen vorausgewählt. Es zeigt alle registrierten
 Projekte als Karten (das zuletzt genutzte ist vorgewählt); pro Karte öffnen
 **vcs**, **AI Provider** und **remove** den rechten Bereich — der Knopf mit
@@ -316,7 +316,7 @@ Project** (Zusammenfassung der aktuellen Konfiguration mit `Create`/`Back`),
 (rote `Delete`-Bestätigung; laufende Container werden zuvor mit dem
 Stopp-Hinweis abgewiesen) und **Settings → Uninstall**
 (rote `Uninstall`-Bestätigung nach dem getippten „uninstall“, mit Echo der
-gewählten Optionen) und **Edit Project settings → Remove project from
+gewählten Optionen) und **Project settings → Remove project from
 list** (rote `Remove`-Bestätigung; nur der Registry-Eintrag wird entfernt). Fokus startet auf der abbrechenden Taste (`Back`/`Cancel`);
 `←`/`→`/`Tab` wechselt die Taste, `↵` aktiviert die fokussierte Taste,
 `esc`/`q` bricht ab, Klick außerhalb des Panels ebenfalls. Der projektstartnahe

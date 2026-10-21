@@ -162,8 +162,8 @@ func TestSubTabRectsStableAcrossSizesAndViews(t *testing.T) {
 		t.Errorf("sub-tab rects moved with window size: %v vs %v", m2.SubTabRects(), rects)
 	}
 	m3, _ := step(resized(newTestModel(), 120, 41), keyMsg("2"))
-	want := []Rect{{X: TitleWidth(), Y: 2, W: Width("Blank Project") + 2, H: 1},
-		{X: TitleWidth() + Width("Blank Project") + 2, Y: 2, W: Width("From URL") + 2, H: 1}}
+	want := []Rect{{X: 1, Y: 2, W: Width("Blank Project") + 2, H: 1},
+		{X: 1 + Width("Blank Project") + 2, Y: 2, W: Width("From URL") + 2, H: 1}}
 	if fmt.Sprint(m3.SubTabRects()) != fmt.Sprint(want) {
 		t.Errorf("view 2 sub-tab rects = %v, want %v", m3.SubTabRects(), want)
 	}

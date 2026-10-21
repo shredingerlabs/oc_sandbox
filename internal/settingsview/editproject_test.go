@@ -51,8 +51,8 @@ func TestEditProjectTabListedFirst(t *testing.T) {
 	if len(items) != 6 {
 		t.Fatalf("tabs = %v, want 6 entries", items)
 	}
-	if got := items[0]; got != "Edit Project settings" {
-		t.Fatalf("tab 1 = %q, want Edit Project settings", got)
+	if got := items[0]; got != "Project settings" {
+		t.Fatalf("tab 1 = %q, want Project settings", got)
 	}
 }
 
@@ -106,11 +106,11 @@ func TestEditProjectTabCoreTabsUnaffected(t *testing.T) {
 	if !strings.Contains(before, "Restore") {
 		t.Fatalf("restore pane missing:\n%s", before)
 	}
-	// into the Edit Project settings tab and back: core pane identical
+	// into the Project settings tab and back: core pane identical
 	v.Update(shell.SubTabMsg{Index: subEdit})
 	items, sel := v.SubTabs()
-	if sel != subEdit || items[subEdit] != "Edit Project settings" {
-		t.Fatalf("tab not on Edit Project settings: sel=%d", sel)
+	if sel != subEdit || items[subEdit] != "Project settings" {
+		t.Fatalf("tab not on Project settings: sel=%d", sel)
 	}
 	b := body(v)
 	if !strings.Contains(b, "alpha") {

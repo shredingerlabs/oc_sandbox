@@ -25,8 +25,8 @@ const (
 	BodyTop = SubTabRowY + 1
 )
 
-// TitleWidth is the printed header title width; the first menu item and
-// the sub-menu row both start at this x.
+// TitleWidth is the printed header title width; the first header menu
+// item starts at this x (the sub-menu row is flush left).
 func TitleWidth() int { return Width(StyleHeaderTitle.Render(Title)) }
 
 // MenuRects returns the screen-space hit boxes of the header menu items
@@ -87,7 +87,7 @@ func SubTabsRow(items []string, selected int) (string, []Rect) {
 	}
 	rects := make([]Rect, len(items))
 	for i, it := range items {
-		rects[i] = Rect{X: TitleWidth() + offs[i], Y: SubTabRowY, W: Width(it) + 2, H: 1}
+		rects[i] = Rect{X: offs[i] + 1, Y: SubTabRowY, W: Width(it) + 2, H: 1}
 	}
 	return b.String(), rects
 }

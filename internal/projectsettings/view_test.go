@@ -7,13 +7,13 @@ import (
 	"github.com/shredingerlabs/oc-sandbox/internal/shell"
 )
 
-// Tab core: the screen presents itself as the "Edit Project settings"
+// Tab core: the screen presents itself as the "Project settings"
 // sub-menu tab of the Settings center.
-func TestTabsShowEditProjectSettings(t *testing.T) {
+func TestTabsShowProjectSettings(t *testing.T) {
 	e := newEnv(t, "alpha", "beta")
 	v := e.view(t)
 	items, sel := v.SubTabs()
-	if len(items) != 1 || items[0] != "Edit Project settings" || sel != 0 {
+	if len(items) != 1 || items[0] != "Project settings" || sel != 0 {
 		t.Fatalf("SubTabs() = %v, %d", items, sel)
 	}
 }

@@ -26,7 +26,7 @@ import (
 
 // Tab item (Settings center's sub-menu row; the tab itself lives in the
 // settings view, which delegates its pane surface to this view).
-var tabs = []string{"Edit Project settings"}
+var tabs = []string{"Project settings"}
 
 const (
 	cardInnerW = 26                   // content width → shell.CardWidth 30
@@ -47,7 +47,7 @@ const (
 	paneRemove
 )
 
-// View is the Edit Project settings screen.
+// View is the Project settings screen.
 type View struct {
 	home            string
 	run             cmdrun.Runner
@@ -112,7 +112,7 @@ type Deps struct {
 	Ops             taskmgr.Launcher
 }
 
-// New returns the Edit Project settings view for home, preloaded from the
+// New returns the Project settings view for home, preloaded from the
 // project registry with the open project (last used) preselected.
 func New(d Deps) *View {
 	v := &View{

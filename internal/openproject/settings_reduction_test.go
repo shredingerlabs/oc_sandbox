@@ -12,7 +12,7 @@ import (
 // reduced to Edition / Modes / Start option / Proxy + Save. VCS
 // tracking, the AI provider row (none/Custom), the Custom capture
 // block, the legacy orphan warning and the Keep/Replace credential
-// gate moved to the Edit Project settings screen (internal/
+// gate moved to the Project settings screen (internal/
 // projectsettings); here they must be gone.
 
 func reducedPaneLines(t *testing.T, e *env) []string {
@@ -98,7 +98,7 @@ func TestLegacyOrphanWarningGone(t *testing.T) {
 	}
 }
 
-// The moved capabilities live behind the Edit Project settings screen's
+// The moved capabilities live behind the Project settings screen's
 // panes only: saving the reduced pane keeps the stored legacy pointer
 // and vcs_tracking intact and never runs provider steps here.
 func TestReducedSavePersistsLegacyValuesUntouched(t *testing.T) {

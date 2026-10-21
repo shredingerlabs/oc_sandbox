@@ -113,7 +113,7 @@ func TestE2ESettingsExportOverwriteRestoreImport(t *testing.T) {
 
 	// --- Settings → Export Config ---
 	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("4")})
-	waitText(t, rec, "Edit Project settings")
+	waitText(t, rec, "Project settings")
 	clickText(t, tm, rec, "Export Config", 2)
 	waitText(t, rec, "Export Config…")
 

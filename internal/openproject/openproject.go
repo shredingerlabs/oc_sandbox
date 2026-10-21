@@ -48,7 +48,7 @@ type Deps struct {
 	Runner           cmdrun.Runner
 	StartScript      string // dist/scripts/start.sh
 	BuildScript      string // dist/scripts/build-container.sh
-	ConfigureScript  string // dist/scripts/configure-project.sh (#113: provider steps live in the Edit Project settings view)
+	ConfigureScript  string // dist/scripts/configure-project.sh (#113: provider steps live in the Project settings view)
 	Dockerfile       string
 	DockerfileCustom string
 	Ops              Launcher                                  // default DefaultLauncher
@@ -209,7 +209,7 @@ func (m *Model) Activate() tea.Cmd {
 func (m *Model) SubTabs() ([]string, int) { return nil, 0 }
 
 // TextFocused implements shell.CenterView: the reduced pane has no text
-// rows (#113 — the capture moved to the Edit Project settings screen).
+// rows (#113 — the capture moved to the Project settings screen).
 func (m *Model) TextFocused() bool { return false }
 
 // focusedNavRow returns the pane row under the settings cursor, or nil
@@ -1157,7 +1157,7 @@ func (m *Model) save() tea.Cmd {
 	// reduced pane (#113) stages only edition / modes / start option /
 	// proxy: the stored VCS tracking and legacy ai_provider pointer are
 	// written back untouched — credential management lives behind the
-	// Edit Project settings screen's panes.
+	// Project settings screen's panes.
 	settings := sandboxcfg.Settings{
 		Edition:     s.edition,
 		Modes:       s.modes,

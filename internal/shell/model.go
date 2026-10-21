@@ -13,7 +13,7 @@ import (
 )
 
 // screen instead of the app. The recommended dimensions name the fully
-// fitting layout (Edit Project settings: two project card columns
+// fitting layout (Project settings: two project card columns
 // beside the fully unfolded AI provider pane) that the startup
 // window-size escape grows narrow terminals toward (80x41).
 const (
@@ -350,7 +350,7 @@ func (m Model) View() string {
 	}
 	items, selected := m.views[m.active].SubTabs()
 	tabs, _ := SubTabsRow(items, selected)
-	tabsRow := strings.Repeat(" ", TitleWidth()-1) + tabs
+	tabsRow := tabs
 	bodyH := m.height - BodyRows
 	body := lipgloss.NewStyle().Width(m.width).Height(bodyH).
 		MaxHeight(bodyH).MaxWidth(m.width).Render(m.views[m.active].Body(m.width, bodyH))
