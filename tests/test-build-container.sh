@@ -68,6 +68,7 @@ EOF
 # --- 1: Custom-Edition fuehrt zu generischem podman build -------------------
 rm -f "$PODMAN_LOG"; PODMAN_MISSING_IMAGES="" run_script rust
 grep -q -- '--network host' "$PODMAN_LOG"
+grep -q -- '--build-arg CACHEBUST=' "$PODMAN_LOG"
 grep -q -- '-t opencode-sandbox-rust' "$PODMAN_LOG"
 grep -q -- '--target opencode-sandbox-rust' "$PODMAN_LOG"
 grep -q -- '-f Dockerfile.custom' "$PODMAN_LOG"

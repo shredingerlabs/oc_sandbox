@@ -21,6 +21,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         gh \
     && rm -rf /var/lib/apt/lists/*
 
+# --- Floating-URL cache bust ---------------------------------------------------
+# build-container.sh passes --build-arg CACHEBUST=<unix-zeit> pro Build. Ein
+# neuer Wert aendert den Cache-Key der RUN-Layer darunter ("latest"-URLs:
+# glab, OpenCode, codebase-memory-mcp), damit ein erneutes Bauen wirklich
+# neu laedt. Manuelles `podman build` ohne das Arg nutzt den Cache weiter.
+ARG CACHEBUST=0
+
 # --- GitLab CLI (glab) -------------------------------------------------------
 RUN GLAB_VER=$(curl -s https://gitlab.com/api/v4/projects/gitlab-org%2Fcli/releases?per_page=1 \
         | python3 -c "import json,sys; print(json.load(sys.stdin)[0]['tag_name'][1:])") \

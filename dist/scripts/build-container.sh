@@ -11,6 +11,11 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+# Pro Lauf neues Timestamp: an build-container.sh gekoppelt uebergeben, damit
+# die "latest"-URL-Layer im Base-Stage (siehe ARG CACHEBUST im Dockerfile)
+# bei jedem Build neu geladen werden.
+CACHEBUST=$(date +%s)
+
 # --- Stage-Registry ---------------------------------------------------------
 declare -A STAGE_FILE=()
 STAGE_ORDER=()
@@ -83,7 +88,7 @@ build_edition() {
   fi
 
   echo "==> Baue $stage ($file)"
-  podman build --network host -t "$stage" --target "$stage" -f "$file" .
+  podman build --network host --build-arg CACHEBUST="$CACHEBUST" -t "$stage" --target "$stage" -f "$file" .
 }
 
 if [[ $# -eq 0 || "${1:-}" == "all" ]]; then
