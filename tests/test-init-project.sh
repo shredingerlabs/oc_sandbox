@@ -112,3 +112,22 @@ fi
 [[ -f "$root4/.git_local/gitconfig" ]]
 
 printf 'init-project cloned-repo tests passed\n'
+
+# --- Chat-Agent-Vorlage (--project_kind chat) ---------------------------------
+root5="$test_home/kunde-e"
+
+if ! bash "$INIT_SCRIPT" "$root5" --project_kind chat > /dev/null 2>&1; then
+  printf 'init-project.sh failed with --project_kind chat\n' >&2
+  exit 1
+fi
+grep -q 'Chat assistant' "$root5/.opencode_config/AGENTS.md"
+# Standard-Root (root1) trägt die normale Vorlage ohne den Chat-Marker
+! grep -q 'Chat assistant' "$root1/.opencode_config/AGENTS.md"
+
+# Unbekannter Vorlagenwert wird abgewiesen
+if bash "$INIT_SCRIPT" "$test_home/kunde-f" --project_kind nope > /dev/null 2>&1; then
+  printf 'init-project.sh should reject an unknown --project_kind\n' >&2
+  exit 1
+fi
+
+printf 'init-project chat-template tests passed\n'

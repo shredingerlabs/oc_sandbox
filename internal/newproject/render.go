@@ -40,6 +40,8 @@ func fieldLabel(f int) string {
 		return "Edition"
 	case fBuild:
 		return "Image build"
+	case fAgent:
+		return "Agent"
 	case fModes:
 		return "Modes"
 	case fStart:
@@ -227,6 +229,8 @@ func (m *Model) optionsFor(f int) []string {
 		return m.modeOptions()
 	case fStart:
 		return startOptions
+	case fAgent:
+		return agentOptions
 	case fVCS:
 		return vcsOptions
 	case fAI:
@@ -279,6 +283,8 @@ func (m *Model) optionIsCurrent(f int, o string) bool {
 		return o == cur
 	case fStart:
 		return m.start == o
+	case fAgent:
+		return m.agent == o
 	case fVCS:
 		return m.vcs == o
 	case fAI:

@@ -78,6 +78,7 @@ const (
 	fURL
 	fEdition
 	fBuild
+	fAgent
 	fModes
 	fStart
 	fVCS
@@ -112,6 +113,14 @@ var (
 	buildOptions = []string{"Build now", "Build later"}
 	vcsOptions   = []string{"none", "github.com", "gitlab.com", "own GitLab", "others"}
 	aiOptions    = []string{"none", "Custom"}
+	agentOptions = []string{"Code", "Chat Agent (NO_CODE)"}
+)
+
+// project kinds: the form's Agent row maps to them — chat projects get
+// AGENTS_chat.md copied as AGENTS.md at creation (both project sources).
+const (
+	agentCode = "Code"
+	agentChat = "Chat Agent (NO_CODE)"
 )
 
 // Model is the New Project center view.
@@ -143,6 +152,7 @@ type Model struct {
 	modes      []string
 	modeCur    int // inner cursor over the mode option tokens
 	start      string
+	agent      string
 	vcs        string
 	gitName    string
 	gitEmail   string
@@ -201,6 +211,7 @@ func New(cfg Config, run cmdrun.Runner, ops Ops, reg *registry.Registry) *Model 
 		ops:      ops,
 		reg:      reg,
 		start:    startOptions[0],
+		agent:    agentCode,
 		vcs:      "none",
 		ai:       aiOptions[0],
 		buildNow: true,
@@ -503,6 +514,8 @@ func (m *Model) activate(f int) tea.Cmd {
 		m.buildNow = !m.buildNow // radio cycle: enter/space flips now↔later
 	case fStart:
 		m.start = cycle(m.start, startOptions)
+	case fAgent:
+		m.agent = cycle(m.agent, agentOptions)
 	case fVCS:
 		m.vcs = cycle(m.vcs, vcsOptions)
 		m.vcsManual = true
@@ -545,6 +558,9 @@ func (m *Model) askCreate() tea.Cmd {
 		"start: "+m.start,
 		"VCS tracking: "+m.vcs,
 		"AI provider: "+m.aiSummary())
+	if m.agent == agentChat {
+		lines = append(lines, "agent: chat")
+	}
 	if !imageExistsLive(m.run, m.edition) {
 		line := "Build later"
 		if m.buildNow {
@@ -574,6 +590,8 @@ func (m *Model) setOption(f int, val string) {
 		m.buildNow = val == buildOptions[0]
 	case fStart:
 		m.start = val
+	case fAgent:
+		m.agent = val
 	case fVCS:
 		m.vcs = val
 		m.vcsManual = true
@@ -750,6 +768,7 @@ func (m *Model) resetForm() {
 	m.edition = ""
 	m.modes, m.modeCur = nil, 0
 	m.start = startOptions[0]
+	m.agent = agentCode
 	m.vcs = "none"
 	m.gitName, m.gitEmail, m.vcsToken, m.vcsHost = "", "", "", ""
 	m.ai = aiOptions[0]
@@ -831,7 +850,7 @@ func (m *Model) fieldList() []int {
 	if m.edition != "" && !m.imgKnown[m.edition] {
 		fs = append(fs, fBuild)
 	}
-	fs = append(fs, fModes, fStart, fVCS)
+	fs = append(fs, fAgent, fModes, fStart, fVCS)
 	if m.vcs != "none" {
 		fs = append(fs, fGitName, fGitEmail, fVCSToken)
 		if m.vcs == "own GitLab" || m.vcs == "others" {

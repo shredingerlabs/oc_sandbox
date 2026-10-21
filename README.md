@@ -222,6 +222,12 @@ gebaut und als Binary installiert wird (siehe
    
    - `web` – OpenCode-Weboberfläche (Hintergrunddienst auf Port 4096)
    
+   Die **Agent**-Zeile wählt die Projektart: `Code` (Standard) oder
+   `Chat Agent (NO_CODE)` für reines KI-Chat-Verhalten ohne Code-Fokus –
+   Chat-Projekte erhalten statt der Standard-Vorlage die Datei
+   `AGENTS_chat.md` als `AGENTS.md` (einmalig beim Anlegen, danach frei
+   editierbar; beides auf beiden Projektquellen möglich).
+   
    Nach erfolgreichem Anlegen (**Ersteinrichtung** startet) wird der Wizard
    zurückgesetzt – alle Eingaben werden verworfen, der nächste New-Project-Gang
    startet leer.

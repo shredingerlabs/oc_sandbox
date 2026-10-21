@@ -667,6 +667,66 @@ func TestCreateFromURLClonesSource(t *testing.T) {
 	}
 }
 
+// The Agent row picks the project kind: a chat project copies
+// AGENTS_chat.md as AGENTS.md (--project_kind chat on init-project.sh)
+// and records project_kind "chat" in sandbox_config.json.
+func TestAgentChatKindTemplateAndRecord(t *testing.T) {
+	m, ops, reg := newTestModel(t)
+	typeKeys(t, m, "chatproj")
+	click(t, m, "○ Chat Agent (NO_CODE)")
+	createViaKeyboard(t, m)
+	root := pathOf(t, m, "chatproj")
+	if !ops.has("init-project.sh", root, "--project_kind", "chat") {
+		t.Fatalf("init call missing the chat template flag: %v", ops.Calls)
+	}
+	doc := readJSON(t, filepath.Join(root, ".opencode_config", "sandbox_config.json"))
+	if doc["project_kind"] != "chat" {
+		t.Fatalf("project_kind not recorded: %v", doc)
+	}
+	if _, err := reg.ByName("chatproj"); err != nil {
+		t.Fatalf("registry write missing: %v", err)
+	}
+}
+
+// The default Code kind stays silent: no --project_kind flag on the
+// init call and no project_kind key in sandbox_config.json (absence
+// reads as code).
+func TestAgentCodeKindIsDefaultSilent(t *testing.T) {
+	m, ops, _ := newTestModel(t)
+	typeKeys(t, m, "codeproj")
+	createViaKeyboard(t, m)
+	root := pathOf(t, m, "codeproj")
+	for _, c := range ops.Calls {
+		if c[0] == "init-project.sh" && strings.Contains(strings.Join(c, " "), "--project_kind") {
+			t.Fatalf("code kind passed a template flag: %v", ops.Calls)
+		}
+	}
+	doc := readJSON(t, filepath.Join(root, ".opencode_config", "sandbox_config.json"))
+	if _, ok := doc["project_kind"]; ok {
+		t.Fatalf("project_kind written for the default kind: %v", doc)
+	}
+}
+
+// Chat kind on the From URL tab: the template flag rides along on the
+// cloned source too (the AGENTS.md copy lives in .opencode_config/, so
+// the clone never conflicts).
+func TestAgentChatOnFromURL(t *testing.T) {
+	m, ops, _ := newTestModel(t)
+	m.Update(shell.SubTabMsg{Index: 1})
+	m.tabToField(t, "Repo URL")
+	typeKeys(t, m, "https://github.com/user/repo.git")
+	click(t, m, "○ Chat Agent (NO_CODE)")
+	createViaKeyboard(t, m)
+	root := pathOf(t, m, "repo")
+	if !ops.has("init-project.sh", root, "--project_kind", "chat", "--repo_url", "https://github.com/user/repo.git") {
+		t.Fatalf("init call wrong: %v", ops.Calls)
+	}
+	doc := readJSON(t, filepath.Join(root, ".opencode_config", "sandbox_config.json"))
+	if doc["project_kind"] != "chat" || doc["project_source"] != "cloned" {
+		t.Fatalf("sandbox patches wrong: %v", doc)
+	}
+}
+
 // TestFormResetsAfterSuccessfulCreate proves the post-create reset: once
 // the registry write passed, every user entry is cleared back to the
 // New() defaults so the next wizard session starts empty (a stale
@@ -1021,6 +1081,25 @@ func TestCreatePopupShowsAIProviderLine(t *testing.T) {
 	}
 }
 
+// The create popup lists the chat kind as "agent: chat"; the default
+// Code kind adds no line (like the conditional image-build line).
+func TestCreatePopupAgentLineOnlyForChat(t *testing.T) {
+	m, _, _ := newTestModel(t)
+	typeKeys(t, m, "agpop")
+	m.tabToField(t, "Create Project")
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if b := plain(t, m); strings.Contains(b, "agent: chat") {
+		t.Fatalf("agent line shown for the default kind:\n%s", b)
+	}
+	m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	click(t, m, "○ Chat Agent (NO_CODE)")
+	m.tabToField(t, "Create Project")
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if b := plain(t, m); !strings.Contains(b, "agent: chat") {
+		t.Fatalf("popup missing the agent line:\n%s", b)
+	}
+}
+
 // When the derived provider id already exists in auth.json the create
 // flow opens the Keep existing / Replace confirm; Replace appends
 // --replace to the ai-provider step, Keep existing drops both steps.
@@ -1242,6 +1321,7 @@ func TestGoldenBlankForm(t *testing.T) {
 		"  │ │ /home/dev/oc-sandbox/demo    │                                        │",
 		"  │ ╰──────────────────────────────╯                                        │",
 		"  │   Edition        ● swdev ○ webdev                                       │",
+		"  │   Agent          ● Code ○ Chat Agent (NO_CODE)                          │",
 		"  │   Modes          ● none ○ offline ○ cbm_ui ○ hil_mode                   │",
 		"  │   Start          ● console ○ opencode ○ web                             │",
 		"  │   VCS tracking   ● none ○ github.com ○ gitlab.com ○ own GitLab ○ others │",

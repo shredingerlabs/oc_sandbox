@@ -213,6 +213,9 @@ func (m *Model) validateInputs() string {
 func (m *Model) createTail() tea.Cmd {
 	root := registry.CanonicalPath(m.path)
 	initArgs := []string{root}
+	if m.agent == agentChat {
+		initArgs = append(initArgs, "--project_kind", "chat")
+	}
 	if m.source == srcURL {
 		initArgs = append(initArgs, "--repo_url", m.url)
 	}
@@ -253,7 +256,13 @@ func (m *Model) patchConfig(cfgPath string) error {
 			return err
 		}
 	}
-	return sandboxcfg.PatchString(m.cfg.Home, cfgPath, "vcs_tracking", m.vcs)
+	if err := sandboxcfg.PatchString(m.cfg.Home, cfgPath, "vcs_tracking", m.vcs); err != nil {
+		return err
+	}
+	if m.agent == agentChat { // chat kind: recorded once, never re-applied
+		return sandboxcfg.PatchString(m.cfg.Home, cfgPath, "project_kind", "chat")
+	}
+	return nil
 }
 
 // buildCreds queues configure-project.sh steps in bash order: VCS

@@ -12,6 +12,8 @@
 
 **project source** — Where a new project's code comes from: "new empty project" (wizard-created scaffolding) or "clone existing repo via URL" (in-container clone during first-run setup). Avoid: import repo, repo migration, connect repo.
 
+**project kind** — What a project is for, chosen by the New Project wizard's Agent row (identical for both project sources): `code` (default, standard agent rules) or `chat` — the "Chat Agent (NO_CODE)" option for a non-code project that behaves like plain AI chat. Decided and recorded once at creation (`project_kind` in sandbox_config.json, absent reads as code); never re-applied or offered in the revisit sequence — later changes are a hand edit of `.opencode_config/AGENTS.md`. Avoid: nocode project, agent template, NO_CODE project.
+
 **repo URL** — The git remote URL recorded at project creation for a `cloned` project; stored in sandbox_config.json and the project registry, and used to derive git tracking and re-check repo reachability. _Avoid_: repo link, clone URL (ambiguous with the act of cloning).
 
 **in-container clone** — Cloning the repo URL inside the project container during first-run setup, after container start and before CBM configuration, using the container-side VCS credentials; chosen so host machines need no git/SSH setup. _Avoid_: host clone, URL import.

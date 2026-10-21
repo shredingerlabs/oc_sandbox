@@ -11,7 +11,7 @@
 #     .cbm_cache/           <- CBM-Graph-Datenbank (persistent)
 #
 # Nutzung:
-#   scripts/init-project.sh ~/projects/kunde-x [--repo_url <url>]
+#   scripts/init-project.sh ~/projects/kunde-x [--repo_url <url>] [--project_kind chat]
 #
 set -euo pipefail
 
@@ -19,11 +19,17 @@ PROJECT_ROOT="${1:-}"
 shift 2>/dev/null || true
 
 REPO_URL=""
+PROJECT_KIND="code"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --repo_url)
       [[ $# -ge 2 ]] || { echo "--repo_url benötigt einen Wert" >&2; exit 1; }
       REPO_URL="$2"
+      shift 2
+      ;;
+    --project_kind)
+      [[ $# -ge 2 ]] || { echo "--project_kind benötigt einen Wert" >&2; exit 1; }
+      PROJECT_KIND="$2"
       shift 2
       ;;
     *)
@@ -34,9 +40,14 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ -z "$PROJECT_ROOT" ]]; then
-  echo "Nutzung: $0 <neuer-projekt-root> [--repo_url <url>]" >&2
+  echo "Nutzung: $0 <neuer-projekt-root> [--repo_url <url>] [--project_kind chat]" >&2
   exit 1
 fi
+
+case "$PROJECT_KIND" in
+  code|chat) ;;
+  *) echo "Unbekanntes --project_kind: $PROJECT_KIND (code|chat)" >&2; exit 1 ;;
+esac
 
 # Mit --repo_url wird das eigentliche Repo von aussen geklont: project/
 # bleibt leer (kein Template-Seed, kein git init - die Quelle ist die
@@ -58,6 +69,9 @@ TEMPLATE_SSH_CONFIG="${SCRIPT_DIR}/../templates/ssh_local/config"
 TEMPLATE_GIT_CONFIG="${SCRIPT_DIR}/../templates/git_local/gitconfig"
 TEMPLATE_OPENCODE_CONFIG="${SCRIPT_DIR}/../templates/opencode/opencode-basic.json"
 TEMPLATE_OPENCODE_AGENTS="${SCRIPT_DIR}/../templates/opencode/AGENTS.md"
+if [[ "$PROJECT_KIND" == "chat" ]]; then
+  TEMPLATE_OPENCODE_AGENTS="${SCRIPT_DIR}/../templates/opencode/AGENTS_chat.md"
+fi
 TEMPLATE_OPENCODE_SKILLS="${SCRIPT_DIR}/../templates/opencode/skills"
 TEMPLATE_BASH_PROFILE="${SCRIPT_DIR}/../templates/bash/bash_profile"
 
