@@ -46,3 +46,8 @@ api.opencode.ai
 # OpenCode Modell-Katalog
 models.dev
 
+# Websuche (OpenCode websearch, Exa-/Parallel-Endpoint) + Context7 MCP (Dokumentationssuche)
+mcp.exa.ai
+search.parallel.ai
+mcp.context7.com
+

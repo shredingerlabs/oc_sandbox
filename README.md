@@ -35,6 +35,7 @@ der TUI auf.
 - **ROS 2**: Jazzy-Entwicklung in C++/Python in `ros2` (colcon, rosdep, RViz2)
 - **Dokumente**: LibreOffice + pandoc in `writing` (odt/odp, docx/pptx, PDF)
 - **Code-Intelligence**: codebase-memory-mcp (Knowledge-Graph-Indexing, auto-konfiguriert für OpenCode, UI auf Port 9749 mit `--cbm_ui` — [Referenz](https://github.com/DeusData/codebase-memory-mcp))
+- **Websuche & Docs**: OpenCode-`websearch` (Exa/Parallel-Backend, ohne API-Key) + Context7-MCP für Dokumentationssuche; bei `--use_proxy` via Allowlist-Einträgen `mcp.exa.ai` / `search.parallel.ai` / `mcp.context7.com`
 - **Proxy**: Squid-Egress-Allowlist (optional, per `--use_proxy`)
 - **TUI**: Terminal-UI für interaktive Sandbox-Steuerung (Go-TUI `oc-sandbox`)
 
@@ -458,6 +459,12 @@ Neuen Projekt-Root mit korrekter Struktur/Rechten anlegen:
 dist/scripts/init-project.sh ~/projects/kunde-x
 # ... Repo nach ~/projects/kunde-x/project klonen, Git-Config anpassen ...
 ```
+
+Wichtig: Bei erneuter Ausführung überschreibt `init-project.sh` die
+projektspezifischen Vorlagen (u. a. `.opencode_config/opencode.json`) – eigene
+Anpassungen darin gehen verloren, nur `proxy/allowlist.txt` bleibt bei
+Updates erhalten. Neue OpenCode-Features (z. B. `websearch` + Context7-MCP)
+landen erst beim erneuten Init in bestehenden Projekt-Roots.
 
 #### `.git_local/` anpassen
 

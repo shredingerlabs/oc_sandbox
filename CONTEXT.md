@@ -228,3 +228,7 @@
 
 **muted card frame** — Frame treatment of unselected cards in the card grids: the rounded border renders in the unfocused border color instead of the accent (project cards via `shell.CardMuted`; the edition cards of the build view style their own muted border). Content is untouched; only the frame is muted. _Avoid_: dimmed card (reserved for modal popup overlay), disabled card (buttons of unselected cards still select).
 
+**websearch** — OpenCode's built-in web-search tool, active in every sandboxed OpenCode instance via the `OPENCODE_ENABLE_EXA=1` and `OPENCODE_ENABLE_PARALLEL=1` container env vars set by start.sh, with `"websearch": {"provider": "random"}` seeded into the OpenCode config (random backend pick, auto-switch on rate limit). Needs no API key. Backend endpoints are Exa (`https://mcp.exa.ai/mcp`) and Parallel (`https://search.parallel.ai/mcp`); `OPENCODE_WEBSEARCH_PROVIDER=exa`/`parallel` env or config pin overrides the random pick. Under `--use_proxy` it requires the squid allowlist entries `mcp.exa.ai` and `search.parallel.ai`. _Avoid_: Exa search, web search tool.
+
+**Context7** — Remote MCP server (`mcp.context7.com/mcp`) seeded into every sandbox's OpenCode config for documentation search; keyless (rate-limited free tier). Under `--use_proxy` it requires the squid allowlist entry `mcp.context7.com`. _Avoid_: docs MCP, exa MCP (websearch is a built-in tool, not an MCP server).
+

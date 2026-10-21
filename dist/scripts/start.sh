@@ -487,6 +487,8 @@ podman run --rm "${RUN_MODE[@]}" \
   -e GIT_CONFIG_GLOBAL="/home/dev/.git_local/gitconfig" \
   -e START_OPENCODE="${START_OPENCODE}" \
   -e START_WEB="${START_WEB_ENV}" \
+  -e OPENCODE_ENABLE_EXA=1 \
+  -e OPENCODE_ENABLE_PARALLEL=1 \
   -v "${PROJECT_DIR}:/home/dev/project:Z" \
   -v "${CONFIG_DIR}:/home/dev/.config/opencode:Z" \
   -v "${DATA_DIR}:/home/dev/.local/share/opencode:Z" \
