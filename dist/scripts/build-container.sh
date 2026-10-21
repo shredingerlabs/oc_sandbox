@@ -75,15 +75,21 @@ build_edition() {
   local parent
   parent=$(parent_of_stage "$stage" "$file")
   if [[ "$parent" == opencode-sandbox-* ]]; then
-    if ! podman image exists "$parent" >/dev/null 2>&1; then
-      if [[ "$parent" == "opencode-sandbox-base" ]]; then
+    if [[ "$parent" == "opencode-sandbox-base" ]]; then
+      if [[ "${STAGE_FILE[$parent]:-}" != "$file" ]]; then
+        # Base ist hier nur als Image erreichbar (Edition aus anderem
+        # Dockerfile, z.B. Dockerfile.custom): immer vorher neu bauen, damit
+        # die Edition auf frischem Base aufbaut. Gleiches CACHEBUST ->
+        # Cache-Hit, wenn er in diesem Lauf schon frisch gebaut wurde.
+        build_edition "$parent"
+      elif ! podman image exists "$parent" >/dev/null 2>&1; then
         echo "==> Übergeordnetes Image $parent fehlt — baue es zuerst"
         build_edition "$parent"
-      else
-        echo "Fehler: übergeordnetes Image '$parent' für '$stage' fehlt." >&2
-        echo "Baue es zuerst: $0 ${parent#opencode-sandbox-}" >&2
-        exit 1
       fi
+    elif ! podman image exists "$parent" >/dev/null 2>&1; then
+      echo "Fehler: übergeordnetes Image '$parent' für '$stage' fehlt." >&2
+      echo "Baue es zuerst: $0 ${parent#opencode-sandbox-}" >&2
+      exit 1
     fi
   fi
 

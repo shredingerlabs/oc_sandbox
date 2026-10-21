@@ -74,10 +74,15 @@ grep -q -- '--target opencode-sandbox-rust' "$PODMAN_LOG"
 grep -q -- '-f Dockerfile.custom' "$PODMAN_LOG"
 printf 'custom edition build test passed\n'
 
-# --- 2: rebuild der Custom-Edition ohne fehlendes Parent --------------------
-# (base-Image existiert laut Mock -> kein zusaetzlicher base-Build)
+# --- 2: Custom-Edition-Build aus Test 1 refreshed base zuerst ---------------
+# (inspektiert das Log von Test 1: base-Image existiert laut Mock, wird aber
+# trotzdem vorher neu gebaut, damit die Edition auf frischem Base aufbaut)
+base_line=$(grep -n -- '--target opencode-sandbox-base' "$PODMAN_LOG" | head -1 | cut -d: -f1)
+rust_line=$(grep -n -- '--target opencode-sandbox-rust' "$PODMAN_LOG" | head -1 | cut -d: -f1)
+[[ -n "$base_line" && -n "$rust_line" && "$base_line" -lt "$rust_line" ]]
 rust_builds=$(grep -c -- '--target opencode-sandbox-rust' "$PODMAN_LOG")
 [[ "$rust_builds" -eq 1 ]]
+printf 'custom edition refreshes base test passed\n'
 
 # --- 3: 'all' baut jede entdeckte Stage incl. custom ------------------------
 rm -f "$PODMAN_LOG"; PODMAN_MISSING_IMAGES="" run_script all
