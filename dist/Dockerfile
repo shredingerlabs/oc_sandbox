@@ -229,3 +229,33 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 USER dev
 
 ENTRYPOINT ["/bin/bash", "-l"]
+
+# =============================================================================
+# EDITION: latex (latexmk + TeX-Live-Kollektionen, lizenzfrei)
+# =============================================================================
+FROM opencode-sandbox-base AS opencode-sandbox-latex
+
+USER root
+
+# --- TeX-System + Werkzeuge + Fonts + Python-Plot-Stack ----------------------
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        latexmk \
+        texlive-latex-recommended texlive-latex-extra \
+        texlive-fonts-recommended texlive-fonts-extra \
+        texlive-science texlive-bibtex-extra texlive-publishers \
+        texlive-xetex texlive-luatex \
+        texlive-pictures texlive-plain-generic texlive-extra-utils \
+        texlive-lang-european \
+        biber chktex latexdiff \
+        ghostscript poppler-utils dvipng \
+        python3-pygments \
+        tex-gyre tex-gyre-math \
+        lmodern \
+        fonts-liberation fonts-noto-core \
+        pandoc \
+        python3-matplotlib python3-pandas \
+    && rm -rf /var/lib/apt/lists/*
+
+USER dev
+
+ENTRYPOINT ["/bin/bash", "-l"]
