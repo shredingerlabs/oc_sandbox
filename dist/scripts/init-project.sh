@@ -45,8 +45,8 @@ if [[ -z "$PROJECT_ROOT" ]]; then
 fi
 
 case "$PROJECT_KIND" in
-  code|chat) ;;
-  *) echo "Unbekanntes --project_kind: $PROJECT_KIND (code|chat)" >&2; exit 1 ;;
+  code|chat|pkm) ;;
+  *) echo "Unbekanntes --project_kind: $PROJECT_KIND (code|chat|pkm)" >&2; exit 1 ;;
 esac
 
 # Mit --repo_url wird das eigentliche Repo von aussen geklont: project/
@@ -71,6 +71,11 @@ TEMPLATE_OPENCODE_CONFIG="${SCRIPT_DIR}/../templates/opencode/opencode-basic.jso
 TEMPLATE_OPENCODE_AGENTS="${SCRIPT_DIR}/../templates/opencode/AGENTS.md"
 if [[ "$PROJECT_KIND" == "chat" ]]; then
   TEMPLATE_OPENCODE_AGENTS="${SCRIPT_DIR}/../templates/opencode/AGENTS_chat.md"
+elif [[ "$PROJECT_KIND" == "pkm" ]]; then
+  # pkm seedet IMMER das Wiki-Schema — auch bei geklonter Quelle (die in
+  # project/ gelandete Repo-AGENTS.md wird nicht überschrieben, das koennen
+  # wir hier stabil nicht; .opencode_config/ überlebt den In-Container-Clone).
+  TEMPLATE_OPENCODE_AGENTS="${SCRIPT_DIR}/../templates/pkm/AGENTS.md"
 fi
 TEMPLATE_OPENCODE_SKILLS="${SCRIPT_DIR}/../templates/opencode/skills"
 TEMPLATE_BASH_PROFILE="${SCRIPT_DIR}/../templates/bash/bash_profile"
@@ -121,6 +126,40 @@ if [[ -f "$TEMPLATE_BASH_PROFILE" ]]; then
   chmod 644 "${PROJECT_ROOT}/.bash_local/bash_profile"
 fi
 
+# PKM-Seeding (creation-time only, issue #122): Template-Ordner, opencode.json
+# Key-Merge, .gitignore-Append und Vault-Skelett — vor der üblichen
+# Provider/Search-Seed-Kette (configure-project.sh läuft nach diesem Script).
+if [[ "$PROJECT_KIND" == "pkm" ]]; then
+  PKM_TEMPLATE="${SCRIPT_DIR}/../templates/pkm"
+  if [[ -d "$PKM_TEMPLATE" ]]; then
+    if [[ -d "$PKM_TEMPLATE/agents" ]]; then
+      cp -r "$PKM_TEMPLATE/agents" "${PROJECT_ROOT}/.opencode_config/agents"
+    fi
+    if [[ -d "$PKM_TEMPLATE/commands" ]]; then
+      cp -r "$PKM_TEMPLATE/commands" "${PROJECT_ROOT}/.opencode_config/commands"
+    fi
+    if [[ -d "$PKM_TEMPLATE/skills" ]]; then
+      # In den vorhandenen Skills-Ordner mergen (spätere Skill-Pulls fügen hinzu)
+      cp -r "$PKM_TEMPLATE/skills/." "${PROJECT_ROOT}/.opencode_config/skills/"
+    fi
+
+    # default_agent + permissions aus dem pkm-Template (Plain-JSON, jq-tauglich)
+    # in die seeded opencode.json mergen, ohne den Rest zu beschädigen.
+    OC_JSON="${PROJECT_ROOT}/.opencode_config/opencode.json"
+    if [[ -f "$PKM_TEMPLATE/opencode.jsonc" && -f "$OC_JSON" ]] && command -v jq >/dev/null 2>&1; then
+      MERGE_TMP="$(mktemp)"
+      if jq -s '.[0] * (.[1] | {default_agent, permissions})' "$OC_JSON" "$PKM_TEMPLATE/opencode.jsonc" > "$MERGE_TMP"; then
+        mv "$MERGE_TMP" "$OC_JSON"
+      else
+        rm -f "$MERGE_TMP"
+      fi
+    fi
+
+    # Vault-Skelett im Projekt-Repo
+    mkdir -p "${PROJECT_ROOT}/project/notes" "${PROJECT_ROOT}/project/raw" "${PROJECT_ROOT}/project/wiki"
+  fi
+fi
+
 SKILLS_TARGET="${PROJECT_ROOT}/.opencode_config/skills"
 mkdir -p "$SKILLS_TARGET"
 TEMP_DIR="$(mktemp -d)"
@@ -163,8 +202,19 @@ cat > "${PROJECT_ROOT}/.gitignore" <<'EOF'
 .ssh_local/
 .git_local/
 .cbm_cache/
-.bash_local/
+  .bash_local/
 EOF
+
+# PKM: .gitignore-Einträge des Wiki-Templates anhängen (Dedupe).
+if [[ "$PROJECT_KIND" == "pkm" ]]; then
+  PKM_TEMPLATE="${SCRIPT_DIR}/../templates/pkm"
+  if [[ -f "$PKM_TEMPLATE/.gitignore" ]]; then
+    while IFS= read -r line || [[ -n "$line" ]]; do
+      [[ -n "$line" ]] || continue
+      grep -qxF -- "$line" "${PROJECT_ROOT}/.gitignore" 2>/dev/null || printf '%s\n' "$line" >> "${PROJECT_ROOT}/.gitignore"
+    done < "$PKM_TEMPLATE/.gitignore"
+  fi
+fi
 
 echo "Projekt-Root angelegt: ${PROJECT_ROOT}"
 echo
