@@ -259,3 +259,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 USER dev
 
 ENTRYPOINT ["/bin/bash", "-l"]
+
+# =============================================================================
+# EDITION: pkm
+# =============================================================================
+FROM opencode-sandbox-base AS opencode-sandbox-pkm
+
+USER dev
+
+ENTRYPOINT ["/bin/bash", "-l"]

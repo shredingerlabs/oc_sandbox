@@ -18,7 +18,7 @@ func TestEditionsFromRealDockerfile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"base", "web", "embedded", "swdev", "matlab", "ros2", "writing"}
+	want := []string{"base", "web", "embedded", "swdev", "matlab", "ros2", "writing", "pkm"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("editions = %v, want %v", got, want)
 	}
@@ -75,7 +75,7 @@ func TestSelectableEditionsDropsBase(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"web", "embedded", "swdev", "matlab", "ros2", "writing"}
+	want := []string{"web", "embedded", "swdev", "matlab", "ros2", "writing", "pkm"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("selectable editions = %v, want %v", got, want)
 	}

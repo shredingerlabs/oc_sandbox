@@ -87,7 +87,7 @@ printf 'custom edition refreshes base test passed\n'
 # --- 3: 'all' baut jede entdeckte Stage incl. custom ------------------------
 rm -f "$PODMAN_LOG"; PODMAN_MISSING_IMAGES="" run_script all
 targets="$(targets_from_log)"
-for expected in base web embedded swdev matlab ros2 writing rust; do
+for expected in base web embedded swdev matlab ros2 writing pkm rust; do
   grep -q "opencode-sandbox-$expected" <<< "$targets"
 done
 printf 'all editions build test passed\n'
