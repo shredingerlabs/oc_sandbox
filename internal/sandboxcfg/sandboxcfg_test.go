@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
+	"strings"
 	"testing"
 
 	"github.com/shredingerlabs/oc-sandbox/internal/config"
@@ -232,6 +234,116 @@ func TestRewriteIsOneAtomicWrite(t *testing.T) {
 	}
 	if len(c.ContainerModes) != 1 || c.ContainerModes[0] != "cbm_ui" {
 		t.Fatalf("modes not rewritten: %v", c.ContainerModes)
+	}
+}
+
+// Ticket #124: the later change-settings rewrite (the next-start apply)
+// only patches its seven settings fields — a recorded pkm project kind
+// survives an edition switch in BOTH directions, and no seeded PKM file
+// (creation-time seeding, ADR 0027) is ever touched or removed by it.
+func TestRewriteKeepsPKMKindAndSeedUntouched(t *testing.T) {
+	home, cfgPath := setupProject(t)
+	if err := Create(home, cfgPath, "pkm", []string{"skills"}, "opencode", "none", SearchWebsearch); err != nil {
+		t.Fatal(err)
+	}
+	if err := PatchString(home, cfgPath, "project_kind", "pkm"); err != nil {
+		t.Fatal(err)
+	}
+	projRoot := filepath.Dir(filepath.Dir(cfgPath)) // .../my-project
+	sentinel := func(t *testing.T, path, content string) {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	seedPaths := map[string]string{
+		filepath.Join(projRoot, ".opencode_config", "AGENTS.md"):         "wiki schema\n",
+		filepath.Join(projRoot, ".opencode_config", "opencode.json"):     "{\"default_agent\":\"wiki\"}\n",
+		filepath.Join(projRoot, ".opencode_config", "agents", "wiki.md"): "agent\n",
+		filepath.Join(projRoot, "project", "wiki", "index.md"):           "seed\n",
+	}
+	for p, c := range seedPaths {
+		sentinel(t, p, c)
+	}
+	// The vault skeleton of a pkm-kind project (notes/raw/wiki).
+	for _, d := range []string{"notes", "raw", "wiki"} {
+		if err := os.MkdirAll(filepath.Join(projRoot, "project", d), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	skeletonExists := func(t *testing.T) {
+		t.Helper()
+		for _, d := range []string{"notes", "raw", "wiki"} {
+			fi, err := os.Stat(filepath.Join(projRoot, "project", d))
+			if err != nil || !fi.IsDir() {
+				t.Errorf("vault skeleton dir %q removed by a settings rewrite", d)
+			}
+		}
+	}
+	skeletonExists(t)
+	seedState := func(t *testing.T) (string, map[string]string) {
+		t.Helper()
+		mt := map[string]string{}
+		var names []string
+		for p := range seedPaths {
+			names = append(names, p)
+		}
+		sort.Strings(names)
+		for _, p := range names {
+			fi, err := os.Stat(p)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if fi.IsDir() {
+				mt[p] = "dir"
+				continue
+			}
+			b, err := os.ReadFile(p)
+			if err != nil {
+				t.Fatal(err)
+			}
+			mt[p] = string(b)
+		}
+		return strings.Join(names, "\n"), mt
+	}
+	_, before := seedState(t)
+
+	// Switch AWAY from pkm, then back TO pkm: neither direction may
+	// re-seed or remove the creation-time PKM files.
+	for _, edition := range []string{"swdev", "pkm"} {
+		if err := Rewrite(home, cfgPath, Settings{
+			Edition:     edition,
+			Modes:       []string{"offline"},
+			StartOption: "web",
+			VCS:         "none",
+			AIProvider:  "none",
+			UseProxy:    false,
+			SearchMode:  SearchWebsearch,
+		}); err != nil {
+			t.Fatal(err)
+		}
+		c, err := Read(cfgPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if c.ContainerEdition != edition {
+			t.Fatalf("edition switch to %q not applied", edition)
+		}
+		_, after := seedState(t)
+		for p, want := range before {
+			if after[p] != want {
+				t.Errorf("seed file changed during edition switch to %s: %s", edition, p)
+			}
+		}
+		skeletonExists(t)
+	}
+
+	doc := read(t, cfgPath)
+	if !strings.Contains(doc, `"project_kind": "pkm"`) {
+		t.Fatalf("rewrite lost the pkm project kind:\n%s", doc)
 	}
 }
 

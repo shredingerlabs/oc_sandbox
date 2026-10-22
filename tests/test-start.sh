@@ -278,3 +278,14 @@ if ! run_start "$cloned_project" --edition rust --detach; then
 fi
 grep -q -- 'opencode-sandbox-rust' "$PODMAN_LOG"
 printf 'start custom edition tests passed\n'
+
+# --- 5: pkm-Edition (#120/#124): normale Start-Option, kein Sonderfall —
+# das Dedicated-Image wird über die Stage-Registry validiert und uebergeben.
+: > "$PODMAN_LOG"
+if ! run_start "$cloned_project" --edition pkm --detach; then
+  printf 'start script rejected the pkm edition\n' >&2
+  cat "$test_home/edition-output" >&2
+  exit 1
+fi
+grep -q -- 'opencode-sandbox-pkm' "$PODMAN_LOG"
+printf 'start pkm edition tests passed\n'

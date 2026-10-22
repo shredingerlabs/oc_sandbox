@@ -24,6 +24,20 @@ fi
 exec /usr/bin/git "$@"
 EOF
 chmod +x "$fake_bin/git"
+# Podman-Mock (lifecycle tests #124): Argumente protokollieren, alles
+# gelingt; ss minimal antworten (start.sh Portprobe).
+cat > "$fake_bin/podman" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "${PODMAN_LOG}"
+exit 0
+EOF
+chmod +x "$fake_bin/podman"
+cat > "$fake_bin/ss" <<'EOF'
+#!/usr/bin/env bash
+exit 0
+EOF
+chmod +x "$fake_bin/ss"
+export PODMAN_LOG="$test_home/podman.log"
 export PATH="$fake_bin:$PATH"
 
 # --- Frischer Projekt-Root -----------------------------------------------------
@@ -202,3 +216,75 @@ grep -q 'Personal Knowledge Wiki' "$root_pkm_clone/.opencode_config/AGENTS.md"
 [[ "$(jq -r '.default_agent' "$root_pkm_clone/.opencode_config/opencode.json")" == "wiki" ]]
 
 printf 'init-project pkm cloned-repo tests passed\n'
+
+# --- PKM lifecycle (#124): created → started on the pkm edition → edition switch
+# Full chain with mocked podman: the seeded project starts on
+# opencode-sandbox-pkm, and a later edition switch (the next-start apply of
+# the change-settings flow) never re-seeds or removes the PKM files.
+seed_files=(
+  ".opencode_config/AGENTS.md"
+  ".opencode_config/opencode.json"
+  ".opencode_config/agents/wiki.md"
+  ".opencode_config/commands/ingest.md"
+  ".opencode_config/skills/wiki-ingest/SKILL.md"
+  ".gitignore"
+  "project/notes"
+  "project/raw"
+  "project/wiki"
+)
+seed_state() {
+  ( cd "$root_pkm" && for f in "${seed_files[@]}"; do
+      if [[ -d "$f" ]]; then printf 'dir %s\n' "$f"
+      else sha256sum "$f"; fi
+    done )
+}
+
+# Das Go-Wizard (sandboxcfg.Create + PatchString) legt die sandbox_config.json
+# an, bevor der erste Start laeuft — hier nachgebildet (jq-Spiegel des
+# create-Payloads fuer ein pkm-Projekt).
+jq -n '{container_edition: "pkm", container_modes: ["skills"], start_option: "opencode",
+        cbm_auto_index: true, cbm_auto_watch: true, ai_provider: "none",
+        project_source: "empty", repo_url: "", project_kind: "pkm",
+        search_mode: "websearch", setup_complete: false, version: "1.0"}' \
+  > "$root_pkm/.opencode_config/sandbox_config.json"
+
+if ! bash "$PROJECT_ROOT/dist/scripts/start.sh" "$root_pkm" --edition pkm --detach \
+  > "$test_home/pkm-start" 2>&1; then
+  printf 'start.sh failed for the pkm edition\n' >&2
+  cat "$test_home/pkm-start" >&2
+  exit 1
+fi
+grep -q -- 'opencode-sandbox-pkm' "$PODMAN_LOG"
+printf 'pkm start on opencode-sandbox-pkm passed\n'
+
+baseline="$(seed_state)"
+# Und zurueck... (vorerst) — Switch: das Settings-Rewrite der Go-TUI aendert
+# nur container_edition in sandbox_config.json; hier gespiegelt mit jq.
+tmp_cfg="$(mktemp)"
+jq '.container_edition = "swdev"' "$root_pkm/.opencode_config/sandbox_config.json" > "$tmp_cfg"
+mv "$tmp_cfg" "$root_pkm/.opencode_config/sandbox_config.json"
+
+if ! bash "$PROJECT_ROOT/dist/scripts/start.sh" "$root_pkm" --edition swdev --detach \
+  > "$test_home/pkm-switch" 2>&1; then
+  printf 'start.sh failed for the switched-away pkm project\n' >&2
+  cat "$test_home/pkm-switch" >&2
+  exit 1
+fi
+[[ "$(seed_state)" == "$baseline" ]]
+grep -q -- 'opencode-sandbox-swdev' "$PODMAN_LOG"
+
+# und zurueck auf pkm — ebenfalls ohne Re-Seed (Rewrite der Go-TUI gespiegelt)
+jq '.container_edition = "pkm"' "$root_pkm/.opencode_config/sandbox_config.json" > "$tmp_cfg"
+mv "$tmp_cfg" "$root_pkm/.opencode_config/sandbox_config.json"
+
+if ! bash "$PROJECT_ROOT/dist/scripts/start.sh" "$root_pkm" --edition pkm --detach \
+  > /dev/null 2>&1; then
+  printf 'start.sh failed switching back to the pkm edition\n' >&2
+  exit 1
+fi
+[[ "$(seed_state)" == "$baseline" ]]
+
+# project_kind bleibt im Config-Dokument vermerkt (decided once at creation)
+[[ "$(jq -r '.project_kind' "$root_pkm/.opencode_config/sandbox_config.json")" == "pkm" ]]
+
+printf 'init-project pkm lifecycle tests passed\n'
