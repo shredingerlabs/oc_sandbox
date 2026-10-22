@@ -1,921 +1,267 @@
-# OpenCode Sandbox – Multi-Edition Container Setup (Ubuntu 24.04 / Podman rootless)
+# OpenCode Sandbox
 
-Dieses Repo enthält ein direkt lauffähiges Grundgerüst für eine **einheitliche
-Entwicklungssandbox** – mehrere Editionen für unterschiedliche Use Cases:
+A multi-edition development sandbox running OpenCode in rootless Podman containers
+(Ubuntu 24.04), managed through a terminal UI.
 
-**Editionen:**
+**⚠ BETA version — extensive tests are still needed.**
 
-Die Editionen werden **automatisch** aus den `FROM ... AS opencode-sandbox-<name>`-Stages
-von `dist/Dockerfile` und `dist/Dockerfile.custom` entdeckt (siehe
-[ADR 0019](docs/adr/) für Details) – es gibt keine hardcodierte Whitelist.
+## Features
 
-Mitgeliefert werden:
+- **Sandbox** — rootless Podman containers with hardened settings
+  (`--cap-drop=ALL`, `no-new-privileges`), one container per project, multiple
+  sandboxes in parallel
+- **Editions** — prebuilt environments for different use cases (web, embedded,
+  software dev, LaTeX, ROS 2, and more), auto-discovered from the Dockerfile
+- **Search tools** — per-project web search: OpenCode `websearch` (Exa/Parallel,
+  no API key), a shared SearXNG container, or none; Context7-MCP for docs search
+  in every mode
+- **Hardware in Loop (HIL) mode** — USB oscilloscope (PicoScope) and
+  microcontroller device passthrough for HIL tests
+- **Project & git handling** — project wizard with VCS setup (GitHub, GitLab,
+  custom host), hidden token storage, git identity, in-container cloning
+- **Prepared skills** — first-run setup installs an engineering skill set for
+  OpenCode automatically
+- **All manageable with the TUI** — the Go binary `oc-sandbox` covers build,
+  projects, images, containers, settings, update, and uninstall
 
-- **base**: Python + core system packages
-- **web**: base + Node/TypeScript/Playwright
-- **embedded**: base + ARM toolchains/Arduino/MicroPython
-- **swdev**: base + C/C++ (clang/gdb), Java (OpenJDK/Maven), Rust (rustup), Go, C++-Test-Frameworks (GoogleTest/Catch2)
-- **matlab**: base + GNU Octave + Python Scientific-Stack (numpy/scipy/matplotlib/pandas) — lizenzfrei
-- **ros2**: base + ROS 2 Jazzy (ros-base, RViz2, CycloneDDS, colcon/rosdep/vcstool)
-- **writing**: base + LibreOffice + pandoc + Fonts (odt/odp, docx/pptx, PDF-Export)
-
-Eigene Editionen lassen sich per `dist/Dockerfile.custom` ergänzen (Vorlage
-dort) und tauchen danach automatisch in `build-container.sh`, `start.sh` und
-der TUI auf.
-
-**Use Cases:**
-
-- **Coding**: TS/JS/HTML, Go, Python, C++, inkl. Cross-Compile für Embedded
-- **Arduino / ESP32**: Arduino CLI + AVR/ESP32-Toolchains (Arduino Framework)
-- **MicroPython**: mpremote, esptool für ESP32-Firmware-Entwicklung
-- **HIL-Tests**: USB-Oszilloskop (Picoscope 2204A) + Mikrocontroller-Geräte-Passthrough
-- **Browser-Automatisierung**: Chromium + Firefox via Playwright (für OpenCode-Browser-Tooling)
-- **Allgemeine Softwareentwicklung**: C/C++, Java, Rust, Go in `swdev` (inkl. GoogleTest/Catch2)
-- **Matlab / Skripte**: GNU Octave + Scientific-Python in `matlab` (lizenzfrei, headless)
-- **ROS 2**: Jazzy-Entwicklung in C++/Python in `ros2` (colcon, rosdep, RViz2)
-- **Dokumente**: LibreOffice + pandoc in `writing` (odt/odp, docx/pptx, PDF)
-- **Code-Intelligence**: codebase-memory-mcp (Knowledge-Graph-Indexing, auto-konfiguriert für OpenCode, UI auf Port 9749 mit `--cbm_ui` — [Referenz](https://github.com/DeusData/codebase-memory-mcp))
-- **Websuche & Docs**: per Projekt wählbar (Suchzeile in der TUI): `websearch` — OpenCode-`websearch` (Exa/Parallel-Backend, ohne API-Key) + Context7-MCP für Dokumentationssuche; bei `--use_proxy` via Allowlist-Einträgen `mcp.exa.ai` / `search.parallel.ai` / `mcp.context7.com`; `searxng` — gemeinsamer SearXNG-Container (`oc-searxng`, SearXNG-MCP, ohne API-Key; **nicht mit `--use_proxy` kombinierbar**, ADR 0026) mit demselben Context7-MCP; `none` — keine Websuche
-- **Proxy**: Squid-Egress-Allowlist (optional, per `--use_proxy`)
-- **TUI**: Terminal-UI für interaktive Sandbox-Steuerung (Go-TUI `oc-sandbox`)
-
-Die TUI kann bei der Projekteinrichtung `none`, GitHub, öffentliches GitLab,
-eigenes GitLab oder einen anderen VCS-Host auswählen. Tokens werden verborgen
-abgefragt und ausschließlich projekt-lokal in
-`.git_local/` gespeichert. Die AI-Provider-Auswahl bietet `none` und
-`Custom`; bei `Custom` werden Name, Endpoint (OpenAI-kompatible API) und
-Token verborgen abgefragt, der Provider-Block in `opencode.json` (v2-Schema,
-`providers.<id>`) sowie die Token-Datei unter `.opencode_data/credentials/`
-werden unter dem aus dem Namen abgeleiteten Provider-Id erzeugt (siehe
-[ADR-0022](docs/adr/0022-provider-neutral-ai-configuration.md),
-[ADR-0025](docs/adr/0025-opencode-v2-config-schema.md)). Vorhandene
-Zugangsdaten bleiben erhalten, sofern nicht ausdrücklich **Replace** gewählt wird.
-
-Für jede VCS-Auswahl außer `none` fragt die TUI die projekt-lokale Git-Identität
-(`user.name` und `user.email`) ab. Bei einem fehlgeschlagenen Start öffnet
-`Retry` die vollständige Einstellungsauswahl mit den aktuellen Werten; `Go back`
-kehrt zum übergeordneten Wizard zurück.
-
-Bei der Projekteinrichtung wählt die TUI zusätzlich eine Start-Option:
-`console` (Shell), `opencode` (OpenCode-TUI) oder `web` (OpenCode-Weboberfläche).
-Bei `web` läuft im Container dauerhaft der OpenCode-Hintergrunddienst (v2) auf
-Port 4096, veröffentlicht auf `127.0.0.1` (Port-Scan 4096-4196); die TUI zeigt
-nach dem Start bzw. beim Zugriff auf das laufende Projekt einen einmaligen
-Anmelde-Link (`opencode pair`) zur Weboberfläche an.
-
-Wird ein Projekt geöffnet, dessen Container bereits läuft, wird die gewählte
-Variante direkt betreten: Bei `opencode`/`console` per `podman exec`, bei `web`
-erscheint ein einmaliger Anmelde-Link — läuft der Container ohne veröffentlichten
-Web-Port, wird er durch einen verifizierten Neustart mit `--start_web` ersetzt
-(Auto-Adopt; als Hintergrund-Auftrag „Starting OpenCode Web" sichtbar). Eine
-Console-Sitzung ist
-eine unabhängige Bash-Shell über `podman exec` und ändert die konfigurierte
-Start-Option nicht.
-
-With a missing image for the selected edition, in the new project creation the "Image build" selection appears directly below the edition row with **Build now**/**Build later** (default: Build now; `Create Project` executes the decision — Build later registers the project as stopped). Under project start, missing images offer **Build now**, **Build later** or **Go back**.
-Neue Projekte werden für die Einrichtung detached gestartet. Die CBM-Konfiguration
-läuft nicht-interaktiv; die Skills-Einrichtung startet anschließend über ein
-interaktives `podman exec -it` eine OpenCode-TUI-Sitzung (`opencode`)
-mit dem Prompt „run the skill /setup-matt-pocock-skills using the skill tool",
-sodass Fragen des Skills direkt beantwortet werden können, bevor die
-ausgewählte Console- oder OpenCode-Sitzung angeschlossen wird (bei der
-Start-Option `web` wird stattdessen ein einmaliger Anmelde-Link zur
-Weboberfläche ausgegeben).
-Schlägt die Ersteinrichtung fehl, bleibt das Projekt registriert und bietet
-`Retry`, `Go back` oder `Exit`; ein erneuter Versuch wiederholt nur den
-unvollständigen Einrichtungsschritt.
+For details on direct script usage, see the
+[legacy script guide](docs/legacy-script-usage.md).
 
 ## Starting Guide
+
 [https://shredingerlabs.github.io/oc_sandbox/](https://shredingerlabs.github.io/oc_sandbox/)
+— step-by-step walkthrough of installation, first project, and daily TUI workflow.
 
+## Installation
 
-## Voraussetzungen
+Prerequisites (Ubuntu 24.04 or similar):
 
 ```bash
 sudo apt-get update
 sudo apt-get install -y git curl podman passt fuse-overlayfs jq
+podman info --format '{{.Host.Security.Rootless}}'   # should print "true"
 ```
 
-Podman rootless prüfen:
-
-```bash
-podman info --format '{{.Host.Security.Rootless}}'   # sollte "true" liefern
-```
-
-## Installation
-
-Installation per Bash one-liner (lädt das neueste Release von GitHub und
-installiert es nach `~/.oc-sandbox`):
+Install via one-liner (downloads the latest GitHub release to `~/.oc-sandbox`):
 
 ```bash
 curl -sL https://raw.githubusercontent.com/shredingerlabs/oc_sandbox/main/scripts/install.sh | bash
 ```
 
-oder falls `curl` nicht verfügbar:
+To pass flags, use `bash -s --` (everything after `--` goes to the script):
 
 ```bash
-wget -qO- https://raw.githubusercontent.com/shredingerlabs/oc_sandbox/main/scripts/install.sh | bash
-```
+# Custom install path + fixed version
+curl -sL https://raw.githubusercontent.com/shredingerlabs/oc_sandbox/main/scripts/install.sh | bash -s -- --install_path ~/my-sandbox --version v1.0.0
 
-**Achtung:** Bei `... | bash` ohne weitere Angaben werden eventuelle Argumente
-ignoriert. Um Flags zu übergeben, muss `bash -s --` verwendet werden – alles
-nach `--` wird als Argument an das Skript durchgereicht:
-
-```bash
-# Anderer Installationspfad + feste Version
-curl -sL https://raw.githubusercontent.com/shredingerlabs/oc_sandbox/main/scripts/install.sh | bash -s -- --install_path ~/mein-sandbox --version v1.0.0
-
-# Ohne Convenience-Artifacts installieren (kein Symlink, kein Desktop-Shortcut)
+# Skip convenience artifacts (no symlink, no desktop shortcut)
 curl -sL https://raw.githubusercontent.com/shredingerlabs/oc_sandbox/main/scripts/install.sh | bash -s -- --no_symlinks --no_shortcut
 
-# Vorhandene Installation ohne Nachfrage überschreiben
+# Overwrite an existing installation without asking
 curl -sL https://raw.githubusercontent.com/shredingerlabs/oc_sandbox/main/scripts/install.sh | bash -s -- --force
 ```
 
-**Symlink und Desktop-Shortcut sind Default:** Die Installation legt
-standardmäßig den Ein-Command-Symlink `oc-sandbox` (→ Go-TUI-Binary in
-`~/.local/bin`, siehe
-[ADR-0013](docs/adr/0013-single-entry-point-symlink.md)) und einen
-Desktop-Shortcut an (siehe
-[ADR-0015](docs/adr/0015-desktop-shortcuts-via-shortcut-flag.md)). Die
-Beispiele oben zeigen, wie beides mit `--no_symlinks` / `--no_shortcut`
-abgewählt wird.
+By default the installer creates the symlink `oc-sandbox` (→ Go TUI binary in
+`~/.local/bin`) and a desktop shortcut; both are opt-out via `--no_symlinks` /
+`--no_shortcut`. The script never uses `sudo` automatically. Further options:
+`--version <tag>`, `--yes` (non-interactive update), `--verbose`, `--help`.
 
-Das Skript:
+## TUI
 
-- Ermittelt automatisch das neueste Release (oder eine feste Version per `--version`)
-- Fragt vor dem Überschreiben einer bestehenden Installation nach
-- Erhält bei Updates vorhandene `proxy/allowlist.txt`-Anpassungen
-- Installiert die Go-TUI als Binary `oc-sandbox`
-- Erstellt standardmäßig Symlink (`oc-sandbox` → Go-TUI-Binary in `~/.local/bin`)
-  und Desktop-Shortcut für die TUI; beide per Flag abwählbar
-- Verwendet nie automatisch `sudo`
-
-**Optionen:**
-
-- `--install_path <pfad>` – Installationspfad (default: `~/.oc-sandbox`)
-- `--version <tag>` – Spezifische Version installieren (default: latest)
-- `--force` – Vorhandene Installation ohne Nachfrage überschreiben
-- `--yes` – Nicht-interaktives Update (Alias von `--force`, vom
-  Update-Menü der TUI genutzt); schreibt den `VERSION`-Versionsmarker
-  im Installationsverzeichnis
-- `--no_symlinks` – Default-Symlink (`oc-sandbox` → Go-TUI-Binary in
-  `~/.local/bin`) nicht erstellen
-- `--no_shortcut` – Default-Desktop-Shortcut nicht erstellen
-- `--symlinks` / `--shortcut` – Ohne Wirkung (Kompatibilität: die
-  Convenience-Artifacts sind Default-on; siehe oben)
-- `--verbose` – Detaillierte Ausgabe
-- `--help` – Hilfe anzeigen und beenden
-
-**Nächste Schritte:** [Schnellstart mit der TUI](#schnellstart-mit-der-tui-empfohlen).
-Für HIL-Tests zusätzlich [udev-Regeln installieren](#hil-udev-regeln-installieren-optional).
-Deinstallation siehe [unten](#deinstallation).
-
-## Schnellstart mit der TUI (empfohlen)
-
-Die TUI ist der zentrale Einstiegspunkt: Sie führt durch Container-Bau,
-Projekt-Einrichtung (inkl. VCS- und Token-Konfiguration) und den Start der
-Sandbox – ohne dass Skripte von Hand aufgerufen werden müssen.
-
-### TUI starten
-
-Standardmäßig existiert nach der Installation ein einzelner
-Entry-Point-Symlink (siehe
-[ADR-0013](docs/adr/0013-single-entry-point-symlink.md)):
+Start with:
 
 ```bash
-oc-sandbox
+oc-sandbox          # or: ~/.oc-sandbox/bin/oc-sandbox
 ```
 
-Ohne Symlink direkt über den Installationspfad:
+The TUI is a standalone Go application (`oc-sandbox`), built at release time
+(ADR-0020).
 
-```bash
-~/.oc-sandbox/bin/oc-sandbox
-```
+### Main menu
 
-Die TUI ist eine eigenständige Go-Anwendung (`oc-sandbox`), die beim Release
-gebaut und als Binary installiert wird (siehe
-[ADR-0020](docs/adr/0020-go-tui-built-at-release-time.md)).
-
-### Hauptmenü
-
-| Menüpunkt                   | Funktion                                                             |
+| Menu item                   | Function                                                             |
 | --------------------------- | -------------------------------------------------------------------- |
-| **Start last used project** | Startet das zuletzt genutzte Projekt mit gespeicherten Einstellungen |
-| **Open Project**            | Registriertes Projekt auswählen und starten                          |
-| **New Project**             | Projekt-Root neu anlegen (Wizard)                                    |
-| **Build Images**            | Container-Images bauen (Editionen wie `build-container.sh`); jede Editionenzeile zeigt mit `● built` / `○ missing`, ob das Image schon existiert |
-| **Delete Images**           | Sandbox-Images löschen (`opencode-sandbox-*` und `oc-proxy`) mit `● in use` / `○ unused`-Markierung und Größe; belegte Images werden abgewiesen |
-| **Settings**                | Change Project Settings, Project settings (VCS/AI Provider), Projekt-Import, Config-Backup/-Restore, Stop Container, Update, Uninstall |
-| **Exit**                    | TUI beenden                                                          |
+| **Start last used project** | Starts the last-used project with saved settings                     |
+| **Open Project**            | Pick a registered project and start it                               |
+| **New Project**             | Create a project root (wizard)                                       |
+| **Build Images**            | Build container images (editions), `● built` / `○ missing` markers   |
+| **Delete Images**           | Delete sandbox images (`● in use` / `○ unused`, with sizes)          |
+| **Settings**                | Change project settings, project settings (VCS/AI provider), project import, config backup/restore, stop container, Update, Uninstall |
+| **Exit**                    | Quit the TUI                                                         |
 
-### Typischer Ablauf
+### New Project
 
-1. **Build Images** – gewünschte Edition bauen (einmalig, oder später über
-   **Build now**, wenn beim Projektstart ein Image fehlt).
-2. **New Project** – der Wizard fragt zuerst die **Projektquelle** ab
-   („New empty project“ oder „Clone existing repo via URL“; Details siehe
-   [unten](#projektquelle-clone-existing-repo-via-url) – bei Klonen wird nur
-   die Repo-URL erfragt (Formprüfung ohne Netztest) und der Projektname aus
-   dem URL-Basisnamen vorbelegt). Danach legt er den Projekt-Root an (gleiche
-   Struktur wie `init-project.sh`), fragt VCS-Host und Tokens verborgen ab,
-   konfiguriert die Git-Identität und wählt eine Start-Option:
-   
-   - `console` – interaktive Shell im Container
-   
-   - `opencode` – OpenCode-TUI
-   
-   - `web` – OpenCode-Weboberfläche (Hintergrunddienst auf Port 4096)
-   
-   Die **Agent**-Zeile wählt die Projektart: `Code` (Standard) oder
-   `Chat Agent (NO_CODE)` für reines KI-Chat-Verhalten ohne Code-Fokus –
-   Chat-Projekte erhalten statt der Standard-Vorlage die Datei
-   `AGENTS_chat.md` als `AGENTS.md` (einmalig beim Anlegen, danach frei
-   editierbar; beides auf beiden Projektquellen möglich).
-   
-   Nach erfolgreichem Anlegen (**Ersteinrichtung** startet) wird der Wizard
-   zurückgesetzt – alle Eingaben werden verworfen, der nächste New-Project-Gang
-   startet leer.
-3. **Ersteinrichtung** – läuft automatisch im Hintergrund (CBM-Konfiguration,
-   danach interaktive Skills-Einrichtung über OpenCode-TUI). Bei Fehlern bietet
-   die TUI `Retry`, `Go back` oder `Exit`; ein Retry wiederholt nur den
-   unvollständigen Schritt. **OpenCode** muss **unbeding über /exit beendet** werden.
-4. **Open Project / Start last used project** – Projekt später erneut starten;
-   laufende Container werden per `podman exec` wiederverwendet statt neu
-   gestartet. Jede Projektkarte zeigt Start-Buttons **Console / OpenCode / Web**
-   (Start + Zugriff in einem Klick; die konfigurierte Start-Option ist
-   vorbelegt, Doppelklick startet mit ihr) – die Modus-Auswahl (Proxy, Offline,
-   HIL, CBM-UI, …) entspricht den
-   Flags von `start.sh` – siehe [Flag-Referenz](#legacy-direkte-skript-nutzung).
+The wizard asks for the **project source** ("New empty project" or "Clone
+existing repo via URL" — clones happen inside the container during first-run
+setup), creates the project root, collects VCS host (`none`, GitHub, public
+GitLab, own GitLab, others) and tokens (hidden input, stored project-locally in
+`.git_local/`), configures the git identity, and picks a start option:
 
-Projekte werden in `~/.config/oc-sandbox/projects.json` registriert (kanonischer
-Pfad + kurze SHA-256-Container-Identität). Settings-Backup/Restore und der
-Deinstallations-Wizard (TUI-Label „Uninstall“) finden sich unter **Settings** – Details siehe
-[Deinstallation](#deinstallation).
+- `console` — interactive shell in the container
+- `opencode` — OpenCode TUI
+- `web` — OpenCode web UI (background service on port 4096, published on
+  `127.0.0.1`; the TUI shows a one-time sign-in link via `opencode pair`
 
-### Project settings (Settings)
+The **Agent** row picks the project kind: `Code` (default) or chat/PKM
+variants. The **AI provider** selection offers `none` and `Custom` (name,
+endpoint (OpenAI-compatible API), token — written to `opencode.json` v2 and
+`.opencode_data/credentials/`, see ADR-0022/0025). Existing credentials are
+kept unless **Replace** is chosen.
 
-**Settings → Project settings** steht an erster Stelle des Settings-
-Untermenüs und ist beim Öffnen vorausgewählt. Es zeigt alle registrierten
-Projekte als Karten (das zuletzt genutzte ist vorgewählt); pro Karte öffnen
-**vcs**, **AI Provider** und **remove** den rechten Bereich — der Knopf mit
-geöffnetem Bereich ist wie ein gewählter Menü-Eintrag hervorgehoben. Bei
-knapper Höhe scrollt der rechte Bereich (AI Provider / remove): Mausrad
-scrolled freihändig, Tab-Navigation holt das fokussierte Element ins Bild.
-Der
-**vcs**-Bereich bündelt die
-nachträgliche VCS-Pflege eines Projekts: Tracker-Auswahl (`none`, `github.com`,
-`gitlab.com`, `own GitLab`, `others` – vorbelegt aus `vcs_tracking` der
-`sandbox_config.json`), Git-Identität (vorbelegt aus der projekt-lokalen
-Git-Konfiguration, geschrieben über `configure-project.sh git-identity`),
-Repo-URL (gespiegelt in `sandbox_config.json` **und** die Projekt-Registry),
-verborgener Token (für jeden Tracker außer `none`) und – nur bei `own GitLab`
-/ `others` – ein Host-Feld (nur Hostname, vorbelegt aus der `.git_local/`
-Hosts-Datei, vor dem Speichern geprüft). Ein **Save** wendet alle gesetzten
-Änderungen über die `configure-project.sh`-Unterkommandos an
-(`vcs-credentials <tracker> --token <t> [--host <h>] [--replace]`); liegen
-bereits Zugangsdaten vor, schützt ein **Keep existing / Replace**-Popup
-([ADR-0021](docs/adr/0021-confirmation-popups.md)) vor dem versehentlichen
-Überschreiben. Tracker `none` verlangt weder Token noch Host; ungültige Hosts
-oder Tokens mit Whitespace werden beim Speichern abgewiesen (Fehleranzeige,
-ohne Schreibzugriff).
+While the edition's image is missing, an **Image build** row offers
+**Build now** / **Build later** (default: Build now).
 
-Der **remove**-Bereich nimmt ein Projekt nur aus der Projekt-Registry
-(projects.json): Projektordner, `sandbox_config.json` und der Container
-bleiben unberührt — ein laufender Container läuft einfach weiter (untracked).
-Der Kartenknopf öffnet nur den beschreibenden Bereich; entfernt wird erst
-über **Remove project from list** hinter dem Bestätigungs-Popup (siehe
-unten).
+First-run setup runs automatically in the background (CBM configuration, then
+interactive skills setup via an OpenCode TUI session). On failure the TUI
+offers `Retry`, `Go back`, or `Exit`; a retry repeats only the incomplete step.
+**OpenCode must be exited via `/exit`.**
 
-### Update: „Settings → Update“ (TUI)
+### Open Project
 
-Das Settings-Menü der TUI hat einen **Update**-Reiter (direkt links neben
-**Uninstall**): Er zeigt installierte Version (aus der `VERSION`-Markerdatei
-des Installationsverzeichnisses, Fallback: die in der Binary eingebaute
-Version) und die neueste GitHub-Release-Version. Bei jedem TUI-Start prüft
-die TUI im Hintergrund (ein authentifizierungsloser API-Aufruf,
-fehlschlagend still) ob ein Update vorliegt; dann zeigt die Fußzeile ein
-`update available: <tag>`-Badge, dessen Klick in den Update-Reiter springt.
-Der **Update**-Knopf (hinter dem Bestätigungs-Popup) führt das
-Installationsskript nicht-interaktiv aus (`install.sh --yes`) —
-`proxy/allowlist.txt`, `dist/Dockerfile.custom` und Benutzerkonfigurationen
-bleiben erhalten; danach bittet die TUI um einen Neustart von `oc-sandbox`,
-um die neue Binary zu laden.
+Opening a project whose container is already running enters it directly:
+`opencode`/`console` via `podman exec`, `web` via a one-time pair link. Each
+project card has start buttons **Console / OpenCode / Web** (start + access in
+one click). If a running container has no published web port, it is replaced
+by a verified `--start_web` restart (auto-adopt).
 
-### Bestätigungs-Popup (Confirmation Popup)
+### Images and containers
 
-Schwere bzw. destruktive Aktionen bestätigt die Go-TUI vor dem Ausführen in
-einem zentrierten Popup über der Ansicht (Details siehe
-[ADR-0021](docs/adr/0021-confirmation-popups.md)): **New Project → Create
-Project** (Zusammenfassung der aktuellen Konfiguration mit `Create`/`Back`),
-**Settings → Export Config** bei bereits existierender Zieldatei
-(`Overwrite`/`Cancel`),
-**Settings → Restore Config** (ausgewähltes Backup → Zieldatei),
-**Build Images** (Editionen; nur im Leerlauf), **Delete Images**,
-**Delete Container**
-(rote `Delete`-Bestätigung; laufende Container werden zuvor mit dem
-Stopp-Hinweis abgewiesen) und **Settings → Uninstall**
-(rote `Uninstall`-Bestätigung nach dem getippten „uninstall“, mit Echo der
-gewählten Optionen) und **Project settings → Remove project from
-list** (rote `Remove`-Bestätigung; nur der Registry-Eintrag wird entfernt). Fokus startet auf der abbrechenden Taste (`Back`/`Cancel`);
-`←`/`→`/`Tab` wechselt die Taste, `↵` aktiviert die fokussierte Taste,
-`esc`/`q` bricht ab, Klick außerhalb des Panels ebenfalls. Der projektstartnahe
-Prompt **Build now / Build later / Go back** bleibt davon unberührt.
+The container center's **Build Images** tab builds any edition (plus the
+optional `oc-proxy` and `oc-searxng` images); **Delete Images** lists the
+sandbox family with sizes and refuses in-use images. Containers can be
+stopped (graceful) and deleted (running containers are refused with a
+stop-first hint).
 
-### Import: „Import existing project“ (Settings)
+### Change project settings
 
-Bestehende Sandbox-Projekt-Roots lassen sich über **Settings → Import existing
-project** erneut registrieren (z. B. nach Umzug oder Registry-Verlust; siehe
-[ADR-0017](docs/adr/0017-project-import-of-existing-sandbox-roots.md)):
+**Settings → Change Project Settings** re-runs the full prefilled sequence
+(edition, modes, start option, VCS, AI provider, proxy toggle) for any
+registered project — including running containers. Changes are persisted to
+`sandbox_config.json` and apply on next container start, never live.
 
-- Ein Ordner-Browser startet im Default-Projektpfad (Fallback: `$HOME`);
-  Unterverzeichnisse wählt man an, per **Select this folder** wird der Ordner
-  übernommen.
-- Der Import gelingt bei **gültigem `sandbox_config.json`** in
-  `.opencode_config/` und einem `project/`-Git-Worktree (`project/.git`).
-  Fehlende Infrastruktur-Ordner (`.opencode_data/`, `.ssh_local/`,
-  `.git_local/`, `.cbm_cache/`) sind kein Hindernis – `start.sh` legt sie
-  bei jedem Containerstart neu an. Zusammenfassung prüfen →
-  **Register** – es ändert sich nur die Registry, nichts am Ordner.
-- Nicht passende Ordner oder defektes `sandbox_config.json` werden nicht
-  migriert; die TUI weist auf den New-Project-Wizard mit Git-Import hin.
-- Bereits registrierte Pfade oder doppelte Namen werden abgelehnt
-  (registrierte Pfade unabhängig vom Zustand ihres Ordners).
+### Update / Uninstall
 
-### Projektquelle: „Clone existing repo via URL“ (New Project Wizard)
+**Settings → Update** shows installed vs. latest release version, checks for
+updates at every TUI start (footer badge when available), and runs the install
+script non-interactively — `proxy/allowlist.txt`, `dist/Dockerfile.custom`,
+and user configs are preserved; restart `oc-sandbox` afterwards.
 
-Als erste Wahl im New-Project-Wizard lässt sich statt eines leeren Projekts
-eine **Repo-URL** angeben. Das Projekt wird als Quelle `cloned` registriert
-(kein Template-Seed, kein hostseitiges `git init`), und die Ersteinrichtung
-klont das Repo **im Container** (siehe
-[ADR-0016](docs/adr/0016-in-container-clone-via-first-run-setup.md)):
+**Settings → Uninstall** runs a guided wizard (warning → options → typed
+`uninstall` confirmation). It removes only the installation, never project
+roots or user data. Details: `dist/scripts/uninstall.sh --help`.
 
-1. Der Wizard prüft die URL nur auf Form (nicht leer, keine Leerzeichen) –
-   kein Netztest zu diesem Zeitpunkt. Der Projektname wird aus dem
-   URL-Basisnamen vorbelegt.
-2. Bei Start des Projekts läuft als erster Setup-Schritt der
-   In-Container-Probe (`git ls-remote` gegen die URL, mit den Container-seitigen
-   Credentials) und danach ein **vollständiger Clone** (kein `--depth`, keine
-   automatische submodule/LFS-Rekursion) nach `project/`.
-3. Schlägt Probe oder Clone fehl, bietet die TUI
-   `Retry` (gleiche URL, unvollständiger Clone-Zustand wird zuvor aufgeräumt),
-   `Change URL` (neue Abfrage, neue URL wird persistent gespeichert) oder
-   `Exit`. Erst nach Erfolg wird `setup_clone_complete` gesetzt; Setup-Order:
-   Clone → CBM → Skills.
+## Editions
 
-**Einschränkungen:**
+Editions are **auto-discovered** from the `FROM ... AS opencode-sandbox-<name>`
+stages of `dist/Dockerfile` and `dist/Dockerfile.custom` (see ADR-0019) — no
+hardcoded whitelist. Sizes are approximate.
 
-- **HTTPS + Wizard-Token** funktioniert in allen Editionen: erfragt die TUI
-  einen VCS-Token, wird ein host-spezifischer Eintrag
-  (`https://<user>:<token>@<host>`) in `.git_local/credentials` geschrieben
-  (siehe [ADR-0016](docs/adr/0016-in-container-clone-via-first-run-setup.md)).
-- **SSH-URLs** (`git@…`, `ssh://…`) funktionieren nur, wenn vorher von Hand
-  SSH-Keys in den projekt-lokalen `.ssh_local/`-Ordner gelegt wurden (beim
-  Containerstart **read-only** unter `/home/dev/.ssh` eingehängt). Kostenloser
-  SSH-Fallback ist nicht Teil des Wizards.
-- **Keine automatische submodule/LFS-Rekursion** – Submodule oder LFS
-  müssen nach dem Clone von Hand initialisiert werden.
+| Edition    | What's installed                                                                                | ~Size | Use case                                              |
+| ---------- | ----------------------------------------------------------------------------------------------- | ----- | ----------------------------------------------------- |
+| **base**   | Python 3 + pip/venv, build-essential, cmake, git, gh, glab, OpenCode, codebase-memory-mcp        | ~1 GB | Minimal Python; parent of all editions                |
+| **web**    | base + Node 22, TypeScript/Jest/Playwright, pnpm, Chromium + Firefox                             | ~2.5 GB | TS/JS web development, browser automation            |
+| **embedded** | base + ARM toolchains (gcc-arm-none-eabi), Arduino CLI (AVR/ESP32), MicroPython (mpremote, esptool), PlatformIO, PicoScope SDK | ~4 GB | Arduino/ESP32, MicroPython firmware, HIL tests        |
+| **swdev**  | base + C/C++ (clang/gdb), GoogleTest/Catch2, Java (OpenJDK 21/Maven), Rust (rustup), Go          | ~3.5 GB | General software development in C/C++, Java, Rust, Go |
+| **matlab** | base + GNU Octave + numpy/scipy/matplotlib/pandas                                                | ~2.5 GB | License-free numerical computing (headless)           |
+| **ros2**   | base + ROS 2 Jazzy (ros-base, RViz2, CycloneDDS), colcon/rosdep/vcstool                          | ~3 GB | ROS 2 development in C++/Python                       |
+| **writing** | base + LibreOffice + pandoc + Liberation/Noto fonts                                             | ~2.5 GB | Office docs (odt/odp, docx/pptx), PDF export          |
+| **latex**  | base + latexmk + extensive TeX Live collections, biber/chktex/latexdiff, ghostscript, pandoc     | ~4 GB | LaTeX document compilation, any document compiles first try |
+| **pkm**    | base only (PKM wiki templates are seeded at project creation)                                    | ~1 GB | Personal Knowledge Wiki projects                      |
 
-**Nebenwirkung Credential-Store (ADR-0016, Entscheidung 4b):** der Wizard
-schreibt den erfragten VCS-Token **immer** in `.git_local/credentials` –
-unabhängig von der Projektquelle. Damit authentifizieren spätere
-HTTPS-Pushs aus dem Container automatisch mit demselben Token; ohne erfragten
-Token bleibt die Datei leer und git verhält sich wie vorher.
+**Custom editions:** add your own stage to `dist/Dockerfile.custom` (template
+included) — it then appears automatically in the TUI, `build-container.sh`,
+and `start.sh`. The file is never overwritten on updates.
 
+## HIL Mode
 
-## HIL: udev-Regeln installieren (optional)
+For HIL tests with USB oscilloscope and microcontrollers, install the udev
+rules from `udev/99-hil.rules` (PicoScope 2000 → `/dev/scope0`; serial MCU
+devices → stable symlinks in `/dev/hil/`).
 
-Nur für HIL-Tests mit USB-Oszilloskop und Mikrocontrollern. `udev/99-hil.rules`
-enthält Regeln für:
-
-- **PicoScope 2000**: Symlink `/dev/scope0` (USB-Bus-Verzeichnis wird in `start.sh` live ermittelt)
-- **Serielle MCU-Geräte** (ttyUSB\*, ttyACM\*): Echte Geräteknoten + stabile Vendor/Produkt-Symlinks in `/dev/hil/`
-
-Vendor/Product-ID eures Geräts ermitteln:
+Find your device's IDs, edit the rules, and install:
 
 ```bash
 lsusb
-```
-
-`udev/99-hil.rules` mit den korrekten IDs anpassen (bei mehreren Oszis/Geräten weitere Zeilen ergänzen), dann:
-
-```bash
+$EDITOR udev/99-hil.rules    # adjust vendor/product IDs
 sudo cp udev/99-hil.rules /etc/udev/rules.d/
 sudo udevadm control --reload-rules
 sudo udevadm trigger
+ls -l /dev/scope0 /dev/hil/  # verify
 ```
 
-Prüfen:
-
-```bash
-ls -l /dev/scope0 /dev/hil/
-```
-
-`/dev/scope0` sollte erscheinen, sobald der PicoScope angeschlossen ist. Serielle Geräte erscheinen als `/dev/hil/ttyACM0` etc. – `start.sh --hil_mode` mountet `/dev/hil` live in den Container.
-
-## Legacy: direkte Skript-Nutzung
-
-Alle Schritte aus dem TUI-Workflow lassen sich auch direkt per Skript
-ausführen. Die Skripte liegen in `dist/scripts/` (bzw.
-`~/.oc-sandbox/scripts/` nach Installation).
-
-### 1. Image bauen
-
-Einmalig die gewünschte Sandbox-Edition bauen:
-
-```bash
-cd opencode-sandbox
-./dist/scripts/build-container.sh web     # oder: base, embedded, swdev, matlab, ros2, writing, all
-```
-
-Das Skript entdeckt die Editionen live aus den
-`FROM ... AS opencode-sandbox-<name>`-Stages von `dist/Dockerfile` und
-`dist/Dockerfile.custom`; `all` baut alle gefundenen Editionen.
-
-Das baut:
-
-- `opencode-sandbox-base` — Python + core system packages
-- `opencode-sandbox-web` — base + Node/TypeScript/Playwright
-- `opencode-sandbox-embedded` — base + ARM toolchains/Arduino/MicroPython
-- `opencode-sandbox-swdev` — base + C/C++, Java, Rust, Go + Test-Frameworks
-- `opencode-sandbox-matlab` — base + GNU Octave + Python Scientific-Stack
-- `opencode-sandbox-ros2` — base + ROS 2 Jazzy + colcon/rosdep/vcstool
-- `opencode-sandbox-writing` — base + LibreOffice + pandoc
-- plus alle eigenen Editionen aus `dist/Dockerfile.custom`
-- `oc-proxy` — optionaler Squid-Egress-Proxy (wird nur bei `--use_proxy` benötigt)
-- `oc-searxng` — gemeinsamer SearXNG-Container für die Websuche (wird nur bei `--search_mode searxng` benötigt; Konfiguration in `dist/searxng/settings.yml`, bleibt bei Updates erhalten)
-
-### 2. Projekt-Root einrichten
-
-Das Start-Skript nimmt genau **einen** Pfad entgegen: einen **Projekt-Root** mit
-folgenden Unterordnern.
-
-```
-<PROJECT_ROOT>/
-  project/             <- euer eigentliches Repo (git clone/init hier hinein)
-  .opencode_config/     <- OpenCode-Config, projektspezifisch, persistent
-  .opencode_data/        <- OpenCode-Daten inkl. Sessions & Auth/Credentials
-  .ssh_local/            <- SSH-Keys + eigene ssh-Config für dieses Projekt
-  .git_local/            <- Git-Identität/-Settings + optionale HTTPS-Credentials
-    gitconfig             <- user.name/user.email, safe.directory, credential-store
-    credentials           <- git credential-store (optional)
-    gh-cli/hosts.yml      <- GitHub CLI Token (Alternative zu SSH Deploy Keys)
-    glab-cli/config.yml   <- GitLab CLI Token (hosts:-Block, siehe glab-Abschnitt)
-  .cbm_cache/            <- CBM Knowledge-Graph-Datenbank (persistent)
-  .bash_local/           <- bash_profile für den Container (persistente Prompt-/Env-Anpassungen)
-```
-
-Damit könnt ihr für jedes Projekt/jeden Kunden einen eigenen Projekt-Root anlegen,
-mit eigenen Git-Credentials und eigenem OpenCode-Login – ohne die Skripte
-anzufassen. Da `.opencode_config/`, `.opencode_data/`, `.ssh_local/`, `.git_local/`,
-`.cbm_cache/` und `.bash_local/` **Geschwister** von `project/` sind, sieht das
-Git-Repo in `project/` diese sensiblen Daten nie, auch nicht versehentlich per
-`git add .`.
-
-Neuen Projekt-Root mit korrekter Struktur/Rechten anlegen:
-
-```bash
-dist/scripts/init-project.sh ~/projects/kunde-x
-# ... Repo nach ~/projects/kunde-x/project klonen, Git-Config anpassen ...
-```
-
-Wichtig: Bei erneuter Ausführung überschreibt `init-project.sh` die
-projektspezifischen Vorlagen (u. a. `.opencode_config/opencode.json`) – eigene
-Anpassungen darin gehen verloren, nur `proxy/allowlist.txt` bleibt bei
-Updates erhalten. Neue OpenCode-Features (z. B. `websearch` + Context7-MCP)
-landen erst beim erneuten Init in bestehenden Projekt-Roots.
-
-#### `.git_local/` anpassen
-
-```bash
-$EDITOR ~/projects/kunde-x/.git_local/gitconfig   # user.name / user.email setzen
-```
-
-#### `.ssh_local/` befüllen
-
-```bash
-ssh-keygen -t ed25519 -f ~/projects/kunde-x/.ssh_local/id_ed25519_github -N ""
-ssh-keygen -t ed25519 -f ~/projects/kunde-x/.ssh_local/id_ed25519_gitlab -N ""
-chmod 600 ~/projects/kunde-x/.ssh_local/id_ed25519_*
-```
-
-Öffentliche Schlüssel als **Deploy Key** hinterlegen (GitHub: Repo → Settings →
-Deploy keys; eigenes GitLab: Projekt → Deploy Keys). `.ssh_local/config` anpassen.
-
-#### Alternativen zu SSH: HTTPS + Token (gh / glab)
-
-Statt SSH Deploy Keys könnt ihr auch **HTTPS mit Personal Access Token** nutzen.
-Das Token wird einmalig hinterlegt und übernimmt Git-Authentifizierung +
-CLI-Tools (Issues, PRs etc.):
-
-**GitHub (`gh`):**
-
-```bash
-cp templates/git_local/gh-cli/hosts.yml ~/projects/kunde-x/.git_local/gh-cli/hosts.yml
-$EDITOR ~/projects/kunde-x/.git_local/gh-cli/hosts.yml   # oauth_token eintragen
-chmod 600 ~/projects/kunde-x/.git_local/gh-cli/hosts.yml
-```
-
-Token erzeugen: GitHub → Settings → Developer settings → Personal access tokens
-→ Tokens (classic). Benötigte Scopes: `repo`, `read:org`, `workflow`.
-
-**GitLab (`glab`):**
-
-```bash
-cp templates/git_local/glab-cli/config.yml ~/projects/kunde-x/.git_local/glab-cli/config.yml
-$EDITOR ~/projects/kunde-x/.git_local/glab-cli/config.yml   # hosts:-Block auskommentieren, token eintragen
-chmod 600 ~/projects/kunde-x/.git_local/glab-cli/config.yml
-```
-
-Token erzeugen: GitLab → Preferences → Access Tokens. Benötigte Scopes: `api`, `read_repository`, `write_repository`.
-
-Der **Credential-Helper für git push/pull via HTTPS** ist in der
-gitconfig-Vorlage bereits aktiv (`[credential] helper = store --file=
-/home/dev/.git_local/credentials`). Es genügt, das Token als Host-Eintrag in
-`.git_local/credentials` abzulegen:
-
-```
-https://<user>:ghp_xxxxx@github.com
-```
-
-Der geführte TUI-VCS-Flow schreibt diesen Eintrag automatisch, sobald ein
-VCS-Token erfasst wird (GitHub: `https://oauth2:<token>@github.com`).
-
-### 3. Sandbox starten
-
-```bash
-dist/scripts/start.sh ~/projects/kunde-x --edition web            # volles Netz
-```
-
-Die `--edition`-Flag akzeptiert jede über `Dockerfile`/`Dockerfile.custom`
-entdeckte Edition (kein fester Default).
-
-**Edition wählen:**
-
-```bash
-dist/scripts/start.sh ~/projects/kunde-x --edition web       # Web-only
-dist/scripts/start.sh ~/projects/kunde-x --edition embedded  # Embedded-only
-dist/scripts/start.sh ~/projects/kunde-x --edition base      # Minimal Python
-dist/scripts/start.sh ~/projects/kunde-x --edition swdev     # C/C++, Java, Rust, Go
-```
-
-| Flag-Kombination         | Netzwerk | Proxy           | Geräte                    | Anwendung                          |
-| ------------------------ | -------- | --------------- | ------------------------- | ---------------------------------- |
-| *(keine)*                | pasta    | nein            | –                         | Coding, volle Netzanbindung        |
-| `--use_proxy`            | pasta    | Squid-Allowlist | –                         | Restriktiver Netz-Zugriff          |
-| `--offline`              | none     | nein            | –                         | Air-Gapped, nur lokale Modelle     |
-| `--hil_mode`             | pasta    | nein            | Oszi + MCU (ttyUSB* etc.) | HIL-Tests                          |
-| `--use_proxy --hil_mode` | pasta    | Squid-Allowlist | Oszi + MCU                | HIL mit Restricted-Net             |
-| `--cbm_ui`               | pasta    | nein            | –                         | CBM Knowledge-Graph-UI (Port 9749) |
-| `--use_proxy --cbm_ui`   | pasta    | Squid-Allowlist | –                         | Proxy + Graph-UI                   |
-| `--search_mode searxng`  | pasta    | nein            | –                         | SearXNG-Websuche (ohne Proxy, ADR 0026) |
-| `--start_web --detach`   | pasta    | nein            | –                         | OpenCode-Weboberfläche (Port 4096) |
-
-Weitere Einzelflags (nicht in der Tabelle): `--start_opencode` öffnet direkt
-eine OpenCode-TUI-Sitzung im Container; `--detach` startet den Container im
-Hintergrund (ohne `--start_web` mit `sleep infinity` als Hauptprozess);
-`--container-id <id>` setzt die persistierte Container-Identität aus der
-Projekt-Registry (Standard sonst: Basisname des Projekt-Roots).
-
-Beispiele:
-
-```bash
-# Coding ohne Einschränkungen (web edition)
-dist/scripts/start.sh ~/projects/kunde-x --edition web
-
-# Web-only edition
-dist/scripts/start.sh ~/projects/kunde-x --edition web
-
-# Embedded-only edition mit HIL
-dist/scripts/start.sh ~/projects/hil-tests --edition embedded --hil_mode
-
-# Mit Egress-Proxy (Allowlist)
-dist/scripts/start.sh ~/projects/kunde-x --use_proxy
-
-# Websuche über den gemeinsamen SearXNG-Container
-dist/scripts/start.sh ~/projects/kunde-x --search_mode searxng
-
-# Komplett offline
-dist/scripts/start.sh ~/projects/kunde-x --offline
-
-# HIL-Tests mit Oszi + Mikrocontrollern
-dist/scripts/start.sh ~/projects/hil-tests --hil_mode
-
-# HIL-Tests mit Proxy
-dist/scripts/start.sh ~/projects/hil-tests --use_proxy --hil_mode
-
-# Mit CBM Knowledge-Graph-UI (bevorzugt http://localhost:9749)
-dist/scripts/start.sh ~/projects/kunde-x --cbm_ui
-
-# Als Webserver mit OpenCode-Weboberfläche (bevorzugt http://localhost:4096)
-dist/scripts/start.sh ~/projects/kunde-x --start_web --detach
-```
-
-> **Hinweis zu `--cbm_ui`:** Der `codebase-memory-mcp` Dienst startet im Hintergrund mit `autoindex: true` und bietet eine Web-UI auf Port 9749. Die Graph-UI benötigt Netzwerkzugriff und funktioniert daher nicht mit `--offline` (network=none). In allen anderen Modi kombinierbar. Siehe [codebase-memory-mcp](https://github.com/DeusData/codebase-memory-mcp).
-> Ist Port 9749 bereits belegt, wählt `start.sh` automatisch den nächsten freien Port bis 9849 und gibt die URL aus.
-
-> **Hinweis zu `--start_web`:** Startet den OpenCode-Webdienst (v2-Hintergrunddienst, fest auf Container-Port 4096) und veröffentlicht ihn auf `127.0.0.1` (Port-Scan 4096-4196, wenn 4096 belegt ist). Mit `--detach` läuft der Dienst als Container-Hauptprozess, die URL bzw. ein einmaliger Anmelde-Link wird beim Zugriff ausgegeben. Ohne `--detach` läuft `opencode serve` im Vordergrund; Strg+C beendet und entfernt den Container. Im TUI-Startdialog als Start-Option „web" wählbar (läuft dort immer als Hintergrunddienst im Container).
-
-> **Hinweis zu `--hil_mode` und USB-Sicherheit:**
-> Das Skript ermittelt zur Laufzeit den realen Pfad von `/dev/scope0`
-> (z.B. `/dev/bus/usb/007/055`) und mountet das übergeordnete
-> Bus-Verzeichnis (`/dev/bus/usb/007/`) in den Container. Das bedeutet:
-> **Alle USB-Geräte auf derselben physischen USB-Bus-Nummer** sind im
-> Container sichtbar – nicht nur der Oszi. Ein feinerer Scope (einzelnes
-> Gerät) ist mit libusb nicht möglich, da `libps2000` selbst
-> `/dev/bus/usb/*` per `readdir` durchsucht. Das Risiko bleibt begrenzt,
-> da nur der eine Bus gemountet wird, nicht `/dev/bus/usb` im Ganzen.
-
-Der Container startet eine interaktive Shell. OpenCode starten mit:
-
-```bash
-opencode
-```
-
-#### OpenCode Config & Data (persistent, pro Projekt)
-
-| Zweck                                           | Pfad im Container         | Quelle im Projekt-Root |
-| ----------------------------------------------- | ------------------------- | ---------------------- |
-| Config (`opencode.json`, Agents, Themes)        | `~/.config/opencode`      | `.opencode_config/`    |
-| Daten (Sessions, Verlauf, **Auth/Credentials**) | `~/.local/share/opencode` | `.opencode_data/`      |
-
-> **Wichtig:** `.opencode_data/` enthält ggf. API-Keys/Auth-Tokens im Klartext –
-> Zugriffsrechte einschränken, nicht in unbeaufsichtigte Backups/Sync-Tools
-> aufnehmen.
-
-Zurücksetzen:
-
-```bash
-rm -rf ~/projects/kunde-x/.opencode_config/* ~/projects/kunde-x/.opencode_data/*
-```
-
-## Repository-Struktur
-
-```
-.
-├── AGENTS.md                     <- Agent-spezifische Anweisungen
-├── CONTEXT.md                    <- Domain-Vokabular & Kontext
-├── dist/                         <- Produktions-Release (Quelle für Releases)
-│   ├── Dockerfile                <- Multi-Stage: base, web, embedded, swdev, matlab, ros2, writing
-│   ├── Dockerfile.custom          <- Vorlage für eigene Editionen (auto-entdeckt)
-│   ├── README.md                 <- Kurzanleitung für Produktion
-│   ├── bin/                      <- Go-TUI-Binary `oc-sandbox` (wird beim Release gebaut)
-│   ├── scripts/
-│   │   ├── start.sh              <- Einheitliches Start-Skript (--edition flag)
-│   │   ├── build-container.sh    <- Baut Sandbox-Editionen + Proxy
-│   │   ├── init-project.sh       <- Legt Projekt-Root-Struktur an
-│   │   └── uninstall.sh          <- Deinstallation
-│   ├── proxy/
-│   │   ├── Dockerfile            <- Separates Squid-Proxy-Image
-│   │   ├── squid.conf
-│   │   └── allowlist.txt
-│   ├── udev/
-│   │   └── 99-hil.rules          <- udev-Regeln für HIL-Geräte (Oszi + MCU)
-│   ├── icons/                    <- Icon-Material für Desktop-Shortcuts (linux/windows/macos)
-│   └── templates/
-│       ├── ssh_local/config
-│       ├── git_local/
-│       │   ├── gitconfig
-│       │   ├── credentials
-│       │   ├── gh-cli/
-│       │   └── glab-cli/
-│       ├── bash/
-│       │   └── bash_profile      <- Vorlage für .bash_local/bash_profile
-│       ├── opencode/
-│       │   ├── opencode-basic.json   <- Basis-Config (Provider section erzeugt configure-project.sh)
-│       │   ├── AGENTS.md             <- Agent-Config (wird kopiert)
-│       │   └── skills/               <- Skill-Vorlagen (wird von init-project.sh befüllt)
-├── docs/
-│   ├── adr/                      <- Architecture Decision Records
-│   ├── agents/                   <- Agent-Dokumentation
-│   └── research/                 <- Research-Notizen (u.a. picoscope.md)
-├── scripts/
-│   ├── create-release.sh         <- Erstellt GitHub Releases aus dist/ Ordner
-│   ├── install.sh                <- Installationsskript
-│   ├── RELEASE_README.md         <- Release-Prozess-Dokumentation
-│   └── USAGE_EXAMPLES.md         <- Verwendungsbeispiele
-├── tests/                        <- Test-Suite
-├── specs/                        <- Spezifikationen
-├── .devcontainer/
-│   └── devcontainer.json         <- VS Code Devcontainer-Konfiguration
-└── README.md
-```
-
-**Hinweis:** Die Laufzeit-Skripte (`start.sh`, `build-container.sh`,
-`init-project.sh`, `uninstall.sh`) liegen in `dist/scripts/` – der `dist/` Ordner
-ist die Quelle für Releases. Alle anderen Ordner (`docs/`, `tests/`, `specs/`,
-`scripts/install.sh`, etc.) sind nur für die Entwicklung und werden nicht in
-Releases veröffentlicht.
-
-## Devcontainer / VS Code (optional)
-
-`.devcontainer/devcontainer.json` erwartet, dass ihr in VS Code den **Projekt-Root**
-öffnet (den Ordner mit `project/`, `.opencode_config/`, `.opencode_data/`,
-`.ssh_local/`, `.git_local/` als Unterordnern) – nicht `project/` selbst.
-
-Hinweise:
-
-- **Proxy-Env-Vars** sind vor-konfiguriert (`HTTP_PROXY`, `HTTPS_PROXY`,
-  `NO_PROXY`). Der Proxy muss nicht zwingend laufen – Devcontainer ohne
-  `--use_proxy` ignorieren die Variablen.
-- **USB-Geräte (HIL)** funktionieren nicht über den Devcontainer (kein
-  dynamisches udev-Mounting). Für HIL-Tests `dist/scripts/start.sh --hil_mode`
-  verwenden.
-
-## Sicherheitsprinzipien
-
-- Rootless Podman (kein Docker-Daemon als root)
-- `--cap-drop=ALL` + `no-new-privileges`
-- Projekt-Root-Struktur trennt Code (`project/`) strikt von Secrets
-  (`.ssh_local/`, `.opencode_data/`, `.git_local/`)
-- Pro Projekt-Root eigene Git-Keys, eigene Git-Identität und eigener
-  OpenCode-Login möglich, ohne Skript-Änderung
-- SSH-Key- und Git-Credentials-Rechte werden beim Start geprüft
-- Netzwerk-Egress optional per Proxy-Allowlist statt freiem Internet
-- HIL-Mode mit Bus-Level-Passthrough (nur der USB-Bus des Oszi, nicht `/dev/bus/usb` komplett)
-- `--offline` für Läufe ohne Netzwerkbedarf
-- Container-Name pro Projekt-Root, damit mehrere Sandboxes parallel laufen können
-- Nur die definierten Projekt-Root-Unterordner plus `.bash_local/bash_profile`
-  werden gemountet – nicht `$HOME`
-- Allgemeine Konfigurations-Backups enthalten keine VCS- oder AI-Credentials; Restore validiert JSON und ersetzt jeweils nur eine Datei atomar
-
-## Deinstallation
-
-Im TUI (Settings → **Uninstall**) läuft der Ablauf als geführter Wizard:
-Warnung mit laufenden Containern → Options-Auswahl (Einträge werden per Enter
-umgeschaltet, Bestätigen startet die Deinstallation erst nach Auswahl von
-„Confirm — start uninstall") → Zusammenfassung mit `UNINSTALL`-Bestätigung;
-jeder Schritt ist abbrechbar.
-
-Direkt per Skript wird die Sandbox mit `dist/scripts/uninstall.sh` entfernt. Es
-werden nur der Installationspfad, die Symlinks und optional die Config entfernt –
-niemals Projekt-Roots oder Nutzer-Daten. Laufende Container werden erkannt und
-gemeldet; Dateien ohne entfernbare Berechtigungen werden übersprungen und am
-Ende aufgelistet.
-
-```bash
-dist/scripts/uninstall.sh                    # Interaktiv, Bestätigung per [y/N]
-dist/scripts/uninstall.sh --remove-config    # Entfernt zusätzlich ~/.config/oc-sandbox/ (mit Backup)
-dist/scripts/uninstall.sh --force            # Ohne Rückfragen (Skripte/CI)
-dist/scripts/uninstall.sh --dry-run          # Nur anzeigen, nichts löschen
-```
-
-**Optionen:**
-
-- `--install_path <pfad>` – Installationspfad (default: `$HOME/.oc-sandbox`)
-- `--remove-config` – Config-Verzeichnis `~/.config/oc-sandbox/` entfernen (vorher automatisches Backup; Rotation behält die 5 neuesten)
-- `--no-backup` – Kein Config-Backup erstellen (nur mit `--remove-config` relevant)
-- `--no-symlinks` – Symlinks in `~/.local/bin` behalten
-- `--remove-shortcuts` – Desktop-Shortcuts (`.desktop`/`.lnk`/`.app`) und die
-  installierten Hicolor-Icons entfernen;
-  ist das Flag nicht gesetzt, bleiben sie unberührt
-- `--force` – Keine Bestätigungen, sofort entfernen
-- `--dry-run` – Zeigt, was entfernt würde, ohne zu löschen
-- `--verbose` – Detaillierte Ausgabe
-
-Details siehe `dist/README.md` und `docs/adr/0012-deinstallation-routine.md`.
+`start.sh --hil_mode` (or the TUI's HIL mode) mounts `/dev/hil` live into the
+container. Note: the whole USB bus of the scope is mounted, not just the one
+device (libusb limitation); serial devices may appear as `nobody:nogroup`
+— see [troubleshooting](#troubleshooting).
+
+## Legacy
+
+The TUI covers everything. If you prefer calling the scripts directly
+(`build-container.sh`, `init-project.sh`, `start.sh`, `uninstall.sh`), see
+**[docs/legacy-script-usage.md](docs/legacy-script-usage.md)** — the complete
+flag reference, project-root structure, and credential setup for direct usage.
 
 ## Troubleshooting
 
-### Container startet gar nicht erst (`crun`/`runc` schreibt gid_map nicht)
-
-**Symptom**:
+### Container won't start (`crun`/`runc` gid_map error)
 
 ```
 Error: crun: writing file `/proc/<pid>/gid_map`: Operation not permitted: OCI permission denied
 ```
 
-oder mit `runc`:
-
-```
-Error: OCI runtime error: runc: runc create failed: unable to start container process: can't get final child's PID from pipe: EOF
-```
-
-**Ursache**: `--userns=keep-id` braucht `newuidmap`/`newgidmap`, um die
-Self-Mapping des eigenen UID/GID in den Container-Userns zu schreiben. Die
-beiden Setuid-Helfer verweigern das mit
-`uid range [0-1) -> [<uid>-<uid+1>) not allowed`, wenn `/etc/subuid` (und
-analog `/etc/subgid`) keinen Eintrag enthält, der die eigene UID/GID
-abdeckt. Ubuntu 24.04 mit `podman 4.9.3+ds1` legt nur den 100000+ Bereich
-an; den Self-Eintrag muss man von Hand ergänzen. Ohne ihn versuchen
-`runc` und `crun` die `gid_map` selbst zu schreiben, scheitern aber ohne
-`CAP_SETGID` und brechen ab.
-
-**Fix** (einmalig, danach neu einloggen damit Podman die Dateien neu liest):
+`--userns=keep-id` needs `/etc/subuid`/`/etc/subgid` entries covering your own
+UID/GID. Ubuntu 24.04 only creates the 100000+ range; add the self-entry
+manually, then log out and back in:
 
 ```bash
 echo "$(id -un):$(id -u):1" | sudo tee -a /etc/subuid
 echo "$(id -un):$(id -g):1" | sudo tee -a /etc/subgid
 ```
 
-Danach `dist/scripts/start.sh` nochmal starten. Die Prüfung, ob der
-Self-Eintrag vorhanden ist, bleibt euch überlassen (z.B. per `getsubids $USER`);
-dasselbe gilt für `devcontainer.json`-Workflows
-(`.devcontainer/devcontainer.json` → `devcontainer up`).
+### HIL: USB device has no permissions in container (nobody:nogroup)
 
-### HIL: USB-Gerät hat keine Rechte im Container (nobody:nogroup)
-
-**Symptom**: Im Container erscheint das Oszi unter `/dev/bus/usb/XXX/YYY` als
-`nobody:nogroup` (UID/GID 65534). `picoscope`, `pyusb` o.ä. scheitern mit
-`PermissionError` oder `LIBUSB_ERROR_ACCESS`.
-
-**Ursache**: Rootless-Podman verwendet User-Namespaces. Mit `--userns=keep-id`
-wird nur der eigene UID/GID-Bereich aus `/etc/subuid` und `/etc/subgid`
-gemappt. System-GIDs wie `dialout` (GID 20) sind im Default-Subgid-Bereich
-(100000+) nicht enthalten. Das Gerät hat auf dem Host die Gruppe `dialout`
-und ist im Container-Userns nicht gemappt → erscheint als `nobody`.
-
-**Voraussetzung**: Ohne den oben beschriebenen Self-Eintrag startet der
-Container gar nicht. Die folgenden Optionen setzen ihn voraus.
-
-**Fix-Optionen** (eine davon ausführen):
-
-**a) chmod – eine Session** (wird beim nächsten Anstecken des Geräts zurückgesetzt):
+The device appears as `nobody:nogroup` (UID/GID 65534); `picoscope`/`pyusb`
+fail with `PermissionError` or `LIBUSB_ERROR_ACCESS`. System groups like
+`dialout` (GID 20) are not mapped into the rootless user namespace. Options:
 
 ```bash
+# a) one session (reset on next plug): 
 sudo chmod a+rw /dev/bus/usb/XXX/YYY
-```
-
-**b) chown – eine Session** (wird beim nächsten Anstecken des Geräts zurückgesetzt):
-
-```bash
-sudo chown $(id -un):$(id -gn) /dev/bus/usb/XXX/YYY
-```
-
-**c) Dauerhaft – dialout-GID in /etc/subgid aufnehmen** (zusätzlich zum
-Self-Eintrag aus dem vorigen Abschnitt, einmalig, überlebt Reboots):
-
-```bash
+# b) persistent: add dialout-GID to /etc/subgid, re-login
 echo "$(id -un):20:1" | sudo tee -a /etc/subgid
-# Danach ab- und wieder anmelden, Podman-Userns wird neu initialisiert.
 ```
 
-`dist/scripts/start.sh --hil_mode` führt keine automatischen Rechte-Fixes auf
-Host-Geräten durch – eine der Optionen oben muss von Hand ausgeführt werden.
+## Security principles
+
+- Rootless Podman (no Docker daemon as root)
+- `--cap-drop=ALL` + `no-new-privileges`
+- Project-root structure strictly separates code (`project/`) from secrets
+  (`.ssh_local/`, `.opencode_data/`, `.git_local/`)
+- Per-project git keys, git identity, and OpenCode login without script edits
+- SSH-key and git-credential permissions are checked at start
+- Optional network egress via proxy allowlist; `--offline` for no-network runs
+- HIL mode uses bus-level passthrough (only the scope's USB bus, never `/dev/bus/usb` entirely)
+- Config backups contain no VCS or AI credentials; restores validate JSON and replace one file atomically
 
 ## Releases
 
-Erstelle GitHub Releases automatisch aus dem `dist/` Ordner mit `create-release.sh`:
-
-**Flag-basierter Modus:**
-
-```bash
-# Veröffentlichtes Release
-./scripts/create-release.sh --version v1.0.0
-
-# Veröffentlichtes Release mit benutzerdefiniertem Titel
-./scripts/create-release.sh --version v1.0.0 --title "Erste Version"
-
-# Pre-Release
-./scripts/create-release.sh --version v2.0.0-beta --pre-release
-
-# Draft für Überprüfung
-./scripts/create-release.sh --version v1.0.0 --draft
-
-# Pre-Release als Draft
-./scripts/create-release.sh --version v2.0.0-beta --pre-release --draft
-```
-
-**Interaktiver Modus:**
-
-```bash
-./scripts/create-release.sh
-# Folge den Prompts für Version, Titel, Release Notes, Pre-Release und Draft
-```
-
-**Flags:**
-
-- `--version VERSION` - Version-Tag (erforderlich, Format: v1.2.3)
-- `--title TITLE` - Releasetitel (optional, Standard: "Release v1.0.0")
-- `--pre-release` - Als Pre-Release markieren (Presence=true)
-- `--draft` - Als Draft erstellen (Presence=true)
-- `--help, -h` - Nutzungsinformationen anzeigen
-
-Das Skript:
-
-- Validiert Semantic Versioning
-- Erstellt cleanen Orphan-Branch (nur dist/ Inhalte)
-- Erstellt Releases auf GitHub (Standard: veröffentlicht, optional: Draft)
-- Bereinigt alte Release-Branches automatisch
-- Führt dich durch den Veröffentlichungsprozess
-
-**Dist-Ordner:** Der `dist/` Ordner enthält die produktionsreifen Dateien mit eigener
-`README.md` für Endanwender. Bei einem Release wird nur dieser Ordner veröffentlicht.
-
-Siehe `scripts/RELEASE_README.md` für detaillierte Dokumentation und `scripts/USAGE_EXAMPLES.md` für Beispiele.
+GitHub releases are created automatically from the `dist/` folder with
+`scripts/create-release.sh`, e.g. `./scripts/create-release.sh --version
+v1.0.0`. See `scripts/RELEASE_README.md` for details.
 
 ## Credits
 
-Dank an folgende Open-Source-Projekte und Tools:
+Thanks to these open-source projects and tools:
 
-- **Matt Pocock: Skills For Real Engineers** (https://github.com/mattpocock/skills) — Eine Sammlung von Engineering-Skills für opencode mit bewährten Arbeitsabläufen für Code-Review, TDD, Architekturentwurf und mehr.
-
-- **codebase-memory-mcp** (https://github.com/DeusData/codebase-memory-mcp) — Knowledge-Graph-Indexing und auto-konfigurierte Code-Intelligence für opencode mit Web-UI und cross-repo-Verbindungen.
-
-- **opencode-models-discovery** (https://github.com/yuhp/opencode-models-discovery) — Modell-Discovery für opencode: findet verfügbare Modelle und Provider dynamisch, statt sie von Hand zu pflegen.
-
-- **Bubble Tea** (https://github.com/charmbracelet/bubbletea) — Go-Framework für Terminal-UIs, zusammen mit **Bubbles** (https://github.com/charmbracelet/bubbles) und **Lip Gloss** (https://github.com/charmbracelet/lipgloss) die Grundlage der TUI.
+- **Matt Pocock: Skills For Real Engineers** (https://github.com/mattpocock/skills) — engineering skills for OpenCode with proven workflows for code review, TDD, architecture design, and more.
+- **codebase-memory-mcp** (https://github.com/DeusData/codebase-memory-mcp) — knowledge-graph indexing and auto-configured code intelligence for OpenCode with web UI and cross-repo links.
+- **opencode-models-discovery** (https://github.com/yuhp/opencode-models-discovery) — model discovery for OpenCode: finds available models and providers dynamically instead of maintaining them by hand.
+- **SearXNG** (https://github.com/searxng/searxng) — privacy-respecting metasearch engine, used as the shared `oc-searxng` container for keyless web search.
+- **mcp-searxng** (https://github.com/ihor-sokoliuk/mcp-searxng) — MCP server for SearXNG, pre-installed in the sandbox images.
+- **Bubble Tea** (https://github.com/charmbracelet/bubbletea) — Go framework for terminal UIs, together with **Bubbles** (https://github.com/charmbracelet/bubbles) and **Lip Gloss** (https://github.com/charmbracelet/lipgloss) the foundation of the TUI.
 
 ## Disclaimer
+
+**BETA version — extensive tests are still needed.**
 
 This project is not built by the OpenCode team and is not affiliated with OpenCode in any way.
