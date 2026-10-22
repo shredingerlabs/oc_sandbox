@@ -131,3 +131,74 @@ if bash "$INIT_SCRIPT" "$test_home/kunde-f" --project_kind nope > /dev/null 2>&1
 fi
 
 printf 'init-project chat-template tests passed\n'
+
+# --- PKM (issue #122): Seeding für --project_kind pkm ---------------------------
+# Wiki-Schema-Marker aus dist/templates/pkm/AGENTS.md
+pkm_tpl="$PROJECT_ROOT/dist/templates/pkm"
+[[ -f "$pkm_tpl/AGENTS.md" ]]
+root_pkm="$test_home/pkm-a"
+
+if ! bash "$INIT_SCRIPT" "$root_pkm" --project_kind pkm > "$test_home/pkm-output" 2>&1; then
+  printf 'init-project.sh failed with --project_kind pkm\n' >&2
+  cat "$test_home/pkm-output" >&2
+  exit 1
+fi
+
+# AGENTS.md ist immer das Wiki-Schema
+grep -q 'Personal Knowledge Wiki' "$root_pkm/.opencode_config/AGENTS.md"
+! grep -q 'Chat assistant' "$root_pkm/.opencode_config/AGENTS.md"
+
+# agents/commands/skills aus den PKM-Templates sind kopiert
+for d in agents commands skills; do
+  [[ -d "$root_pkm/.opencode_config/$d" ]]
+done
+for a in wiki researcher linter; do
+  [[ -f "$root_pkm/.opencode_config/agents/${a}.md" ]]
+done
+for c in ingest query lint synthesize review; do
+  [[ -f "$root_pkm/.opencode_config/commands/${c}.md" ]]
+done
+for s in wiki-ingest wiki-lint wiki-review wiki-synthesize; do
+  [[ -f "$root_pkm/.opencode_config/skills/${s}/SKILL.md" ]]
+done
+
+# opencode.json: default_agent + permissions gemerged, Rest unversehrt
+[[ "$(jq -r '.default_agent' "$root_pkm/.opencode_config/opencode.json")" == "wiki" ]]
+[[ "$(jq -r '.permissions | length' "$root_pkm/.opencode_config/opencode.json")" -ge 7 ]]
+jq -e '.permissions | any(.action == "edit" and .resource == "wiki/*" and .effect == "allow")' \
+  "$root_pkm/.opencode_config/opencode.json" > /dev/null
+# Basis-Seed bleibt erhalten
+jq -e '.mcp.servers["codebase-memory-mcp"], .websearch' "$root_pkm/.opencode_config/opencode.json" > /dev/null
+
+# .gitignore: PKM-Einträge angehängt, ohne Duplikate
+for entry in '.obsidian/workspace*.json' '.obsidian/cache' '.trash/' '.DS_Store'; do
+  grep -qxF "$entry" "$root_pkm/.gitignore"
+done
+[[ "$(grep -c '^\.opencode_config/$' "$root_pkm/.gitignore")" == 1 ]]
+
+# Vault-Skelett: notes/, raw/, wiki/
+for d in notes raw wiki; do
+  [[ -d "$root_pkm/project/$d" ]]
+done
+
+printf 'init-project pkm seeding tests passed\n'
+
+# --- PKM cloned flow: Seed überlebt den In-Container-Clone ----------------------
+# Der Clone (im Container, später) schreibt project/AGENTS.md — der Seed in
+# .opencode_config/ bleibt das Wiki-Schema (creation-time seeding, kein Re-Run).
+root_pkm_clone="$test_home/pkm-b"
+
+if ! bash "$INIT_SCRIPT" "$root_pkm_clone" --project_kind pkm \
+  --repo_url https://example.com/repo.git > /dev/null 2>&1; then
+  printf 'init-project.sh failed with pkm --repo_url\n' >&2
+  exit 1
+fi
+
+# Clone-Simulation: das geklonte Repo bringt seine eigene AGENTS.md mit
+printf '# fremde AGENTS.md aus dem Repo\n' > "$root_pkm_clone/project/AGENTS.md"
+
+grep -q 'Personal Knowledge Wiki' "$root_pkm_clone/.opencode_config/AGENTS.md"
+! cmp -s "$root_pkm_clone/project/AGENTS.md" "$root_pkm_clone/.opencode_config/AGENTS.md"
+[[ "$(jq -r '.default_agent' "$root_pkm_clone/.opencode_config/opencode.json")" == "wiki" ]]
+
+printf 'init-project pkm cloned-repo tests passed\n'
