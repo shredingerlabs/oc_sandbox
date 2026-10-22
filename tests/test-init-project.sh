@@ -217,10 +217,10 @@ grep -q 'Personal Knowledge Wiki' "$root_pkm_clone/.opencode_config/AGENTS.md"
 
 printf 'init-project pkm cloned-repo tests passed\n'
 
-# --- PKM lifecycle (#124): created → started on the pkm edition → edition switch
-# Full chain with mocked podman: the seeded project starts on
-# opencode-sandbox-pkm, and a later edition switch (the next-start apply of
-# the change-settings flow) never re-seeds or removes the PKM files.
+# --- PKM-Lebenszyklus (#124): angelegt → Start auf pkm-Edition → Editionswechsel
+# Volle Kette mit gemocktem Podman: das geseedete Projekt startet auf
+# opencode-sandbox-pkm, und ein spaeterer Editionswechsel (next-start-Apply
+# des Settings-Flows) seedet nie neu und entfernt die PKM-Dateien nicht.
 seed_files=(
   ".opencode_config/AGENTS.md"
   ".opencode_config/opencode.json"
@@ -241,7 +241,7 @@ seed_state() {
 
 # Das Go-Wizard (sandboxcfg.Create + PatchString) legt die sandbox_config.json
 # an, bevor der erste Start laeuft — hier nachgebildet (jq-Spiegel des
-# create-Payloads fuer ein pkm-Projekt).
+# Create-Payloads fuer ein pkm-Projekt).
 jq -n '{container_edition: "pkm", container_modes: ["skills"], start_option: "opencode",
         cbm_auto_index: true, cbm_auto_watch: true, ai_provider: "none",
         project_source: "empty", repo_url: "", project_kind: "pkm",
@@ -284,7 +284,7 @@ if ! bash "$PROJECT_ROOT/dist/scripts/start.sh" "$root_pkm" --edition pkm --deta
 fi
 [[ "$(seed_state)" == "$baseline" ]]
 
-# project_kind bleibt im Config-Dokument vermerkt (decided once at creation)
+# project_kind bleibt im Config-Dokument vermerkt (einmalig bei Erstellung festgelegt)
 [[ "$(jq -r '.project_kind' "$root_pkm/.opencode_config/sandbox_config.json")" == "pkm" ]]
 
 printf 'init-project pkm lifecycle tests passed\n'

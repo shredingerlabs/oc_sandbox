@@ -129,35 +129,40 @@ fi
 # PKM-Seeding (creation-time only, issue #122): Template-Ordner, opencode.json
 # Key-Merge, .gitignore-Append und Vault-Skelett — vor der üblichen
 # Provider/Search-Seed-Kette (configure-project.sh läuft nach diesem Script).
+PKM_TEMPLATE="${SCRIPT_DIR}/../templates/pkm"
 if [[ "$PROJECT_KIND" == "pkm" ]]; then
-  PKM_TEMPLATE="${SCRIPT_DIR}/../templates/pkm"
-  if [[ -d "$PKM_TEMPLATE" ]]; then
-    if [[ -d "$PKM_TEMPLATE/agents" ]]; then
-      cp -r "$PKM_TEMPLATE/agents" "${PROJECT_ROOT}/.opencode_config/agents"
-    fi
-    if [[ -d "$PKM_TEMPLATE/commands" ]]; then
-      cp -r "$PKM_TEMPLATE/commands" "${PROJECT_ROOT}/.opencode_config/commands"
-    fi
-    if [[ -d "$PKM_TEMPLATE/skills" ]]; then
-      # In den vorhandenen Skills-Ordner mergen (spätere Skill-Pulls fügen hinzu)
-      cp -r "$PKM_TEMPLATE/skills/." "${PROJECT_ROOT}/.opencode_config/skills/"
-    fi
-
-    # default_agent + permissions aus dem pkm-Template (Plain-JSON, jq-tauglich)
-    # in die seeded opencode.json mergen, ohne den Rest zu beschädigen.
-    OC_JSON="${PROJECT_ROOT}/.opencode_config/opencode.json"
-    if [[ -f "$PKM_TEMPLATE/opencode.jsonc" && -f "$OC_JSON" ]] && command -v jq >/dev/null 2>&1; then
-      MERGE_TMP="$(mktemp)"
-      if jq -s '.[0] * (.[1] | {default_agent, permissions})' "$OC_JSON" "$PKM_TEMPLATE/opencode.jsonc" > "$MERGE_TMP"; then
-        mv "$MERGE_TMP" "$OC_JSON"
-      else
-        rm -f "$MERGE_TMP"
-      fi
-    fi
-
-    # Vault-Skelett im Projekt-Repo
-    mkdir -p "${PROJECT_ROOT}/project/notes" "${PROJECT_ROOT}/project/raw" "${PROJECT_ROOT}/project/wiki"
+  if [[ ! -d "$PKM_TEMPLATE" ]]; then
+    echo "pkm-Template fehlt: $PKM_TEMPLATE" >&2
+    exit 1
   fi
+
+  for dir in agents commands skills; do
+    [[ -d "$PKM_TEMPLATE/$dir" ]] || continue
+    # In den vorhandenen Ziel-Ordner mergen (spätere Skill-Pulls fügen hinzu)
+    mkdir -p "${PROJECT_ROOT}/.opencode_config/$dir"
+    cp -r "$PKM_TEMPLATE/$dir/." "${PROJECT_ROOT}/.opencode_config/$dir/"
+  done
+
+  # default_agent + permissions aus dem pkm-Template (Plain-JSON, jq-tauglich)
+  # in die seeded opencode.json mergen, ohne den Rest zu beschädigen.
+  OC_JSON="${PROJECT_ROOT}/.opencode_config/opencode.json"
+  if [[ -f "$PKM_TEMPLATE/opencode.jsonc" && -f "$OC_JSON" ]]; then
+    if ! command -v jq >/dev/null 2>&1; then
+      echo "jq nicht gefunden — opencode.json-Merge nicht möglich" >&2
+      exit 1
+    fi
+    MERGE_TMP="$(mktemp)"
+    if jq -s '.[0] * (.[1] | {default_agent, permissions})' "$OC_JSON" "$PKM_TEMPLATE/opencode.jsonc" > "$MERGE_TMP"; then
+      mv "$MERGE_TMP" "$OC_JSON"
+    else
+      rm -f "$MERGE_TMP"
+      echo "Fehler beim Mergen der pkm-Keys in $OC_JSON" >&2
+      exit 1
+    fi
+  fi
+
+  # Vault-Skelett im Projekt-Repo
+  mkdir -p "${PROJECT_ROOT}/project/notes" "${PROJECT_ROOT}/project/raw" "${PROJECT_ROOT}/project/wiki"
 fi
 
 SKILLS_TARGET="${PROJECT_ROOT}/.opencode_config/skills"
@@ -202,12 +207,11 @@ cat > "${PROJECT_ROOT}/.gitignore" <<'EOF'
 .ssh_local/
 .git_local/
 .cbm_cache/
-  .bash_local/
+.bash_local/
 EOF
 
 # PKM: .gitignore-Einträge des Wiki-Templates anhängen (Dedupe).
 if [[ "$PROJECT_KIND" == "pkm" ]]; then
-  PKM_TEMPLATE="${SCRIPT_DIR}/../templates/pkm"
   if [[ -f "$PKM_TEMPLATE/.gitignore" ]]; then
     while IFS= read -r line || [[ -n "$line" ]]; do
       [[ -n "$line" ]] || continue

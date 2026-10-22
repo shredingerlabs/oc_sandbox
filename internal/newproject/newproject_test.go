@@ -817,6 +817,11 @@ func TestAgentPKMOtherRowsIntact(t *testing.T) {
 			typeKeys(t, m, urlName)
 		}
 		click(t, m, "○ PKM (Personal Knowledge Wiki)")
+		// Edition row hidden on both sources: the swdev/webdev token
+		// list is gone entirely with the pkm kind
+		if b := shell.StripANSI(m.Body(80, 60)); strings.Contains(b, "○ webdev") {
+			t.Fatalf("Edition row still shown for pkm kind (url=%v):\n%s", withURL, b)
+		}
 		// tall window: the full URL form scrolls at the standard height
 		b := shell.StripANSI(m.Body(80, 60))
 		for _, label := range []string{"Agent", "Modes", "Start", "Search", "VCS tracking", "AI provider"} {

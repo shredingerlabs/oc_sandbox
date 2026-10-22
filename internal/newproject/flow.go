@@ -204,6 +204,18 @@ func (m *Model) validateInputs() string {
 	return ""
 }
 
+// kindFromAgent maps the agent selection to the init --project_kind value
+// ("none-kind" agents return "").
+func kindFromAgent(agent string) string {
+	switch agent {
+	case agentChat:
+		return "chat"
+	case agentPKM:
+		return "pkm"
+	}
+	return ""
+}
+
 // createTail runs init-project.sh BEFORE the registry write (data map),
 // creates sandbox_config.json, patches project_source / repo_url /
 // vcs_tracking via the atomic paths, queues the credential steps and
@@ -213,11 +225,8 @@ func (m *Model) validateInputs() string {
 func (m *Model) createTail() tea.Cmd {
 	root := registry.CanonicalPath(m.path)
 	initArgs := []string{root}
-	if m.agent == agentChat {
-		initArgs = append(initArgs, "--project_kind", "chat")
-	}
-	if m.agent == agentPKM {
-		initArgs = append(initArgs, "--project_kind", "pkm")
+	if kind := kindFromAgent(m.agent); kind != "" {
+		initArgs = append(initArgs, "--project_kind", kind)
 	}
 	if m.source == srcURL {
 		initArgs = append(initArgs, "--repo_url", m.url)
@@ -262,10 +271,10 @@ func (m *Model) patchConfig(cfgPath string) error {
 	if err := sandboxcfg.PatchString(m.cfg.Home, cfgPath, "vcs_tracking", m.vcs); err != nil {
 		return err
 	}
-	switch {
-	case m.agent == agentChat: // kind recorded once, never re-applied
+	switch m.agent { // kind recorded once, never re-applied
+	case agentChat:
 		return sandboxcfg.PatchString(m.cfg.Home, cfgPath, "project_kind", "chat")
-	case m.agent == agentPKM: // pkm edition is forced at creation (ADR 0027)
+	case agentPKM: // pkm edition is forced at creation (ADR 0027)
 		return sandboxcfg.PatchString(m.cfg.Home, cfgPath, "project_kind", "pkm")
 	}
 	return nil
