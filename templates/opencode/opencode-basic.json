@@ -1,0 +1,25 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "permissions": [
+    { "action": "external_directory", "resource": "/tmp/*", "effect": "allow" },
+    { "action": "external_directory", "resource": "/home/dev/*", "effect": "allow" },
+    { "action": "external_directory", "resource": "/usr/local/share/playwright-browsers/*", "effect": "allow" },
+    { "action": "external_directory", "resource": "/opt/picoscope/*", "effect": "allow" },
+    { "action": "external_directory", "resource": "/usr/local/lib/python3.12/dist-packages/picosdk/*", "effect": "allow" }
+  ],
+  "websearch": {
+    "provider": "random"
+  },
+  "mcp": {
+    "servers": {
+      "codebase-memory-mcp": {
+        "type": "local",
+        "command": ["/usr/local/bin/codebase-memory-mcp"]
+      },
+      "context7": {
+        "type": "remote",
+        "url": "https://mcp.context7.com/mcp"
+      }
+    }
+  }
+}
