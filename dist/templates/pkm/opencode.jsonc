@@ -1,0 +1,23 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "default_agent": "wiki",
+  "permissions": [
+    // V2 allows access outside the project by default; ask instead
+    { "action": "external_directory", "resource": "*", "effect": "ask" },
+
+    // secrets
+    { "action": "read", "resource": "*.env", "effect": "deny" },
+    { "action": "read", "resource": "*.env.*", "effect": "deny" },
+
+    // writes only inside wiki/ (the schema in AGENTS.md and .opencode/ stays human-edited)
+    { "action": "edit", "resource": "*", "effect": "deny" },
+    { "action": "edit", "resource": "wiki/*", "effect": "allow" },
+
+    // shell: ask by default, allow harmless git inspection
+    { "action": "shell", "resource": "*", "effect": "ask" },
+    { "action": "shell", "resource": "git status *", "effect": "allow" },
+    { "action": "shell", "resource": "git diff *", "effect": "allow" },
+    { "action": "shell", "resource": "git log *", "effect": "allow" },
+    { "action": "shell", "resource": "git add wiki*", "effect": "allow" }
+  ]
+}
