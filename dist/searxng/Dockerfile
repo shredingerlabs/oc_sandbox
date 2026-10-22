@@ -2,4 +2,4 @@
 # for its proxy incompatibility). The config is NOT baked in: start.sh
 # bind-mounts the user-editable dist/searxng/settings.yml at runtime, so
 # engine/format tweaks need no rebuild.
-FROM searxng/searxng:latest
+FROM docker.io/searxng/searxng:latest

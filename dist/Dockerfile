@@ -249,7 +249,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         biber chktex latexdiff \
         ghostscript poppler-utils dvipng \
         python3-pygments \
-        tex-gyre tex-gyre-math \
+        tex-gyre \
         lmodern \
         fonts-liberation fonts-noto-core \
         pandoc \
