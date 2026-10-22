@@ -100,9 +100,9 @@ func (m *Model) fullRows(width int) ([]string, shell.Rect) {
 		case fPrompt:
 			rows = append(rows, shell.StyleWarn.Render("Credential files already exist — keep or replace?"))
 			y++
-			toks := m.promptVals()
-			rows = append(rows, shell.StyleFieldLabel.Render(padCell(""))+" "+m.optionRow(fPrompt, toks, y, &m.optRects))
-			y++
+			ls := m.optionLines(fPrompt, m.promptVals(), y, width-BodyPad-CardInset-1, &m.optRects)
+			rows = append(rows, ls...)
+			y += len(ls) - 1
 			continue
 		}
 
@@ -112,7 +112,12 @@ func (m *Model) fullRows(width int) ([]string, shell.Rect) {
 		}
 		labelCell := shell.StyleFieldLabel.Render(padCell(cell))
 		if optOpts := m.optionsFor(f); optOpts != nil {
-			rows = append(rows, labelCell+" "+m.optionRow(f, optOpts, y, &m.optRects))
+			// Option rows wrap onto continuation lines when their tokens
+			// exceed the terminal budget, so a long option never widens
+			// the card past the standard 80-column window.
+			ls := m.optionLines(f, optOpts, y, width-BodyPad-CardInset-1, &m.optRects)
+			rows = append(rows, ls...)
+			y += len(ls) - 1
 		} else {
 			// text fields render as a boxed text area: label row, then the
 			// 3-line input box (border / value / border)
@@ -244,29 +249,69 @@ func (m *Model) optionsFor(f int) []string {
 	return nil
 }
 
-// optionRow renders "● current ○ alt …" and records one hit rect per
-// token into rects.
-func (m *Model) optionRow(f int, opts []string, y int, out *[]optRect) string {
-	var parts []string
-	x := BodyPad + CardInset + labelWidth + 1
-	for _, o := range opts {
-		cur := m.optionIsCurrent(f, o)
-		disp := o
-		if f == fSearch && o == sandboxcfg.SearchSearxng {
-			disp = "SearXNG" // ADR 0026 row: display capitalization
-		}
-		sym := shell.SymOff
-		st := shell.StyleMutedAlt
-		if cur {
-			sym = shell.SymOn
-			st = shell.StyleCurrentVal
-		}
-		tok := sym + " " + disp
-		parts = append(parts, st.Render(tok))
-		*out = append(*out, optRect{field: f, val: o, r: shell.Rect{X: x, Y: y, W: shell.Width(tok), H: 1}})
-		x += shell.Width(tok) + 1
+// renderOptionToken renders one option token ("● current ○ alt").
+func (m *Model) renderOptionToken(f int, o string) (string, int) {
+	cur := m.optionIsCurrent(f, o)
+	disp := o
+	if f == fSearch && o == sandboxcfg.SearchSearxng {
+		disp = "SearXNG" // ADR 0026 row: display capitalization
 	}
-	return strings.Join(parts, " ")
+	sym := shell.SymOff
+	st := shell.StyleMutedAlt
+	if cur {
+		sym = shell.SymOn
+		st = shell.StyleCurrentVal
+	}
+	tok := sym + " " + disp
+	return st.Render(tok), shell.Width(tok)
+}
+
+// lineLabel renders the label cell of an option row: the real label on
+// the first line, a blank cell on continuation lines (styled like the
+// other option-row labels, shell.StyleFieldLabel).
+func (m *Model) lineLabel(f int, first bool) string {
+	var cell string
+	if first {
+		cell = "  " + fieldLabel(f)
+		if len(m.fields) > 0 && m.fields[m.focus] == f {
+			cell = "▸ " + fieldLabel(f)
+		}
+	}
+	return shell.StyleFieldLabel.Render(padCell(cell))
+}
+
+// optionLines renders the option tokens of a field, wrapping onto
+// continuation lines (blank label cell) when the joined line would push
+// the card wider than budget, so a long option list never widens the
+// card past the terminal. One hit rect per token is recorded into rects
+// at its actual row.
+func (m *Model) optionLines(f int, opts []string, y int, budget int, out *[]optRect) []string {
+	valX := BodyPad + CardInset + labelWidth + 1
+	var lines []string
+	var parts []string
+	rowY := y
+	w := shell.Width(m.lineLabel(f, true)) + 1 // incl. separator space
+	x := valX
+	for i, o := range opts {
+		styled, tw := m.renderOptionToken(f, o)
+		if i == 0 {
+			x = valX
+		} else if w+tw+1 > budget { // +1: trailing separator space
+			lines = append(lines, m.lineLabel(f, rowY == y)+" "+strings.Join(parts, " "))
+			parts = nil
+			rowY++
+			w = shell.Width(m.lineLabel(f, false)) + 1
+			x = valX
+		}
+		parts = append(parts, styled)
+		*out = append(*out, optRect{field: f, val: o, r: shell.Rect{X: x, Y: rowY, W: tw, H: 1}})
+		x += tw + 1
+		w += tw + 1
+	}
+	if len(parts) > 0 {
+		lines = append(lines, m.lineLabel(f, rowY == y)+" "+strings.Join(parts, " "))
+	}
+	return lines
 }
 
 // optionIsCurrent reports whether an option token is the current (●)

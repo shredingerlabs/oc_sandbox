@@ -216,6 +216,9 @@ func (m *Model) createTail() tea.Cmd {
 	if m.agent == agentChat {
 		initArgs = append(initArgs, "--project_kind", "chat")
 	}
+	if m.agent == agentPKM {
+		initArgs = append(initArgs, "--project_kind", "pkm")
+	}
 	if m.source == srcURL {
 		initArgs = append(initArgs, "--repo_url", m.url)
 	}
@@ -259,8 +262,11 @@ func (m *Model) patchConfig(cfgPath string) error {
 	if err := sandboxcfg.PatchString(m.cfg.Home, cfgPath, "vcs_tracking", m.vcs); err != nil {
 		return err
 	}
-	if m.agent == agentChat { // chat kind: recorded once, never re-applied
+	switch {
+	case m.agent == agentChat: // kind recorded once, never re-applied
 		return sandboxcfg.PatchString(m.cfg.Home, cfgPath, "project_kind", "chat")
+	case m.agent == agentPKM: // pkm edition is forced at creation (ADR 0027)
+		return sandboxcfg.PatchString(m.cfg.Home, cfgPath, "project_kind", "pkm")
 	}
 	return nil
 }

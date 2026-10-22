@@ -115,16 +115,23 @@ var (
 	buildOptions  = []string{"Build now", "Build later"}
 	vcsOptions    = []string{"none", "github.com", "gitlab.com", "own GitLab", "others"}
 	aiOptions     = []string{"none", "Custom"}
-	agentOptions  = []string{"Code", "Chat Agent (NO_CODE)"}
+	agentOptions  = []string{"Code", "Chat Agent (NO_CODE)", agentPKM}
 	searchOptions = sandboxcfg.SearchModes // none / websearch / SearXNG (ADR 0026)
 )
 
 // project kinds: the form's Agent row maps to them — chat projects get
-// AGENTS_chat.md copied as AGENTS.md at creation (both project sources).
+// AGENTS_chat.md copied as AGENTS.md at creation (both project sources);
+// pkm projects pin the dedicated pkm container edition (the Edition row
+// is hidden and container_edition "pkm" is forced) and record
+// project_kind "pkm" (ADR 0027).
 const (
 	agentCode = "Code"
 	agentChat = "Chat Agent (NO_CODE)"
+	agentPKM  = "PKM (Personal Knowledge Wiki)"
 )
+
+// pkmEdition is the forced container edition of a pkm-kind project.
+const pkmEdition = "pkm"
 
 // Model is the New Project center view.
 type Model struct {
@@ -831,7 +838,9 @@ func (m *Model) refresh() {
 			m.vcs = "none"
 		}
 	}
-	if eds := m.editions(); len(eds) > 0 {
+	if m.agent == agentPKM { // pkm kind: the dedicated edition is forced
+		m.edition = pkmEdition
+	} else if eds := m.editions(); len(eds) > 0 {
 		if indexOf(eds, m.edition) < 0 {
 			m.edition = eds[0]
 		}
@@ -875,7 +884,10 @@ func (m *Model) fieldList() []int {
 		// asked first, the name prefills from it and the path from the name.
 		fs = []int{fURL, fName, fPath}
 	}
-	fs = append(fs, fEdition)
+	// the pkm kind hides the Edition row: the edition is forced to pkm
+	if m.agent != agentPKM {
+		fs = append(fs, fEdition)
+	}
 	// "Image build" radio row directly under the editions while the
 	// selected edition's image is missing (memo-driven, like the
 	// conditional VCS sub-fields)

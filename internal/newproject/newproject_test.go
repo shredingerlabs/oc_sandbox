@@ -727,6 +727,130 @@ func TestAgentChatOnFromURL(t *testing.T) {
 	}
 }
 
+// --- pkm kind (#123) ---------------------------------------------------------
+
+// The Agent row offers the third PKM option on both project sources.
+func TestAgentPKMOptionPresentBothSources(t *testing.T) {
+	m, _, _ := newTestModel(t)
+	if !strings.Contains(plain(t, m), "○ PKM (Personal Knowledge Wiki)") {
+		t.Fatalf("PKM option missing on the blank tab")
+	}
+	m.Update(shell.SubTabMsg{Index: 1})
+	m.tabToField(t, "Repo URL")
+	typeKeys(t, m, "https://github.com/user/repo.git")
+	if !strings.Contains(plain(t, m), "○ PKM (Personal Knowledge Wiki)") {
+		t.Fatalf("PKM option missing on the From URL tab")
+	}
+}
+
+// Selecting PKM hides the Edition row and forces the pkm edition into
+// sandbox_config.json — even though the fake Dockerfile offers different
+// editions (swdev/webdev).
+func TestAgentPKMHidesEditionRowAndForcesEdition(t *testing.T) {
+	m, ops, _ := newTestModel(t)
+	typeKeys(t, m, "pkmproj")
+	click(t, m, "○ PKM (Personal Knowledge Wiki)")
+	// the Edition row (the swdev/webdev token list) is gone entirely
+	if b := plain(t, m); strings.Contains(b, "○ webdev") {
+		t.Fatalf("Edition row still shown for the pkm kind:\n%s", b)
+	}
+	if !strings.Contains(plain(t, m), "● PKM (Personal Knowledge Wiki)") {
+		t.Fatalf("PKM option not activated:\n%s", plain(t, m))
+	}
+	createViaKeyboard(t, m)
+	root := pathOf(t, m, "pkmproj")
+	doc := readJSON(t, filepath.Join(root, ".opencode_config", "sandbox_config.json"))
+	if doc["container_edition"] != "pkm" {
+		t.Fatalf("edition not forced to pkm: %v", doc)
+	}
+	if !ops.has("init-project.sh", root) { // the create chain ran entirely
+		t.Fatalf("init call missing: %v", ops.Calls)
+	}
+}
+
+// The pkm kind is recorded and passed to the init script's create call.
+func TestAgentPKMKindRecordedAndPassed(t *testing.T) {
+	m, ops, _ := newTestModel(t)
+	typeKeys(t, m, "pkmkind")
+	click(t, m, "○ PKM (Personal Knowledge Wiki)")
+	createViaKeyboard(t, m)
+	root := pathOf(t, m, "pkmkind")
+	if !ops.has("init-project.sh", root, "--project_kind", "pkm") {
+		t.Fatalf("init call missing the pkm kind flag: %v", ops.Calls)
+	}
+	doc := readJSON(t, filepath.Join(root, ".opencode_config", "sandbox_config.json"))
+	if doc["project_kind"] != "pkm" {
+		t.Fatalf("project_kind not recorded: %v", doc)
+	}
+}
+
+// PKM on the From URL tab: the kind flag rides along on the cloned source.
+func TestAgentPKMOnFromURL(t *testing.T) {
+	m, ops, _ := newTestModel(t)
+	m.Update(shell.SubTabMsg{Index: 1})
+	m.tabToField(t, "Repo URL")
+	typeKeys(t, m, "https://github.com/user/repo.git")
+	click(t, m, "○ PKM (Personal Knowledge Wiki)")
+	createViaKeyboard(t, m)
+	root := pathOf(t, m, "repo")
+	if !ops.has("init-project.sh", root, "--project_kind", "pkm", "--repo_url", "https://github.com/user/repo.git") {
+		t.Fatalf("init call wrong: %v", ops.Calls)
+	}
+	doc := readJSON(t, filepath.Join(root, ".opencode_config", "sandbox_config.json"))
+	if doc["project_kind"] != "pkm" || doc["project_source"] != "cloned" {
+		t.Fatalf("sandbox patches wrong: %v", doc)
+	}
+}
+
+// Every other row stays when the kind is pkm, on both sources: the
+// Edition row is hidden but Modes/Start/Search/VCS/AI (and their
+// sub-fields) keep working, and the create chain applies them.
+func TestAgentPKMOtherRowsIntact(t *testing.T) {
+	for _, withURL := range []bool{false, true} {
+		m, ops, reg := newTestModel(t)
+		urlName := map[bool]string{false: "pkmrows", true: "repo"}[withURL]
+		m.Update(shell.SubTabMsg{Index: map[bool]int{false: 0, true: 1}[withURL]})
+		if withURL {
+			m.tabToField(t, "Repo URL")
+			typeKeys(t, m, "https://github.com/user/repo.git")
+		} else {
+			typeKeys(t, m, urlName)
+		}
+		click(t, m, "○ PKM (Personal Knowledge Wiki)")
+		// tall window: the full URL form scrolls at the standard height
+		b := shell.StripANSI(m.Body(80, 60))
+		for _, label := range []string{"Agent", "Modes", "Start", "Search", "VCS tracking", "AI provider"} {
+			if !strings.Contains(b, label) {
+				t.Fatalf("row %q missing with pkm kind:\n%s", label, b)
+			}
+		}
+		// AI custom sub-fields still render for a pkm-kind project
+		// (m.ai set directly like TestFormResetsAfterSuccessfulCreate —
+		// the Custom token row sits below the scroll window at h=30)
+		m.ai = "Custom"
+		m.refresh()
+		if b := shell.StripANSI(m.Body(80, 60)); !strings.Contains(b, "Provider name") {
+			t.Fatalf("Custom AI sub-fields missing with pkm kind:\n%s", b)
+		}
+		m.tabToField(t, "Provider name")
+		overwriteLine(t, m, "Wiki AI")
+		m.tabToField(t, "Provider endpoint")
+		overwriteLine(t, m, "https://api.example.com/v1")
+		m.tabToField(t, "Provider token")
+		overwriteLine(t, m, "WIKIT0K")
+		name := urlName
+		createViaKeyboard(t, m)
+		root := pathOf(t, m, name)
+		if !ops.has("configure-project.sh", "ai-provider", root, "--name", "Wiki AI",
+			"--endpoint", "https://api.example.com/v1", "--token", "WIKIT0K") {
+			t.Fatalf("ai-provider step missing with pkm kind (url=%v): %v", withURL, ops.Calls)
+		}
+		if _, err := reg.ByName(name); err != nil {
+			t.Fatalf("registry write missing with pkm kind (url=%v): %v", withURL, err)
+		}
+	}
+}
+
 // TestFormResetsAfterSuccessfulCreate proves the post-create reset: once
 // the registry write passed, every user entry is cleared back to the
 // New() defaults so the next wizard session starts empty (a stale
@@ -1322,6 +1446,7 @@ func TestGoldenBlankForm(t *testing.T) {
 		"  │ ╰──────────────────────────────╯                                        │",
 		"  │   Edition        ● swdev ○ webdev                                       │",
 		"  │   Agent          ● Code ○ Chat Agent (NO_CODE)                          │",
+		"  │                  ○ PKM (Personal Knowledge Wiki)                        │",
 		"  │   Modes          ● none ○ offline ○ cbm_ui ○ hil_mode                   │",
 		"  │   Start          ● console ○ opencode ○ web                             │",
 		"  │   Search         ○ none ● websearch ○ SearXNG                           │",
