@@ -1194,6 +1194,11 @@ func (m *Model) save() tea.Cmd {
 		m.toast = "SearXNG needs network — offline and searxng are mutually exclusive"
 		return nil
 	}
+	if s.searchMode == sandboxcfg.SearchSearxng && s.proxy {
+		// backstop for configs staged before this flag existed (ADR 0026)
+		m.toast = "SearXNG and the squid proxy are mutually exclusive — turn the proxy off"
+		return nil
+	}
 	p := m.projects[m.selected]
 	// ONE whole-config atomic rewrite; applies on next start. The
 	// reduced pane (#113) stages only edition / modes / start option /

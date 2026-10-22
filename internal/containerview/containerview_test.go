@@ -262,7 +262,7 @@ func TestBuildTabImageMarkers(t *testing.T) {
 	runCmds(t, m, m.refreshImageStatus())
 	got := body(m)
 	if strings.Count(got, "● built") != 3 {
-		t.Errorf("want 2 built markers:\n%s", got)
+		t.Errorf("want 3 built markers:\n%s", got)
 	}
 	if strings.Count(got, "○ missing") != 1 {
 		t.Errorf("missing marker not shown for mycustom:\n%s", got)
@@ -358,10 +358,13 @@ func TestBuildSelectAllThenButtonBuildsAll(t *testing.T) {
 	if !m.confirm.IsOpen() || !strings.Contains(got, "Build 4 image(s)?") {
 		t.Fatalf("popup missing: %q", got)
 	}
-	for _, ed := range []string{"base", "web", "mycustom", "oc-searxng"} {
+	for _, ed := range []string{"base", "web", "mycustom"} {
 		if !strings.Contains(got, "edition: "+ed) {
 			t.Fatalf("popup missing edition %s:\n%s", ed, got)
 		}
+	}
+	if !strings.Contains(got, "image: oc-searxng") {
+		t.Fatalf("popup missing infra image oc-searxng:\n%s", got)
 	}
 	cmd = confirmPopup(m)
 	runCmds(t, m, cmd)

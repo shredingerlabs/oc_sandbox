@@ -703,7 +703,11 @@ func (m *Model) startBuild() tea.Cmd {
 	}
 	lines := make([]string, 0, len(eds))
 	for _, ed := range eds {
-		lines = append(lines, "edition: "+ed)
+		if ed == discovery.SearxngImageTag {
+			lines = append(lines, "image: "+ed)
+		} else {
+			lines = append(lines, "edition: "+ed)
+		}
 	}
 	m.confirm.Open(fmt.Sprintf("Build %d image(s)?", len(eds)), "Build", "Cancel", lines, false,
 		func() tea.Cmd { return m.launchBuild() })

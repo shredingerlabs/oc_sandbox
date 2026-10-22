@@ -459,16 +459,16 @@ cmd_search_mode() {
   original=$(< "$config_file")
 
   local config
-  config=$(SEARXNG_MODE="$mode" jq '
+  config=$(SEARCH_MODE="$mode" jq '
     def has_mcp: ((.mcp? // null) | type) == "object";
     def strip_searxng: if has_mcp
                        then .mcp.servers = ((.mcp.servers // {}) | del(."searxng-mcp"))
                        else . end;
-    if $ENV.SEARXNG_MODE == "searxng" then
+    if $ENV.SEARCH_MODE == "searxng" then
       (del(.websearch)
        | .mcp = {servers: (((if has_mcp then (.mcp.servers // {}) else {} end)
                 + {"searxng-mcp": {type: "local", command: ["mcp-searxng"]}}))})
-    elif $ENV.SEARXNG_MODE == "websearch" then
+    elif $ENV.SEARCH_MODE == "websearch" then
       ((if (.websearch? // null) == null
         then . + {"websearch": {"provider": "random"}}
         else . end)

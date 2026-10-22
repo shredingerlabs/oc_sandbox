@@ -1324,7 +1324,7 @@ func TestGoldenBlankForm(t *testing.T) {
 		"  │   Agent          ● Code ○ Chat Agent (NO_CODE)                          │",
 		"  │   Modes          ● none ○ offline ○ cbm_ui ○ hil_mode                   │",
 		"  │   Start          ● console ○ opencode ○ web                             │",
-		"  │   Search         ○ none ○ websearch ○ SearXNG                           │",
+		"  │   Search         ○ none ● websearch ○ SearXNG                           │",
 		"  │   VCS tracking   ● none ○ github.com ○ gitlab.com ○ own GitLab ○ others │",
 		"  │   AI provider    ● none ○ Custom                                        │",
 		"  │                                                                         │",

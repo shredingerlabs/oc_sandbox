@@ -292,6 +292,8 @@ func (m *Model) optionIsCurrent(f int, o string) bool {
 		return o == cur
 	case fStart:
 		return m.start == o
+	case fSearch:
+		return m.searchMode == o
 	case fAgent:
 		return m.agent == o
 	case fVCS:

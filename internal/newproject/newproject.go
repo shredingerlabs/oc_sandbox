@@ -520,12 +520,7 @@ func (m *Model) activate(f int) tea.Cmd {
 	case fStart:
 		m.start = cycle(m.start, startOptions)
 	case fSearch:
-		m.searchMode = cycle(m.searchMode, searchOptions)
-		if m.searchMode == sandboxcfg.SearchSearxng && hasMode(m.modes, "offline") {
-			// ADR 0026: SearXNG needs network — offline cannot ride along
-			m.modes = withoutMode(m.modes, "offline")
-			m.toast = "SearXNG needs network — offline mode dropped"
-		}
+		m.chooseSearchMode(cycle(m.searchMode, searchOptions))
 	case fAgent:
 		m.agent = cycle(m.agent, agentOptions)
 	case fVCS:
@@ -594,6 +589,16 @@ func joinModes(modes []string) string {
 	return strings.Join(modes, ", ")
 }
 
+// chooseSearchMode sets the search mode; ADR 0026: SearXNG needs network,
+// so a staged offline mode is dropped with a notice.
+func (m *Model) chooseSearchMode(val string) {
+	m.searchMode = val
+	if val == sandboxcfg.SearchSearxng && hasMode(m.modes, "offline") {
+		m.modes = withoutMode(m.modes, "offline")
+		m.toast = "SearXNG needs network — offline mode dropped"
+	}
+}
+
 // setOption activates just the clicked option.
 func (m *Model) setOption(f int, val string) {
 	switch f {
@@ -604,11 +609,7 @@ func (m *Model) setOption(f int, val string) {
 	case fStart:
 		m.start = val
 	case fSearch:
-		m.searchMode = val
-		if val == sandboxcfg.SearchSearxng && hasMode(m.modes, "offline") {
-			m.modes = withoutMode(m.modes, "offline")
-			m.toast = "SearXNG needs network — offline mode dropped"
-		}
+		m.chooseSearchMode(val)
 	case fAgent:
 		m.agent = val
 	case fVCS:
