@@ -70,7 +70,7 @@ func addProject(t *testing.T, m *Model, name, edition string, extraModes ...stri
 		t.Fatal(err)
 	}
 	modes := append([]string{"skills"}, extraModes...)
-	if err := sandboxcfg.Create(m.Registry.Home, sandboxcfg.Path(root), edition, modes, "opencode", "gwdg-saia"); err != nil {
+	if err := sandboxcfg.Create(m.Registry.Home, sandboxcfg.Path(root), edition, modes, "opencode", "gwdg-saia", sandboxcfg.SearchWebsearch); err != nil {
 		t.Fatal(err)
 	}
 	if err := m.Registry.AddProject(registry.AddRequest{Name: name, Path: root, GitTracking: "none"}); err != nil {
@@ -226,9 +226,10 @@ func TestBuildTabDiscoveryErrorShownLoudly(t *testing.T) {
 }
 
 // imageExists scripts the podman image checks: editions named in
-// missing have no image, the rest exist.
+// missing have no image, the rest exist (oc-searxng counts built too —
+// the Build tab's non-edition row).
 func imageExists(fake *cmdrun.Fake, missing ...string) {
-	built := map[string]bool{"base": true, "web": true, "mycustom": true}
+	built := map[string]bool{"base": true, "web": true, "mycustom": true, "oc-searxng": true}
 	for _, ed := range missing {
 		delete(built, ed)
 	}
@@ -260,7 +261,7 @@ func TestBuildTabImageMarkers(t *testing.T) {
 	}
 	runCmds(t, m, m.refreshImageStatus())
 	got := body(m)
-	if strings.Count(got, "● built") != 2 {
+	if strings.Count(got, "● built") != 3 {
 		t.Errorf("want 2 built markers:\n%s", got)
 	}
 	if strings.Count(got, "○ missing") != 1 {
@@ -279,7 +280,7 @@ func TestActivateRefreshesImageCache(t *testing.T) {
 	m, fake, _, _ := newFixture(t)
 	imageExists(fake, "mycustom")
 	runCmds(t, m, m.Activate())
-	if strings.Count(body(m), "● built") != 2 ||
+	if strings.Count(body(m), "● built") != 3 ||
 		strings.Count(body(m), "○ missing") != 1 {
 		t.Fatalf("activation did not populate the image cache:\n%s", body(m))
 	}
@@ -287,7 +288,7 @@ func TestActivateRefreshesImageCache(t *testing.T) {
 
 func TestBuildOpRefreshesImageCache(t *testing.T) {
 	m, fake, _, _ := newFixture(t)
-	built := map[string]bool{"base": true, "web": true} // mycustom missing
+	built := map[string]bool{"base": true, "web": true, "oc-searxng": true} // mycustom missing
 	imageExistsMap(fake, built)
 	imgCheck := fake.Script
 	fake.Script = func(n string, args []string) (string, error) {
@@ -318,7 +319,7 @@ func TestBuildOpRefreshesImageCache(t *testing.T) {
 		m.Update(msg)
 	}
 	runCmd(t, m, post) // op completion re-checks fresh
-	if strings.Count(body(m), "● built") != 3 {
+	if strings.Count(body(m), "● built") != 4 {
 		t.Errorf("cache not refreshed after the build op:\n%s", body(m))
 	}
 }
@@ -327,7 +328,7 @@ func TestBuildRowClickTogglesThenButtonBuilds(t *testing.T) {
 	m, fake, _, _ := newFixture(t)
 	psList(fake, "", "") // nothing running; image exists default = exists
 	m.Body(80, 22)       // stores hit rects
-	if len(m.rowRects) != 3 {
+	if len(m.rowRects) != 4 {
 		t.Fatalf("row rects = %d, want 3", len(m.rowRects))
 	}
 	r := m.rowRects[1] // web
@@ -349,22 +350,22 @@ func TestBuildSelectAllThenButtonBuildsAll(t *testing.T) {
 	psList(fake, "", "")
 	m.Body(80, 22)
 	m.Update(mousePress(m.selAll.X, m.selAll.Y))
-	if got := body(m); strings.Count(got, "☒") != 4 { // select-all + 3 rows
+	if got := body(m); strings.Count(got, "☒") != 5 { // select-all + 4 rows
 		t.Fatalf("select-all did not check every row:\n%s", got)
 	}
 	cmd := m.Update(mousePress(m.opBtn.X+2, m.opBtn.Y)) // popup (ADR-0021)
 	got := shell.StripANSI(m.confirm.Overlay(80, 22, shell.BodyTop))
-	if !m.confirm.IsOpen() || !strings.Contains(got, "Build 3 image(s)?") {
+	if !m.confirm.IsOpen() || !strings.Contains(got, "Build 4 image(s)?") {
 		t.Fatalf("popup missing: %q", got)
 	}
-	for _, ed := range []string{"base", "web", "mycustom"} {
+	for _, ed := range []string{"base", "web", "mycustom", "oc-searxng"} {
 		if !strings.Contains(got, "edition: "+ed) {
 			t.Fatalf("popup missing edition %s:\n%s", ed, got)
 		}
 	}
 	cmd = confirmPopup(m)
 	runCmds(t, m, cmd)
-	targets := []string{"base", "web", "mycustom"}
+	targets := []string{"base", "web", "mycustom", "oc-searxng"}
 	for _, ed := range targets {
 		if callsMatching(fake, "bash", ed) != 1 {
 			t.Fatalf("edition %s not built exactly once: %v", ed, fake.Calls)
@@ -685,7 +686,7 @@ func TestStartRunsStoredConfig(t *testing.T) {
 	runCmds(t, m, cmd)
 	want := []string{filepath.Join(filepath.Dir(m.Dockerfile), "alpha"), "--edition", "web",
 		"--container-id", strings.TrimPrefix(name, "opencode-sandbox-"),
-		"--skills", "--hil_mode", "--detach"}
+		"--skills", "--hil_mode", "--search_mode", "websearch", "--detach"}
 	found := false
 	for _, c := range fake.Calls {
 		if c.Name == "bash" && c.Args[0] == startScript &&

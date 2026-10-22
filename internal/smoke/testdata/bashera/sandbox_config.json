@@ -10,6 +10,7 @@
   "ai_provider": "gwdg-saia",
   "project_source": "empty",
   "repo_url": "",
+  "search_mode": "websearch",
   "setup_clone_complete": false,
   "setup_cbm_complete": false,
   "setup_skills_complete": false,

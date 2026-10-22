@@ -231,7 +231,7 @@ func (e *env) addProject(t *testing.T, name, edition, startOption string, extraM
 	}
 	modes := []string{"skills"}
 	modes = append(modes, extraModes...)
-	if err := sandboxcfg.Create(e.home, sandboxcfg.Path(root), edition, modes, startOption, "gwdg-saia"); err != nil {
+	if err := sandboxcfg.Create(e.home, sandboxcfg.Path(root), edition, modes, startOption, "gwdg-saia", sandboxcfg.SearchWebsearch); err != nil {
 		t.Fatal(err)
 	}
 	p, err := r.ByPath(root)

@@ -78,13 +78,13 @@ func checkAtomicDiscipline(home, root string) Item {
 	}
 	// Whitelisted general configs still get backed up.
 	sc := filepath.Join(sub, "ws", "prj", ".opencode_config", "sandbox_config.json")
-	if err := sandboxcfg.Create(sub, sc, "swdev", []string{"offline"}, "console", "none"); err != nil {
+	if err := sandboxcfg.Create(sub, sc, "swdev", []string{"offline"}, "console", "none", sandboxcfg.SearchWebsearch); err != nil {
 		p.reasonf("sandbox create: %v", err)
 	}
 	if err := sandboxcfg.PatchString(sub, sc, "repo_url", ""); err != nil {
 		p.reasonf("sandbox patch: %v", err)
 	}
-	if err := sandboxcfg.Create(sub, sc, "swdev", []string{"offline"}, "console", "none"); err != nil {
+	if err := sandboxcfg.Create(sub, sc, "swdev", []string{"offline"}, "console", "none", sandboxcfg.SearchWebsearch); err != nil {
 		p.reasonf("sandbox overwrite: %v", err)
 	}
 	found := false

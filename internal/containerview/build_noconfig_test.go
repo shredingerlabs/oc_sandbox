@@ -66,7 +66,7 @@ func TestBuildOpLeavesHomeConfigTreeUntouched(t *testing.T) {
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := sandboxcfg.Create(home, sandboxcfg.Path(root), "base", []string{"skills"}, "console", "gwdg-saia"); err != nil {
+	if err := sandboxcfg.Create(home, sandboxcfg.Path(root), "base", []string{"skills"}, "console", "gwdg-saia", sandboxcfg.SearchWebsearch); err != nil {
 		t.Fatal(err)
 	}
 	if err := reg.AddProject(registry.AddRequest{Name: "demo", Path: root, GitTracking: "none"}); err != nil {

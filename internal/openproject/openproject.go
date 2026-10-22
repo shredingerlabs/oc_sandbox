@@ -83,6 +83,7 @@ type staged struct {
 	vcs         string // stored VCS tracking — passed through untouched by this reduced save (#113)
 	ai          string // stored legacy ai_provider — passed through untouched by this reduced save (#113)
 	proxy       bool
+	searchMode  string
 	editionGone bool   // stored edition vanished from live discovery
 	cfgErr      string // sandbox_config.json unreadable
 }
@@ -282,7 +283,11 @@ func (m *Model) loadStaged() {
 		vcs:         cfg.VCSTracking,
 		ai:          cfg.AIProvider,
 		proxy:       cfg.UseProxy,
+		searchMode:  cfg.SearchMode,
 		editionGone: edErr != nil || !hasString(editions, cfg.ContainerEdition),
+	}
+	if !sandboxcfg.ValidSearchMode(m.staged.searchMode) {
+		m.staged.searchMode = sandboxcfg.SearchWebsearch
 	}
 	// the configured start option is the card's preselected start variant
 	if hasString(startOptions, cfg.StartOption) {
@@ -493,6 +498,8 @@ func (m *Model) cycleOption(forward bool) {
 		opts = startOptions
 	case "proxy":
 		opts = []string{"no", "yes"}
+	case "search":
+		opts = sandboxcfg.SearchModes
 	}
 	var cur string
 	switch row.section {
@@ -506,6 +513,8 @@ func (m *Model) cycleOption(forward bool) {
 		} else {
 			cur = "no"
 		}
+	case "search":
+		cur = m.staged.searchMode
 	}
 	for i, o := range opts {
 		if o == cur {
@@ -552,6 +561,12 @@ func (m *Model) applyOption(section, value string) {
 			switch value {
 			case "offline":
 				s.modes = withoutMode(s.modes, "cbm_ui")
+				// ADR 0026: SearXNG needs network — offline cannot be
+				// staged next to it.
+				if s.searchMode == sandboxcfg.SearchSearxng {
+					m.toast = "SearXNG needs network — offline mode not available"
+					return
+				}
 			case "cbm_ui":
 				s.modes = withoutMode(s.modes, "offline")
 			}
@@ -562,6 +577,28 @@ func (m *Model) applyOption(section, value string) {
 		m.startSel = value // settings change re-preselects the card
 	case "proxy":
 		s.proxy = value == "yes"
+		// ADR 0026: SearXNG search and the squid proxy are mutually
+		// exclusive. Proxy on with SearXNG staged falls back one step to
+		// the proxy-compatible built-in websearch, with a toast note.
+		if s.proxy && s.searchMode == sandboxcfg.SearchSearxng {
+			s.searchMode = sandboxcfg.SearchWebsearch
+			m.toast = "SearXNG and the squid proxy are mutually exclusive — search reset to websearch"
+		}
+	case "search":
+		s.searchMode = value
+		// Same exclusion, picked from the other side: SearXNG chosen
+		// while the proxy is staged turns the proxy off (notice).
+		if value == sandboxcfg.SearchSearxng && s.proxy {
+			s.proxy = false
+			m.toast = "SearXNG and the squid proxy are mutually exclusive — proxy turned off"
+		}
+		if value == sandboxcfg.SearchSearxng {
+			// ... and it cannot ride the offline mode either.
+			if hasMode(s.modes, "offline") {
+				s.modes = withoutMode(s.modes, "offline")
+				m.toast = "SearXNG needs network — offline mode dropped"
+			}
+		}
 	}
 }
 
@@ -779,7 +816,7 @@ func (m *Model) launchStart(p registry.Project, cfg sandboxcfg.Config, variant s
 	m.log = shell.NewLogPane().Run(true)
 	m.busyID++
 	m.busyKey = p.ContainerID
-	args := StartArgs(p.Path, cfg.ContainerEdition, p.ContainerID, cfg.ContainerModes, variant, cfg.UseProxy)
+	args := StartArgs(p.Path, cfg.ContainerEdition, p.ContainerID, cfg.ContainerModes, variant, cfg.UseProxy, cfg.SearchMode)
 	run, script := m.deps.Runner, m.deps.StartScript
 	op := Op{
 		ID:    m.busyID,
@@ -925,7 +962,7 @@ func (m *Model) launchSwitch(p registry.Project, cfg sandboxcfg.Config, variant,
 	m.busyKey = p.ContainerID
 	pid, path, edition := p.ContainerID, p.Path, cfg.ContainerEdition
 	name := registry.ContainerName(pid)
-	args := StartArgs(p.Path, edition, pid, cfg.ContainerModes, variant, cfg.UseProxy)
+	args := StartArgs(p.Path, edition, pid, cfg.ContainerModes, variant, cfg.UseProxy, cfg.SearchMode)
 	run, script, reg := m.deps.Runner, m.deps.StartScript, m.reg
 	op := Op{
 		ID:    m.busyID,
@@ -1152,12 +1189,17 @@ func (m *Model) save() tea.Cmd {
 		m.toast = "offline and cbm_ui are mutually exclusive"
 		return nil
 	}
+	if s.searchMode == sandboxcfg.SearchSearxng && hasMode(s.modes, "offline") {
+		// backstop for configs staged before this flag existed
+		m.toast = "SearXNG needs network — offline and searxng are mutually exclusive"
+		return nil
+	}
 	p := m.projects[m.selected]
 	// ONE whole-config atomic rewrite; applies on next start. The
 	// reduced pane (#113) stages only edition / modes / start option /
-	// proxy: the stored VCS tracking and legacy ai_provider pointer are
-	// written back untouched — credential management lives behind the
-	// Project settings screen's panes.
+	// proxy / search mode: the stored VCS tracking and legacy
+	// ai_provider pointer are written back untouched — credential
+	// management lives behind the Project settings screen's panes.
 	settings := sandboxcfg.Settings{
 		Edition:     s.edition,
 		Modes:       s.modes,
@@ -1165,6 +1207,7 @@ func (m *Model) save() tea.Cmd {
 		VCS:         s.vcs,
 		AIProvider:  s.ai,
 		UseProxy:    s.proxy,
+		SearchMode:  s.searchMode,
 	}
 	return m.applySettings(p.Path, settings)
 }
@@ -1251,7 +1294,7 @@ func (m *Model) settingsRows(paneW int) []paneRow {
 		add(shell.StyleWarn.Render(truncate("stored edition '"+s.edition+"' no longer available", paneW-2)))
 		add(shell.StyleMutedAlt.Render("choose another"))
 	}
-	addSection := func(label, section string, opts []string, err error, cur func(string) bool) {
+	addSection := func(label, section string, opts []string, err error, cur func(string) bool, disp func(string) string) {
 		rows = append(rows, paneRow{text: ""}) // spacer
 		rows = append(rows, paneRow{text: shell.StyleMutedAlt.Render(divider(min(paneW-2, 30)))})
 		rows = append(rows, paneRow{text: shell.StyleFieldLabel.Render(label)})
@@ -1262,17 +1305,29 @@ func (m *Model) settingsRows(paneW int) []paneRow {
 		for _, o := range opts {
 			var text string
 			if cur(o) {
-				text = shell.StyleCurrentVal.Render(shell.SymOn + " " + o)
+				text = shell.StyleCurrentVal.Render(shell.SymOn + " " + disp(o))
 			} else {
-				text = shell.StyleMutedAlt.Render(shell.SymOff + " " + o)
+				text = shell.StyleMutedAlt.Render(shell.SymOff + " " + disp(o))
 			}
 			rows = append(rows, paneRow{text: text, section: section, value: o})
 		}
 	}
-	addSection("Edition", "edition", editions, edErr, func(o string) bool { return s.edition == o })
-	addSection("Modes", "modes", modes, modeErr, func(o string) bool { return hasMode(s.modes, o) })
-	addSection("Start option", "start", startOptions, nil, func(o string) bool { return s.start == o })
-	addSection("Proxy", "proxy", []string{"no", "yes"}, nil, func(o string) bool { return (o == "yes") == s.proxy })
+	id := func(o string) string { return o }
+	addSection("Edition", "edition", editions, edErr, func(o string) bool { return s.edition == o }, id)
+	addSection("Modes", "modes", modes, modeErr, func(o string) bool { return hasMode(s.modes, o) }, id)
+	addSection("Start option", "start", startOptions, nil, func(o string) bool { return s.start == o }, id)
+	addSection("Proxy", "proxy", []string{"no", "yes"}, nil, func(o string) bool { return (o == "yes") == s.proxy }, id)
+	// ADR 0026: the Search row carries the wanted search tooling with the
+	// searxng/proxy and searxng/offline conflicts resolved live in
+	// applyOption.
+	addSection("Search", "search", sandboxcfg.SearchModes, nil,
+		func(o string) bool { return s.searchMode == o },
+		func(o string) string {
+			if o == sandboxcfg.SearchSearxng {
+				return "SearXNG"
+			}
+			return o
+		})
 	add("")
 	for _, bl := range shell.ButtonLines("Save Settings", false) {
 		rows = append(rows, paneRow{text: bl, save: true})

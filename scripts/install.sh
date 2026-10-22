@@ -430,6 +430,16 @@ install_files() {
     log_verbose "Sichere dist/Dockerfile.custom (Custom-Editionen erhalten)"
   fi
 
+  # SearXNG settings.yml sichern (Benutzer-editierbar, Custom-Edition-
+  # Dockerfile-Regel); fehlt sie, landet nach dem Kopieren wieder das
+  # Template aus dist/
+  local searxng_settings=""
+  if [[ -d "$target_dir" && -f "$target_dir/dist/searxng/settings.yml" ]]; then
+    searxng_settings=$(mktemp)
+    cp "$target_dir/dist/searxng/settings.yml" "$searxng_settings"
+    log_verbose "Sichere dist/searxng/settings.yml (Benutzer-Einstellungen erhalten)"
+  fi
+
   # Erstelle Zielverzeichnis
   mkdir -p "$target_dir"
   
@@ -449,6 +459,14 @@ install_files() {
     cp "$custom_dockerfile" "$target_dir/dist/Dockerfile.custom"
     rm -f "$custom_dockerfile"
     log_verbose "dist/Dockerfile.custom wiederhergestellt (Custom-Editionen erhalten)"
+  fi
+
+  # SearXNG-Einstellungen wiederherstellen, wenn vorher vorhanden
+  if [[ -n "$searxng_settings" ]]; then
+    mkdir -p "$target_dir/dist/searxng"
+    cp "$searxng_settings" "$target_dir/dist/searxng/settings.yml"
+    rm -f "$searxng_settings"
+    log_verbose "dist/searxng/settings.yml wiederhergestellt (Benutzer-Einstellungen erhalten)"
   fi
   
   # Entferne .git Verzeichnis um Platz zu sparen

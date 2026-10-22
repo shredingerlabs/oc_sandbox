@@ -57,7 +57,7 @@ func sandboxRoot(t *testing.T, home, name, edition string, modes []string, start
 			t.Fatal(err)
 		}
 	}
-	if err := sandboxcfg.Create(home, sandboxcfg.Path(root), edition, modes, startOption, "opencode"); err != nil {
+	if err := sandboxcfg.Create(home, sandboxcfg.Path(root), edition, modes, startOption, "opencode", sandboxcfg.SearchWebsearch); err != nil {
 		t.Fatal(err)
 	}
 	return root

@@ -148,12 +148,61 @@ jq -e '.custom.keep' "$cfg" > /dev/null
 [[ ! -e "$test_home/.opencode_data/auth.json" ]]
 [[ -e "$test_home/.opencode_data/auth.json.v1-migrated" ]]
 [[ "$(stat -c '%a' "$test_home/.opencode_data/credentials/legacy")" == "600" ]]
-
 # Idempotent: second start does not rewrite.
 touch -d "2026-01-01" "$cfg"
 bash "$PROJECT_ROOT/dist/scripts/start.sh" "$test_home" --edition swdev --detach > /dev/null 2>&1
 [[ "$(stat -c '%y' "$cfg")" == "2026-01-01 00:00:00.000000000 +0000" ]]
 printf 'start v2 config migration tests passed\n'
+
+# --- search_mode (ADR 0026) ------------------------------------------------------
+# websearch (Default): Exa/Parallel-Env gesetzt, opencode.json-Seed unangetastet.
+: > "$PODMAN_LOG"
+if ! bash "$PROJECT_ROOT/dist/scripts/start.sh" "$test_home" --edition swdev --detach > /dev/null 2>&1; then
+  printf 'start script failed with mocked podman (websearch default)\n' >&2
+  exit 1
+fi
+grep -q -- '-e OPENCODE_ENABLE_EXA=1' "$PODMAN_LOG"
+grep -q -- '-e OPENCODE_ENABLE_PARALLEL=1' "$PODMAN_LOG"
+! grep -q -- 'SEARXNG_URL' "$PODMAN_LOG"
+! grep -q -- 'oc-searxng' "$PODMAN_LOG"
+
+# searxng: Exa/Parallel fallen weg, SEARXNG_URL wird gesetzt, der gemeinsame
+# oc-searxng-Container wird gestartet, opencode.json bekommt das SearXNG-MCP.
+: > "$PODMAN_LOG"
+if ! bash "$PROJECT_ROOT/dist/scripts/start.sh" "$test_home" --edition swdev --search_mode searxng --detach > /dev/null 2>&1; then
+  printf 'start script failed with mocked podman (search_mode searxng)\n' >&2
+  exit 1
+fi
+! grep -q -- 'OPENCODE_ENABLE_EXA' "$PODMAN_LOG"
+grep -q -- 'SEARXNG_URL=http://host.containers.internal:8080/search' "$PODMAN_LOG"
+grep -q -- 'oc-searxng' "$PODMAN_LOG"
+jq -e '.websearch | not' "$cfg" > /dev/null
+jq -e '.mcp.servers["searxng-mcp"].command == ["mcp-searxng"]' "$cfg" > /dev/null
+# Idempotent: zweiter Start mit gleichem Modus schreibt opencode.json nicht neu.
+touch -d "2026-01-02" "$cfg"
+bash "$PROJECT_ROOT/dist/scripts/start.sh" "$test_home" --edition swdev --search_mode searxng --detach > /dev/null 2>&1
+[[ "$(stat -c '%y' "$cfg")" == "2026-01-02 00:00:00.000000000 +0000" ]]
+
+# Zurück auf websearch: SearXNG-MCP wird entfernt, websearch-Seed reinkarniert.
+: > "$PODMAN_LOG"
+if ! bash "$PROJECT_ROOT/dist/scripts/start.sh" "$test_home" --edition swdev --detach > /dev/null 2>&1; then
+  printf 'start script failed with mocked podman (back to websearch)\n' >&2
+  exit 1
+fi
+jq -e '.mcp.servers["searxng-mcp"] | not' "$cfg" > /dev/null
+jq -e '.websearch.provider == "random"' "$cfg" > /dev/null
+
+# none: weder Exa/Parallel-Env noch Seed noch MCP.
+printf '%s' '{"websearch":{"provider":"exa"}}' > "$cfg"
+: > "$PODMAN_LOG"
+if ! bash "$PROJECT_ROOT/dist/scripts/start.sh" "$test_home" --edition swdev --search_mode none --detach > /dev/null 2>&1; then
+  printf 'start script failed with mocked podman (search_mode none)\n' >&2
+  exit 1
+fi
+! grep -q -- 'OPENCODE_ENABLE_EXA' "$PODMAN_LOG"
+jq -e '.websearch | not' "$cfg" > /dev/null
+jq -e '.mcp.servers["searxng-mcp"] | not' "$cfg" > /dev/null
+printf 'start search_mode tests passed\n'
 
 # --- Edition-Validierung ---------------------------------------------------------
 # Fixture-Baum: Kopie von dist/scripts + Dockerfiles, damit die
@@ -200,6 +249,25 @@ if run_start "$cloned_project" --edition "BadName"; then
   exit 1
 fi
 printf 'start invalid edition name tests passed\n'
+
+# 3b. search_mode-Kombinationen (ADR 0026): searxng+proxy und searxng+offline
+# werden ohne jeden Containerzugriff abgelehnt, ein unbekannter Modus genauso.
+if run_start "$cloned_project" --edition rust --search_mode searxng --use_proxy --detach; then
+  printf 'start.sh accepted searxng + use_proxy\n' >&2
+  exit 1
+fi
+grep -q 'ADR 0026' "$test_home/edition-output"
+if run_start "$cloned_project" --edition rust --search_mode searxng --offline --detach; then
+  printf 'start.sh accepted searxng + offline\n' >&2
+  exit 1
+fi
+grep -q 'offline inkompatibel' "$test_home/edition-output"
+if run_start "$cloned_project" --edition rust --search_mode bogus --detach; then
+  printf 'start.sh accepted unknown search_mode\n' >&2
+  exit 1
+fi
+grep -q -- 'Unbekannter --search_mode' "$test_home/edition-output"
+printf 'start search_mode combination tests passed\n'
 
 # 4. Custom-Edition wird akzeptiert und an podman durchgereicht
 : > "$PODMAN_LOG"

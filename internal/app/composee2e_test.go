@@ -262,7 +262,7 @@ func seedProject(t *testing.T, home, name string) string {
 	if err := reg.AddProject(registry.AddRequest{Name: name, Path: root, GitTracking: "none"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := sandboxcfg.Create(home, sandboxcfg.Path(root), "base", nil, "console", "none"); err != nil {
+	if err := sandboxcfg.Create(home, sandboxcfg.Path(root), "base", nil, "console", "none", sandboxcfg.SearchWebsearch); err != nil {
 		t.Fatal(err)
 	}
 	return root

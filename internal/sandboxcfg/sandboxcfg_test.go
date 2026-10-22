@@ -10,7 +10,7 @@ import (
 )
 
 // Golden captured from bash `create_sandbox_config ... swdev offline
-// opencode none`.
+// opencode none` plus the Go-era search_mode default (ADR 0026).
 const goldenCreate = `{
   "container_edition": "swdev",
   "container_modes": [
@@ -22,6 +22,7 @@ const goldenCreate = `{
   "ai_provider": "none",
   "project_source": "empty",
   "repo_url": "",
+  "search_mode": "websearch",
   "setup_clone_complete": false,
   "setup_cbm_complete": false,
   "setup_skills_complete": false,
@@ -48,7 +49,7 @@ func read(t *testing.T, path string) string {
 
 func TestCreateMatchesBashGolden(t *testing.T) {
 	home, cfgPath := setupProject(t)
-	if err := Create(home, cfgPath, "swdev", []string{"offline"}, "opencode", "none"); err != nil {
+	if err := Create(home, cfgPath, "swdev", []string{"offline"}, "opencode", "none", SearchWebsearch); err != nil {
 		t.Fatal(err)
 	}
 	if got := read(t, cfgPath); got != goldenCreate {
@@ -56,9 +57,35 @@ func TestCreateMatchesBashGolden(t *testing.T) {
 	}
 }
 
+func TestSearchModeDefaultsAndRoundTrip(t *testing.T) {
+	home, cfgPath := setupProject(t)
+	// Create with an empty search mode records the default explicitly.
+	if err := Create(home, cfgPath, "swdev", nil, "console", "none", ""); err != nil {
+		t.Fatal(err)
+	}
+	if c, err := Read(cfgPath); err != nil || c.SearchMode != SearchWebsearch {
+		t.Fatalf("empty Create search mode must read as websearch: %q err %v", c.SearchMode, err)
+	}
+	// A legacy config without the key reads as websearch.
+	legacy := filepath.Join(t.TempDir(), "legacy.json")
+	if err := os.WriteFile(legacy, []byte("{\"container_edition\": \"web\"}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if c, err := Read(legacy); err != nil || c.SearchMode != SearchWebsearch {
+		t.Fatalf("absent search_mode must read as websearch: %q err %v", c.SearchMode, err)
+	}
+	// SearXNG round-trips.
+	if err := Create(home, cfgPath, "swdev", nil, "console", "none", SearchSearxng); err != nil {
+		t.Fatal(err)
+	}
+	if c, err := Read(cfgPath); err != nil || c.SearchMode != SearchSearxng {
+		t.Fatalf("searxng did not read back: %q err %v", c.SearchMode, err)
+	}
+}
+
 func TestReadFallbacksForAbsentFields(t *testing.T) {
 	home, cfgPath := setupProject(t)
-	if err := Create(home, cfgPath, "swdev", nil, "console", "none"); err != nil {
+	if err := Create(home, cfgPath, "swdev", nil, "console", "none", SearchWebsearch); err != nil {
 		t.Fatal(err)
 	}
 	c, err := Read(cfgPath)
@@ -84,7 +111,7 @@ func TestReadFallbacksForAbsentFields(t *testing.T) {
 
 func TestPatchStringAppendsNewKeyAtEndAndKeepsOrder(t *testing.T) {
 	home, cfgPath := setupProject(t)
-	if err := Create(home, cfgPath, "swdev", []string{"offline"}, "opencode", "none"); err != nil {
+	if err := Create(home, cfgPath, "swdev", []string{"offline"}, "opencode", "none", SearchWebsearch); err != nil {
 		t.Fatal(err)
 	}
 	for _, f := range []struct{ field, val string }{
@@ -123,7 +150,7 @@ func TestPatchStringAppendsNewKeyAtEndAndKeepsOrder(t *testing.T) {
 
 func TestPatchBoolWritesLowercaseTrue(t *testing.T) {
 	home, cfgPath := setupProject(t)
-	if err := Create(home, cfgPath, "swdev", nil, "console", "none"); err != nil {
+	if err := Create(home, cfgPath, "swdev", nil, "console", "none", SearchWebsearch); err != nil {
 		t.Fatal(err)
 	}
 	if err := PatchBool(home, cfgPath, "setup_clone_complete", true); err != nil {
@@ -144,7 +171,7 @@ func TestPatchBoolWritesLowercaseTrue(t *testing.T) {
 
 func TestRewriteIsOneAtomicWrite(t *testing.T) {
 	home, cfgPath := setupProject(t)
-	if err := Create(home, cfgPath, "swdev", []string{"offline"}, "opencode", "none"); err != nil {
+	if err := Create(home, cfgPath, "swdev", []string{"offline"}, "opencode", "none", SearchWebsearch); err != nil {
 		t.Fatal(err)
 	}
 	if err := PatchString(home, cfgPath, "project_source", "cloned"); err != nil {

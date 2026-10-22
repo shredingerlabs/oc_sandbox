@@ -86,7 +86,7 @@ func fixture(t *testing.T, source string) (home, root string, reg *registry.Regi
 		t.Fatal(err)
 	}
 	cfgPath := sandboxcfg.Path(root)
-	if err := sandboxcfg.Create(home, cfgPath, "swdev", []string{"offline"}, "console", "none"); err != nil {
+	if err := sandboxcfg.Create(home, cfgPath, "swdev", []string{"offline"}, "console", "none", sandboxcfg.SearchWebsearch); err != nil {
 		t.Fatal(err)
 	}
 	if err := sandboxcfg.PatchString(home, cfgPath, "project_source", source); err != nil {

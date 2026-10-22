@@ -228,7 +228,7 @@ func (m *Model) createTail() tea.Cmd {
 				return nil
 			}
 			cfgPath := sandboxcfg.Path(root)
-			if err := sandboxcfg.Create(m.cfg.Home, cfgPath, m.edition, m.modes, m.start, m.recordedProviderID()); err != nil {
+			if err := sandboxcfg.Create(m.cfg.Home, cfgPath, m.edition, m.modes, m.start, m.recordedProviderID(), m.searchMode); err != nil {
 				m.toast = "sandbox_config.json could not be created: " + err.Error()
 				return nil
 			}

@@ -5,6 +5,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/shredingerlabs/oc-sandbox/internal/sandboxcfg"
 	"github.com/shredingerlabs/oc-sandbox/internal/shell"
 )
 
@@ -46,6 +47,8 @@ func fieldLabel(f int) string {
 		return "Modes"
 	case fStart:
 		return "Start"
+	case fSearch:
+		return "Search"
 	case fVCS:
 		return "VCS tracking"
 	case fGitName:
@@ -229,6 +232,8 @@ func (m *Model) optionsFor(f int) []string {
 		return m.modeOptions()
 	case fStart:
 		return startOptions
+	case fSearch:
+		return searchOptions
 	case fAgent:
 		return agentOptions
 	case fVCS:
@@ -246,13 +251,17 @@ func (m *Model) optionRow(f int, opts []string, y int, out *[]optRect) string {
 	x := BodyPad + CardInset + labelWidth + 1
 	for _, o := range opts {
 		cur := m.optionIsCurrent(f, o)
+		disp := o
+		if f == fSearch && o == sandboxcfg.SearchSearxng {
+			disp = "SearXNG" // ADR 0026 row: display capitalization
+		}
 		sym := shell.SymOff
 		st := shell.StyleMutedAlt
 		if cur {
 			sym = shell.SymOn
 			st = shell.StyleCurrentVal
 		}
-		tok := sym + " " + o
+		tok := sym + " " + disp
 		parts = append(parts, st.Render(tok))
 		*out = append(*out, optRect{field: f, val: o, r: shell.Rect{X: x, Y: y, W: shell.Width(tok), H: 1}})
 		x += shell.Width(tok) + 1

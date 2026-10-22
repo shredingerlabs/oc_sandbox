@@ -289,7 +289,7 @@ func TestMismatchSwitchBuildNowResumesSwitch(t *testing.T) {
 	}
 	want := []string{
 		e.roots["alpha"], "--edition", "base", "--container-id", e.ids["alpha"],
-		"--skills", "--detach",
+		"--skills", "--search_mode", "websearch", "--detach",
 	}
 	if strings.Join(calls[0], " ") != strings.Join(want, " ") {
 		t.Errorf("switch start args = %v, want %v", calls[0], want)
@@ -459,7 +459,7 @@ func TestMismatchSwitchStopsThenVerifiedStartThenAccess(t *testing.T) {
 	}
 	want := []string{
 		e.roots["alpha"], "--edition", "base", "--container-id", e.ids["alpha"],
-		"--skills", "--detach",
+		"--skills", "--search_mode", "websearch", "--detach",
 	}
 	if strings.Join(calls[0], " ") != strings.Join(want, " ") {
 		t.Errorf("switch start args = %v, want %v", calls[0], want)

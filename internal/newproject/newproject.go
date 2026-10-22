@@ -21,6 +21,7 @@ import (
 
 	"github.com/shredingerlabs/oc-sandbox/internal/cmdrun"
 	"github.com/shredingerlabs/oc-sandbox/internal/registry"
+	"github.com/shredingerlabs/oc-sandbox/internal/sandboxcfg"
 	"github.com/shredingerlabs/oc-sandbox/internal/shell"
 	"github.com/shredingerlabs/oc-sandbox/internal/taskmgr"
 )
@@ -81,6 +82,7 @@ const (
 	fAgent
 	fModes
 	fStart
+	fSearch
 	fVCS
 	fGitName
 	fGitEmail
@@ -109,11 +111,12 @@ const (
 )
 
 var (
-	startOptions = []string{"console", "opencode", "web"}
-	buildOptions = []string{"Build now", "Build later"}
-	vcsOptions   = []string{"none", "github.com", "gitlab.com", "own GitLab", "others"}
-	aiOptions    = []string{"none", "Custom"}
-	agentOptions = []string{"Code", "Chat Agent (NO_CODE)"}
+	startOptions  = []string{"console", "opencode", "web"}
+	buildOptions  = []string{"Build now", "Build later"}
+	vcsOptions    = []string{"none", "github.com", "gitlab.com", "own GitLab", "others"}
+	aiOptions     = []string{"none", "Custom"}
+	agentOptions  = []string{"Code", "Chat Agent (NO_CODE)"}
+	searchOptions = sandboxcfg.SearchModes // none / websearch / SearXNG (ADR 0026)
 )
 
 // project kinds: the form's Agent row maps to them — chat projects get
@@ -152,6 +155,7 @@ type Model struct {
 	modes      []string
 	modeCur    int // inner cursor over the mode option tokens
 	start      string
+	searchMode string
 	agent      string
 	vcs        string
 	gitName    string
@@ -206,18 +210,19 @@ var _ shell.CenterView = (*Model)(nil)
 // New returns the New Project view.
 func New(cfg Config, run cmdrun.Runner, ops Ops, reg *registry.Registry) *Model {
 	m := &Model{
-		cfg:      cfg,
-		run:      run,
-		ops:      ops,
-		reg:      reg,
-		start:    startOptions[0],
-		agent:    agentCode,
-		vcs:      "none",
-		ai:       aiOptions[0],
-		buildNow: true,
-		imgKnown: map[string]bool{},
-		pending:  map[int]func(err error) tea.Cmd{},
-		log:      shell.NewLogPane(),
+		cfg:        cfg,
+		run:        run,
+		ops:        ops,
+		reg:        reg,
+		start:      startOptions[0],
+		searchMode: sandboxcfg.SearchWebsearch,
+		agent:      agentCode,
+		vcs:        "none",
+		ai:         aiOptions[0],
+		buildNow:   true,
+		imgKnown:   map[string]bool{},
+		pending:    map[int]func(err error) tea.Cmd{},
+		log:        shell.NewLogPane(),
 	}
 	m.follow = shell.NewFollow(false, true)
 	m.follow.Arm()
@@ -514,6 +519,13 @@ func (m *Model) activate(f int) tea.Cmd {
 		m.buildNow = !m.buildNow // radio cycle: enter/space flips now↔later
 	case fStart:
 		m.start = cycle(m.start, startOptions)
+	case fSearch:
+		m.searchMode = cycle(m.searchMode, searchOptions)
+		if m.searchMode == sandboxcfg.SearchSearxng && hasMode(m.modes, "offline") {
+			// ADR 0026: SearXNG needs network — offline cannot ride along
+			m.modes = withoutMode(m.modes, "offline")
+			m.toast = "SearXNG needs network — offline mode dropped"
+		}
 	case fAgent:
 		m.agent = cycle(m.agent, agentOptions)
 	case fVCS:
@@ -556,6 +568,7 @@ func (m *Model) askCreate() tea.Cmd {
 		"edition: "+m.edition,
 		"modes: "+joinModes(m.modes),
 		"start: "+m.start,
+		"search: "+m.searchMode,
 		"VCS tracking: "+m.vcs,
 		"AI provider: "+m.aiSummary())
 	if m.agent == agentChat {
@@ -590,6 +603,12 @@ func (m *Model) setOption(f int, val string) {
 		m.buildNow = val == buildOptions[0]
 	case fStart:
 		m.start = val
+	case fSearch:
+		m.searchMode = val
+		if val == sandboxcfg.SearchSearxng && hasMode(m.modes, "offline") {
+			m.modes = withoutMode(m.modes, "offline")
+			m.toast = "SearXNG needs network — offline mode dropped"
+		}
 	case fAgent:
 		m.agent = val
 	case fVCS:
@@ -604,12 +623,17 @@ func (m *Model) setOption(f int, val string) {
 }
 
 // toggleMode toggles one mode with the offline+cbm_ui exclusivity
-// (data-map §3); "none" clears the selection.
+// (data-map §3); "none" clears the selection. ADR 0026: offline cannot
+// be staged next to the searxng search mode.
 func (m *Model) toggleMode(mode string) {
 	switch mode {
 	case "none":
 		m.modes = nil
 	case "offline":
+		if m.searchMode == sandboxcfg.SearchSearxng {
+			m.toast = "SearXNG needs network — offline mode not available"
+			return
+		}
 		m.modes = withoutMode(m.modes, "cbm_ui")
 		m.modes = toggleIn(m.modes, "offline")
 	case "cbm_ui":
@@ -632,6 +656,10 @@ func withoutMode(modes []string, mode string) []string {
 		return append(modes[:i:i], modes[i+1:]...)
 	}
 	return modes
+}
+
+func hasMode(modes []string, mode string) bool {
+	return indexOf(modes, mode) >= 0
 }
 
 func indexOf(xs []string, v string) int {
@@ -818,6 +846,9 @@ func (m *Model) refresh() {
 	if indexOf(startOptions, m.start) < 0 {
 		m.start = startOptions[0]
 	}
+	if indexOf(searchOptions, m.searchMode) < 0 {
+		m.searchMode = sandboxcfg.SearchWebsearch
+	}
 	if indexOf(vcsOptions, m.vcs) < 0 {
 		m.vcs = "none"
 	}
@@ -850,7 +881,7 @@ func (m *Model) fieldList() []int {
 	if m.edition != "" && !m.imgKnown[m.edition] {
 		fs = append(fs, fBuild)
 	}
-	fs = append(fs, fAgent, fModes, fStart, fVCS)
+	fs = append(fs, fAgent, fModes, fStart, fSearch, fVCS)
 	if m.vcs != "none" {
 		fs = append(fs, fGitName, fGitEmail, fVCSToken)
 		if m.vcs == "own GitLab" || m.vcs == "others" {

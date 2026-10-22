@@ -1,12 +1,15 @@
 #!/usr/bin/env bash
 #
-# Baut Sandbox-Editionen und Proxy-Image.
+# Baut Sandbox-Editionen, Proxy- und SearXNG-Image.
 #
 # Editions-Registry (ADR 0019): entdeckt alle Container-Stages der Form
 #   FROM <parent> AS opencode-sandbox-<name>
 # in Dockerfile und Dockerfile.custom (= <script_dir>/../dist/). Jede
 # entdeckte Edition ist ein gueltiges Argument; Namen sind klein
 # [a-z0-9_-]. Ohne Argument wird jede entdeckte Edition gebaut.
+# Die Infrastruktur-Images (oc-proxy, oc-searxng) sind eigene
+# Build-Ziele mit festem Namen, keine Editionen (grep-safe: eigene
+# Dockerfiles, keine Stages im Editions-Registry-Format).
 #
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -97,6 +100,27 @@ build_edition() {
   podman build --network host --build-arg CACHEBUST="$CACHEBUST" -t "$stage" --target "$stage" -f "$file" .
 }
 
+# build_infra_image baut ein Infrastruktur-Image mit festem Namen und
+# eigener Dockerfile/Build-Context (keine Editions-Stage).
+build_infra_image() {
+  case "$1" in
+    oc-proxy)
+      echo "==> Baue Egress-Proxy (Squid)"
+      podman build -t oc-proxy -f proxy/Dockerfile proxy/
+      ;;
+    oc-searxng)
+      echo "==> Baue SearXNG (MCP-Websuche)"
+      podman build --network host -t oc-searxng -f searxng/Dockerfile searxng/
+      ;;
+    *) echo "Fehler: unbekanntes Infrastruktur-Image: $1" >&2; exit 1 ;;
+  esac
+}
+
+build_infra_images() {
+  build_infra_image oc-proxy
+  build_infra_image oc-searxng
+}
+
 if [[ $# -eq 0 || "${1:-}" == "all" ]]; then
   echo "==> Baue alle Editionen: $(echo "${STAGE_ORDER[@]}" | tr ' ' ' ')"
   for stage in "${STAGE_ORDER[@]}"; do
@@ -104,18 +128,24 @@ if [[ $# -eq 0 || "${1:-}" == "all" ]]; then
   done
 elif arg_stage=$(stage_of_edition "$1") && [[ -n "${STAGE_FILE[$arg_stage]:-}" ]]; then
   build_edition "$arg_stage"
+elif [[ "${1:-}" == "oc-proxy" || "${1:-}" == "oc-searxng" ]]; then
+  build_infra_image "$1"
+  echo "==> Fertig."
+  exit 0
 else
-  echo "Unbekannte Edition: ${1:-}" >&2
+  echo "Unbekanntes Build-Ziel: ${1:-}" >&2
   echo "Verfügbare Editionen:" >&2
   for stage in "${STAGE_ORDER[@]}"; do
     echo "  $stage" >&2
   done
+  echo "Infrastruktur: oc-proxy oc-searxng" >&2
   echo "Nutzung: $0 [$USAGE_EDITIONS|all]" >&2
   exit 1
 fi
 
-echo "==> Baue Egress-Proxy (Squid)"
-podman build -t oc-proxy -f proxy/Dockerfile proxy/
+# Infrastruktur-Images nach jedem Editionslauf aktuell halten (frueher:
+# Proxy nach jedem Build; der SearXNG-Container joinen die gleiche Regel).
+build_infra_images
 
 echo "==> Fertig."
 echo ""

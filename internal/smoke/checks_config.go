@@ -117,7 +117,7 @@ func checkConfigCompat(home, root string) Item {
 		p.reasonf("UpdateStatus: %v", err)
 	}
 	gsc := sandboxcfg.Path(gproj)
-	if err := sandboxcfg.Create(goHome, gsc, "swdev", []string{"offline"}, "web", "gwdg-saia"); err != nil {
+	if err := sandboxcfg.Create(goHome, gsc, "swdev", []string{"offline"}, "web", "gwdg-saia", sandboxcfg.SearchWebsearch); err != nil {
 		p.reasonf("sandboxcfg.Create: %v", err)
 	}
 	if err := sandboxcfg.PatchString(goHome, gsc, "vcs_tracking", "own GitLab"); err != nil {
@@ -164,7 +164,7 @@ func checkNewProjectWrites(home, root string) Item {
 		p.reasonf("prepare: %v", err)
 		return p.finish()
 	}
-	if err := sandboxcfg.Create(goproj, sandboxcfg.Path(gproj), "swdev", []string{"offline", "hil_mode"}, "console", "gwdg-saia"); err != nil {
+	if err := sandboxcfg.Create(goproj, sandboxcfg.Path(gproj), "swdev", []string{"offline", "hil_mode"}, "console", "gwdg-saia", sandboxcfg.SearchWebsearch); err != nil {
 		p.reasonf("sandboxcfg.Create: %v", err)
 	}
 	goSandbox, err := os.ReadFile(sandboxcfg.Path(gproj))

@@ -155,4 +155,32 @@ fi
 grep -q -- 'build -t oc-proxy -f proxy/Dockerfile proxy/' "$PODMAN_LOG"
 printf 'egress proxy build untouched test passed\n'
 
+# --- 9: SearXNG-Infrastruktur-Image -----------------------------------------
+# Direktes Ziel oc-searxng baut nur das SearXNG-Image (kein erneuter
+# Proxy-Lauf, keine Edition).
+: > "$PODMAN_LOG"
+if ! PODMAN_MISSING_IMAGES="" run_script oc-searxng; then
+  printf 'oc-searxng build failed\n' >&2
+  cat "$test_home/err.log" >&2
+  exit 1
+fi
+grep -q -- 'build --network host -t oc-searxng -f searxng/Dockerfile searxng/' "$PODMAN_LOG"
+if grep -q -- '--target opencode-sandbox-' "$PODMAN_LOG"; then
+  printf 'searxng build touched editions\n' >&2
+  exit 1
+fi
+if grep -q -- 'build -t oc-proxy' "$PODMAN_LOG"; then
+  printf 'searxng-only build must not rebuild oc-proxy\n' >&2
+  exit 1
+fi
+# Editionslauf baut die Infrastruktur-Images danach mit (frueher: Proxy).
+: > "$PODMAN_LOG"
+if ! PODMAN_MISSING_IMAGES="" run_script rust; then
+  printf 'edition run failed\n' >&2
+  exit 1
+fi
+grep -q -- 'build --network host -t oc-searxng -f searxng/Dockerfile searxng/' "$PODMAN_LOG"
+grep -q -- 'build -t oc-proxy -f proxy/Dockerfile proxy/' "$PODMAN_LOG"
+printf 'searxng infra build tests passed\n'
+
 printf 'build-container tests passed\n'

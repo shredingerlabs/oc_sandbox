@@ -35,7 +35,7 @@ der TUI auf.
 - **ROS 2**: Jazzy-Entwicklung in C++/Python in `ros2` (colcon, rosdep, RViz2)
 - **Dokumente**: LibreOffice + pandoc in `writing` (odt/odp, docx/pptx, PDF)
 - **Code-Intelligence**: codebase-memory-mcp (Knowledge-Graph-Indexing, auto-konfiguriert für OpenCode, UI auf Port 9749 mit `--cbm_ui` — [Referenz](https://github.com/DeusData/codebase-memory-mcp))
-- **Websuche & Docs**: OpenCode-`websearch` (Exa/Parallel-Backend, ohne API-Key) + Context7-MCP für Dokumentationssuche; bei `--use_proxy` via Allowlist-Einträgen `mcp.exa.ai` / `search.parallel.ai` / `mcp.context7.com`
+- **Websuche & Docs**: per Projekt wählbar (Suchzeile in der TUI): `websearch` — OpenCode-`websearch` (Exa/Parallel-Backend, ohne API-Key) + Context7-MCP für Dokumentationssuche; bei `--use_proxy` via Allowlist-Einträgen `mcp.exa.ai` / `search.parallel.ai` / `mcp.context7.com`; `searxng` — gemeinsamer SearXNG-Container (`oc-searxng`, SearXNG-MCP, ohne API-Key; **nicht mit `--use_proxy` kombinierbar**, ADR 0026) mit demselben Context7-MCP; `none` — keine Websuche
 - **Proxy**: Squid-Egress-Allowlist (optional, per `--use_proxy`)
 - **TUI**: Terminal-UI für interaktive Sandbox-Steuerung (Go-TUI `oc-sandbox`)
 
@@ -443,6 +443,7 @@ Das baut:
 - `opencode-sandbox-writing` — base + LibreOffice + pandoc
 - plus alle eigenen Editionen aus `dist/Dockerfile.custom`
 - `oc-proxy` — optionaler Squid-Egress-Proxy (wird nur bei `--use_proxy` benötigt)
+- `oc-searxng` — gemeinsamer SearXNG-Container für die Websuche (wird nur bei `--search_mode searxng` benötigt; Konfiguration in `dist/searxng/settings.yml`, bleibt bei Updates erhalten)
 
 ### 2. Projekt-Root einrichten
 
@@ -567,6 +568,7 @@ dist/scripts/start.sh ~/projects/kunde-x --edition swdev     # C/C++, Java, Rust
 | `--use_proxy --hil_mode` | pasta    | Squid-Allowlist | Oszi + MCU                | HIL mit Restricted-Net             |
 | `--cbm_ui`               | pasta    | nein            | –                         | CBM Knowledge-Graph-UI (Port 9749) |
 | `--use_proxy --cbm_ui`   | pasta    | Squid-Allowlist | –                         | Proxy + Graph-UI                   |
+| `--search_mode searxng`  | pasta    | nein            | –                         | SearXNG-Websuche (ohne Proxy, ADR 0026) |
 | `--start_web --detach`   | pasta    | nein            | –                         | OpenCode-Weboberfläche (Port 4096) |
 
 Weitere Einzelflags (nicht in der Tabelle): `--start_opencode` öffnet direkt
@@ -589,6 +591,9 @@ dist/scripts/start.sh ~/projects/hil-tests --edition embedded --hil_mode
 
 # Mit Egress-Proxy (Allowlist)
 dist/scripts/start.sh ~/projects/kunde-x --use_proxy
+
+# Websuche über den gemeinsamen SearXNG-Container
+dist/scripts/start.sh ~/projects/kunde-x --search_mode searxng
 
 # Komplett offline
 dist/scripts/start.sh ~/projects/kunde-x --offline

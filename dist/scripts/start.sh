@@ -17,6 +17,9 @@
 #
 # Flags:
 #   --use_proxy        Startet Squid-Egress-Allowlist-Proxy und nutzt ihn
+#   --search_mode      Web-Suche: websearch (Exa/Parallel, Standard), none
+#                      oder searxng (oc-searxng-Container + SearXNG-MCP;
+#                      nicht mit --use_proxy kombinierbar, ADR 0026)
 #   --offline          Kein Netzwerk (nur lokale Modelle)
 #   --hil_mode         USB-Passthrough für Oszi (scope0) und MCU (ttyUSB*, ttyACM*, ttyAMA*)
 #   --cbm_ui           Aktiviert CBM Graph-UI auf Port 9749
@@ -30,6 +33,7 @@
 #   scripts/start.sh ~/projects/kunde-x                            # Default (volle Netzanbindung)
 #   scripts/start.sh ~/projects/kunde-x --use_proxy                 # Mit Egress-Allowlist
 #   scripts/start.sh ~/projects/kunde-x --offline                   # Ohne Netzwerk
+#   scripts/start.sh ~/projects/kunde-x --search_mode searxng       # SearXNG-Websuche
 #   scripts/start.sh ~/projects/kunde-x --hil_mode                  # HIL-Tests
 #   scripts/start.sh ~/projects/kunde-x --use_proxy --hil_mode      # Kombiniert
 #   scripts/start.sh ~/projects/kunde-x --cbm_ui                    # Mit CBM Graph-UI
@@ -47,6 +51,7 @@ if [[ "$PROJECT_ROOT" == "--help" || "$PROJECT_ROOT" == "-h" ]]; then
   echo "Nutzung: $0 <projekt-root> --edition <edition> [Flags]"
   echo "  --edition          Container-Edition auswählen (erforderlich)"
   echo "  --use_proxy        Squid-Egress-Allowlist-Proxy starten und nutzen"
+  echo "  --search_mode <m>  Web-Suche: websearch (Standard), none, searxng"
   echo "  --offline          Kein Netzwerk (--network=none)"
   echo "  --hil_mode         USB-Passthrough für Oszi und MCU-Geräte"
   echo "  --cbm_ui           CBM Graph-UI auf Port 9749 aktivieren"
@@ -57,11 +62,12 @@ if [[ "$PROJECT_ROOT" == "--help" || "$PROJECT_ROOT" == "-h" ]]; then
   exit 0
 fi
 if [[ -z "$PROJECT_ROOT" ]]; then
-  echo "Nutzung: $0 <projekt-root> --edition <edition> [--use_proxy] [--offline] [--hil_mode] [--cbm_ui] [--start_opencode] [--start_web] [--detach]" >&2
+  echo "Nutzung: $0 <projekt-root> --edition <edition> [--use_proxy] [--search_mode <none|websearch|searxng>] [--offline] [--hil_mode] [--cbm_ui] [--start_opencode] [--start_web] [--detach]" >&2
   echo "" >&2
   echo "  <projekt-root>        Pfad zum Projekt-Root (siehe init-project.sh)" >&2
   echo "  --edition <edition>   Container-Edition auswählen (erforderlich)" >&2
   echo "  --use_proxy           Squid-Egress-Allowlist-Proxy starten und nutzen" >&2
+  echo "  --search_mode <m>     Web-Suche: websearch (Standard), none, searxng" >&2
   echo "  --offline             Kein Netzwerk (--network=none)" >&2
   echo "  --hil_mode            USB-Passthrough für Oszi + MCU-Geräte" >&2
   echo "  --cbm_ui              CBM Graph-UI auf Port 9749 aktivieren" >&2
@@ -72,6 +78,7 @@ fi
 shift
 
 USE_PROXY=false
+SEARCH_MODE="websearch"
 OFFLINE=false
 HIL_MODE=false
 CBM_UI=false
@@ -88,6 +95,11 @@ while [[ $# -gt 0 ]]; do
       shift 2
       ;;
     --use_proxy)        USE_PROXY=true; shift ;;
+    --search_mode)
+      [[ $# -ge 2 ]] || { echo "--search_mode benötigt einen Wert" >&2; exit 1; }
+      SEARCH_MODE="$2"
+      shift 2
+      ;;
     --offline)          OFFLINE=true;   shift ;;
     --hil_mode)         HIL_MODE=true;  shift ;;
     --cbm_ui)           CBM_UI=true;    shift ;;
@@ -101,7 +113,7 @@ while [[ $# -gt 0 ]]; do
       ;;
     *)
       echo "Unbekanntes Flag: $1" >&2
-      echo "Nutzung: $0 <projekt-root> --edition <edition> [--use_proxy] [--offline] [--hil_mode] [--cbm_ui] [--start_opencode] [--start_web] [--detach]" >&2
+      echo "Nutzung: $0 <projekt-root> --edition <edition> [--use_proxy] [--search_mode <none|websearch|searxng>] [--offline] [--hil_mode] [--cbm_ui] [--start_opencode] [--start_web] [--detach]" >&2
       exit 1
       ;;
   esac
@@ -114,9 +126,35 @@ done
 # dem custom edition Dockerfile ermittelt - keine hardcodierte Whitelist.
 [[ -n "${EDITION:-}" ]] || {
   echo "Fehler: --edition <edition> ist erforderlich." >&2
-  echo "Nutzung: $0 <projekt-root> --edition <edition> [--use_proxy] [--offline] [--hil_mode] [--cbm_ui] [--start_opencode] [--start_web] [--detach]" >&2
+  echo "Nutzung: $0 <projekt-root> --edition <edition> [--use_proxy] [--search_mode <none|websearch|searxng>] [--offline] [--hil_mode] [--cbm_ui] [--start_opencode] [--start_web] [--detach]" >&2
   exit 1
 }
+
+# --- Suchmodus validieren --------------------------------------------------------
+case "$SEARCH_MODE" in
+  websearch|none|searxng) ;;
+  *)
+    echo "Fehler: Unbekannter --search_mode: $SEARCH_MODE" >&2
+    echo "Erlaubt: websearch (Standard), none, searxng" >&2
+    exit 1
+    ;;
+esac
+SEARCH_WEBSEARCH=false
+SEARCH_SEARXNG=false
+[[ "$SEARCH_MODE" != "websearch" ]] || SEARCH_WEBSEARCH=true
+[[ "$SEARCH_MODE" != "searxng" ]] || SEARCH_SEARXNG=true
+# Kombinationsausschluesse (ADR 0026) VOR jedem Containerzugriff: der
+# Proxy/oc-searxng darf nicht erst gestartet werden, um dann abzubrechen.
+if $SEARCH_SEARXNG && $OFFLINE; then
+  echo "Fehler: --search_mode searxng erfordert Netzwerk (--offline inkompatibel)" >&2
+  exit 1
+fi
+if $SEARCH_SEARXNG && $USE_PROXY; then
+  echo "Fehler: --search_mode searxng ist mit --use_proxy inkompatibel (ADR 0026:" >&2
+  echo "  das SearXNG-MCP liest beliebige URLs; Suche und Egress-Allowlist schließen" >&2
+  echo "  sich aus). Ohne --use_proxy starten oder --search_mode websearch verwenden." >&2
+  exit 1
+fi
 
 if [[ ! "$EDITION" =~ ^[a-z0-9_-]+$ ]]; then
   echo "Fehler: Ungültiger Editions-Name: $EDITION" >&2
@@ -260,6 +298,11 @@ fi
 if [[ -f "${CONFIG_DIR}/opencode.json" ]] && command -v jq >/dev/null 2>&1; then
   bash "${SCRIPT_DIR}/configure-project.sh" migrate-opencode-config "$PROJECT_ROOT" ||
     echo "Warnung: opencode.json v2-Migration fehlgeschlagen - wiederholt sich beim naechsten Start oder beim ersten Provider-Edit." >&2
+  # Suchmodus (search_mode) auf opencode.json anwenden: SearXNG-MCP
+  # +/− Built-in-Websearch-Seed. Idempotent, schreibt nur bei Aenderung;
+  # ein Scheitern blockiert den Start nicht.
+  bash "${SCRIPT_DIR}/configure-project.sh" search-mode "$PROJECT_ROOT" --mode "$SEARCH_MODE" ||
+    echo "Warnung: search-mode auf opencode.json fehlgeschlagen - wiederholt sich beim naechsten Start." >&2
 fi
 
 # --- Proxy ----------------------------------------------------------------------
@@ -278,6 +321,14 @@ fi
 # --- Netzwerk-Optionen ---------------------------------------------------------
 NETWORK_ARGS=(--network=pasta:--ipv4-only)
 PROXY_ENV=()
+# Such-Umgebung: websearch aktiviert die Built-in-Exa/Parallel-Backends
+# (Standard, Rückwärtskompatibilität: fehlender --search_mode liest als
+# websearch). searxng traegt nur SEARXNG_URL ein, none nichts.
+WEBSEARCH_ENV=()
+if $SEARCH_WEBSEARCH; then
+  WEBSEARCH_ENV=(-e OPENCODE_ENABLE_EXA=1 -e OPENCODE_ENABLE_PARALLEL=1)
+fi
+SEARXNG_ENV=()
 if $USE_PROXY; then
   PROXY_ENV=(
     -e HTTPS_PROXY="http://host.containers.internal:3128"
@@ -361,6 +412,43 @@ fi
 START_WEB_ENV=false
 if $START_WEB && ! $DETACH; then
   START_WEB_ENV=true
+fi
+
+# --- SearXNG-Leitstelle (search_mode=searxng) -----------------------------------
+# Ein gemeinsamer Container für ALLE Projekte. Er wird beim ersten
+# searxng-Projektstart angelegt (fehlt das Image, wird es gebaut) und
+# danach dauerhaft weiterlaufen gelassen - Spiegel der oc-proxy-
+# Logik. Das Projekt-Container-Environment bekommt die Instanz-Adresse
+# über SEARXNG_URL (host.containers.internal): sie wird nie in
+# opencode.json persistiert, ein Portrescan kann sie also nie veralten
+# lassen.
+if $SEARCH_SEARXNG; then
+  if [[ ! -f "${REPO_ROOT}/searxng/settings.yml" ]]; then
+    echo "Fehler: ${REPO_ROOT}/searxng/settings.yml fehlt (siehe Install)." >&2
+    exit 1
+  fi
+  if ! podman image exists oc-searxng 2>/dev/null; then
+    echo "==> Baue oc-searxng Image ..."
+    podman build --network host -t oc-searxng -f "${REPO_ROOT}/searxng/Dockerfile" "${REPO_ROOT}/searxng/"
+  fi
+  SEARXNG_HOST_PORT=""
+  if podman container exists oc-searxng 2>/dev/null && \
+     podman inspect -f '{{.State.Running}}' oc-searxng 2>/dev/null | grep -q true; then
+    SEARXNG_HOST_PORT=$(podman port oc-searxng 8080/tcp 2>/dev/null | head -1 | sed 's/^[^:]*://' || true)
+  fi
+  if [[ -z "$SEARXNG_HOST_PORT" ]]; then
+    SEARXNG_HOST_PORT=$(select_free_host_port 8080 "SearXNG")
+    if [[ "$SEARXNG_HOST_PORT" != "8080" ]]; then
+      echo "Hinweis: Host-Port 8080 ist belegt; SearXNG wird auf http://127.0.0.1:${SEARXNG_HOST_PORT} veröffentlicht." >&2
+    fi
+    echo "==> Starte oc-searxng Container ..."
+    podman run -d --replace --name oc-searxng --network=pasta \
+      -p "127.0.0.1:${SEARXNG_HOST_PORT}:8080" \
+      -e "SEARXNG_SECRET=$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')" \
+      -v "${REPO_ROOT}/searxng/settings.yml:/etc/searxng/settings.yml:Z" \
+      oc-searxng
+  fi
+  SEARXNG_ENV=(-e "SEARXNG_URL=http://host.containers.internal:${SEARXNG_HOST_PORT}/search")
 fi
 
 # --- HIL-Geräte ----------------------------------------------------------------
@@ -487,8 +575,8 @@ podman run --rm "${RUN_MODE[@]}" \
   -e GIT_CONFIG_GLOBAL="/home/dev/.git_local/gitconfig" \
   -e START_OPENCODE="${START_OPENCODE}" \
   -e START_WEB="${START_WEB_ENV}" \
-  -e OPENCODE_ENABLE_EXA=1 \
-  -e OPENCODE_ENABLE_PARALLEL=1 \
+  "${WEBSEARCH_ENV[@]}" \
+  "${SEARXNG_ENV[@]}" \
   -v "${PROJECT_DIR}:/home/dev/project:Z" \
   -v "${CONFIG_DIR}:/home/dev/.config/opencode:Z" \
   -v "${DATA_DIR}:/home/dev/.local/share/opencode:Z" \

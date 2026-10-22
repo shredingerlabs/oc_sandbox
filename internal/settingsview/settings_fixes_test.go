@@ -86,7 +86,7 @@ func TestImportLegacyRootRegisters(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(root, ".opencode_config"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := sandboxcfg.Create(home, sandboxcfg.Path(root), "base", nil, "console", "none"); err != nil {
+	if err := sandboxcfg.Create(home, sandboxcfg.Path(root), "base", nil, "console", "none", sandboxcfg.SearchWebsearch); err != nil {
 		t.Fatal(err)
 	}
 

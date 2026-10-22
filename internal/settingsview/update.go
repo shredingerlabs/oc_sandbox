@@ -161,7 +161,7 @@ func (v *View) HookMsg(msg tea.Msg) (bool, tea.Cmd) {
 
 // keepNote is the preservation fact shared by the update pane and the
 // confirmation popup so the two never drift apart.
-const keepNote = "Kept: proxy/allowlist.txt, dist/Dockerfile.custom, your configs."
+const keepNote = "Kept: proxy/allowlist.txt, dist/Dockerfile.custom, dist/searxng/settings.yml, your configs."
 
 // UpdateBadge implements shell.UpdateBadgeView: the footer badge text and
 // the sub-tab index a badge click jumps to; empty while no update is

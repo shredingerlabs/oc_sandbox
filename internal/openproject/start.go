@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/mattn/go-runewidth"
+	"github.com/shredingerlabs/oc-sandbox/internal/sandboxcfg"
 	"github.com/shredingerlabs/oc-sandbox/internal/shell"
 )
 
@@ -15,10 +16,10 @@ var (
 // StartArgs rebuilds the start.sh argument vector from stored fields
 // (data-map §3, bash start_container): the project root first, then
 // --edition, --container-id, one --<mode> flag per stored mode,
-// --use_proxy, --start_web for the web start option (the TUI always
-// starts detached, so --start_opencode and the foreground --start_web
-// env path never fire), and --detach last.
-func StartArgs(projectPath, edition, containerID string, modes []string, startOption string, useProxy bool) []string {
+// --use_proxy, --search_mode <m>, --start_web for the web start option
+// (the TUI always starts detached, so --start_opencode and the
+// foreground --start_web env path never fire), and --detach last.
+func StartArgs(projectPath, edition, containerID string, modes []string, startOption string, useProxy bool, searchMode string) []string {
 	args := []string{projectPath, "--edition", edition, "--container-id", containerID}
 	for _, mode := range modes {
 		args = append(args, "--"+mode)
@@ -26,6 +27,7 @@ func StartArgs(projectPath, edition, containerID string, modes []string, startOp
 	if useProxy {
 		args = append(args, "--use_proxy")
 	}
+	args = append(args, "--search_mode", searchMode)
 	if startOption == "web" {
 		args = append(args, "--start_web")
 	}
@@ -45,6 +47,16 @@ func ValidModes(modes []string) bool {
 		}
 	}
 	return !(hasOffline && hasCBM)
+}
+
+// ValidSearchCombination rejects the ADR-0026 combinations that start.sh
+// hard-exits on: SearXNG search with the squid proxy or with the offline
+// mode.
+func ValidSearchCombination(searchMode string, modes []string, useProxy bool) bool {
+	if searchMode != sandboxcfg.SearchSearxng {
+		return true
+	}
+	return !useProxy && !hasMode(modes, "offline")
 }
 
 // modeLabel renders a mode option row label with its selection symbol.

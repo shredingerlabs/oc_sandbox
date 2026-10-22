@@ -108,7 +108,7 @@ func (e *env) addProject(t *testing.T, name string) {
 	if err := r.AddProject(registry.AddRequest{Name: name, Path: root, GitTracking: "none"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := sandboxcfg.Create(e.home, sandboxcfg.Path(root), "base", []string{"skills"}, "console", "gwdg-saia"); err != nil {
+	if err := sandboxcfg.Create(e.home, sandboxcfg.Path(root), "base", []string{"skills"}, "console", "gwdg-saia", sandboxcfg.SearchWebsearch); err != nil {
 		t.Fatal(err)
 	}
 	e.roots[name] = root

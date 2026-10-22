@@ -18,12 +18,12 @@
 #   ai-provider <project-root> --name <n> --endpoint <u> --token <t> [--replace]
 #   opencode-config <project-root> --id <i> --name <n> --endpoint <u>
 #   ai-provider-remove <project-root> --id <i>
+#   search-mode <project-root> --mode <none|websearch|searxng>
 #   migrate-opencode-config <project-root>
 #
 # Exit codes: 0 success, 1 error, 2 usage error.
 #
 set -euo pipefail
-
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 die() {
@@ -32,7 +32,7 @@ die() {
 }
 
 usage() {
-  sed -n '2,27p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+  sed -n '2,26p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
   exit 2
 }
 
@@ -426,6 +426,64 @@ cmd_opencode_config() {
   write_config_without_backup "$config_file" "$config"
 }
 
+# search-mode: brings the project's opencode.json into the configured
+# search_mode shape (ADR 0026). searxng: adds mcp.servers["searxng-mcp"],
+# removes the built-in websearch seed (SearXNG is the only web search;
+# Context7 stays). websearch: removes the SearXNG MCP and re-seeds
+# {"provider": "random"} only when the key is absent (a user pin survives).
+# none: removes both. The mode value was validated by the caller; the
+# doc is written back only when its content changes; a missing
+# opencode.json is a no-op (init-project.sh seeds the basic template).
+cmd_search_mode() {
+  local project_path="" mode=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --mode) [[ $# -ge 2 ]] || die "--mode requires a value" 2; mode="$2"; shift 2 ;;
+      -*) die "Unknown argument: $1" 2 ;;
+      *) [[ -z "$project_path" ]] || die "Unexpected argument: $1" 2; project_path="$1"; shift ;;
+    esac
+  done
+
+  [[ -n "$project_path" ]] || die "Usage: $0 search-mode <project-root> --mode <none|websearch|searxng>" 2
+  case "$mode" in
+    none|websearch|searxng) ;;
+    *) die "Unknown --mode: ${mode} (use none|websearch|searxng)" 2 ;;
+  esac
+  command -v jq >/dev/null 2>&1 || return 0
+
+  migrate_opencode_config "$project_path"
+
+  local config_file="${project_path}/.opencode_config/opencode.json"
+  [[ -f "$config_file" ]] || return 0
+  local original
+  original=$(< "$config_file")
+
+  local config
+  config=$(SEARXNG_MODE="$mode" jq '
+    def has_mcp: ((.mcp? // null) | type) == "object";
+    def strip_searxng: if has_mcp
+                       then .mcp.servers = ((.mcp.servers // {}) | del(."searxng-mcp"))
+                       else . end;
+    if $ENV.SEARXNG_MODE == "searxng" then
+      (del(.websearch)
+       | .mcp = {servers: (((if has_mcp then (.mcp.servers // {}) else {} end)
+                + {"searxng-mcp": {type: "local", command: ["mcp-searxng"]}}))})
+    elif $ENV.SEARXNG_MODE == "websearch" then
+      ((if (.websearch? // null) == null
+        then . + {"websearch": {"provider": "random"}}
+        else . end)
+       | strip_searxng)
+    else
+      (del(.websearch) | strip_searxng)
+    end
+  ' "$config_file") || die "Applying search mode ${mode} to opencode.json failed"
+
+  if [[ "$config" != "$original" ]]; then
+    write_config_without_backup "$config_file" "$config" ||
+      die "Writing opencode.json failed; search mode ${mode} not applied"
+  fi
+}
+
 # ai-provider-remove: deletes one provider entry from the project's own
 # config files — the credential file under .opencode_data/credentials/ and
 # the providers.<id> section in opencode.json. Unknown ids fail loudly;
@@ -482,6 +540,7 @@ main() {
     vcs-credentials) cmd_vcs_credentials "$@" ;;
     ai-provider) cmd_ai_provider "$@" ;;
     opencode-config) cmd_opencode_config "$@" ;;
+    search-mode) cmd_search_mode "$@" ;;
     ai-provider-remove) cmd_ai_provider_remove "$@" ;;
     migrate-opencode-config) cmd_migrate_opencode_config "$@" ;;
     -h|--help|help|"") usage ;;

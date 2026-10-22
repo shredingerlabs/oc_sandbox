@@ -340,7 +340,8 @@ func (m *Model) keys(t int) []string {
 		if m.discovErr != "" {
 			return nil
 		}
-		return m.editions
+		// the SearXNG infra image is a build row of its own (non-edition)
+		return append(append([]string{}, m.editions...), discovery.SearxngImageTag)
 	case TabImages:
 		tags := make([]string, 0, len(m.images))
 		for _, img := range m.images {
@@ -391,6 +392,9 @@ func (m *Model) refreshImageStatus() tea.Cmd {
 				out[ed] = discovery.ImageExists(run, ed)
 			}
 		}
+		// the shared SearXNG infra image rides the Build tab as a
+		// non-edition row (its own Dockerfile, fixed tag)
+		out[discovery.SearxngImageTag] = discovery.ImageExistsTag(run, discovery.SearxngImageTag)
 		return ImageStatusMsg(out)
 	}
 }
@@ -780,11 +784,14 @@ func (m *Model) startStart() tea.Cmd {
 			if !openproject.ValidModes(cfg.ContainerModes) {
 				return errors.New("offline and cbm_ui are mutually exclusive — fix settings first")
 			}
+			if !openproject.ValidSearchCombination(cfg.SearchMode, cfg.ContainerModes, cfg.UseProxy) {
+				return errors.New("searxng search requires network and no proxy (ADR 0026) — fix settings first")
+			}
 			if !discovery.ImageExists(run, cfg.ContainerEdition) {
 				return fmt.Errorf("image opencode-sandbox-%s is not built yet", cfg.ContainerEdition)
 			}
 			emit("==> " + name)
-			args := openproject.StartArgs(p.Path, cfg.ContainerEdition, p.ContainerID, cfg.ContainerModes, cfg.StartOption, cfg.UseProxy)
+			args := openproject.StartArgs(p.Path, cfg.ContainerEdition, p.ContainerID, cfg.ContainerModes, cfg.StartOption, cfg.UseProxy, cfg.SearchMode)
 			out, err := run.Output("bash", append([]string{script}, args...)...)
 			for _, l := range cmdrun.Lines(out) {
 				emit(l)
@@ -1312,13 +1319,19 @@ func (m *Model) checklistBody(width, height int, rows []chkRow, c *checklist, un
 func (m *Model) rows(t, width int) []chkRow {
 	switch t {
 	case TabBuild:
-		rows := make([]chkRow, 0, len(m.editions))
+		rows := make([]chkRow, 0, len(m.editions)+1)
 		for _, ed := range m.editions {
 			rows = append(rows, chkRow{key: ed,
 				main: shell.StyleFieldLabel.Render(ed) + m.imageMarker(ed),
 				sub:  shell.StyleMutedAlt.Render(description(ed)),
 			})
 		}
+		// the shared SearXNG infra image: non-edition row (ADR 0026),
+		// not offered as a project edition by runtime detection
+		rows = append(rows, chkRow{key: discovery.SearxngImageTag,
+			main: shell.StyleFieldLabel.Render("SearXNG") + m.imageMarker(discovery.SearxngImageTag),
+			sub:  shell.StyleMutedAlt.Render("shared SearXNG web search (projects with search mode searxng)"),
+		})
 		return rows
 	case TabImages:
 		rows := make([]chkRow, 0, len(m.images))

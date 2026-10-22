@@ -590,7 +590,7 @@ func TestStartArgsRebuiltFromStoredFields(t *testing.T) {
 	}
 	want := []string{
 		e.roots["alpha"], "--edition", "base", "--container-id", e.ids["alpha"],
-		"--skills", "--use_proxy", "--detach",
+		"--skills", "--use_proxy", "--search_mode", "websearch", "--detach",
 	}
 	if strings.Join(calls[0], " ") != strings.Join(want, " ") {
 		t.Errorf("start.sh args = %v, want %v", calls[0], want)

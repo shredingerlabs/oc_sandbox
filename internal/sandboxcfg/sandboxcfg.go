@@ -11,9 +11,31 @@ import (
 	"github.com/shredingerlabs/oc-sandbox/internal/jsonfmt"
 )
 
+// Search modes of a project (search_mode in sandbox_config.json).
+// Absent key reads as SearchWebsearch so pre-existing projects keep
+// today's built-in websearch behavior.
+const (
+	SearchNone      = "none"
+	SearchWebsearch = "websearch"
+	SearchSearxng   = "searxng"
+)
+
+// SearchModes are the valid search_mode values in display order.
+var SearchModes = []string{SearchNone, SearchWebsearch, SearchSearxng}
+
+// ValidSearchMode reports whether v is a known search_mode value.
+func ValidSearchMode(v string) bool {
+	for _, m := range SearchModes {
+		if m == v {
+			return true
+		}
+	}
+	return false
+}
+
 // Config is the read view of sandbox_config.json. Absent optional fields
 // fall back exactly like the bash jq reads: vcs_tracking // "none",
-// use_proxy // false, setup_* // false.
+// use_proxy // false, search_mode // "websearch", setup_* // false.
 type Config struct {
 	ContainerEdition    string
 	ContainerModes      []string
@@ -25,6 +47,7 @@ type Config struct {
 	RepoURL             string
 	VCSTracking         string
 	UseProxy            bool
+	SearchMode          string
 	SetupCloneComplete  bool
 	SetupCBMComplete    bool
 	SetupSkillsComplete bool
@@ -70,6 +93,7 @@ func Read(path string) (Config, error) {
 		RepoURL:             doc.GetString("repo_url", ""),
 		VCSTracking:         doc.GetString("vcs_tracking", "none"),
 		UseProxy:            doc.GetBool("use_proxy", false),
+		SearchMode:          doc.GetString("search_mode", SearchWebsearch),
 		SetupCloneComplete:  doc.GetBool("setup_clone_complete", false),
 		SetupCBMComplete:    doc.GetBool("setup_cbm_complete", false),
 		SetupSkillsComplete: doc.GetBool("setup_skills_complete", false),
@@ -79,15 +103,19 @@ func Read(path string) (Config, error) {
 }
 
 // Create writes the initial payload: fixed defaults, all setup flags false,
-// cbm_* true, project_source "empty", repo_url "". Field order matches the
+// cbm_* true, project_source "empty", repo_url "", search_mode per the
+// wizard's Search row (empty → websearch). Field order matches the
 // bash create_sandbox_config jq output.
-func Create(home, path, edition string, modes []string, startOption, aiProvider string) error {
+func Create(home, path, edition string, modes []string, startOption, aiProvider, searchMode string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
 	modeVals := []any{}
 	for _, m := range modes {
 		modeVals = append(modeVals, m)
+	}
+	if searchMode == "" {
+		searchMode = SearchWebsearch
 	}
 	doc := &jsonfmt.Doc{Entries: []jsonfmt.Entry{
 		{Key: "container_edition", Val: edition},
@@ -98,6 +126,7 @@ func Create(home, path, edition string, modes []string, startOption, aiProvider 
 		{Key: "ai_provider", Val: aiProvider},
 		{Key: "project_source", Val: "empty"},
 		{Key: "repo_url", Val: ""},
+		{Key: "search_mode", Val: searchMode},
 		{Key: "setup_clone_complete", Val: false},
 		{Key: "setup_cbm_complete", Val: false},
 		{Key: "setup_skills_complete", Val: false},
@@ -137,6 +166,7 @@ type Settings struct {
 	VCS         string
 	AIProvider  string
 	UseProxy    bool
+	SearchMode  string
 }
 
 // Rewrite applies the whole-settings change as ONE atomic write, preserving
@@ -157,5 +187,6 @@ func Rewrite(home, path string, s Settings) error {
 	doc.Set("vcs_tracking", s.VCS)
 	doc.Set("ai_provider", s.AIProvider)
 	doc.Set("use_proxy", s.UseProxy)
+	doc.Set("search_mode", s.SearchMode)
 	return config.AtomicWrite(home, path, jsonfmt.Marshal(doc))
 }

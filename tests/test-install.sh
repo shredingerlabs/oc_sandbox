@@ -1359,6 +1359,67 @@ test_custom_dockerfile_recreated_if_absent() {
   cleanup_test_env "$test_dir"
 }
 
+# SearXNG settings.yml: gleiche Custom-Edition-Dockerfile-Regel wie
+# Dockerfile.custom (Benutzer-editierbar, Update erhält, Löschen
+# reinkarniert).
+setup_searxng_source() {
+  local src_dir="$1"
+  setup_custom_dockerfile_source "$src_dir"
+  cp "$PROJECT_ROOT/dist/searxng/settings.yml" "$src_dir/dist/searxng/settings.yml" 2>/dev/null || {
+    mkdir -p "$src_dir/dist/searxng"
+    cp "$PROJECT_ROOT/dist/searxng/settings.yml" "$src_dir/dist/searxng/settings.yml"
+  }
+  cp "$PROJECT_ROOT/dist/searxng/Dockerfile" "$src_dir/dist/searxng/Dockerfile"
+}
+
+test_searxng_settings_update_preserves_edited_file() {
+  local test_dir
+  test_dir=$(setup_test_env "searxng-settings-preserve")
+  local src="$test_dir/src"
+  local target="$test_dir/target"
+
+  setup_searxng_source "$src"
+  run_install_files "$src" "$target" >/dev/null 2>&1
+
+  # User editiert die Einstellungen (z.B. eigene Engine-Sperre)
+  echo "  # user tweak" >> "$target/dist/searxng/settings.yml"
+  cp "$target/dist/searxng/settings.yml" "$test_dir/expected"
+
+  local rc=0
+  run_install_files "$src" "$target" || rc=$?
+
+  assert_equals "0" "$rc" "install_files bei Update mit editierter settings.yml" || { cleanup_test_env "$test_dir"; return 1; }
+  cmp -s "$test_dir/expected" "$target/dist/searxng/settings.yml" || {
+    echo "Editierte dist/searxng/settings.yml wurde überschrieben (nicht erhalten)"
+    cleanup_test_env "$test_dir"
+    return 1
+  }
+  cleanup_test_env "$test_dir"
+}
+
+test_searxng_settings_recreated_if_absent() {
+  local test_dir
+  test_dir=$(setup_test_env "searxng-settings-absent")
+  local src="$test_dir/src"
+  local target="$test_dir/target"
+
+  setup_searxng_source "$src"
+  run_install_files "$src" "$target" >/dev/null 2>&1
+  rm "$target/dist/searxng/settings.yml"
+
+  local rc=0
+  run_install_files "$src" "$target" || rc=$?
+
+  assert_equals "0" "$rc" "install_files nach Löschen der settings.yml" || { cleanup_test_env "$test_dir"; return 1; }
+  assert_file_exists "$target/dist/searxng/settings.yml" || { cleanup_test_env "$test_dir"; return 1; }
+  cmp -s "$PROJECT_ROOT/dist/searxng/settings.yml" "$target/dist/searxng/settings.yml" || {
+    echo "Fehlende settings.yml wurde nicht aus Template neu angelegt"
+    cleanup_test_env "$test_dir"
+    return 1
+  }
+  cleanup_test_env "$test_dir"
+}
+
 
 
 main() {
@@ -1427,6 +1488,8 @@ main() {
   run_test "Fresh install: dist/Dockerfile.custom landet" test_custom_dockerfile_fresh_install_lands
   run_test "Update: editierte dist/Dockerfile.custom bleibt erhalten" test_custom_dockerfile_update_preserves_edited_file
   run_test "Update ohne Datei: wird erneut angelegt" test_custom_dockerfile_recreated_if_absent
+  run_test "Update: editierte dist/searxng/settings.yml bleibt erhalten" test_searxng_settings_update_preserves_edited_file
+  run_test "Update ohne settings.yml: wird erneut angelegt" test_searxng_settings_recreated_if_absent
 
   
   # Zusammenfassung

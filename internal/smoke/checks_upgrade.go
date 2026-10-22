@@ -40,7 +40,7 @@ func checkUpgradeInPlace(home, root string) Item {
 	}); err != nil {
 		p.reasonf("registry add: %v", err)
 	}
-	if err := sandboxcfg.Create(sub, sc, "swdev", []string{"offline", "hil_mode"}, "console", "gwdg-saia"); err != nil {
+	if err := sandboxcfg.Create(sub, sc, "swdev", []string{"offline", "hil_mode"}, "console", "gwdg-saia", sandboxcfg.SearchWebsearch); err != nil {
 		p.reasonf("sandbox create: %v", err)
 	}
 	if err := sandboxcfg.PatchString(sub, sc, "vcs_tracking", "github.com"); err != nil {

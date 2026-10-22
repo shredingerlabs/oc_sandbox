@@ -137,6 +137,7 @@ var reservedModes = map[string]bool{
 	"container-id":   true,
 	"help":           true,
 	"use_proxy":      true,
+	"search_mode":    true,
 }
 
 var flagRe = regexp.MustCompile(`(?m)(^|\s)--([a-zA-Z0-9_-]+)`)
@@ -253,23 +254,30 @@ type SandboxImage struct {
 	Size string
 }
 
-// proxyImage reports whether an image reference is the oc-proxy image:
-// its last path segment (tag/digest suffix stripped) is `oc-proxy`.
-func proxyImage(ref string) bool {
+// SearxngImageTag is the fixed tag of the shared SearXNG search image:
+// an infra image like oc-proxy, built from dist/searxng/Dockerfile and
+// never offered as a project edition.
+const SearxngImageTag = "oc-searxng"
+
+// infraImage reports whether an image reference is one of the shared
+// infra images (oc-proxy, oc-searxng): its last path segment (tag/
+// digest suffix stripped) is that name.
+func infraImage(ref string) bool {
 	if i := strings.LastIndex(ref, "/"); i >= 0 {
 		ref = ref[i+1:]
 	}
 	if j := strings.IndexAny(ref, ":@"); j >= 0 {
 		ref = ref[:j]
 	}
-	return ref == "oc-proxy"
+	return ref == "oc-proxy" || ref == SearxngImageTag
 }
 
 // SandboxImageTag reports whether a podman image reference belongs to
 // the sandbox family: tagged `opencode-sandbox-<edition>` (any registry
-// prefix, tag/digest suffix) or the oc-proxy image.
+// prefix, tag/digest suffix) or one of the infra images (oc-proxy,
+// oc-searxng).
 func SandboxImageTag(ref string) bool {
-	return EditionFromImage(ref) != "" || proxyImage(ref)
+	return EditionFromImage(ref) != "" || infraImage(ref)
 }
 
 // SandboxImages lists every sandbox-family image with its tag and size
@@ -305,8 +313,8 @@ func ContainerImageRefs(run cmdrun.Runner) []string {
 
 // ImageInUse reports whether any container image reference matches a
 // sandbox-family tag: edition images match on the edition suffix (the
-// container's ref carries no registry prefix or tag), oc-proxy on the
-// name substring.
+// container's ref carries no registry prefix or tag), infra images
+// (oc-proxy, oc-searxng) by name.
 func ImageInUse(refs []string, tag string) bool {
 	if ed := EditionFromImage(tag); ed != "" {
 		return slices.ContainsFunc(refs, func(ref string) bool {
@@ -314,13 +322,20 @@ func ImageInUse(refs []string, tag string) bool {
 		})
 	}
 	return slices.ContainsFunc(refs, func(ref string) bool {
-		return proxyImage(ref) && proxyImage(tag)
+		return infraImage(ref) && infraImage(tag)
 	})
 }
 
 // ImageExists reports whether the edition's image exists in podman.
 func ImageExists(run cmdrun.Runner, edition string) bool {
 	_, err := run.Output("podman", "image", "exists", "opencode-sandbox-"+edition)
+	return err == nil
+}
+
+// ImageExistsTag reports whether an arbitrary image tag exists in podman
+// (infra images live outside the opencode-sandbox-<edition> namespace).
+func ImageExistsTag(run cmdrun.Runner, tag string) bool {
+	_, err := run.Output("podman", "image", "exists", tag)
 	return err == nil
 }
 
