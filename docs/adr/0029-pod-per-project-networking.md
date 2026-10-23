@@ -31,6 +31,12 @@ What *did* verify on podman 4.9.3 (POD-PASTA-OK probes):
   failed only because that port was genuinely occupied on the host).
 - `podman pod rm -f` removes a pod with members non-interactively.
 - `podman pod create --replace` could not be verified on 4.9.3 — see Decision.
+- `--userns` and `--pod` cannot be set together on one `podman run`
+  (reproduced on 4.9.3, 2026-10: `Error: --userns and --pod cannot be set
+  together`). The keep-id usern therefore moves to the pod:
+  `podman pod create --userns=keep-id` + member runs without any per-container
+  `--userns` (verified on 4.9.3). Only the offline (non-pod) project run keeps
+  its own `--userns=keep-id`.
 
 ## Decision
 
@@ -38,8 +44,9 @@ One pod per project start: `opencode-sandbox-pod-<container-id>`, created
 with network mode `pasta:--ipv4-only`. The pod holds:
 
 - the **project container**, joining via `--pod` — it loses its own
-  `--network` and its own publishes, and keeps everything else of its run
-  shape (userns, caps, mounts, env, detach/foreground);
+  `--network`, its own publishes, and its own `--userns` (the pod carries
+  `--userns=keep-id`; podman 4.9 rejects `--userns` on pod members), and
+  keeps everything else of its run shape (caps, mounts, env, detach/foreground);
 - a **per-pod SearXNG member** when `search_mode: searxng` (detached,
   `oc-searxng` image — still built on demand from the searxng Dockerfile —,
   settings.yml bind mount, generated secret, no publish, per-pod unique name

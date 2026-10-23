@@ -47,6 +47,15 @@ run_line="$(grep -m1 -- '--rm -d --name opencode-sandbox-' "$PODMAN_LOG")"
 [[ "$run_line" != *'--network'* ]]
 [[ "$run_line" != *' -p 127.0.0.1'* ]]
 
+# Pod-Member erben den usern-Namespace des Pods (podman: "userns and pod
+# cannot be set together"): pod create setzt --userns=keep-id, der
+# Projektcontainer traegt kein eigenes --userns, wenn er via --pod beitritt.
+grep -q -- '--userns=keep-id' <<<"$pod_create_line"
+if grep -q -- '--userns' <<<"$run_line"; then
+  printf 'project run joining a pod must not carry --userns (podman 4.9 conflict)\n' >&2
+  exit 1
+fi
+
 # Git-Heal: OpenCode-Web braucht ein Git-Repo in project/ (sonst worktree "/"
 # und Weboberflaeche ohne neue Sessions)
 [[ -e "$test_home/project/.git" ]]
@@ -382,5 +391,27 @@ if grep -q -- ':3128:3128' "$PODMAN_LOG"; then
   exit 1
 fi
 printf 'start proxy pod member tests passed\n'
+
+# --- 7: Offline-Userns (#125-Regression) ---------------------------------------
+# Offline gibt es keinen Pod: der Projektcontainer laeuft solo und behaelt
+# --userns=keep-id (+ keep-groups). Der Pod-Pfad (oben) traegt es dagegen
+# nie selbst - der Pod uebernimmt es.
+: > "$PODMAN_LOG"
+if ! run_start "$cloned_project" --edition rust --offline --detach; then
+  printf 'start script failed with mocked podman (--offline)\n' >&2
+  cat "$test_home/edition-output" >&2
+  exit 1
+fi
+! grep -q -- 'pod create' "$PODMAN_LOG"
+offline_run_line="$(grep -m1 -- '--rm -d --name opencode-sandbox-' "$PODMAN_LOG")"
+if [[ "$offline_run_line" != *'--userns=keep-id'* ]]; then
+  printf 'offline run lost --userns=keep-id: %s\n' "$offline_run_line" >&2
+  exit 1
+fi
+if grep -q -- '--pod' <<<"$offline_run_line"; then
+  printf 'offline run must not join a pod: %s\n' "$offline_run_line" >&2
+  exit 1
+fi
+printf 'start offline userns tests passed\n'
 
 printf 'start searxng recreate tests passed\n'

@@ -530,11 +530,17 @@ if ! $OFFLINE; then
   echo "==> Lege Pod ${POD_NAME} an (Recreate) ..."
   podman pod rm -f "$POD_NAME" >/dev/null 2>&1 || true
   podman pod create --name "$POD_NAME" \
+    --userns=keep-id \
     --network pasta:--ipv4-only \
     "${CBM_PORT_ARGS[@]}" \
     "${WEB_PORT_ARGS[@]}"
   POD_ARGS=(--pod "$POD_NAME")
   CONTAINER_PORT_ARGS=()
+  USERNS_ARGS=()
+  # Pod create uebernimmt --userns=keep-id fuer den gemeinsamen Namespace:
+  # Pod-Member duerfen auf podman 4.9 kein --userns setzen
+  # ("--userns and --pod cannot be set together") - der Projektcontainer
+  # erbt keep-id daher vom Pod.
   if $SEARCH_SEARXNG; then
     echo "==> Starte oc-searxng Pod-Member (${SEARXNG_NAME}) ..."
     podman run -d \
@@ -557,6 +563,8 @@ else
   # Umstellung) am Projektcontainer.
   POD_ARGS=()
   CONTAINER_PORT_ARGS=("${CBM_PORT_ARGS[@]}" "${WEB_PORT_ARGS[@]}")
+  USERNS_ARGS=(--userns=keep-id)
+  USERNS_POD_ARGS=()
 fi
 
 # --- Container starten ---------------------------------------------------------
@@ -599,7 +607,7 @@ fi
 
 podman run --rm "${RUN_MODE[@]}" \
   --name "$CONTAINER_NAME" \
-  --userns=keep-id \
+  "${USERNS_ARGS[@]}" \
   --group-add keep-groups \
   --cap-drop=ALL \
   --security-opt no-new-privileges \
