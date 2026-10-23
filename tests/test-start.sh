@@ -195,7 +195,7 @@ if ! bash "$PROJECT_ROOT/dist/scripts/start.sh" "$test_home" --edition swdev --s
 fi
 ! grep -q -- 'OPENCODE_ENABLE_EXA' "$PODMAN_LOG"
 # In-Namespace-Konstante im Pod (ADR 0029), kein Gateway-Eintrag mehr.
-grep -q -- 'SEARXNG_URL=http://127.0.0.1:8080/search' "$PODMAN_LOG"
+grep -q -- 'SEARXNG_URL=http://127.0.0.1:8080' "$PODMAN_LOG"
 grep -q -- 'oc-searxng' "$PODMAN_LOG"
 ! grep -q -- 'host.oc-sandbox.internal' "$PODMAN_LOG"
 ! grep -q -- ':8080$' "$PODMAN_LOG"
@@ -343,7 +343,7 @@ if ! grep -q -- 'run -d.*--name oc-searxng' "$PODMAN_LOG"; then
   printf 'recreate path skipped the oc-searxng pod member\n' >&2
   exit 1
 fi
-if ! grep -q -- 'SEARXNG_URL=http://127.0.0.1:8080/search' "$PODMAN_LOG"; then
+if ! grep -q -- 'SEARXNG_URL=http://127.0.0.1:8080' "$PODMAN_LOG"; then
   printf 'recreate path lost the SEARXNG_URL\n' >&2
   exit 1
 fi

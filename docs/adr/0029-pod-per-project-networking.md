@@ -59,7 +59,8 @@ with network mode `pasta:--ipv4-only`. The pod holds:
 
 Because pod members share one network namespace, companions are addressed
 through in-namespace **constants**:
-`SEARXNG_URL=http://127.0.0.1:8080/search` and
+`SEARXNG_URL=http://127.0.0.1:8080` (base URL only — the
+`mcp-searxng` package appends `/search` itself) and
 `HTTP(S)_PROXY=http://127.0.0.1:3128`. No hosts-entry injection, no gateway
 detection, no `host.oc-sandbox.internal`, no dependence on podman's
 `host.containers.internal` — ADR 0028's machinery is fully reverted and the

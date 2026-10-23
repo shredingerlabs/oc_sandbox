@@ -448,7 +448,8 @@ if $SEARCH_SEARXNG; then
   fi
   SEARXNG_SECRET="$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')"
   SEARXNG_NAME="oc-searxng-${SANDBOX_ID}"
-  SEARXNG_ENV=(-e "SEARXNG_URL=http://127.0.0.1:8080/search")
+  # Ohne /search-Suffix: mcp-searxng haengt /search selbst an (sonst /search/search -> 404).
+  SEARXNG_ENV=(-e "SEARXNG_URL=http://127.0.0.1:8080")
 fi
 
 # --- HIL-Geräte ----------------------------------------------------------------
