@@ -521,6 +521,8 @@ func TestStopOpVerifiedGoneWritesStatusAndInvocations(t *testing.T) {
 		case n == "podman" && args[0] == "stop":
 			running = false
 			return name + "\n", nil
+		case n == "podman" && args[0] == "pod" && args[1] == "exists":
+			return "", os.ErrNotExist // pre-upgrade: no pod
 		}
 		return "", nil
 	}
@@ -597,6 +599,140 @@ func TestStopWithoutSelectionToasts(t *testing.T) {
 	}
 	if got := body(m); !strings.Contains(got, "select containers to stop") {
 		t.Errorf("no-selection toast missing:\n%s", got)
+	}
+}
+
+// --- Stop tab: pod-per-project (#125) ---
+
+// podPodman scripts `podman pod ps` (rows "name\tstatus") and
+// `podman pod exists` against a live name→status map.
+func podPodman(fake *cmdrun.Fake, pods map[string]string) {
+	fake.Script = func(n string, args []string) (string, error) {
+		switch {
+		case n == "podman" && len(args) > 1 && args[0] == "pod" && args[1] == "ps":
+			var rows string
+			for name, st := range pods {
+				rows += name + "\t" + st + "\n"
+			}
+			return rows, nil
+		case n == "podman" && len(args) > 2 && args[0] == "pod" && args[1] == "exists":
+			if _, ok := pods[args[2]]; ok {
+				return "", nil
+			}
+			return "", fmt.Errorf("no such pod: %s", args[2])
+		}
+		return "", nil
+	}
+}
+
+func TestStopOpPodExistsStopsPod(t *testing.T) {
+	m, fake, reg, _ := newFixture(t)
+	id := registry.ContainerIdentity("/tmp/proj")
+	name := registry.ContainerName(id)
+	pod := registry.PodName(id)
+	running := true
+	stop := func(n string, args []string) (string, error) {
+		if n == "podman" && args[0] == "stop" || (n == "podman" && len(args) > 2 && args[0] == "pod" && args[1] == "stop") {
+			running = false
+			return name + "\n", nil
+		}
+		return "", nil
+	}
+	fake.Script = func(n string, args []string) (string, error) {
+		switch {
+		case n == "podman" && len(args) > 1 && args[0] == "ps" && args[1] != "-a":
+			if running {
+				return name + "\n", nil
+			}
+			return "", nil
+		case n == "podman" && len(args) > 1 && args[0] == "pod" && args[1] == "ps":
+			if running {
+				return pod + "\tRunning\n", nil
+			}
+			return "", nil
+		case n == "podman" && len(args) > 2 && args[0] == "pod" && args[1] == "exists":
+			return "", nil // the pod exists
+		}
+		return stop(n, args)
+	}
+	if err := reg.CreateProjectsFile(); err != nil {
+		t.Fatal(err)
+	}
+	if err := reg.AddProject(registry.AddRequest{Name: "proj", Path: "/tmp/proj", GitTracking: "github"}); err != nil {
+		t.Fatal(err)
+	}
+	runCmds(t, m, m.Update(shell.SubTabMsg{Index: TabStop}))
+	m.Body(80, 22)
+	m.Update(mousePress(m.selAll.X, m.selAll.Y))
+	cmd := m.Update(mousePress(m.opBtn.X+2, m.opBtn.Y))
+	runCmds(t, m, cmd)
+	// exact invocation: pod stop carries the pod name, not the container
+	if callsMatching(fake, "podman", "pod") == 0 {
+		t.Fatalf("pod stop call = %v", lastCallStr(t, fake))
+	}
+	stoppedPod := false
+	for _, c := range fake.Calls {
+		if c.Name == "podman" && strings.Join(c.Args, "\x00") == "pod\x00stop\x00"+pod {
+			stoppedPod = true
+		}
+		if c.Name == "podman" && strings.Join(c.Args, "\x00") == "stop\x00"+name {
+			t.Fatalf("bare container stop ran although the pod exists: %v", fake.Calls)
+		}
+	}
+	if !stoppedPod {
+		t.Fatalf("pod stop missing: %v", fake.Calls)
+	}
+	projs, err := reg.AllOrdered()
+	if err != nil || projs[0].ContainerStatus != "stopped" {
+		t.Fatalf("registry status after verified pod stop = %+v", projs)
+	}
+	if got := body(m); !strings.Contains(got, "Containers stopped") {
+		t.Errorf("success toast missing:\n%s", got)
+	}
+}
+
+func TestStopOpNoPodFallsBackToContainerStop(t *testing.T) {
+	m, fake, reg, _ := newFixture(t)
+	id := registry.ContainerIdentity("/tmp/proj")
+	name := registry.ContainerName(id)
+	running := true
+	fake.Script = func(n string, args []string) (string, error) {
+		switch {
+		case n == "podman" && len(args) > 1 && args[0] == "ps" && args[1] != "-a":
+			if running {
+				return name + "\n", nil
+			}
+			return "", nil
+		case n == "podman" && len(args) > 2 && args[0] == "pod" && args[1] == "exists":
+			return "", os.ErrNotExist // pre-upgrade: no pod
+		case n == "podman" && args[0] == "stop":
+			running = false
+			return name + "\n", nil
+		}
+		return "", nil
+	}
+	if err := reg.CreateProjectsFile(); err != nil {
+		t.Fatal(err)
+	}
+	if err := reg.AddProject(registry.AddRequest{Name: "proj", Path: "/tmp/proj", GitTracking: "github"}); err != nil {
+		t.Fatal(err)
+	}
+	runCmds(t, m, m.Update(shell.SubTabMsg{Index: TabStop}))
+	m.Body(80, 22)
+	m.Update(mousePress(m.selAll.X, m.selAll.Y))
+	cmd := m.Update(mousePress(m.opBtn.X+2, m.opBtn.Y))
+	runCmds(t, m, cmd)
+	if !hasExactCall(fake, "podman", "stop", name) {
+		t.Fatalf("no-pod stop call = %v", lastCallStr(t, fake))
+	}
+	for _, c := range fake.Calls {
+		if c.Name == "podman" && c.Args[0] == "pod" && c.Args[1] == "stop" {
+			t.Fatalf("pod stop ran although no pod exists: %v", fake.Calls)
+		}
+	}
+	projs, err := reg.AllOrdered()
+	if err != nil || projs[0].ContainerStatus != "stopped" {
+		t.Fatalf("registry status after verified stop = %+v err %v", projs, err)
 	}
 }
 
@@ -894,6 +1030,183 @@ func TestDeleteNoSelectionToasts(t *testing.T) {
 	}
 }
 
+// --- Delete tab: pod-per-project (#125) ---
+
+// TestDeleteTabListsPodsNotTheirContainers: pods show as rows with the
+// project echo, the project container inside a pod and the pod's infra
+// container do not (pod-as-unit); a pod-less legacy container keeps its row.
+func TestDeleteTabListsPodsNotTheirContainers(t *testing.T) {
+	m, fake, reg, _ := newFixture(t)
+	id := registry.ContainerIdentity("/tmp/proj")
+	name := registry.ContainerName(id)
+	pod := registry.PodName(id)
+	legacy := registry.ContainerName("eeeeeeeeeeee")
+	podPodman(fake, map[string]string{pod: "Exited"})
+	podScript := fake.Script
+	fake.Script = func(n string, args []string) (string, error) {
+		if n == "podman" && len(args) > 1 && args[0] == "ps" && args[1] == "-a" {
+			return name + "\texited\n" + pod + "-infra\texited\n" + legacy + "\texited\n", nil
+		}
+		return podScript(n, args)
+	}
+	if err := reg.CreateProjectsFile(); err != nil {
+		t.Fatal(err)
+	}
+	if err := reg.AddProject(registry.AddRequest{Name: "proj", Path: "/tmp/proj", GitTracking: "github"}); err != nil {
+		t.Fatal(err)
+	}
+	runCmds(t, m, m.Update(shell.SubTabMsg{Index: TabDelete}))
+	got := body(m)
+	for _, want := range []string{pod, "proj", legacy, "Delete"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("delete tab missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "☐ "+name) || strings.Contains(got, "☐ "+pod+"-infra") {
+		t.Errorf("pod member containers leaked onto the tab as rows:\n%s", got)
+	}
+}
+
+// TestDeleteRefusesRunningPodWithStopHint.
+func TestDeleteRefusesRunningPodWithStopHint(t *testing.T) {
+	m, fake, reg, _ := newFixture(t)
+	id := registry.ContainerIdentity("/tmp/proj")
+	pod := registry.PodName(id)
+	podPodman(fake, map[string]string{pod: "Running"})
+	podScript := fake.Script
+	fake.Script = func(n string, args []string) (string, error) {
+		if n == "podman" && len(args) > 1 && args[0] == "ps" && args[1] == "-a" {
+			return registry.ContainerName(id) + "\texited\n", nil
+		}
+		return podScript(n, args)
+	}
+	if err := reg.CreateProjectsFile(); err != nil {
+		t.Fatal(err)
+	}
+	if err := reg.AddProject(registry.AddRequest{Name: "proj", Path: "/tmp/proj", GitTracking: "github"}); err != nil {
+		t.Fatal(err)
+	}
+	runCmds(t, m, m.Update(shell.SubTabMsg{Index: TabDelete}))
+	m.Body(80, 22)
+	m.Update(mousePress(m.rowRects[0].X, m.rowRects[0].Y))
+	if cmd := m.Update(mousePress(m.opBtn.X+2, m.opBtn.Y)); cmd != nil || m.confirm.IsOpen() {
+		t.Fatalf("delete popup armed for a running pod")
+	}
+	if got := body(m); !strings.Contains(got, "stop it first: podman pod stop "+pod) {
+		t.Errorf("stop-first hint missing:\n%s", got)
+	}
+	if callsMatching(fake, "podman", "rm") != 0 {
+		t.Fatalf("podman rm ran: %v", fake.Calls)
+	}
+}
+
+// TestDeleteRemovesStoppedPodAsUnit pins the pod delete op: danger
+// popup ("pod: " row), `podman pod rm` (no force), verified gone
+// against a fresh pod list, stale registry status mirrored to the
+// project container name.
+func TestDeleteRemovesStoppedPodAsUnit(t *testing.T) {
+	m, fake, reg, _ := newFixture(t)
+	root := filepath.Join(filepath.Dir(m.Dockerfile), "proj")
+	id := registry.ContainerIdentity(root)
+	pod := registry.PodName(id)
+	if err := reg.CreateProjectsFile(); err != nil {
+		t.Fatal(err)
+	}
+	if err := reg.AddProject(registry.AddRequest{Name: "proj", Path: root, GitTracking: "github"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := reg.UpdateStatus(root, "running"); err != nil { // stale mirror
+		t.Fatal(err)
+	}
+	var gone bool
+	pods := map[string]string{pod: "Exited"}
+	fake.Script = func(n string, args []string) (string, error) {
+		switch {
+		case n == "podman" && len(args) > 1 && args[0] == "pod" && args[1] == "ps":
+			if gone {
+				return "", nil
+			}
+			return pod + "\tExited\n", nil
+		case n == "podman" && len(args) > 2 && args[0] == "pod" && args[1] == "exists":
+			if _, ok := pods[args[2]]; !ok {
+				return "", fmt.Errorf("no such pod: %s", args[2])
+			}
+			return "", nil
+		case n == "podman" && args[0] == "pod" && args[1] == "rm":
+			gone = true
+			return pod + "\n", nil
+		}
+		return "", nil
+	}
+	runCmds(t, m, m.Update(shell.SubTabMsg{Index: TabDelete}))
+	m.Body(80, 22)
+	m.Update(mousePress(m.rowRects[0].X, m.rowRects[0].Y))
+	cmd := m.Update(mousePress(m.opBtn.X+2, m.opBtn.Y))
+	if !m.confirm.IsOpen() {
+		t.Fatal("confirm popup missing")
+	}
+	overlay := shell.StripANSI(m.confirm.Overlay(80, 22, shell.BodyTop))
+	if !strings.Contains(overlay, "pod: "+pod) {
+		t.Fatalf("popup missing pod line:\n%s", overlay)
+	}
+	runCmds(t, m, cmd)
+	runCmds(t, m, confirmPopup(m))
+	if !hasExactCall(fake, "podman", "pod", "rm", pod) {
+		t.Fatalf("pod rm call = %v", lastCallStr(t, fake))
+	}
+	for _, c := range fake.Calls {
+		if strings.Join(c.Args, "\x00") == "rm\x00"+pod || slicesContains(c.Args, "-f") {
+			t.Fatalf("container rm or force used on a pod: %v", fake.Calls)
+		}
+	}
+	p, err := reg.ByPath(root)
+	if err != nil || p.ContainerStatus != "stopped" {
+		t.Fatalf("stale status not mirrored: %+v err %v", p, err)
+	}
+	if got := body(m); !strings.Contains(got, "Containers deleted") {
+		t.Errorf("success toast missing:\n%s", got)
+	}
+}
+
+// TestDeletePodAndLegacyContainerTogether: a stopped pod row and a
+// legacy pod-less container row remove as one op — pod rm + podman rm.
+func TestDeletePodAndLegacyContainerTogether(t *testing.T) {
+	m, fake, _, _ := newFixture(t)
+	pod := registry.PodName("999999999999")
+	legacy := registry.ContainerName("eeeeeeeeeeee")
+	var gone bool
+	fake.Script = func(n string, args []string) (string, error) {
+		switch {
+		case n == "podman" && len(args) > 1 && args[0] == "pod" && args[1] == "ps":
+			if gone {
+				return "", nil
+			}
+			return pod + "\tExited\n", nil
+		case n == "podman" && args[0] == "pod" && args[1] == "rm":
+			gone = true
+			return pod + "\n", nil
+		case n == "podman" && len(args) > 1 && args[0] == "ps" && args[1] == "-a":
+			if gone {
+				return "", nil
+			}
+			return legacy + "\texited\n", nil
+		case n == "podman" && args[0] == "rm":
+			gone = true
+			return legacy + "\n", nil
+		}
+		return "", nil
+	}
+	runCmds(t, m, m.Update(shell.SubTabMsg{Index: TabDelete}))
+	m.Body(80, 22)
+	m.Update(mousePress(m.selAll.X, m.selAll.Y))
+	cmd := m.Update(mousePress(m.opBtn.X+2, m.opBtn.Y))
+	runCmds(t, m, cmd)
+	runCmds(t, m, confirmPopup(m))
+	if callsMatching(fake, "podman", "pod") == 0 || callsMatching(fake, "podman", "rm") == 0 {
+		t.Fatalf("pod rm / container rm missing: %v", fake.Calls)
+	}
+}
+
 // --- Delete Images tab ---
 
 // imageList scripts `podman images` (rows: "repo:tag\tsize") and the
@@ -1150,6 +1463,16 @@ func lastCallStr(t *testing.T, fake *cmdrun.Fake) string {
 	}
 	c := fake.Calls[len(fake.Calls)-1]
 	return fmt.Sprintf("%s %s", c.Name, strings.Join(c.Args, " "))
+}
+
+// hasExactCall reports whether any invocation was exactly name+args.
+func hasExactCall(fake *cmdrun.Fake, name string, args ...string) bool {
+	for _, c := range fake.Calls {
+		if c.Name == name && strings.Join(c.Args, "\x00") == strings.Join(args, "\x00") {
+			return true
+		}
+	}
+	return false
 }
 
 // TestStopChecklistScrolls keeps the focused row visible at a height too
