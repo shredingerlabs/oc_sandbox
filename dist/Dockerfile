@@ -50,6 +50,19 @@ RUN curl -fsSL https://github.com/DeusData/codebase-memory-mcp/releases/latest/d
 RUN pip3 install --break-system-packages --no-cache-dir \
         pytest pytest-cov
 
+# --- Node runtime für das SearXNG-MCP (ADR 0026) -----------------------------
+# Das SearXNG-MCP (mcp-searxng) wird als lokaler MCP in JEDER Edition
+# registriert (search_mode=searxng); es braucht node im Projekt-Container.
+# Deshalb lebt ein Node-Runtime + das Paket in der Basis (für alle Editionen,
+# inkl. web, das node für seine Dev-Toolchain weiterverwendet). Steht hinter
+# CACHEBUST, damit ein neuer Build wirklich anliefert. Es ist bewusst das
+# EINZIGE npm-Paket auf Basis-Ebene: web ergänzt seine Dev-Globals selbst.
+RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
+    && apt-get install -y --no-install-recommends nodejs \
+    && rm -rf /var/lib/apt/lists/* \
+    && npm install -g npm@12.0.2 \
+    && npm install -g mcp-searxng
+
 # --- Non-root user -----------------------------------------------------------
 RUN userdel -r ubuntu \
     && useradd -m -s /bin/bash -u 1000 dev \
@@ -74,14 +87,8 @@ ENV GLAB_CONFIG_DIR=/home/dev/.git_local/glab-cli \
     PLAYWRIGHT_BROWSERS_PATH=/usr/local/share/playwright-browsers \
     PLAYWRIGHT_DOWNLOAD_CONNECTION_TIMEOUT=0
 
-# --- Node / TypeScript / Jest / Playwright -----------------------------------
-RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
-    && apt-get install -y --no-install-recommends nodejs \
-    && rm -rf /var/lib/apt/lists/*
-
-RUN npm install -g npm@12.0.2 \
-    && npm config set allow-scripts=unrs-resolver --location=user \
-    && npm install -g typescript jest playwright pnpm corepack better-sqlite3 mcp-searxng \
+# --- TypeScript / Jest / Playwright (node comes from the base) ---------------
+RUN npm install -g typescript jest playwright pnpm corepack better-sqlite3 \
     && npm update -g \
     && npx playwright install-deps \
     && npx playwright install chromium firefox \

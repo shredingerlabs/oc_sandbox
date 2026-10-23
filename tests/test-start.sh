@@ -24,6 +24,11 @@ case "$*" in
 esac
 EOF
 chmod +x "$fake_bin/ss"
+cat > "$fake_bin/ip" <<'EOF'
+#!/usr/bin/env bash
+printf 'default via 10.0.2.2 dev eth0\n'
+EOF
+chmod +x "$fake_bin/ip"
 
 export PATH="$fake_bin:/usr/bin:/bin"
 export PODMAN_LOG="$test_home/podman.log"
@@ -35,6 +40,10 @@ fi
 
 grep -q -- '--network=pasta:--ipv4-only' "$PODMAN_LOG"
 grep -q -- '-p 127.0.0.1:9750:9749' "$PODMAN_LOG"
+# pasta: host.containers.internal zeigt auf die Container-eigene Adresse;
+# der eigene Eintrag mappt das Default-Route-Gateway (pasta übersetzt das
+# in Host-Loopback-Verbindungen, siehe start.sh-Kommentar).
+grep -q -- '--add-host host.oc-sandbox.internal:10.0.2.2' "$PODMAN_LOG"
 
 # Git-Heal: OpenCode-Web braucht ein Git-Repo in project/ (sonst worktree "/"
 # und Weboberflaeche ohne neue Sessions)
@@ -174,7 +183,7 @@ if ! bash "$PROJECT_ROOT/dist/scripts/start.sh" "$test_home" --edition swdev --s
   exit 1
 fi
 ! grep -q -- 'OPENCODE_ENABLE_EXA' "$PODMAN_LOG"
-grep -q -- 'SEARXNG_URL=http://host.containers.internal:8080/search' "$PODMAN_LOG"
+grep -q -- 'SEARXNG_URL=http://host.oc-sandbox.internal:8080/search' "$PODMAN_LOG"
 grep -q -- 'oc-searxng' "$PODMAN_LOG"
 jq -e '.websearch | not' "$cfg" > /dev/null
 jq -e '.mcp.servers["searxng-mcp"].command == ["mcp-searxng"]' "$cfg" > /dev/null
@@ -289,3 +298,39 @@ if ! run_start "$cloned_project" --edition pkm --detach; then
 fi
 grep -q -- 'opencode-sandbox-pkm' "$PODMAN_LOG"
 printf 'start pkm edition tests passed\n'
+
+# --- 6: SearXNG-Reuse-Pfad: laufender oc-searxng uebernimmt seinen Port ------
+# Regression fuer den podman-port-Parse: `podman port` liefert
+# "127.0.0.1:8080->8080/tcp"; der alte `sed 's/^[^:]*://'` erzeugte daraus
+# "8080->8080/tcp" und verbog SEARXNG_URL im Wiederverwendungspfad. Der
+# Container wird NICHT neu gestartet und die URL bleibt :8080/search.
+cat > "$fake_bin/podman" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "${PODMAN_LOG}"
+case "$*" in
+  *"-f {{.State.Running}} oc-searxng"*) printf 'true\n' ;;
+  *"port oc-searxng 8080/tcp"*) printf '127.0.0.1:8080->8080/tcp\n' ;;
+  *"image exists oc-searxng"*) exit 0 ;;
+  *"container exists oc-searxng"*) exit 0 ;;
+  *) exit 0 ;;
+esac
+EOF
+chmod +x "$fake_bin/podman"
+: > "$PODMAN_LOG"
+if ! bash "$PROJECT_ROOT/dist/scripts/start.sh" "$test_home" --edition swdev --search_mode searxng --detach > /dev/null 2>&1; then
+  printf 'start.sh failed with pre-running oc-searxng (reuse mock)\n' >&2
+  exit 1
+fi
+if grep -q -- 'run -d --replace --name oc-searxng' "$PODMAN_LOG"; then
+  printf 'reuse path re-started the oc-searxng container\n' >&2
+  exit 1
+fi
+if ! grep -q -- 'SEARXNG_URL=http://host.oc-sandbox.internal:8080/search' "$PODMAN_LOG"; then
+  printf 'reuse path lost the SEARXNG_URL\n' >&2
+  exit 1
+fi
+if grep -q -- 'SEARXNG_URL=http://host.oc-sandbox.internal:8080->' "$PODMAN_LOG"; then
+  printf 'reuse path mangled SEARXNG_URL with podman-port noise\n' >&2
+  exit 1
+fi
+printf 'start searxng reuse tests passed\n'

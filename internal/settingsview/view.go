@@ -99,13 +99,15 @@ type View struct {
 	// Update pane. The check result arrives via HookMsg (any active
 	// view); the installed version is re-read on tab entry and after a
 	// successful update.
-	Version   string                 // compiled-in version of this binary; "" → "unknown"
-	installed string                 // cached installedVersion()
-	upSeen    bool                   // lazy first entry (uninstallPane parity)
-	upChecked bool                   // the startup check has returned
-	upLatest  string                 // latest tag; "" also covers check failure
-	upDone    bool                   // updated this session — restart note up
-	check     func() (string, error) // startup check seam; default defaultCheck
+	Version            string                 // compiled-in version of this binary; "" → "unknown"
+	installed          string                 // cached installedVersion()
+	upSeen             bool                   // lazy first entry (uninstallPane parity)
+	upChecked          bool                   // the startup check has returned
+	upLatest           string                 // latest tag; "" also covers check failure
+	upDone             bool                   // updated this session — restart note up
+	upErr              error                  // last update failure; pane warning persists until the next attempt
+	fetchInstallScript func() (string, error) // install-script fetch seam; default defaultFetchInstallScript
+	check              func() (string, error) // startup check seam; default defaultCheck
 
 	scroll       int
 	follow       shell.Follow // the focused row pulls the scroll; wheel turns it off
@@ -122,15 +124,16 @@ type View struct {
 func New(home string) *View {
 	installRoot := home + "/.oc-sandbox"
 	v := &View{
-		home:         home,
-		installRoot:  installRoot,
-		scriptPath:   installRoot + "/scripts/uninstall.sh",
-		run:          cmdrun.ExecRunner{},
-		now:          time.Now,
-		unOptSyml:    true,
-		check:        defaultCheck,
-		queuePending: map[int]func(err error) tea.Cmd{},
-		follow:       shell.NewFollow(true, false),
+		home:               home,
+		installRoot:        installRoot,
+		scriptPath:         installRoot + "/scripts/uninstall.sh",
+		run:                cmdrun.ExecRunner{},
+		now:                time.Now,
+		unOptSyml:          true,
+		fetchInstallScript: defaultFetchInstallScript,
+		check:              defaultCheck,
+		queuePending:       map[int]func(err error) tea.Cmd{},
+		follow:             shell.NewFollow(true, false),
 	}
 	v.ops = DefaultOps{view: v}
 	v.ps = projectsettings.New(projectsettings.Deps{

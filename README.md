@@ -143,8 +143,10 @@ registered project — including running containers. Changes are persisted to
 
 **Settings → Update** shows installed vs. latest release version, checks for
 updates at every TUI start (footer badge when available), and runs the install
-script non-interactively — `proxy/allowlist.txt`, `dist/Dockerfile.custom`,
-and user configs are preserved; restart `oc-sandbox` afterwards.
+script non-interactively, fetched fresh from the repository's `main` branch —
+`proxy/allowlist.txt`, `dist/Dockerfile.custom`, and user configs are
+preserved; a failed update leaves a persistent warning in the pane; restart
+`oc-sandbox` afterwards.
 
 **Settings → Uninstall** runs a guided wizard (warning → options → typed
 `uninstall` confirmation). It removes only the installation, never project
