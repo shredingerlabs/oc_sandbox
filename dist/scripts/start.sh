@@ -311,11 +311,6 @@ if $USE_PROXY; then
     echo "==> Baue oc-proxy Image ..."
     podman build -t oc-proxy -f "${REPO_ROOT}/proxy/Dockerfile" "${REPO_ROOT}/proxy/"
   fi
-  if ! podman container exists oc-proxy 2>/dev/null || ! podman inspect -f '{{.State.Running}}' oc-proxy 2>/dev/null | grep -q true; then
-    echo "==> Starte oc-proxy Container ..."
-    podman run -d --replace --name oc-proxy --network=pasta \
-      -p 127.0.0.1:3128:3128 oc-proxy
-  fi
 fi
 
 # --- Netzwerk: Pod pro Projekt (ADR 0029) ---------------------------------------
@@ -342,7 +337,8 @@ if $OFFLINE; then
   NETWORK_ARGS=(--network=none)
 fi
 
-# Proxy: In-Namespace-Konstante; der per-Pod Proxy-Member kommt mit #127.
+# Proxy: In-Namespace-Konstante (ADR 0029) - der per-Pod Squid-Member
+# wird beim Pod-Aufbau unten gestartet.
 PROXY_ENV=()
 if $USE_PROXY; then
   PROXY_ENV=(
@@ -550,6 +546,14 @@ if ! $OFFLINE; then
       -e "SEARXNG_SECRET=${SEARXNG_SECRET}" \
       -v "${REPO_ROOT}/searxng/settings.yml:/etc/searxng/settings.yml:Z" \
       oc-searxng
+  fi
+  if $USE_PROXY; then
+    PROXY_NAME="oc-proxy-${SANDBOX_ID}"
+    echo "==> Starte oc-proxy Pod-Member (${PROXY_NAME}) ..."
+    podman run -d \
+      --pod "$POD_NAME" \
+      --name "$PROXY_NAME" \
+      oc-proxy
   fi
 else
   # Offline: kein Pod, kein Member - Publishings bleiben (wie vor der

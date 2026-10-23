@@ -346,4 +346,41 @@ if grep -q -- 'run -d --replace --name oc-searxng' "$PODMAN_LOG"; then
   printf 'host-side shared oc-searxng run is back\n' >&2
   exit 1
 fi
+# --- Proxy-Pod-Member (#127, ADR 0029) ------------------------------------------
+# use_proxy startet einen per-Pod Squid-Member (detached, oc-proxy-Image,
+# keine Publishings, pro-Pod-eindeutiger Name) und der Projektcontainer
+# zeigt auf die In-Namespace-Konstante 127.0.0.1:3128. Der hostseitige
+# geteilte oc-proxy-Container ist entfallen.
+: > "$PODMAN_LOG"
+if ! bash "$PROJECT_ROOT/dist/scripts/start.sh" "$test_home" --edition swdev --use_proxy --detach > /dev/null 2>&1; then
+  printf 'start script failed with mocked podman (use_proxy)\n' >&2
+  exit 1
+fi
+proxy_run_line="$(grep -m1 -- '--name oc-proxy-' "$PODMAN_LOG" || true)"
+if [[ -z "$proxy_run_line" ]]; then
+  printf 'no per-pod proxy member run\n' >&2
+  exit 1
+fi
+if [[ "$proxy_run_line" != *'run -d --pod opencode-sandbox-pod-'*' --name oc-proxy-'* ]]; then
+  printf 'proxy member run missing --pod or per-pod name: %s\n' "$proxy_run_line" >&2
+  exit 1
+fi
+if [[ "$proxy_run_line" == *' -p '* ]]; then
+  printf 'proxy member run carries a publish: %s\n' "$proxy_run_line" >&2
+  exit 1
+fi
+grep -q -- '-e HTTP_PROXY=http://127.0.0.1:3128' "$PODMAN_LOG"
+grep -q -- '-e HTTPS_PROXY=http://127.0.0.1:3128' "$PODMAN_LOG"
+grep -q -- '-e NO_PROXY=localhost,127.0.0.1' "$PODMAN_LOG"
+# Kein hostseitig geteilter oc-proxy-Run und kein Host-Loopback-Publishing.
+if grep -q -- 'run -d --replace --name oc-proxy' "$PODMAN_LOG"; then
+  printf 'host-side shared oc-proxy run is back\n' >&2
+  exit 1
+fi
+if grep -q -- ':3128:3128' "$PODMAN_LOG"; then
+  printf 'host-side 3128 publish is back\n' >&2
+  exit 1
+fi
+printf 'start proxy pod member tests passed\n'
+
 printf 'start searxng recreate tests passed\n'
