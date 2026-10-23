@@ -136,13 +136,17 @@ func (*fakeErr) Error() string { return "fake" }
 func TestRunningContainers(t *testing.T) {
 	run := &cmdrun.Fake{Script: func(name string, args []string) (string, error) {
 		if name == "podman" {
-			return "opencode-sandbox-aaa\nopencode-sandbox-bbb\n", nil
+			// Fixture of a pod-based run (#125): the project container
+			// `opencode-sandbox-<id>`, a legacy bare container, and the
+			// pod's infra container (podman names it <pod-name>-infra).
+			return "opencode-sandbox-aaa\nopencode-sandbox-legacy\nopencode-sandbox-pod-aaa-infra\n", nil
 		}
 		return "", nil
 	}}
 	got := RunningContainers(run)
-	if !reflect.DeepEqual(got, []string{"opencode-sandbox-aaa", "opencode-sandbox-bbb"}) {
-		t.Fatalf("containers = %v", got)
+	want := []string{"opencode-sandbox-aaa", "opencode-sandbox-legacy"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("containers = %v, want %v", got, want)
 	}
 	if len(run.Calls) != 1 || run.Calls[0].Name != "podman" ||
 		!reflect.DeepEqual(run.Calls[0].Args, []string{"ps", "--format", "{{.Names}}", "--filter", "name=opencode-sandbox-"}) {
@@ -195,6 +199,28 @@ func TestRunningContainersWithImages(t *testing.T) {
 		if got := EditionFromImage(img); got != want {
 			t.Errorf("EditionFromImage(%q) = %q, want %q", img, got, want)
 		}
+	}
+}
+
+// TestAllPodsCompoundStatus pins `podman pod ps` parsing: non-pod rows are
+// skipped and compound statuses ("Running, Exited") read as the pod's own
+// lifecycle state (first comma token).
+func TestAllPodsCompoundStatus(t *testing.T) {
+	run := &cmdrun.Fake{Script: func(name string, args []string) (string, error) {
+		if name == "podman" {
+			return "opencode-sandbox-pod-aaa\tRunning, Scaled\n" +
+				"opencode-sandbox-pod-bbb\tDead, Missing cgroup manager\n" +
+				"unrelated-thing\tRunning\n", nil
+		}
+		return "", nil
+	}}
+	got := AllPods(run)
+	want := []PodState{
+		{Name: "opencode-sandbox-pod-aaa", State: "running"},
+		{Name: "opencode-sandbox-pod-bbb", State: "dead"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("pods = %+v, want %+v", got, want)
 	}
 }
 

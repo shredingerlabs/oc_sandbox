@@ -167,13 +167,22 @@ func Modes(run cmdrun.Runner, startScript string) ([]string, error) {
 }
 
 // RunningContainers lists live opencode-sandbox container names (podman ps);
-// errors yield an empty list (bash `|| true`).
+// errors yield an empty list (bash `|| true`). Pod infra containers
+// (`opencode-sandbox-pod-<id>-infra`) are excluded: pods are handled as pod
+// rows, so a bare `podman stop` must never target their members.
 func RunningContainers(run cmdrun.Runner) []string {
 	out, err := run.Output("podman", "ps", "--format", "{{.Names}}", "--filter", "name=opencode-sandbox-")
 	if err != nil {
 		return nil
 	}
-	return cmdrun.Lines(out)
+	var names []string
+	for _, name := range cmdrun.Lines(out) {
+		if registry.IsPodName(name) {
+			continue
+		}
+		names = append(names, name)
+	}
+	return names
 }
 
 // ContainerImage is one live `podman ps` row: the container name and
@@ -267,10 +276,17 @@ func AllPods(run cmdrun.Runner) []PodState {
 	var all []PodState
 	for _, l := range cmdrun.Lines(out) {
 		name, status, ok := strings.Cut(l, "\t")
-		if !ok || !strings.HasPrefix(name, registry.PodNamePrefix) {
+		if !ok || !registry.IsPodName(name) {
 			continue
 		}
-		all = append(all, PodState{Name: name, State: strings.ToLower(status)})
+		// Real statuses are compound ("Running, Exited"); the first
+		// comma token is the pod's own lifecycle state (like the
+		// single-word `podman ps` State column).
+		state := strings.ToLower(strings.TrimSpace(status))
+		if i := strings.IndexByte(state, ','); i >= 0 {
+			state = strings.TrimSpace(state[:i])
+		}
+		all = append(all, PodState{Name: name, State: state})
 	}
 	return all
 }

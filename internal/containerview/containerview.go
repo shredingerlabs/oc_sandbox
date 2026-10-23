@@ -942,7 +942,7 @@ func (m *Model) startDelete() tea.Cmd {
 	}
 	lines := make([]string, 0, len(names))
 	for _, name := range names {
-		if strings.HasPrefix(name, registry.PodNamePrefix) {
+		if registry.IsPodName(name) {
 			lines = append(lines, "pod: "+name)
 			continue
 		}
@@ -1003,7 +1003,7 @@ func (m *Model) launchDelete() tea.Cmd {
 		// refuse running pods the same way (pods are never force-killed)
 		pods := discovery.AllPods(run)
 		for _, name := range names {
-			if strings.HasPrefix(name, registry.PodNamePrefix) {
+			if registry.IsPodName(name) {
 				for _, p := range pods {
 					if p.Name == name && p.State == "running" {
 						return fmt.Errorf("stop it first: podman pod stop %s", name)
@@ -1013,7 +1013,7 @@ func (m *Model) launchDelete() tea.Cmd {
 		}
 		podNames, containerNames := make([]string, 0, len(names)), make([]string, 0, len(names))
 		for _, name := range names {
-			if strings.HasPrefix(name, registry.PodNamePrefix) {
+			if registry.IsPodName(name) {
 				podNames = append(podNames, name)
 			} else {
 				containerNames = append(containerNames, name)
@@ -1528,7 +1528,7 @@ func deletePodMembers(all []discovery.ContainerState, pods []discovery.PodState)
 	}
 	var out []discovery.ContainerState
 	for _, c := range all {
-		if strings.HasPrefix(c.Name, registry.PodNamePrefix) {
+		if registry.IsPodName(c.Name) {
 			continue // the pod's infra container
 		}
 		if podSet[registry.PodName(registry.ContainerID(c.Name))] {

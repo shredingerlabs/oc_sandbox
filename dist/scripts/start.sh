@@ -449,9 +449,6 @@ if $SEARCH_SEARXNG; then
   SEARXNG_SECRET="$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')"
   SEARXNG_NAME="oc-searxng-${SANDBOX_ID}"
   SEARXNG_ENV=(-e "SEARXNG_URL=http://127.0.0.1:8080/search")
-else
-  SEARXNG_SECRET=""
-  SEARXNG_NAME=""
 fi
 
 # --- HIL-Geräte ----------------------------------------------------------------
@@ -580,7 +577,6 @@ if $START_WEB && $DETACH; then
   fi
 fi
 
-CONTAINER_NAME="${CONTAINER_NAME:-opencode-sandbox-$(basename "$PROJECT_ROOT")}"
 IMAGE="opencode-sandbox-${EDITION}"
 RUN_MODE=(-it)
 CONTAINER_COMMAND=()

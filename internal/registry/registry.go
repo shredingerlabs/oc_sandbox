@@ -86,6 +86,13 @@ func ContainerName(containerID string) string {
 // (#125): opencode-sandbox-pod-<container-id>.
 const PodNamePrefix = "opencode-sandbox-pod-"
 
+// IsPodName reports whether a name follows the per-project pod naming
+// convention (pod rows and, on pod-based runs, podman's infra
+// container `<pod-name>-infra`).
+func IsPodName(name string) bool {
+	return strings.HasPrefix(name, PodNamePrefix)
+}
+
 // PodName derives the podman pod name from a container id (pod
 // members share the pod's network namespace, #125).
 func PodName(containerID string) string {

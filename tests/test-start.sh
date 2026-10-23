@@ -33,13 +33,13 @@ if ! bash "$PROJECT_ROOT/dist/scripts/start.sh" "$test_home" --edition swdev --c
   exit 1
 fi
 
-grep -q -- '--network pasta:--ipv4-only' "$PODMAN_LOG"
-grep -q -- '-p 127.0.0.1:9750:9749' "$PODMAN_LOG"
 # Pod pro Projekt (ADR 0029): Recreate = rm -f (best effort) + create,
 # Publishings haengen am Pod, Projektcontainer tritt via --pod bei;
 # ADR 0028s --add-host/host.oc-sandbox.internal-Mechanik ist entfallen.
 grep -q -- 'pod rm -f opencode-sandbox-pod-' "$PODMAN_LOG"
-grep -q -- 'pod create --name opencode-sandbox-pod-' "$PODMAN_LOG"
+pod_create_line="$(grep -m1 -- 'pod create --name opencode-sandbox-pod-' "$PODMAN_LOG")"
+grep -q -- '--network pasta:--ipv4-only' <<<"$pod_create_line"
+grep -q -- '-p 127.0.0.1:9750:9749' <<<"$pod_create_line"
 ! grep -q -- '--add-host' "$PODMAN_LOG"
 ! grep -q -- 'host.oc-sandbox.internal' "$PODMAN_LOG"
 run_line="$(grep -m1 -- '--rm -d --name opencode-sandbox-' "$PODMAN_LOG")"
