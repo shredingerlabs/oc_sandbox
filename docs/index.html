@@ -334,10 +334,10 @@ wird ans Skript durchgereicht. Bedeutung der Flags:</p>
   einem Systemneustart ist deutlich schneller.
 </div>
 
-<p>Im Hauptmenü <strong>Build Images</strong> wählen (das Skript entdeckt die
-Editionen live aus <code>Dockerfile</code>/<code>Dockerfile.custom</code>; jede
-Editionenzeile zeigt mit <code>● built</code> / <code>○ missing</code>, ob das
-Image schon existiert). Danach ist der Bau abgeschlossen – nur bei
+<p>Im Hauptmenü <strong>Container → Build Images</strong> wählen (das Skript
+entdeckt die Editionen live aus <code>Dockerfile</code>/<code>Dockerfile.custom</code>;
+jede Editionenzeile zeigt mit <code>● built</code> / <code>○ missing</code>, ob
+das Image schon existiert). Danach ist der Bau abgeschlossen – nur bei
 Versions-Updates wiederholen. Eigene Editionen aus
 <code>Dockerfile.custom</code> erscheinen hier automatisch.</p>
 
@@ -400,11 +400,15 @@ Wizard fragt Schritt für Schritt:</p>
   <tr><td>2. Repo-URL</td><td>Git-URL zum Klonen (nur bei Clone gewählt); der Projektname wird daraus vorbelegt</td><td>HTTPS-URL, z.B. <code>https://github.com/you/repo.git</code></td></tr>
   <tr><td>3. Projektname</td><td>Anzeigename, z.B. <code>mein-erstes-projekt</code></td><td>kurzer, klarer Name</td></tr>
   <tr><td>4. Pfad</td><td>Wohin? Standard: <code>~/oc-sandbox/&lt;name&gt;</code></td><td>Standard lassen, oder eigener Pfad z.B. <code>~/projects/kunde-x</code></td></tr>
-  <tr><td>5. Edition + Modi</td><td>Container-Edition (alle entdeckten Editionen inkl. eigener aus <code>Dockerfile.custom</code>) und Modi (z.B. Proxy, Offline, HIL, CBM-UI – Mehrfachauswahl)</td><td>Edition passend zum Projekt wählen (siehe Abschnitt 1); meist reicht die Voreinstellung ohne Zusatz-Modi</td></tr>
-  <tr><td>6. Start-Option</td><td><code>console</code> / <code>opencode</code> / <code>web</code></td><td><code>opencode</code> (empfohlen, siehe Tipps)</td></tr>
-  <tr><td>7. VCS-Host</td><td><code>none</code>, GitHub, GitLab (öffentlich oder eigenes), eigener Host</td><td>kein Git nötig → <code>none</code>; sonst dein Host (bei Clone wird GitHub/GitLab anhand der URL oft automatisch erkannt)</td></tr>
-  <tr><td>8. Token</td><td>Persönlicher Zugriffstoken (z.B. GitHub PAT), wird <strong>verborgen</strong> abgefragt</td><td>nur bei VCS ≠ <code>none</code></td></tr>
-  <tr><td>9. Git-Identität</td><td><code>user.name</code>, <code>user.email</code></td><td>dein Name/E-Mail, nur bei VCS ≠ <code>none</code></td></tr>
+  <tr><td>5. Edition</td><td>Container-Edition (alle entdeckten Editionen inkl. eigener aus <code>Dockerfile.custom</code>); solange das Image fehlt, zusätzlich die Zeile <strong>Image build</strong>: <code>Build now</code> / <code>Build later</code> (Voreinstellung: Build now)</td><td>Edition passend zum Projekt wählen (siehe Abschnitt 1); meist reicht die Voreinstellung</td></tr>
+  <tr><td>6. Agent</td><td>Projektart: <code>Code</code>, <code>Chat Agent (NO_CODE)</code>, <code>PKM</code> (bei PKM wird die Edition automatisch auf <code>pkm</code> gesetzt)</td><td><code>Code</code> für normale Coding-Projekte</td></tr>
+  <tr><td>7. Modi</td><td>Mehrfachauswahl (z.B. Proxy/Egress, Offline, HIL, CBM-UI – live aus <code>start.sh</code> entdeckt)</td><td>meist keine Zusatz-Modi nötig (Auswahl <code>none</code>)</td></tr>
+  <tr><td>8. Start-Option</td><td><code>console</code> / <code>opencode</code> / <code>web</code></td><td><code>opencode</code> (empfohlen, siehe Tipps)</td></tr>
+  <tr><td>9. Such-Tools</td><td>Per-Projekt-Websuche: <code>none</code> / <code>websearch</code> / <code>searxng</code></td><td><code>websearch</code> (ohne API-Key) oder <code>none</code> für Offline-Projekte</td></tr>
+  <tr><td>10. VCS-Host</td><td><code>none</code>, GitHub, GitLab (öffentlich oder eigenes), eigener Host</td><td>kein Git nötig → <code>none</code>; sonst dein Host (bei Clone wird GitHub/GitLab anhand der URL oft automatisch erkannt)</td></tr>
+  <tr><td>11. Token</td><td>Persönlicher Zugriffstoken (z.B. GitHub PAT), wird <strong>verborgen</strong> abgefragt</td><td>nur bei VCS ≠ <code>none</code></td></tr>
+  <tr><td>12. Git-Identität</td><td><code>user.name</code>, <code>user.email</code></td><td>dein Name/E-Mail, nur bei VCS ≠ <code>none</code></td></tr>
+  <tr><td>13. AI-Provider</td><td><code>none</code> oder <code>Custom</code> (Anzeigename, Endpunkt (OpenAI-kompatible API), Token); bestehende Credentials werden behalten, außer <strong>Replace</strong> wird gewählt</td><td>Standard-Login beibehalten oder <code>Custom</code></td></tr>
 </table>
 
 <h4>Projektquelle „Clone existing repo via URL“</h4>
@@ -438,15 +442,14 @@ Einrichtung weiterläuft.</p>
 Konfiguration des Knowledge-Graph-Indexers „CBM“ und die interaktive
 Skills-Einrichtung über eine OpenCode-Session) läuft
 <strong>automatisch</strong>. Sollte ein Schritt scheitern, bietet die TUI
-<code>Retry</code>, <code>Go back</code> oder <code>Exit</code> – ein
-<code>Retry</code> wiederholt nur den fehlgeschlagenen Teil. Schlägt Probe oder
-Clone fehl, gibt es zusätzlich <code>Change URL</code>, um die Repo-URL zu
-korrigieren und erneut zu versuchen.</p>
+<code>Retry</code> und <code>Exit</code>; beim Klonen zusätzlich
+<code>Change URL</code>, um die Repo-URL zu korrigieren – ein
+<code>Retry</code> wiederholt nur den fehlgeschlagenen Teil.</p>
 
 <h3>5.4 Erste Session mit OpenCode</h3>
 
-<p>Menüpunkt <strong>Start last used project</strong> oder <strong>Open Project</strong>.
-Je nach gewählter Start-Option:</p>
+<p>Menüpunkt <strong>Open Project</strong> (die Karten sind nach letzter Nutzung
+sortiert). Je nach gewählter Start-Option:</p>
 
 <ul>
   <li><code>opencode</code> – OpenCode-TUI öffnet sich direkt</li>
@@ -509,12 +512,10 @@ Installation standardmäßig angelegt; per <code>--no_symlinks</code> /
 
 <table>
   <tr><th>Menüpunkt</th><th>Funktion</th></tr>
-  <tr><td><strong>Start last used project</strong></td><td>Zuletzt genutztes Projekt mit gespeicherten Einstellungen starten.</td></tr>
-  <tr><td><strong>Open Project</strong></td><td>Registriertes Projekt auswählen und starten.</td></tr>
+  <tr><td><strong>Open Project</strong></td><td>Registriertes Projekt auswählen und starten – Projektkarten (nach letzter Nutzung sortiert) mit Start-Buttons <strong>Console / OpenCode / Web</strong>.</td></tr>
   <tr><td><strong>New Project</strong></td><td>Projekt neu anlegen (Wizard aus Abschnitt 5.3).</td></tr>
-  <tr><td><strong>Build Images</strong></td><td>Container-Images bauen (nur einmal nötig).</td></tr>
-  <tr><td><strong>Delete Images</strong></td><td>Sandbox-Images löschen (<code>opencode-sandbox-*</code> und <code>oc-proxy</code>; belegte Images werden abgewiesen).</td></tr>
-  <tr><td><strong>Settings</strong></td><td>Config-Backup/-Restore, Container stoppen, Deinstallation.</td></tr>
+  <tr><td><strong>Container</strong></td><td>Container-Center mit Unter-Tabs: <strong>Build Images</strong> (<code>● built</code> / <code>○ missing</code>), <strong>Delete Images</strong> (<code>● in use</code> / <code>○ unused</code>, mit Größen), <strong>Start Container</strong>, <strong>Stop Container</strong>, <strong>Delete Container</strong>.</td></tr>
+  <tr><td><strong>Settings</strong></td><td><strong>Project settings</strong> (Edition, Modi, Start-Option, VCS/AI-Provider), Import project, Export Config, Restore Config, Update, Uninstall.</td></tr>
   <tr><td><strong>Exit</strong></td><td>TUI beenden.</td></tr>
 </table>
 
@@ -544,11 +545,13 @@ automatisch die Ports 4096–4196 durch.</p>
   <li><strong>Session starten</strong> – los geht's mit OpenCode im Browser</li>
 </ol>
 
-<p>Beim Zugriff auf ein laufendes Projekt fragt die TUI, wie du zugreifen willst:
-bei <code>web</code> zwischen „Show Web URL“ und „Console (bash)“, bei
-<code>opencode</code> zwischen „OpenCode (configured)“ und „Console (bash)“.
-Eine Console-Session ist eine unabhängige Shell und ändert deine
-konfigurierte Start-Option nicht.</p>
+<p>Beim Zugriff auf ein laufendes Projekt dockt die TUI über
+<code>podman exec</code> an: Jede Projektkarte hat Start-Buttons
+<strong>Console / OpenCode / Web</strong> – Start + Zugriff in einem Klick. Eine
+Console-Session ist eine unabhängige Shell und ändert deine konfigurierte
+Start-Option nicht. Läuft der Container mit Start-Option <code>web</code>, aber
+ohne freigegebenen Web-Port, startet die TUI ihn mit geprüftem
+<code>--start_web</code>-Neustart neu (Auto-Adopt).</p>
 
 <h2 id="tipps">8. Tipps für den Alltag</h2>
 

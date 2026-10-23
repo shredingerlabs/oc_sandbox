@@ -79,15 +79,13 @@ The TUI is a standalone Go application (`oc-sandbox`), built at release time
 
 ### Main menu
 
-| Menu item                   | Function                                                             |
-| --------------------------- | -------------------------------------------------------------------- |
-| **Start last used project** | Starts the last-used project with saved settings                     |
-| **Open Project**            | Pick a registered project and start it                               |
-| **New Project**             | Create a project root (wizard)                                       |
-| **Build Images**            | Build container images (editions), `● built` / `○ missing` markers   |
-| **Delete Images**           | Delete sandbox images (`● in use` / `○ unused`, with sizes)          |
-| **Settings**                | Change project settings, project settings (VCS/AI provider), project import, config backup/restore, stop container, Update, Uninstall |
-| **Exit**                    | Quit the TUI                                                         |
+| Menu item    | Function                                                                                                                                                                    |
+| ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Open Project** | Pick a registered project and start it — project cards (sorted by last use) with start buttons **Console / OpenCode / Web**                                               |
+| **New Project**  | Create a project root (project wizard)                                                                                                                                  |
+| **Container**    | Container center with sub-tabs **Build Images** (`● built` / `○ missing` markers), **Delete Images** (`● in use` / `○ unused`, with sizes), **Start / Stop / Delete Container** |
+| **Settings**     | **Project settings** (edition, modes, start option, VCS/AI provider), Import project, Export Config, Restore Config, Update, Uninstall                                       |
+| **Exit**         | Quit the TUI                                                                                                                                                             |
 
 ### New Project
 
@@ -113,7 +111,8 @@ While the edition's image is missing, an **Image build** row offers
 
 First-run setup runs automatically in the background (CBM configuration, then
 interactive skills setup via an OpenCode TUI session). On failure the TUI
-offers `Retry`, `Go back`, or `Exit`; a retry repeats only the incomplete step.
+offers `Retry` and `Exit` (plus `Change URL` when a clone failed); a retry
+repeats only the incomplete step.
 **OpenCode must be exited via `/exit`.**
 
 ### Open Project
