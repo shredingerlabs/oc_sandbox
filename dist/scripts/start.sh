@@ -319,6 +319,21 @@ if $USE_PROXY; then
 fi
 
 # --- Netzwerk-Optionen ---------------------------------------------------------
+# Host-Gateway für Container→Host-Zugriffe: pasta mappt Verbindungen zur
+# Default-Route-Gateway-Adresse des Containers auf den Host-Loopback - Ports,
+# die der Host NUR an 127.0.0.1 veröffentlicht, sind über dieses Gateway
+# erreichbar. Dagegen mappt podman (4.9) host.containers.internal bei pasta
+# auf die EIGENE Container-Adresse (sie schattiert die Host-Adresse):
+# Verbindungen dorthin laufen lokal gegen den Container selbst und werden
+# refused. Deshalb trägt start.sh einen eigenen /etc/hosts-Eintrag
+# (host.oc-sandbox.internal) mit dem Gateway in den Projektcontainer ein;
+# Proxy- und SEARXNG_URL-Hosts verwenden diesen Namen.
+# Fallback 10.0.2.2: klassische slirp/pasta-Gateway-Adresse (VMs, kein
+# Default-Route-Pfad ermittelbar).
+HOST_GW="$(ip -4 route show default 2>/dev/null | awk '{print $3; exit}')"
+[[ "$HOST_GW" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] || HOST_GW="10.0.2.2"
+HOST_GW_ARGS=(--add-host "host.oc-sandbox.internal:${HOST_GW}")
+
 NETWORK_ARGS=(--network=pasta:--ipv4-only)
 PROXY_ENV=()
 # Such-Umgebung: websearch aktiviert die Built-in-Exa/Parallel-Backends
@@ -331,8 +346,8 @@ fi
 SEARXNG_ENV=()
 if $USE_PROXY; then
   PROXY_ENV=(
-    -e HTTPS_PROXY="http://host.containers.internal:3128"
-    -e HTTP_PROXY="http://host.containers.internal:3128"
+    -e HTTPS_PROXY="http://host.oc-sandbox.internal:3128"
+    -e HTTP_PROXY="http://host.oc-sandbox.internal:3128"
     -e NO_PROXY="localhost,127.0.0.1"
   )
 fi
@@ -419,7 +434,8 @@ fi
 # searxng-Projektstart angelegt (fehlt das Image, wird es gebaut) und
 # danach dauerhaft weiterlaufen gelassen - Spiegel der oc-proxy-
 # Logik. Das Projekt-Container-Environment bekommt die Instanz-Adresse
-# über SEARXNG_URL (host.containers.internal): sie wird nie in
+# über SEARXNG_URL (host.oc-sandbox.internal -> pasta-Gateway -> Host-
+# Loopback): sie wird nie in
 # opencode.json persistiert, ein Portrescan kann sie also nie veralten
 # lassen.
 if $SEARCH_SEARXNG; then
@@ -434,9 +450,13 @@ if $SEARCH_SEARXNG; then
   SEARXNG_HOST_PORT=""
   if podman container exists oc-searxng 2>/dev/null && \
      podman inspect -f '{{.State.Running}}' oc-searxng 2>/dev/null | grep -q true; then
-    SEARXNG_HOST_PORT=$(podman port oc-searxng 8080/tcp 2>/dev/null | head -1 | sed 's/^[^:]*://' || true)
+    # podman port liefert "127.0.0.1:8080->8080/tcp" - nur die Spielerportzahl
+    # vor dem Pfeil ist relevant. Nicht-nummerisches Ergebnis (Parse-Miss oder
+    # unveröffentlichter Port) wird unten als "nicht laufend" behandelt.
+    SEARXNG_HOST_PORT=$(podman port oc-searxng 8080/tcp 2>/dev/null | head -1 \
+      | sed -n 's|^[^:]*:\([0-9]\+\)->.*$|\1|p' || true)
   fi
-  if [[ -z "$SEARXNG_HOST_PORT" ]]; then
+  if ! [[ "$SEARXNG_HOST_PORT" =~ ^[0-9]+$ ]]; then
     SEARXNG_HOST_PORT=$(select_free_host_port 8080 "SearXNG")
     if [[ "$SEARXNG_HOST_PORT" != "8080" ]]; then
       echo "Hinweis: Host-Port 8080 ist belegt; SearXNG wird auf http://127.0.0.1:${SEARXNG_HOST_PORT} veröffentlicht." >&2
@@ -448,7 +468,7 @@ if $SEARCH_SEARXNG; then
       -v "${REPO_ROOT}/searxng/settings.yml:/etc/searxng/settings.yml:Z" \
       oc-searxng
   fi
-  SEARXNG_ENV=(-e "SEARXNG_URL=http://host.containers.internal:${SEARXNG_HOST_PORT}/search")
+  SEARXNG_ENV=(-e "SEARXNG_URL=http://host.oc-sandbox.internal:${SEARXNG_HOST_PORT}/search")
 fi
 
 # --- HIL-Geräte ----------------------------------------------------------------
@@ -564,6 +584,7 @@ podman run --rm "${RUN_MODE[@]}" \
   --cap-drop=ALL \
   --security-opt no-new-privileges \
   "${NETWORK_ARGS[@]}" \
+  "${HOST_GW_ARGS[@]}" \
   "${PROXY_ENV[@]}" \
   "${CBM_PORT_ARGS[@]}" \
   "${WEB_PORT_ARGS[@]}" \

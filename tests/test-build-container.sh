@@ -183,4 +183,32 @@ grep -q -- 'build --network host -t oc-searxng -f searxng/Dockerfile searxng/' "
 grep -q -- 'build -t oc-proxy -f proxy/Dockerfile proxy/' "$PODMAN_LOG"
 printf 'searxng infra build tests passed\n'
 
+# --- 10: SearXNG-MCP-Runtime liegt in der Basis ------------------------------
+# ADR 0026 registriert das SearXNG-MCP fuer JEDES search_mode=searxng-Projekt
+# unabhaengig von der Edition, aber das Paket braucht node im Projekt-
+# Container. In Produktion kam auf Nicht-web-Editionen
+# "NotFound: ChildProcess.spawn(mcp-searxng)" hoch: das Node-Runtime + Paket
+# waren nur in der web-Edition gebaut. Regression: Basis installiert node +
+# mcp-searxng, web erbt und installiert nur seine Dev-Globals.
+dockerfile="$PROJECT_ROOT/dist/Dockerfile"
+base_stage=$(awk '/^FROM ubuntu:.* AS opencode-sandbox-base$/{f=1;next} /^FROM /{f=0} f' "$dockerfile")
+web_stage=$(awk '/^FROM opencode-sandbox-base AS opencode-sandbox-web$/{f=1;next} /^FROM /{f=0} f' "$dockerfile")
+if ! grep -q 'mcp-searxng' <<<"$base_stage"; then
+  printf 'base stage missing mcp-searxng install\n' >&2
+  exit 1
+fi
+if ! grep -q 'nodejs' <<<"$base_stage"; then
+  printf 'base stage missing node runtime for mcp-searxng\n' >&2
+  exit 1
+fi
+if grep -q 'mcp-searxng' <<<"$web_stage"; then
+  printf 'web stage must inherit mcp-searxng from base, not reinstall it\n' >&2
+  exit 1
+fi
+if ! grep -q 'typescript jest playwright' <<<"$web_stage"; then
+  printf 'web stage lost its dev globals\n' >&2
+  exit 1
+fi
+printf 'searxng mcp base-stage tests passed\n'
+
 printf 'build-container tests passed\n'
