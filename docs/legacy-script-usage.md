@@ -30,10 +30,11 @@ This builds:
 - `opencode-sandbox-latex` — base + latexmk + TeX Live collections
 - `opencode-sandbox-pkm` — base only (Personal Knowledge Wiki edition)
 - plus all custom editions from `dist/Dockerfile.custom`
-- `oc-proxy` — optional Squid egress proxy (only needed with `--use_proxy`)
-- `oc-searxng` — shared SearXNG container for web search (only needed with
-  `--search_mode searxng`; configuration in `dist/searxng/settings.yml`,
-  survives updates)
+- `oc-proxy` — Squid egress proxy image (started as a per-project pod member
+  by `start.sh --use_proxy`; the image itself is only needed then)
+- `oc-searxng` — SearXNG image for web search (started as a per-project pod
+  member by `start.sh --search_mode searxng`; configuration in
+  `dist/searxng/settings.yml`, survives updates)
 
 ## 2. Set up a project root
 
@@ -152,7 +153,7 @@ dist/scripts/start.sh ~/projects/customer-x --edition swdev     # C/C++, Java, R
 | `--use_proxy --hil_mode` | pasta   | Squid allowlist | Scope + MCU                | HIL with restricted network        |
 | `--cbm_ui`               | pasta   | no              | –                          | CBM knowledge-graph UI (port 9749) |
 | `--use_proxy --cbm_ui`   | pasta   | Squid allowlist | –                          | Proxy + graph UI                   |
-| `--search_mode searxng`  | pasta   | no              | –                          | SearXNG web search (no proxy)      |
+| `--search_mode searxng`  | pasta   | no              | –                          | SearXNG web search (per-project pod member, no proxy) |
 | `--start_web --detach`   | pasta   | no              | –                          | OpenCode web UI (port 4096)        |
 
 Further single flags (not in the table): `--start_opencode` opens an OpenCode
@@ -173,7 +174,7 @@ dist/scripts/start.sh ~/projects/hil-tests --edition embedded --hil_mode
 # Egress proxy (allowlist)
 dist/scripts/start.sh ~/projects/customer-x --use_proxy
 
-# Web search via the shared SearXNG container
+# Web search via the project's own SearXNG pod member
 dist/scripts/start.sh ~/projects/customer-x --search_mode searxng
 
 # Completely offline

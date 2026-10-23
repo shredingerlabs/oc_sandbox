@@ -13,8 +13,8 @@ A multi-edition development sandbox running OpenCode in rootless Podman containe
 - **Editions** — prebuilt environments for different use cases (web, embedded,
   software dev, LaTeX, ROS 2, and more), auto-discovered from the Dockerfile
 - **Search tools** — per-project web search: OpenCode `websearch` (Exa/Parallel,
-  no API key), a shared SearXNG container, or none; Context7-MCP for docs search
-  in every mode
+  no API key), a per-project SearXNG pod member, or none; Context7-MCP for docs
+  search in every mode
 - **Hardware in Loop (HIL) mode** — USB oscilloscope (PicoScope) and
   microcontroller device passthrough for HIL tests
 - **Project & git handling** — project wizard with VCS setup (GitHub, GitLab,
@@ -257,7 +257,7 @@ Thanks to these open-source projects and tools:
 - **Matt Pocock: Skills For Real Engineers** (https://github.com/mattpocock/skills) — engineering skills for OpenCode with proven workflows for code review, TDD, architecture design, and more.
 - **codebase-memory-mcp** (https://github.com/DeusData/codebase-memory-mcp) — knowledge-graph indexing and auto-configured code intelligence for OpenCode with web UI and cross-repo links.
 - **opencode-models-discovery** (https://github.com/yuhp/opencode-models-discovery) — model discovery for OpenCode: finds available models and providers dynamically instead of maintaining them by hand.
-- **SearXNG** (https://github.com/searxng/searxng) — privacy-respecting metasearch engine, used as the shared `oc-searxng` container for keyless web search.
+- **SearXNG** (https://github.com/searxng/searxng) — privacy-respecting metasearch engine, run as a per-project pod member (`oc-searxng`) for keyless web search.
 - **mcp-searxng** (https://github.com/ihor-sokoliuk/mcp-searxng) — MCP server for SearXNG, pre-installed in the sandbox images.
 - **Bubble Tea** (https://github.com/charmbracelet/bubbletea) — Go framework for terminal UIs, together with **Bubbles** (https://github.com/charmbracelet/bubbles) and **Lip Gloss** (https://github.com/charmbracelet/lipgloss) the foundation of the TUI.
 

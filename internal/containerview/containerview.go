@@ -11,13 +11,20 @@
 // registered projects with their running marker and starts the checked
 // containers via start.sh with each project's stored sandbox_config.json
 // — status "running" only after every container is verified live.
-// Delete lists every existing oc-sandbox container (podman ps -a, incl.
-// exited/created leftovers of gone projects) and removes stopped ones
-// via podman rm, mirroring a stale registry status after verified
-// removal; running containers are refused with a stop-first hint.
-// Stop lists the live running containers as a checklist and stops them
-// via podman stop, writing container_status="stopped" only after the
-// container is verified gone. All long operations launch through the
+// Delete lists every sandbox pod (podman pod ps, filtered by the
+// opencode-sandbox-pod- naming convention; the pod row stands for the
+// pod as a unit, so its member containers are not listed) alongside
+// legacy pod-less containers (podman ps -a, incl. exited/created
+// leftovers of gone projects) and removes stopped ones via podman pod
+// rm / podman rm — never force-killing a running unit (stop-first
+// refusal, the pre-op guard re-checks) — mirroring a stale registry
+// status after verified removal. Stop lists the live running
+// containers as a checklist and stops them as units — podman pod stop
+// when the project's pod exists, podman stop alone for pre-upgrade
+// containers without a pod — writing container_status="stopped" only
+// after the container is verified gone. All long operations launch
+// through the Launcher seam so the background-task manager (#82) can
+// swap it.
 // Launcher seam so the background-task manager (#82) can swap it.
 //
 // Use *Model as the shell.CenterView: the shell keeps its views for the
@@ -85,9 +92,15 @@ func SyncLauncher(op Op) tea.Cmd {
 // marker of the Start rows.
 type RunningMsg []string
 
-// ContainersMsg carries every existing oc-sandbox container in any
-// state (podman ps -a) back from a refresh cmd (Delete tab).
-type ContainersMsg []discovery.ContainerState
+// PodsContainersMsg carries the sandbox pods (podman pod ps,
+// opencode-sandbox-pod- convention) and every existing oc-sandbox
+// container in any state (podman ps -a) back from one refresh cmd
+// (Delete tab): pods list as rows of their own, containers that belong
+// to a listed pod are represented by the pod row (pod-as-unit).
+type PodsContainersMsg struct {
+	Pods       []discovery.PodState
+	Containers []discovery.ContainerState
+}
 
 // ProjectsMsg carries the ordered registry projects back from a
 // refresh cmd (Start tab rows, Delete project-name echo).
@@ -256,6 +269,7 @@ type Model struct {
 	projectsErr string
 	running     []string
 	containers  []discovery.ContainerState
+	pods        []discovery.PodState // sandbox pods (Delete tab rows)
 	log         shell.LogPane
 	opKind      string // "" idle, "build" / "start" / "stop" / "delete" while an op runs
 	toast       string
@@ -357,11 +371,14 @@ func (m *Model) keys(t int) []string {
 	case TabStop:
 		return m.running
 	case TabDelete:
-		names := make([]string, 0, len(m.containers))
-		for _, c := range m.containers {
-			names = append(names, c.Name)
+		keys := make([]string, 0, len(m.pods)+len(m.containers))
+		for _, p := range m.pods {
+			keys = append(keys, p.Name)
 		}
-		return names
+		for _, c := range m.containers {
+			keys = append(keys, c.Name)
+		}
+		return keys
 	}
 	return nil
 }
@@ -437,7 +454,9 @@ func (m *Model) refreshRunning() tea.Cmd {
 
 func (m *Model) refreshContainers() tea.Cmd {
 	run := m.Run
-	return func() tea.Msg { return ContainersMsg(discovery.AllContainers(run)) }
+	return func() tea.Msg {
+		return PodsContainersMsg{Pods: discovery.AllPods(run), Containers: discovery.AllContainers(run)}
+	}
 }
 
 func (m *Model) refreshProjects() tea.Cmd {
@@ -510,10 +529,11 @@ func (m *Model) Update(msg tea.Msg) tea.Cmd {
 		m.stopChk.follow.Arm() // keep the selection visible in the new list
 		m.stopChk.follow.Force()
 		return nil
-	case ContainersMsg:
-		m.containers = msg
+	case PodsContainersMsg:
+		m.pods = msg.Pods
+		m.containers = deletePodMembers(msg.Containers, msg.Pods)
 		purge(&m.delChk, m.keys(TabDelete))
-		clampSel(&m.delChk, len(msg))
+		clampSel(&m.delChk, len(msg.Containers)+len(msg.Pods))
 		m.delChk.follow.Arm()
 		m.delChk.follow.Force()
 		return nil
@@ -841,6 +861,20 @@ func (m *Model) startStop() tea.Cmd {
 	run, reg := m.Run, m.Registry
 	return m.launch(fmt.Sprintf("stopping %d container(s)", len(names)), "cv-stop", func(emit func(string)) error {
 		for _, name := range names {
+			// pod-per-project (#125): a container running inside a pod
+			// takes its companions down with it — stop the pod as the
+			// unit; pre-upgrade containers without a pod stop alone.
+			pod := registry.PodName(registry.ContainerID(name))
+			if discovery.PodExists(run, pod) {
+				out, err := run.Output("podman", "pod", "stop", pod)
+				for _, l := range cmdrun.Lines(out) {
+					emit(l)
+				}
+				if err != nil {
+					return fmt.Errorf("podman pod stop %s failed: %s", pod, strings.TrimSpace(out))
+				}
+				continue
+			}
 			out, err := run.Output("podman", "stop", name)
 			for _, l := range cmdrun.Lines(out) {
 				emit(l)
@@ -888,7 +922,14 @@ func (m *Model) startDelete() tea.Cmd {
 		m.toast = "select containers to delete"
 		return nil
 	}
-	// refuse from the tab's fresh podman-ps -a state (the op re-checks)
+	// refuse from the tab's fresh podman-ps -a state (the op re-checks);
+	// pods and containers refuse the same way, each with its own stop hint
+	for _, p := range m.pods {
+		if slices.Contains(names, p.Name) && p.State == "running" {
+			m.toast = "stop it first: podman pod stop " + p.Name
+			return nil
+		}
+	}
 	live := make([]string, 0)
 	for _, name := range names {
 		if stateOf(m.containers, name) == "running" {
@@ -901,6 +942,10 @@ func (m *Model) startDelete() tea.Cmd {
 	}
 	lines := make([]string, 0, len(names))
 	for _, name := range names {
+		if registry.IsPodName(name) {
+			lines = append(lines, "pod: "+name)
+			continue
+		}
 		lines = append(lines, "container: "+name)
 	}
 	m.confirm.Open(fmt.Sprintf("Delete %d container(s)?", len(names)), "Delete", "Cancel", lines, true,
@@ -955,7 +1000,36 @@ func (m *Model) launchDelete() tea.Cmd {
 				return fmt.Errorf("stop it first: podman stop %s", name)
 			}
 		}
+		// refuse running pods the same way (pods are never force-killed)
+		pods := discovery.AllPods(run)
 		for _, name := range names {
+			if registry.IsPodName(name) {
+				for _, p := range pods {
+					if p.Name == name && p.State == "running" {
+						return fmt.Errorf("stop it first: podman pod stop %s", name)
+					}
+				}
+			}
+		}
+		podNames, containerNames := make([]string, 0, len(names)), make([]string, 0, len(names))
+		for _, name := range names {
+			if registry.IsPodName(name) {
+				podNames = append(podNames, name)
+			} else {
+				containerNames = append(containerNames, name)
+			}
+		}
+		// pods remove as units (pod rm, no force needed after stop)
+		for _, pod := range podNames {
+			out, err := run.Output("podman", "pod", "rm", pod)
+			for _, l := range cmdrun.Lines(out) {
+				emit(l)
+			}
+			if err != nil {
+				return fmt.Errorf("podman pod rm %s failed: %s", pod, strings.TrimSpace(out))
+			}
+		}
+		for _, name := range containerNames {
 			out, err := run.Output("podman", "rm", name)
 			for _, l := range cmdrun.Lines(out) {
 				emit(l)
@@ -964,10 +1038,15 @@ func (m *Model) launchDelete() tea.Cmd {
 				return fmt.Errorf("podman rm %s failed: %s", name, strings.TrimSpace(out))
 			}
 		}
-		// verified gone (data map §3): reconcile against a fresh
-		// podman ps -a before any write.
+		// verified gone (data map §3): reconcile against fresh podman
+		// pod ps / ps -a before any write.
+		for _, pod := range podNames {
+			if slices.ContainsFunc(discovery.AllPods(run), func(p discovery.PodState) bool { return p.Name == pod }) {
+				return fmt.Errorf("%s still exists", pod)
+			}
+		}
 		remaining := discovery.AllContainers(run)
-		for _, name := range names {
+		for _, name := range containerNames {
 			if slices.ContainsFunc(remaining, func(c discovery.ContainerState) bool { return c.Name == name }) {
 				return fmt.Errorf("%s still exists", name)
 			}
@@ -976,8 +1055,9 @@ func (m *Model) launchDelete() tea.Cmd {
 			return nil
 		}
 		for _, name := range names {
-			id := strings.TrimPrefix(name, registry.ContainerName(""))
-			p, err := reg.ByID(id)
+			// registry reconciliation stays keyed to the project
+			// container name — pod rows and container rows share the id
+			p, err := reg.ByID(registry.ContainerID(name))
 			if err != nil {
 				continue // leftover of a gone project: nothing to mirror
 			}
@@ -1365,7 +1445,14 @@ func (m *Model) rows(t, width int) []chkRow {
 		}
 		return rows
 	case TabDelete:
-		rows := make([]chkRow, 0, len(m.containers))
+		rows := make([]chkRow, 0, len(m.pods)+len(m.containers))
+		for _, p := range m.pods {
+			main := truncate(p.Name, 44)
+			if po, err := m.projectFor(registry.ContainerName(registry.ContainerID(p.Name))); err == nil {
+				main += "  " + shell.StyleMutedAlt.Render(truncate(po.Name, 24))
+			}
+			rows = append(rows, chkRow{key: p.Name, main: truncate(main, width-4) + podStateMarker(p)})
+		}
 		for _, c := range m.containers {
 			main := truncate(c.Name, 44)
 			if p, err := m.projectFor(c.Name); err == nil {
@@ -1424,6 +1511,32 @@ func stateMarker(c discovery.ContainerState) string {
 		return "  " + shell.StyleStatusRunning.Render(shell.SymOn+" running")
 	}
 	return "  " + shell.StyleMutedAlt.Render(shell.SymOff+" "+c.State)
+}
+
+// podStateMarker renders a pod's lifecycle status the same way.
+func podStateMarker(p discovery.PodState) string {
+	return stateMarker(discovery.ContainerState{Name: p.Name, State: p.State})
+}
+
+// deletePodMembers drops pod infra containers (opencode-sandbox-pod-…
+// hosts) and project containers represented by their pod row
+// (pod-as-unit): the pod row is the delete tab's unit for them.
+func deletePodMembers(all []discovery.ContainerState, pods []discovery.PodState) []discovery.ContainerState {
+	podSet := make(map[string]bool, len(pods))
+	for _, p := range pods {
+		podSet[p.Name] = true
+	}
+	var out []discovery.ContainerState
+	for _, c := range all {
+		if registry.IsPodName(c.Name) {
+			continue // the pod's infra container
+		}
+		if podSet[registry.PodName(registry.ContainerID(c.Name))] {
+			continue // represented by its pod row
+		}
+		out = append(out, c)
+	}
+	return out
 }
 
 // projectFor resolves the registry project behind a container name;

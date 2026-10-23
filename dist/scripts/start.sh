@@ -18,7 +18,7 @@
 # Flags:
 #   --use_proxy        Startet Squid-Egress-Allowlist-Proxy und nutzt ihn
 #   --search_mode      Web-Suche: websearch (Exa/Parallel, Standard), none
-#                      oder searxng (oc-searxng-Container + SearXNG-MCP;
+#                      oder searxng (oc-searxng-Pod-Member + SearXNG-MCP;
 #                      nicht mit --use_proxy kombinierbar, ADR 0026)
 #   --offline          Kein Netzwerk (nur lokale Modelle)
 #   --hil_mode         USB-Passthrough für Oszi (scope0) und MCU (ttyUSB*, ttyACM*, ttyAMA*)
@@ -311,31 +311,46 @@ if $USE_PROXY; then
     echo "==> Baue oc-proxy Image ..."
     podman build -t oc-proxy -f "${REPO_ROOT}/proxy/Dockerfile" "${REPO_ROOT}/proxy/"
   fi
-  if ! podman container exists oc-proxy 2>/dev/null || ! podman inspect -f '{{.State.Running}}' oc-proxy 2>/dev/null | grep -q true; then
-    echo "==> Starte oc-proxy Container ..."
-    podman run -d --replace --name oc-proxy --network=pasta \
-      -p 127.0.0.1:3128:3128 oc-proxy
-  fi
 fi
 
-# --- Netzwerk-Optionen ---------------------------------------------------------
-# Host-Gateway für Container→Host-Zugriffe: pasta mappt Verbindungen zur
-# Default-Route-Gateway-Adresse des Containers auf den Host-Loopback - Ports,
-# die der Host NUR an 127.0.0.1 veröffentlicht, sind über dieses Gateway
-# erreichbar. Dagegen mappt podman (4.9) host.containers.internal bei pasta
-# auf die EIGENE Container-Adresse (sie schattiert die Host-Adresse):
-# Verbindungen dorthin laufen lokal gegen den Container selbst und werden
-# refused. Deshalb trägt start.sh einen eigenen /etc/hosts-Eintrag
-# (host.oc-sandbox.internal) mit dem Gateway in den Projektcontainer ein;
-# Proxy- und SEARXNG_URL-Hosts verwenden diesen Namen.
-# Fallback 10.0.2.2: klassische slirp/pasta-Gateway-Adresse (VMs, kein
-# Default-Route-Pfad ermittelbar).
-HOST_GW="$(ip -4 route show default 2>/dev/null | awk '{print $3; exit}')"
-[[ "$HOST_GW" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] || HOST_GW="10.0.2.2"
-HOST_GW_ARGS=(--add-host "host.oc-sandbox.internal:${HOST_GW}")
+# --- Netzwerk: Pod pro Projekt (ADR 0029) ---------------------------------------
+# Ein Pod pro Projekt, Netzmodus pasta:--ipv4-only. Pod-Member teilen einen
+# Netz-Namespace: Companion-Dienste werden ueber 127.0.0.1 erreicht (in-
+# Namespace-Konstanten) - ohne Host-Loopback-Publishing fuer Dienste und
+# ohne podmans host.containers.internal, das bei pasta auf die EIGENE
+# Container-Adresse zeigt (sie schattiert die Host-Adresse). Die
+# Host-Publishings der UIs (Web 4096-Scan, CBM-UI 9749-Scan) haengen am
+# Pod (siehe "Pod starten"), nicht mehr am Projektcontainer. Der
+# ADR-0028-Detour (default-route-Gateway-Ermittlung, --add-host
+# host.oc-sandbox.internal) ist damit entfallen.
+SANDBOX_ID="${CONTAINER_ID:-$(basename "$PROJECT_ROOT")}"
+POD_NAME="opencode-sandbox-pod-${SANDBOX_ID}"
+CONTAINER_NAME="opencode-sandbox-${SANDBOX_ID}"
 
-NETWORK_ARGS=(--network=pasta:--ipv4-only)
+NETWORK_ARGS=()
+if $OFFLINE; then
+  echo "Hinweis: Sandbox läuft ohne Netzwerk (--offline). OpenCode-Login/API" >&2
+  echo "         ist damit nicht nutzbar, nur lokale Modelle." >&2
+  # Offline laeuft der Projektcontainer ohne Pod (und ohne Companion-Member):
+  # --network=none klassisch, Publishings bleiben - wie bisher - am
+  # Container selbst.
+  NETWORK_ARGS=(--network=none)
+fi
+
+# Proxy: In-Namespace-Konstante (ADR 0029) - der per-Pod Squid-Member
+# wird beim Pod-Aufbau unten gestartet.
 PROXY_ENV=()
+if $USE_PROXY; then
+  PROXY_ENV=(
+    -e HTTPS_PROXY="http://127.0.0.1:3128"
+    -e HTTP_PROXY="http://127.0.0.1:3128"
+    -e NO_PROXY="localhost,127.0.0.1"
+  )
+fi
+if $OFFLINE; then
+  PROXY_ENV=()
+fi
+
 # Such-Umgebung: websearch aktiviert die Built-in-Exa/Parallel-Backends
 # (Standard, Rückwärtskompatibilität: fehlender --search_mode liest als
 # websearch). searxng traegt nur SEARXNG_URL ein, none nichts.
@@ -344,19 +359,6 @@ if $SEARCH_WEBSEARCH; then
   WEBSEARCH_ENV=(-e OPENCODE_ENABLE_EXA=1 -e OPENCODE_ENABLE_PARALLEL=1)
 fi
 SEARXNG_ENV=()
-if $USE_PROXY; then
-  PROXY_ENV=(
-    -e HTTPS_PROXY="http://host.oc-sandbox.internal:3128"
-    -e HTTP_PROXY="http://host.oc-sandbox.internal:3128"
-    -e NO_PROXY="localhost,127.0.0.1"
-  )
-fi
-if $OFFLINE; then
-  echo "Hinweis: Sandbox läuft ohne Netzwerk (--offline). OpenCode-Login/API" >&2
-  echo "         ist damit nicht nutzbar, nur lokale Modelle." >&2
-  NETWORK_ARGS=(--network=none)
-  PROXY_ENV=()
-fi
 
 port_is_in_use() {
   local port="$1"
@@ -429,15 +431,12 @@ if $START_WEB && ! $DETACH; then
   START_WEB_ENV=true
 fi
 
-# --- SearXNG-Leitstelle (search_mode=searxng) -----------------------------------
-# Ein gemeinsamer Container für ALLE Projekte. Er wird beim ersten
-# searxng-Projektstart angelegt (fehlt das Image, wird es gebaut) und
-# danach dauerhaft weiterlaufen gelassen - Spiegel der oc-proxy-
-# Logik. Das Projekt-Container-Environment bekommt die Instanz-Adresse
-# über SEARXNG_URL (host.oc-sandbox.internal -> pasta-Gateway -> Host-
-# Loopback): sie wird nie in
-# opencode.json persistiert, ein Portrescan kann sie also nie veralten
-# lassen.
+# --- SearXNG-Member (search_mode=searxng) ---------------------------------------
+# Nach ADR 0029 laeuft SearXNG als per-Pod-Member im Netz-Namespace des
+# Projekt-Pods (detached, oc-searxng-Image, settings.yml-Bind, generiertes
+# Secret, keine Publishing, pro-Pod-eindeutiger Name; gestartet beim
+# Pod-Aufbau unten). Der hostseitig geteilte oc-searxng-Container (und der
+# zugehoerige Port-Scan) ist entfallen.
 if $SEARCH_SEARXNG; then
   if [[ ! -f "${REPO_ROOT}/searxng/settings.yml" ]]; then
     echo "Fehler: ${REPO_ROOT}/searxng/settings.yml fehlt (siehe Install)." >&2
@@ -447,28 +446,10 @@ if $SEARCH_SEARXNG; then
     echo "==> Baue oc-searxng Image ..."
     podman build --network host -t oc-searxng -f "${REPO_ROOT}/searxng/Dockerfile" "${REPO_ROOT}/searxng/"
   fi
-  SEARXNG_HOST_PORT=""
-  if podman container exists oc-searxng 2>/dev/null && \
-     podman inspect -f '{{.State.Running}}' oc-searxng 2>/dev/null | grep -q true; then
-    # podman port liefert "127.0.0.1:8080->8080/tcp" - nur die Spielerportzahl
-    # vor dem Pfeil ist relevant. Nicht-nummerisches Ergebnis (Parse-Miss oder
-    # unveröffentlichter Port) wird unten als "nicht laufend" behandelt.
-    SEARXNG_HOST_PORT=$(podman port oc-searxng 8080/tcp 2>/dev/null | head -1 \
-      | sed -n 's|^[^:]*:\([0-9]\+\)->.*$|\1|p' || true)
-  fi
-  if ! [[ "$SEARXNG_HOST_PORT" =~ ^[0-9]+$ ]]; then
-    SEARXNG_HOST_PORT=$(select_free_host_port 8080 "SearXNG")
-    if [[ "$SEARXNG_HOST_PORT" != "8080" ]]; then
-      echo "Hinweis: Host-Port 8080 ist belegt; SearXNG wird auf http://127.0.0.1:${SEARXNG_HOST_PORT} veröffentlicht." >&2
-    fi
-    echo "==> Starte oc-searxng Container ..."
-    podman run -d --replace --name oc-searxng --network=pasta \
-      -p "127.0.0.1:${SEARXNG_HOST_PORT}:8080" \
-      -e "SEARXNG_SECRET=$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')" \
-      -v "${REPO_ROOT}/searxng/settings.yml:/etc/searxng/settings.yml:Z" \
-      oc-searxng
-  fi
-  SEARXNG_ENV=(-e "SEARXNG_URL=http://host.oc-sandbox.internal:${SEARXNG_HOST_PORT}/search")
+  SEARXNG_SECRET="$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+  SEARXNG_NAME="oc-searxng-${SANDBOX_ID}"
+  # Ohne /search-Suffix: mcp-searxng haengt /search selbst an (sonst /search/search -> 404).
+  SEARXNG_ENV=(-e "SEARXNG_URL=http://127.0.0.1:8080")
 fi
 
 # --- HIL-Geräte ----------------------------------------------------------------
@@ -537,6 +518,56 @@ if $HIL_MODE; then
   done
 fi
 
+# --- Pod pro Projekt (ADR 0029) ---------------------------------------------------
+# Lifecycle-Entscheidung: deterministisches Recreate bei jedem Start. Ein
+# `podman pod create --replace` konnte auf podman 4.9.3 nicht verifiziert
+# werden (kein Podman in dieser Umgebung fuer den Probe), also der sichere
+# Pfad: forciertes `podman pod rm -f` (Best-Effort, fehlender Pod/Fehler
+# wird ignoriert) gefolgt von einem frischen `podman pod create` - das
+# heilt auch haengengebliebene Member, statt sie zu recyceln. Die
+# Pod-Level-Publishings (Web-UI-4096-Scan, CBM-UI-9749-Scan, oben
+# gesammelt) haengen am Pod; der Projektcontainer tritt mit --pod bei.
+if ! $OFFLINE; then
+  echo "==> Lege Pod ${POD_NAME} an (Recreate) ..."
+  podman pod rm -f "$POD_NAME" >/dev/null 2>&1 || true
+  podman pod create --name "$POD_NAME" \
+    --userns=keep-id \
+    --network pasta:--ipv4-only \
+    "${CBM_PORT_ARGS[@]}" \
+    "${WEB_PORT_ARGS[@]}"
+  POD_ARGS=(--pod "$POD_NAME")
+  CONTAINER_PORT_ARGS=()
+  USERNS_ARGS=()
+  # Pod create uebernimmt --userns=keep-id fuer den gemeinsamen Namespace:
+  # Pod-Member duerfen auf podman 4.9 kein --userns setzen
+  # ("--userns and --pod cannot be set together") - der Projektcontainer
+  # erbt keep-id daher vom Pod.
+  if $SEARCH_SEARXNG; then
+    echo "==> Starte oc-searxng Pod-Member (${SEARXNG_NAME}) ..."
+    podman run -d \
+      --pod "$POD_NAME" \
+      --name "$SEARXNG_NAME" \
+      -e "SEARXNG_SECRET=${SEARXNG_SECRET}" \
+      -v "${REPO_ROOT}/searxng/settings.yml:/etc/searxng/settings.yml:Z" \
+      oc-searxng
+  fi
+  if $USE_PROXY; then
+    PROXY_NAME="oc-proxy-${SANDBOX_ID}"
+    echo "==> Starte oc-proxy Pod-Member (${PROXY_NAME}) ..."
+    podman run -d \
+      --pod "$POD_NAME" \
+      --name "$PROXY_NAME" \
+      oc-proxy
+  fi
+else
+  # Offline: kein Pod, kein Member - Publishings bleiben (wie vor der
+  # Umstellung) am Projektcontainer.
+  POD_ARGS=()
+  CONTAINER_PORT_ARGS=("${CBM_PORT_ARGS[@]}" "${WEB_PORT_ARGS[@]}")
+  USERNS_ARGS=(--userns=keep-id)
+  USERNS_POD_ARGS=()
+fi
+
 # --- Container starten ---------------------------------------------------------
 # v2-Web: Hostname/Port werden bootunabhaengig in die gemountete
 # service-config vorgesehen (ADR 0024), damit der Container start nur noch
@@ -555,7 +586,6 @@ if $START_WEB && $DETACH; then
   fi
 fi
 
-CONTAINER_NAME="opencode-sandbox-${CONTAINER_ID:-$(basename "$PROJECT_ROOT")}"
 IMAGE="opencode-sandbox-${EDITION}"
 RUN_MODE=(-it)
 CONTAINER_COMMAND=()
@@ -577,17 +607,15 @@ if $START_WEB && ! $DETACH; then
 fi
 
 podman run --rm "${RUN_MODE[@]}" \
-  --replace \
   --name "$CONTAINER_NAME" \
-  --userns=keep-id \
+  "${USERNS_ARGS[@]}" \
   --group-add keep-groups \
   --cap-drop=ALL \
   --security-opt no-new-privileges \
+  "${POD_ARGS[@]}" \
   "${NETWORK_ARGS[@]}" \
-  "${HOST_GW_ARGS[@]}" \
   "${PROXY_ENV[@]}" \
-  "${CBM_PORT_ARGS[@]}" \
-  "${WEB_PORT_ARGS[@]}" \
+  "${CONTAINER_PORT_ARGS[@]}" \
   "${CBM_ENV_UI[@]}" \
   "${DEVICE_ARGS[@]}" \
   -e TERM="${TERM:-xterm-256color}" \

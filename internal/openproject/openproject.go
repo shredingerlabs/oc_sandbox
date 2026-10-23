@@ -1476,14 +1476,39 @@ func (m *Model) leftPane(w, h int) string {
 		}
 		lines = grid
 	}
-	for len(lines) < h-1 {
+	room := h - len(toastRows(m.toast, w, toastMaxRows))
+	for len(lines) < room {
 		lines = append(lines, "")
 	}
-	if len(lines) > h-1 {
-		lines = lines[:h-1]
+	if len(lines) > room {
+		lines = lines[:room]
 	}
-	lines = append(lines, shell.Toast(m.toast))
+	lines = append(lines, toastRows(m.toast, w, toastMaxRows)...)
 	return padLines(lines, 0, w, h)
+}
+
+// toastMaxRows caps the reserved toast block: the longest real toast
+// (a pair link on the narrowest fitted terminal) wraps to fewer rows.
+const toastMaxRows = 3
+
+// toastRows renders the toast into at most max rows of w columns
+// (pinned to the pane bottom). A toast exceeding the pane width no
+// longer overflows the Body contract: long text wraps and the wrap rows
+// are reserved inside the block instead of leaking past the body
+// height, where the shell's body clip dropped the continuation — a
+// pair link showed only as its "OpenCode Web:" head until a window
+// resize made it fit one row. Short toasts render as the reserved one
+// row, unchanged.
+func toastRows(text string, w, max int) []string {
+	to := shell.Toast(text)
+	if shell.Width(to) <= w {
+		return []string{to}
+	}
+	rows := strings.Split(lipgloss.NewStyle().Width(w).MaxWidth(w).Render(to), "\n")
+	if len(rows) > max {
+		rows = rows[:max]
+	}
+	return rows
 }
 
 func (m *Model) cardRows(p registry.Project, running bool) []string {

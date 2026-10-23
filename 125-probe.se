@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+OUT="${TMPDIR:-/tmp}/125-probe2.log"
+{
+echo '== 3. live probe (pod + member) =='
+podman pod rm -f probe-125 >/dev/null 2>&1
+echo "-- A: bare pod (pasta)"
+podman pod create --name probe-125 --network pasta:--ipv4-only 2>&1
+echo "-- B: member without userns"
+podman run --rm --name probe-member --pod probe-125 alpine echo PROBE-A-OK 2>&1 | head -5
+podman pod rm -f probe-125 >/dev/null 2>&1
+echo "-- C: pod-level userns"
+podman pod create --name probe-125 --userns=keep-id --network pasta:--ipv4-only 2>&1 && echo PROBE-B-POD-USERNS-OK
+echo "-- D: member on pod-level userns pod"
+podman run --rm --name probe-member2 --pod probe-125 alpine echo PROBE-C-OK 2>&1 | head -5
+echo "-- E: member WITH explicit userns (expect the 4.9 error)"
+podman run --rm --name probe-member3 --userns=keep-id --pod probe-125 alpine echo PROBE-D-OK 2>&1 | head -5
+podman pod rm -f probe-125 >/dev/null 2>&1
+} >> "$OUT" 2>&1
+echo "captured -> $OUT"
+cat "$OUT"

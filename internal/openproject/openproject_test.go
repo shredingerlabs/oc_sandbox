@@ -748,6 +748,47 @@ func TestWebButtonOnRunningCardRelaunchesWithWeb(t *testing.T) {
 	}
 }
 
+// A pair link (the web option's one-time sign-in, ADR 0024) is longer
+// than the card pane at narrow terminals. The toast must wrap into
+// reserved body rows; overflowing the block silently dropped the
+// continuation rows (shell body clip) so the announcement collapsed to
+// the "OpenCode Web:" head — nothing after it, invisible until a window
+// resize. Body contract: exactly bodyH rows.
+func TestWebToastFullLinkVisibleAtNarrowWidths(t *testing.T) {
+	link := "http://127.0.0.1:4096/pair?token=AbCdEfGh1234567890123456"
+	e := newEnv(t, nil)
+	e.hooks.pairOut = link
+	e.hooks.psOut = "opencode-sandbox-" + e.ids["alpha"]
+	e.rebuild(t)
+	lines := bodyOf(t, e.m, bodyW, bodyH)
+	var rect shell.Rect
+	for _, r := range e.m.CardRects() {
+		if strings.Contains(paneRowRowAt(lines, r, 1), "alpha") {
+			rect = r
+		}
+	}
+	e.step(clickAt(rect.X+19+2, rect.Y+4)) // Web button, alpha already selected
+	e.finishOps()
+	if e.m.toast == "" {
+		t.Fatal("web access announced no toast")
+	}
+	for _, w := range []int{80, 90, bodyW} {
+		rows := strings.Split(e.m.Body(w, bodyH), "\n")
+		if len(rows) != bodyH {
+			t.Errorf("width %d: body = %d rows, want exactly %d (Body contract)", w, len(rows), bodyH)
+			continue
+		}
+		var visible strings.Builder
+		lw := leftWidth(w)
+		for _, l := range rows[len(rows)-3:] { // the toast block, pinned to the pane bottom
+			visible.WriteString(strings.TrimRight(l[:min(lw, len(l))], " "))
+		}
+		if got := visible.String(); !strings.Contains(got, link) {
+			t.Errorf("width %d: pair link not fully visible in toast block: %q", w, got)
+		}
+	}
+}
+
 func TestWebButtonOnRunningCardShowsURL(t *testing.T) {
 	e := newEnv(t, nil)
 	e.hooks.psOut = "opencode-sandbox-" + e.ids["alpha"]

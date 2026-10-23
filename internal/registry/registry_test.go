@@ -312,3 +312,18 @@ func TestAddProjectPreservesUnknownFieldsSemantically(t *testing.T) {
 		t.Fatalf("unknown top-level field dropped: %s", b)
 	}
 }
+
+func TestIsPodName(t *testing.T) {
+	for name, want := range map[string]bool{
+		PodName("abc123"):            true,
+		PodName("abc123") + "-infra": true, // podman's infra container
+		ContainerName("abc123"):      false,
+		"opencode-sandbox-legacy":    false,
+		"opencode-sandbox-podx-abc":  false, // prefix must match exactly
+		"something-else":             false,
+	} {
+		if got := IsPodName(name); got != want {
+			t.Errorf("IsPodName(%q) = %v, want %v", name, got, want)
+		}
+	}
+}
