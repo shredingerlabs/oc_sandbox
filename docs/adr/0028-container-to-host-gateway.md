@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted (2026-10-23)
+> **Status**: superseded by ADR 0029 (pod-per-project networking) — the gateway mechanism was fully reverted; see ADR 0029 for the pasta constraint table that disproved this approach.
 
 ## Context
 

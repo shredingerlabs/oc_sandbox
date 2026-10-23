@@ -19,8 +19,9 @@ only rewrites the config field and leaves existing credential files in place.
   image-existence check, which belongs to the next-start flow — a missing edition image
   gets the existing Build now / Build later / Go back prompt (`check_and_build_containers`)
   at the next start, not a rebuild attempt inside the settings wizard.
-- **Allowlist editing / oc-proxy lifecycle** stays out of scope: the proxy container is
-  global and lazily started by start.sh; the allowlist is baked into the image at build time.
+- **Allowlist editing / oc-proxy lifecycle** stays out of scope: the allowlist is baked
+  into the image at build time; the (now per-project pod member, ADR 0029) proxy
+  container's lifecycle belonged to start.sh then and still does.
 - **Blocking running containers or incomplete-setup projects** was rejected — editing
   settings for either is strictly more useful than refusing.
 

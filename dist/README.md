@@ -241,8 +241,8 @@ später aus `<url>` geklont.
 
 **Optionen:**
 - `--edition <edition>` – Edition wählen (jede aus `Dockerfile`/`Dockerfile.custom` entdeckte Edition, z. B. `base`, `web`, `embedded`, `swdev`, `matlab`, `ros2`, `writing`)
-- `--use_proxy` – Egress-Proxy mit Allowlist
-- `--search_mode <none|websearch|searxng>` – Web-Suche pro Projekt: `websearch` (Exa/Parallel, Standard), `searxng` (gemeinsamer SearXNG-Container, ohne Proxy nutzbar — mit `--use_proxy` inkompatibel, ADR 0026), `none`
+- `--use_proxy` – Egress-Proxy mit Allowlist (per-Pod-Squid unter `127.0.0.1:3128`)
+- `--search_mode <none|websearch|searxng>` – Web-Suche pro Projekt: `websearch` (Exa/Parallel, Standard), `searxng` (eigene SearXNG-Instanz als Pod-Member, erreicht über `127.0.0.1:8080` — mit `--use_proxy` inkompatibel, ADR 0026), `none`
 - `--offline` – Komplett offline (kein Netzwerk)
 - `--hil_mode` – HIL-Tests mit USB-Geräten (Oszilloskop, MCU)
 - `--cbm_ui` – CBM Knowledge-Graph-UI (Port 9749)
