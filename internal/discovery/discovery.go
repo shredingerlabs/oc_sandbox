@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/shredingerlabs/oc-sandbox/internal/cmdrun"
+	"github.com/shredingerlabs/oc-sandbox/internal/registry"
 )
 
 var stageRe = regexp.MustCompile(`^\s*FROM\s+(\S+)\s+AS\s+opencode-sandbox-(\S+)\s*(#.*)?$`)
@@ -245,6 +246,39 @@ func AllContainers(run cmdrun.Runner) []ContainerState {
 		all = append(all, ContainerState{Name: name, State: state})
 	}
 	return all
+}
+
+// PodState is one `podman pod ps` row: the pod name and its lifecycle
+// status ("running", "exited", …).
+type PodState struct {
+	Name  string
+	State string
+}
+
+// AllPods lists every sandbox pod in any state (`podman pod ps`,
+// filtered by the pod naming convention opencode-sandbox-pod-), which
+// includes exited pods of gone projects. Errors yield an empty list
+// (podman-output based, like the podman ps adapters).
+func AllPods(run cmdrun.Runner) []PodState {
+	out, err := run.Output("podman", "pod", "ps", "--format", "{{.Names}}\t{{.Status}}")
+	if err != nil {
+		return nil
+	}
+	var all []PodState
+	for _, l := range cmdrun.Lines(out) {
+		name, status, ok := strings.Cut(l, "\t")
+		if !ok || !strings.HasPrefix(name, registry.PodNamePrefix) {
+			continue
+		}
+		all = append(all, PodState{Name: name, State: strings.ToLower(status)})
+	}
+	return all
+}
+
+// PodExists reports whether a pod with this name exists in podman.
+func PodExists(run cmdrun.Runner, pod string) bool {
+	_, err := run.Output("podman", "pod", "exists", pod)
+	return err == nil
 }
 
 // SandboxImage is one `podman images` row of the sandbox family: the

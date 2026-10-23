@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/shredingerlabs/oc-sandbox/internal/config"
@@ -79,6 +80,22 @@ func ContainerIdentity(path string) string {
 // ContainerName derives the podman container name from a container id.
 func ContainerName(containerID string) string {
 	return "opencode-sandbox-" + containerID
+}
+
+// PodNamePrefix is the naming-convention prefix of the per-project pods
+// (#125): opencode-sandbox-pod-<container-id>.
+const PodNamePrefix = "opencode-sandbox-pod-"
+
+// PodName derives the podman pod name from a container id (pod
+// members share the pod's network namespace, #125).
+func PodName(containerID string) string {
+	return PodNamePrefix + containerID
+}
+
+// ContainerID extracts the container id from a container or pod name
+// following the sandbox naming convention.
+func ContainerID(name string) string {
+	return strings.TrimPrefix(strings.TrimPrefix(name, PodNamePrefix), ContainerName(""))
 }
 
 // ErrNotFound reports a missing projects.json.
