@@ -2,9 +2,13 @@ package settingsview
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/shredingerlabs/oc-sandbox/internal/cmdrun"
 	"github.com/shredingerlabs/oc-sandbox/internal/shell"
@@ -182,6 +186,7 @@ func TestUpdateButtonPopupConfirmRunsInstallScript(t *testing.T) {
 	home := homeFixture(t)
 	run := fakeRunner()
 	v := newUpdateSettingsWithRunner(t, home, run)
+	script := stubFetchedScript(t, v)
 	v.HookMsg(UpdateCheckMsg{Latest: "v0.2.0"})
 	v.Update(shell.SubTabMsg{Index: subUpdate})
 	key(v, "down") // sole focusable: the Update button
@@ -209,7 +214,7 @@ func TestUpdateButtonPopupConfirmRunsInstallScript(t *testing.T) {
 	if len(calls) != 1 {
 		t.Fatalf("confirmed popup did not run the install script (%d calls)", len(calls))
 	}
-	assertCall(t, calls[0], "bash", v.installRoot+"/scripts/install.sh", "--yes")
+	assertCall(t, calls[0], "bash", script, "--yes")
 	if b := body(v); !strings.Contains(b, "restart oc-sandbox to apply") {
 		t.Errorf("successful update must note the restart:\n%s", b)
 	}
@@ -224,11 +229,13 @@ func TestUpdateButtonPopupConfirmRunsInstallScript(t *testing.T) {
 }
 
 func TestUpdateNonInteractiveYesOnly(t *testing.T) {
-	// Non-interactive update = --yes only: allowlist preservation is the
-	// install script's default, so nothing else may ride along.
+	// Non-interactive update = fetch the install script to a temp file,
+	// then run it with --yes only: allowlist preservation is the install
+	// script's default, so nothing else may ride along.
 	home := homeFixture(t)
 	run := fakeRunner()
 	v := newUpdateSettingsWithRunner(t, home, run)
+	script := stubFetchedScript(t, v)
 	v.Update(shell.SubTabMsg{Index: subUpdate})
 	key(v, "down")
 	key(v, "enter")
@@ -238,7 +245,68 @@ func TestUpdateNonInteractiveYesOnly(t *testing.T) {
 	if len(calls) != 1 {
 		t.Fatalf("update invocation count = %d, want 1 (%v)", len(calls), run.Calls)
 	}
-	assertCall(t, calls[0], "bash", v.installRoot+"/scripts/install.sh", "--yes")
+	assertCall(t, calls[0], "bash", script, "--yes")
+}
+
+func TestUpdateFetchFailureShowsPersistentWarning(t *testing.T) {
+	// The fetch (install script never ships in the install tree) failing
+	// must leave a warning in the pane that survives later frames — the
+	// toast alone vanishes with the next Update message.
+	home := homeFixture(t)
+	run := fakeRunner()
+	v := newUpdateSettingsWithRunner(t, home, run)
+	v.fetchInstallScript = func() (string, error) { return "", errors.New("no route to host") }
+	v.Update(shell.SubTabMsg{Index: subUpdate})
+	key(v, "down")
+	key(v, "enter")
+	key(v, "tab")
+	key(v, "enter")
+	if v.upErr == nil {
+		t.Fatal("fetch failure did not record upErr")
+	}
+	v.Update(tea.QuitMsg{}) // later frame: toast cleared, warning must persist
+	if len(bashCalls(run)) != 0 {
+		t.Fatalf("failed fetch still ran a script: %v", run.Calls)
+	}
+	b := body(v)
+	if !strings.Contains(b, "Update failed:") || !strings.Contains(b, "no route to host") {
+		t.Errorf("pane must keep the failure warning:\n%s", b)
+	}
+}
+
+func TestUpdateRunFailureShowsPersistentWarning(t *testing.T) {
+	home := homeFixture(t)
+	run := fakeRunner()
+	run.Script = func(name string, args []string) (string, error) {
+		return "bash: boom: command not found", errors.New("exit status 127")
+	}
+	v := newUpdateSettingsWithRunner(t, home, run)
+	stubFetchedScript(t, v)
+	v.Update(shell.SubTabMsg{Index: subUpdate})
+	key(v, "down")
+	key(v, "enter")
+	key(v, "tab")
+	key(v, "enter")
+	v.Update(tea.QuitMsg{}) // later frame: toast cleared, warning must persist
+	if b := body(v); !strings.Contains(b, "Update failed: exit status 127") {
+		t.Errorf("pane must keep the failure warning:\n%s", b)
+	}
+}
+
+func TestUpdateSuccessClearsPreviousWarning(t *testing.T) {
+	home := homeFixture(t)
+	run := fakeRunner()
+	v := newUpdateSettingsWithRunner(t, home, run)
+	v.upErr = errors.New("exit status 1") // a previous failed attempt
+	stubFetchedScript(t, v)
+	v.Update(shell.SubTabMsg{Index: subUpdate})
+	key(v, "down")
+	key(v, "enter")
+	key(v, "tab")
+	key(v, "enter")
+	if b := body(v); strings.Contains(b, "Update failed:") {
+		t.Errorf("successful update must clear the old warning:\n%s", b)
+	}
 }
 
 func TestUpdateThroughSharedQueue(t *testing.T) {
@@ -247,6 +315,7 @@ func TestUpdateThroughSharedQueue(t *testing.T) {
 	v := newUpdateSettingsWithRunner(t, home, run)
 	mgr := taskmgr.New()
 	v.Tasks = mgr
+	stubFetchedScript(t, v)
 	v.Update(shell.SubTabMsg{Index: subUpdate})
 	key(v, "down")
 	cmd := key(v, "enter") // → popup
@@ -279,6 +348,19 @@ func assertCall(t *testing.T, c cmdrun.Call, name string, want ...string) {
 	if strings.Join(c.Args, " ") != strings.Join(want, " ") {
 		t.Errorf("args = %v, want %v", c.Args, want)
 	}
+}
+
+// stubFetchedScript replaces the install-script fetch seam with one
+// returning a real temp file (the path the runner must be invoked on),
+// so tests neither need network nor the default raw-GitHub fetch.
+func stubFetchedScript(t *testing.T, v *View) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "install.sh")
+	if err := os.WriteFile(path, []byte("#!/usr/bin/env bash\necho stub\n"), 0o700); err != nil {
+		t.Fatalf("stub script: %v", err)
+	}
+	v.fetchInstallScript = func() (string, error) { return path, nil }
+	return path
 }
 
 func newUpdateSettings(t *testing.T, home string) *View {

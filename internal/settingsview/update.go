@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"strconv"
@@ -28,13 +29,65 @@ type UpdateCheckMsg struct {
 	Err    error
 }
 
+// defaultFetchInstallScript downloads the install script (see
+// installScriptURL) into an executable temp file and returns its path;
+// the caller removes the file. Any failure — transport, non-OK status,
+// empty body — is an error with context.
+func defaultFetchInstallScript() (string, error) {
+	client := &http.Client{Timeout: fetchTimeout}
+	resp, err := client.Get(installScriptURL)
+	if err != nil {
+		return "", fmt.Errorf("install script fetch (network) failed: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("install script fetch failed: HTTP %d", resp.StatusCode)
+	}
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("install script download failed: %w", err)
+	}
+	if len(data) == 0 {
+		return "", errors.New("install script download is empty")
+	}
+	f, err := os.CreateTemp("", "oc-sandbox-install-*.sh")
+	if err != nil {
+		return "", fmt.Errorf("install script temp file failed: %w", err)
+	}
+	if _, err := f.Write(data); err != nil {
+		f.Close()
+		os.Remove(f.Name())
+		return "", fmt.Errorf("install script write failed: %w", err)
+	}
+	if err := f.Close(); err != nil {
+		os.Remove(f.Name())
+		return "", fmt.Errorf("install script write failed: %w", err)
+	}
+	if err := os.Chmod(f.Name(), 0o700); err != nil {
+		os.Remove(f.Name())
+		return "", fmt.Errorf("install script chmod failed: %w", err)
+	}
+	return f.Name(), nil
+}
+
 // checkTimeout bounds the startup HTTP check: the shell must never wait
 // on it (guarded by TestStartupContinuationTimesOutFast).
 const checkTimeout = 5 * time.Second
 
+// fetchTimeout bounds the update-time install-script download: roomier
+// than the startup check (bigger payload, slower connections) but still
+// bounded — a stalled fetch fails the op, not the shell.
+const fetchTimeout = 30 * time.Second
+
 // githubLatestURL is the unauthenticated GitHub releases API the check
 // polls once per startup (same source the install script installs from).
 var githubLatestURL = "https://api.github.com/repos/shredingerlabs/oc_sandbox/releases/latest"
+
+// installScriptURL fetches the install script from the repository's main
+// branch: the installed tree never contains install.sh (it is not part
+// of the dist/ payload), so the update always runs the current script —
+// repo-side install-script fixes ride along with every TUI update.
+const installScriptURL = "https://raw.githubusercontent.com/shredingerlabs/oc_sandbox/main/scripts/install.sh"
 
 // defaultCheck queries the GitHub releases API for the latest release
 // tag; any failure is the caller's to swallow.
@@ -207,6 +260,9 @@ func (v *View) updatePane() ([]string, []hitRow, int) {
 	if v.upDone { // this session updated: the running binary is stale
 		rows = append(rows, shell.StyleWarn.Render("Update installed — restart oc-sandbox to apply."))
 	}
+	if v.upErr != nil { // persists until the next update attempt
+		rows = append(rows, shell.StyleWarn.Render("Update failed: "+v.upErr.Error()))
+	}
 	rows = append(rows,
 		"",
 		muted("The update runs the install script for the latest release."),
@@ -235,17 +291,27 @@ func (v *View) askUpdate() tea.Cmd {
 	return nil
 }
 
-// runUpdate invokes install.sh non-interactively (--yes: the overwrite
-// prompt is pre-confirmed by the popup; allowlist preservation is the
-// script's default) through the Ops seam, then re-resolves the installed
-// version and notes the restart.
+// runUpdate fetches the install script (the installed tree never ships
+// it) and invokes it non-interactively (--yes: the overwrite prompt is
+// pre-confirmed by the popup; allowlist preservation is the script's
+// default) through the Ops seam, then re-resolves the installed version
+// and notes the restart. A failure sets v.upErr: the pane renders the
+// reason as a persistent warning — the toast alone would vanish with
+// the next frame.
 func (v *View) runUpdate() tea.Cmd {
+	v.upErr = nil
 	return v.queueOp("Updating oc-sandbox",
 		func() (string, error) {
-			return "", v.ops.RunUpdate(v.installRoot+"/scripts/install.sh", []string{"--yes"})
+			script, err := v.fetchInstallScript()
+			if err != nil {
+				return "", err
+			}
+			defer os.Remove(script)
+			return "", v.ops.RunUpdate(script, []string{"--yes"})
 		},
 		func(err error) tea.Cmd {
 			if err != nil {
+				v.upErr = err
 				v.toast = "Install script reported an error — see the log: " + err.Error()
 				return nil
 			}
