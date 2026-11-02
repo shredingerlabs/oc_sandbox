@@ -7,8 +7,10 @@ markdown files.
 
 ## Architecture (three layers)
 1. `notes/` and `raw/`: source material. READ-ONLY. Never modify, move, rename or delete.
-2. `wiki/`: your domain. You create and maintain everything here.
-3. This file plus `.opencode/`: the schema. Propose changes to it, never edit it yourself.
+2. `wiki/`: the wiki itself. You create and maintain every page here.
+3. Everything else (`AGENTS.md`, `.opencode/`, other project files): editable like
+   in any project. This file plus `.opencode/` define the schema: propose changes
+   to it.
 
 Private material lives outside this vault. Never go looking for it, never follow
 paths that leave the vault directory, and never mention such content.
@@ -79,6 +81,6 @@ Grouped by type. One line per page:
 `- [[page-name]]: one-sentence summary (lang)`
 
 ## Never
+- Never modify `notes/` or `raw/` (READ-ONLY source material).
 - Never delete anything without asking first.
-- Never edit outside `wiki/`.
 - Never invent sources, quotes, dates or figures.

@@ -2,15 +2,7 @@
   "$schema": "https://opencode.ai/config.json",
   "default_agent": "wiki",
   "permissions": [
-    { "action": "external_directory", "resource": "*", "effect": "ask" },
-    { "action": "read", "resource": "*.env", "effect": "deny" },
-    { "action": "read", "resource": "*.env.*", "effect": "deny" },
-    { "action": "edit", "resource": "*", "effect": "deny" },
-    { "action": "edit", "resource": "wiki/*", "effect": "allow" },
-    { "action": "shell", "resource": "*", "effect": "ask" },
-    { "action": "shell", "resource": "git status *", "effect": "allow" },
-    { "action": "shell", "resource": "git diff *", "effect": "allow" },
-    { "action": "shell", "resource": "git log *", "effect": "allow" },
-    { "action": "shell", "resource": "git add wiki*", "effect": "allow" }
+    { "action": "edit", "resource": "notes/*", "effect": "deny" },
+    { "action": "edit", "resource": "raw/*", "effect": "deny" }
   ]
 }

@@ -57,6 +57,11 @@ fi
 # Struktur
 [[ -d "$root1/.opencode_config" ]]
 [[ -f "$root1/.opencode_config/opencode.json" ]]
+# `.env`-Schutz als Basisregel (alle Projekt-Arten)
+jq -e '.permissions | any(.action == "read" and .resource == "*.env" and .effect == "deny")' \
+  "$root1/.opencode_config/opencode.json" > /dev/null
+jq -e '.permissions | any(.action == "read" and .resource == "*.env.*" and .effect == "deny")' \
+  "$root1/.opencode_config/opencode.json" > /dev/null
 [[ -f "$root1/.opencode_config/AGENTS.md" ]]
 [[ -d "$root1/.opencode_config/skills" ]]
 [[ -d "$root1/.opencode_data" ]]
@@ -176,13 +181,38 @@ for s in wiki-ingest wiki-lint wiki-review wiki-synthesize; do
   [[ -f "$root_pkm/.opencode_config/skills/${s}/SKILL.md" ]]
 done
 
-# opencode.json: default_agent + permissions gemerged, Rest unversehrt
-[[ "$(jq -r '.default_agent' "$root_pkm/.opencode_config/opencode.json")" == "wiki" ]]
-[[ "$(jq -r '.permissions | length' "$root_pkm/.opencode_config/opencode.json")" -ge 7 ]]
-jq -e '.permissions | any(.action == "edit" and .resource == "wiki/*" and .effect == "allow")' \
-  "$root_pkm/.opencode_config/opencode.json" > /dev/null
+# wiki.md-Frontmatter: beschränkt nur notes/ und raw/ (Rechte-Angleichung)
+grep -q 'resource: "notes/\*"' "$root_pkm/.opencode_config/agents/wiki.md"
+grep -q 'resource: "raw/\*"' "$root_pkm/.opencode_config/agents/wiki.md"
+! grep -q 'only agent with write access' "$root_pkm/.opencode_config/agents/wiki.md"
+# Schema: notes/raw bleibt read-only, die globale Wiki-Sperre entfällt
+grep -q 'READ-ONLY' "$root_pkm/.opencode_config/AGENTS.md"
+! grep -q 'Never edit outside' "$root_pkm/.opencode_config/AGENTS.md"
+
+# opencode.json: default_agent + Basis-Rechte + pkm-Edit-Denies (Rechte-Angleichung)
+oc_json="$root_pkm/.opencode_config/opencode.json"
+[[ "$(jq -r '.default_agent' "$oc_json")" == "wiki" ]]
+# Basis-Rechte wie in anderen Modi: external_directory allows + .env read denies
+[[ "$(jq -r '.permissions | length' "$oc_json")" == 9 ]]
+jq -e '.permissions | any(.action == "external_directory" and .resource == "/home/dev/*" and .effect == "allow")' \
+  "$oc_json" > /dev/null
+jq -e '.permissions | any(.action == "read" and .resource == "*.env" and .effect == "deny")' \
+  "$oc_json" > /dev/null
+jq -e '.permissions | any(.action == "read" and .resource == "*.env.*" and .effect == "deny")' \
+  "$oc_json" > /dev/null
+# Einschränkung: nur edit auf notes/ und raw/
+jq -e '.permissions | any(.action == "edit" and .resource == "notes/*" and .effect == "deny")' \
+  "$oc_json" > /dev/null
+jq -e '.permissions | any(.action == "edit" and .resource == "raw/*" and .effect == "deny")' \
+  "$oc_json" > /dev/null
+# Alte Sperren entfallen: globales edit-Deny, Wiki-Regeln, Shell-Regeln, ask-all
+jq -e 'all(.permissions[]; .action != "edit" or .resource != "*")' "$oc_json" > /dev/null
+jq -e 'all(.permissions[]; .resource != "wiki/*")' "$oc_json" > /dev/null
+jq -e 'all(.permissions[]; .action != "shell")' "$oc_json" > /dev/null
+jq -e 'all(.permissions[]; .action != "external_directory" or .resource != "*" or .effect != "ask")' \
+  "$oc_json" > /dev/null
 # Basis-Seed bleibt erhalten
-jq -e '.mcp.servers["codebase-memory-mcp"], .websearch' "$root_pkm/.opencode_config/opencode.json" > /dev/null
+jq -e '.mcp.servers["codebase-memory-mcp"], .websearch' "$oc_json" > /dev/null
 
 # .gitignore: PKM-Einträge angehängt, ohne Duplikate
 for entry in '.obsidian/workspace*.json' '.obsidian/cache' '.trash/' '.DS_Store'; do
