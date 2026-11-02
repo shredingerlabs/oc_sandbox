@@ -196,6 +196,9 @@ fi
 ! grep -q -- 'OPENCODE_ENABLE_EXA' "$PODMAN_LOG"
 # In-Namespace-Konstante im Pod (ADR 0029), kein Gateway-Eintrag mehr.
 grep -q -- 'SEARXNG_URL=http://127.0.0.1:8080' "$PODMAN_LOG"
+# Nackte Basis-URL: mcp-searxng haengt /search selbst an (Suffix wuerde ueber
+# /search/search auf 404 laufen).
+! grep -q -- 'SEARXNG_URL=http://127.0.0.1:8080/search' "$PODMAN_LOG"
 grep -q -- 'oc-searxng' "$PODMAN_LOG"
 ! grep -q -- 'host.oc-sandbox.internal' "$PODMAN_LOG"
 ! grep -q -- ':8080$' "$PODMAN_LOG"
@@ -345,6 +348,10 @@ if ! grep -q -- 'run -d.*--name oc-searxng' "$PODMAN_LOG"; then
 fi
 if ! grep -q -- 'SEARXNG_URL=http://127.0.0.1:8080' "$PODMAN_LOG"; then
   printf 'recreate path lost the SEARXNG_URL\n' >&2
+  exit 1
+fi
+if grep -q -- 'SEARXNG_URL=http://127.0.0.1:8080/search' "$PODMAN_LOG"; then
+  printf 'recreate path wrote a /search-suffixed SEARXNG_URL (/search/search -> 404)\n' >&2
   exit 1
 fi
 if grep -q -- 'port oc-searxng' "$PODMAN_LOG"; then
