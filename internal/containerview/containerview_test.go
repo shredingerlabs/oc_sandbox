@@ -1371,6 +1371,17 @@ func TestImagesInfraUseFollowsEditions(t *testing.T) {
 		strings.Count(got, "○ unused") != 0 {
 		t.Errorf("edition containers must pin the whole family:\n%s", got)
 	}
+
+	// an unknown edition suffix (its stage left the registry) still
+	// pins the infra family rows — matching is by suffix, indifferent
+	// to the registry — while edition rows keep their own pin
+	m, fake, _, _ = newFixture(t)
+	imageList(fake, rows, "opencode-sandbox-ghost\n")
+	runCmds(t, m, m.Update(shell.SubTabMsg{Index: TabImages}))
+	if got := body(m); strings.Count(got, "● in use") != 3 ||
+		strings.Count(got, "○ unused") != 1 {
+		t.Errorf("an unknown edition container must still pin the family:\n%s", got)
+	}
 }
 
 // --- keyboard parity / shared mechanics ---

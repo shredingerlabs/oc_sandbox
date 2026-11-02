@@ -314,6 +314,12 @@ const SearxngImageTag = "oc-searxng"
 // offered as a project edition.
 const ProxyImageTag = "oc-proxy"
 
+// BaseImageRef is the bare image ref of the family's infrastructure
+// stage: the parent stage every shipped edition builds FROM (ADR 0019
+// amendment). Delete Images pins it by this constant without the
+// Dockerfiles.
+const BaseImageRef = "opencode-sandbox-base"
+
 // infraImage reports whether an image reference is one of the shared
 // infra images (oc-proxy, oc-searxng): its last path segment (tag/
 // digest suffix stripped) is that name.

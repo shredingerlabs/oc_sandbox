@@ -426,9 +426,11 @@ func (m *Model) refreshImages() tea.Cmd {
 // imageRefs computes the enriched ref list pinning images in use: every
 // container's image reference in any state, plus — while an edition
 // image is in use — the infra references and the parent stages (e.g.
-// base) per the Dockerfile stage registry. Existing child images alone
-// no longer pin parents: the whole sandbox family loses the pin with
-// the last edition container. Direct infra container refs (an
+// base) per the Dockerfile stage registry. Base pins by its
+// infrastructure-stage ref alone, so the family pin never dangles on
+// the Dockerfiles' readability. Existing child images alone no longer
+// pin parents: the whole sandbox family loses the pin with the last
+// edition container. Direct infra container refs (an
 // oc-proxy/oc-searxng unit) keep their own pin. Errors yield an empty
 // list.
 func (m *Model) imageRefs() []string {
@@ -442,6 +444,9 @@ func (m *Model) imageRefs() []string {
 		if discovery.EditionFromImage(parent) != "" && !slices.Contains(refs, parent) {
 			refs = append(refs, parent)
 		}
+	}
+	if !slices.Contains(refs, discovery.BaseImageRef) {
+		refs = append(refs, discovery.BaseImageRef)
 	}
 	return append(refs, discovery.ProxyImageTag, discovery.SearxngImageTag)
 }
