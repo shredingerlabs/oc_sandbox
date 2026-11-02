@@ -81,10 +81,10 @@ The TUI is a standalone Go application (`oc-sandbox`), built at release time
 
 | Menu item    | Function                                                                                                                                                                    |
 | ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Open Project** | Pick a registered project and start it — project cards (sorted by last use) with start buttons **Console / OpenCode / Web**                                               |
+| **Open Project** | Pick a registered project and start it — project cards (sorted by last use, showing the last active date) with start buttons **Console / OpenCode / Web**                                                |
 | **New Project**  | Create a project root (project wizard)                                                                                                                                  |
 | **Container**    | Container center with sub-tabs **Build Images** (`● built` / `○ missing` markers), **Delete Images** (`● in use` / `○ unused`, with sizes), **Start / Stop / Delete Container** |
-| **Settings**     | **Project settings** (edition, modes, start option, VCS/AI provider), Import project, Export Config, Restore Config, Update, Uninstall                                       |
+| **Settings**     | **Project settings** (project cards with last active date; edition, modes, start option, VCS/AI provider), Import project, Export Config, Restore Config, Update, Uninstall                                       |
 | **Exit**         | Quit the TUI                                                                                                                                                             |
 
 ### New Project
@@ -98,8 +98,9 @@ GitLab, own GitLab, others) and tokens (hidden input, stored project-locally in
 - `console` — interactive shell in the container
 - `opencode` — OpenCode TUI
 - `web` — OpenCode web UI (background service on port 4096, published on
-  `127.0.0.1`; the TUI shows a one-time sign-in link via `opencode pair`
-
+  `127.0.0.1`; the TUI shows a one-time sign-in link via `opencode pair`,
+  and while that link is fresh a pinned highlighted **Login WEB** button
+  above the Project Settings pane opens the browser with it directly)
 The **Agent** row picks the project kind: `Code` (default) or chat/PKM
 variants. The **AI provider** selection offers `none` and `Custom` (name,
 endpoint (OpenAI-compatible API), token — written to `opencode.json` v2 and
@@ -118,9 +119,12 @@ repeats only the incomplete step.
 ### Open Project
 
 Opening a project whose container is already running enters it directly:
-`opencode`/`console` via `podman exec`, `web` via a one-time pair link. Each
+`opencode`/`console` via `podman exec`, `web` via a one-time pair link (whose
+**Login WEB** button opens the browser; the toast below stays as a
+manual-copy backup). Each
 project card has start buttons **Console / OpenCode / Web** (start + access in
-one click). If a running container has no published web port, it is replaced
+one click) and shows the last active date (relative: `Today`, `Yesterday`,
+`n d ago`, else the date) instead of the project path. If a running container has no published web port, it is replaced
 by a verified `--start_web` restart (auto-adopt).
 
 ### Images and containers

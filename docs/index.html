@@ -449,7 +449,9 @@ Skills-Einrichtung über eine OpenCode-Session) läuft
 <h3>5.4 Erste Session mit OpenCode</h3>
 
 <p>Menüpunkt <strong>Open Project</strong> (die Karten sind nach letzter Nutzung
-sortiert). Je nach gewählter Start-Option:</p>
+sortiert und zeigen statt des Pfads das Datum der letzten Nutzung —
+heuristisch: <code>Today</code>, <code>Yesterday</code>, <code>n d ago</code>, sonst das Datum).
+Je nach gewählter Start-Option:</p>
 
 <ul>
   <li><code>opencode</code> – OpenCode-TUI öffnet sich direkt</li>
@@ -512,7 +514,7 @@ Installation standardmäßig angelegt; per <code>--no_symlinks</code> /
 
 <table>
   <tr><th>Menüpunkt</th><th>Funktion</th></tr>
-  <tr><td><strong>Open Project</strong></td><td>Registriertes Projekt auswählen und starten – Projektkarten (nach letzter Nutzung sortiert) mit Start-Buttons <strong>Console / OpenCode / Web</strong>.</td></tr>
+  <tr><td><strong>Open Project</strong></td><td>Registriertes Projekt auswählen und starten – Projektkarten (nach letzter Nutzung sortiert; statt des Pfads zeigt die Karte das Datum der letzten Nutzung) mit Start-Buttons <strong>Console / OpenCode / Web</strong>.</td></tr>
   <tr><td><strong>New Project</strong></td><td>Projekt neu anlegen (Wizard aus Abschnitt 5.3).</td></tr>
   <tr><td><strong>Container</strong></td><td>Container-Center mit Unter-Tabs: <strong>Build Images</strong> (<code>● built</code> / <code>○ missing</code>), <strong>Delete Images</strong> (<code>● in use</code> / <code>○ unused</code>, mit Größen), <strong>Start Container</strong>, <strong>Stop Container</strong>, <strong>Delete Container</strong>.</td></tr>
   <tr><td><strong>Settings</strong></td><td><strong>Project settings</strong> (Edition, Modi, Start-Option, VCS/AI-Provider), Import project, Export Config, Restore Config, Update, Uninstall.</td></tr>
@@ -532,6 +534,12 @@ ein OpenCode-Webdienst. Die URL zeigt dir die TUI an, typischerweise:</p>
 
 <pre><code>http://127.0.0.1:4096
 </code></pre>
+
+<p>Frischer Web-Zugriff erzeugt einen Einmal-Pair-Link (ADR 0024): über dem
+Project-Settings-Bereich erscheint ein hervorgehobener <strong>Login
+WEB</strong>-Button, der beim Klick die Pair-URL direkt im Browser öffnet
+(unten bleibt der Toast als Kopier-Backup). Hat der Rechner keinen Browser
+oder Öffner, bleibt der Toast die Rückfallebene.</p>
 
 <p><strong>Port-Suchbereich:</strong> Falls 4096 belegt ist, probiert die TUI
 automatisch die Ports 4096–4196 durch.</p>

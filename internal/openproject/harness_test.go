@@ -130,6 +130,8 @@ type env struct {
 	base    time.Time
 	seq     int
 	execed  []string // exec-handoff command vectors (fake Exec seam)
+	// loginRunErr fails the fake Login WEB browser open in one test run.
+	loginRunErr error
 }
 
 func newEnv(t *testing.T, hooks *runnerHooks) *env {
@@ -173,7 +175,13 @@ func (e *env) build(t *testing.T) *Model {
 		DockerfileCustom: "",
 		Ops:              e.launch,
 		Exec: func(c *exec.Cmd, cb tea.ExecCallback) tea.Cmd { // no real handoff in tests
+			// The last arg is the URL for a Login WEB click, a shell
+			// executable for an access handoff — the fake seam answers
+			// with the matching done message (e.loginRunErr fails both).
 			e.execed = append(e.execed, strings.Join(c.Args, " "))
+			if len(c.Args) > 1 && strings.HasPrefix(c.Args[len(c.Args)-1], "http") {
+				return func() tea.Msg { return loginDoneMsg{Err: e.loginRunErr} }
+			}
 			return func() tea.Msg { return accessDoneMsg{} }
 		},
 	})
@@ -191,6 +199,10 @@ func (e *env) buildWithExec(t *testing.T, execed *[]string) *Model {
 		DockerfileCustom: "",
 		Exec: func(c *exec.Cmd, cb tea.ExecCallback) tea.Cmd {
 			*execed = append(*execed, strings.Join(c.Args, " "))
+			e.execed = append(e.execed, strings.Join(c.Args, " "))
+			if len(c.Args) > 1 && strings.HasPrefix(c.Args[len(c.Args)-1], "http") {
+				return func() tea.Msg { return loginDoneMsg{Err: e.loginRunErr} }
+			}
 			return func() tea.Msg { return accessDoneMsg{} }
 		},
 	})
