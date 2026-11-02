@@ -309,6 +309,11 @@ type SandboxImage struct {
 // never offered as a project edition.
 const SearxngImageTag = "oc-searxng"
 
+// ProxyImageTag is the fixed tag of the shared squid proxy image: an
+// infra image like oc-searxng, built from proxy/Dockerfile and never
+// offered as a project edition.
+const ProxyImageTag = "oc-proxy"
+
 // infraImage reports whether an image reference is one of the shared
 // infra images (oc-proxy, oc-searxng): its last path segment (tag/
 // digest suffix stripped) is that name.
@@ -319,7 +324,7 @@ func infraImage(ref string) bool {
 	if j := strings.IndexAny(ref, ":@"); j >= 0 {
 		ref = ref[:j]
 	}
-	return ref == "oc-proxy" || ref == SearxngImageTag
+	return ref == ProxyImageTag || ref == SearxngImageTag
 }
 
 // SandboxImageTag reports whether a podman image reference belongs to
