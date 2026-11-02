@@ -137,7 +137,8 @@ mkdir -p %s
 		p.reasonf("prepare merge: %v", err)
 		return p.finish()
 	}
-	if err := os.WriteFile(filepath.Join(existing, ".opencode_config", "opencode.json"), []byte(`{"custom":{"selected":true}}`), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(existing, ".opencode_config", "opencode.json"),
+		[]byte(`{"custom":{"selected":true},"plugins":["opencode-models-discovery@1.5.3","opencode-models-discovery@2.0.0","foreign-plugin@9.9.9"]}`), 0o644); err != nil {
 		p.reasonf("merge seed: %v", err)
 		return p.finish()
 	}
@@ -162,6 +163,18 @@ mkdir -p %s
 	} else if _, ok := merged["custom"]; !ok {
 		p.reasonf("merged opencode.json lost foreign keys: %s", mergeRaw)
 	}
+	// Plugin-pin dedupe: merging the pinned entry replaces older versions of
+	// the same plugin (release-older @1.5.3/@2.0.0 pins) and keeps foreign
+	// plugins untouched.
+	var mergedPlugins struct {
+		Plugins []string `json:"plugins"`
+	}
+	if err := json.Unmarshal(mergeRaw, &mergedPlugins); err != nil {
+		p.reasonf("merged plugins not valid: %v", err)
+	} else if len(mergedPlugins.Plugins) != 2 || mergedPlugins.Plugins[0] != "foreign-plugin@9.9.9" ||
+		mergedPlugins.Plugins[1] != "opencode-models-discovery@2.1.0" {
+		p.reasonf("plugin pin dedupe wrong: %v", mergedPlugins.Plugins)
+	}
 
 	// migrate-opencode-config: a v1-shaped opencode.json and legacy
 	// auth.json credentials are rewritten to the v2 schema (ADR 0025).
@@ -178,7 +191,7 @@ mkdir -p %s
   "$schema": "https://opencode.ai/config.json",
   "permission": {"external_directory": {"/tmp/**": "allow", "/home/dev/**": "allow", "/opt/tool": "allow"}},
   "mcp": {"codebase-memory-mcp": {"type": "local", "command": ["cbm"], "enabled": true}},
-  "plugin": ["opencode-models-discovery@1.5.3", "opencode-models-discovery@2.0.0"],
+  "plugin": ["opencode-models-discovery@1.5.3", "opencode-models-discovery@2.1.0"],
   "provider": {"legacy": {"npm": "@ai-sdk/openai-compatible", "name": "Legacy",
      "options": {"baseURL": "https://l.example.com/v1", "timeout": false,
                  "modelsDiscovery": {"enabled": true, "smartModelName": true,
@@ -450,7 +463,7 @@ func checkProviderBlock(p *phase, raw []byte, id, name, endpoint, credRef, tag s
 	}
 	hasDiscovery := false
 	for _, pl := range doc.Plugins {
-		if pl == "opencode-models-discovery@2.0.0" {
+		if pl == "opencode-models-discovery@2.1.0" {
 			hasDiscovery = true
 		}
 	}

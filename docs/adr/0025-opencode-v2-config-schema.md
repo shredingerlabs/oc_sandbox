@@ -18,7 +18,7 @@ to the v2 schema and migrate existing projects automatically:
   `@opencode-ai/ai` is a 0.0.0 bootstrap placeholder), `settings.baseURL`,
   `settings.timeout: false` (the v2 schema documents "set to false to
   disable timeout") and `settings.modelsDiscovery` for the pinned
-  `opencode-models-discovery@2.0.0`.
+  `opencode-models-discovery@2.1.0`.
 - **Credentials move from `auth.json` to per-provider token files**
   (`.opencode_data/credentials/<id>`, mode 0600, never backed up), referenced
   from the provider entry as `settings.apiKey: "{file:/home/dev/.local/share/
@@ -44,7 +44,11 @@ to the v2 schema and migrate existing projects automatically:
   start variant and runs before the service first loads config — and as a
   lazy pre-step of the `ai-provider`, `opencode-config` and
   `ai-provider-remove` subcommands. The Go TUI additionally reads both
-  shapes (pre-migration display), never writes the legacy one.
+  shapes (pre-migration display), never writes the legacy one. The
+  `opencode-config` merge additionally replaces older versions of an
+  injected plugin (same name, other version — previously the pinned
+  `@2.1.0` joined release-older `@2.0.0`/`@1.5.3` entries via `unique`);
+  migration still preserves plugin pins verbatim.
 
 ## Considered Options
 
