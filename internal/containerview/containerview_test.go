@@ -1345,23 +1345,42 @@ func TestImagesNoSelectionToasts(t *testing.T) {
 	}
 }
 
-// TestImagesParentAwareUse pins the child-image rule: the base image
-// (parent of every edition per the Dockerfile stages) shows in use as
-// soon as a child image exists, even with no container referencing it.
-func TestImagesParentAwareUse(t *testing.T) {
+// TestImagesInfraUseFollowsEditions pins the infra-family rule: base
+// (parent stage per the Dockerfile registry), oc-proxy and oc-searxng
+// are in use only while an edition image is in use — a container in
+// any state referencing an edition pins the whole sandbox family,
+// while existing child images alone pin nothing.
+func TestImagesInfraUseFollowsEditions(t *testing.T) {
+	rows := "localhost/opencode-sandbox-base:latest\t300 MB\n" +
+		"localhost/opencode-sandbox-web:latest\t1.23 GB\n" +
+		"localhost/oc-proxy:latest\t500 MB\n" +
+		"oc-searxng\t400 MB\n"
+
 	m, fake, _, _ := newFixture(t)
-	imageList(fake,
-		"localhost/opencode-sandbox-base:latest\t300 MB\n"+
-			"localhost/opencode-sandbox-web:latest\t1.23 GB\n", "")
+	imageList(fake, rows, "") // no containers: whole family unused
 	runCmds(t, m, m.Update(shell.SubTabMsg{Index: TabImages}))
-	got := body(m)
-	if strings.Count(got, "● in use") != 1 {
-		t.Errorf("base not marked in use alongside its existing child:\n%s", got)
+	if got := body(m); strings.Count(got, "● in use") != 0 ||
+		strings.Count(got, "○ unused") != 4 {
+		t.Errorf("existing child images alone must not pin the family:\n%s", got)
 	}
-	// only the base row carries the parent-aware marker: web has no
-	// container of its own
-	if strings.Count(got, "○ unused") != 1 {
-		t.Errorf("unexpected unused rows:\n%s", got)
+
+	m, fake, _, _ = newFixture(t)
+	imageList(fake, rows, "opencode-sandbox-web\n") // one edition pin
+	runCmds(t, m, m.Update(shell.SubTabMsg{Index: TabImages}))
+	if got := body(m); strings.Count(got, "● in use") != 4 ||
+		strings.Count(got, "○ unused") != 0 {
+		t.Errorf("edition containers must pin the whole family:\n%s", got)
+	}
+
+	// an unknown edition suffix (its stage left the registry) still
+	// pins the infra family rows — matching is by suffix, indifferent
+	// to the registry — while edition rows keep their own pin
+	m, fake, _, _ = newFixture(t)
+	imageList(fake, rows, "opencode-sandbox-ghost\n")
+	runCmds(t, m, m.Update(shell.SubTabMsg{Index: TabImages}))
+	if got := body(m); strings.Count(got, "● in use") != 3 ||
+		strings.Count(got, "○ unused") != 1 {
+		t.Errorf("an unknown edition container must still pin the family:\n%s", got)
 	}
 }
 
