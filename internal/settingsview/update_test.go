@@ -44,6 +44,32 @@ func TestUpdateAvailable(t *testing.T) {
 	}
 }
 
+// Every update-card row clips to the window width: the keep note and the
+// failure reason (plus the toast echoing it) are the longest content the
+// card carries; without clipping the frame wraps wider than the window
+// and the border scatters (regression, narrow windows).
+func TestUpdatePaneRowNeverExceedsWindowWidth(t *testing.T) {
+	home := homeFixture(t)
+	v := newUpdateSettings(t, home)
+	v.upChecked = true
+	v.upLatest = "v9.9.9"
+	long := strings.Repeat("x", 120)
+	v.upErr = errors.New(long)
+	v.toast = "Install script reported an error — see the log: " + long
+	v.Update(shell.SubTabMsg{Index: subUpdate})
+	for _, width := range []int{60, 76} {
+		out := shell.StripANSI(v.Body(width, 26))
+		for _, line := range strings.Split(out, "\n") {
+			if w := shell.Width(line); w > width {
+				t.Fatalf("width %d: update card line is %d wide: %q", width, w, line)
+			}
+		}
+		if !strings.Contains(out, "Update failed: x") {
+			t.Fatalf("width %d: failure reason missing from output:\n%s", width, out)
+		}
+	}
+}
+
 func TestInstalledVersionPrefersVersionFile(t *testing.T) {
 	home := homeFixture(t)
 	v := newUpdateSettings(t, home)

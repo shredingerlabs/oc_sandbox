@@ -542,6 +542,96 @@ test_extract_go_binary_copies_platform_match() {
   cleanup_test_env "$test_dir"
 }
 
+# Update-Fall, End-to-End: Die "TUI" läuft aus bin/oc-sandbox, während
+# der Installer dasselbe Release (Fixture über git-Mock) noch einmal
+# installiert. Ohne vorheriges Unlink bricht das Überschreiben des
+# laufenden Binaries mit ETXTBSY ("Text file busy") ab — genau das
+# gemeldete TUI-Update-Problem (Exit 1, VERSION bleibt alt). Jeder
+# Install-Aufruf läuft in frischem bash: erst dort ist das set -e des
+# Skripts voll aktiv (unten unter run_test/if schaltet bash errexit ab).
+# Nackte ELF-Datei nötig (kein Bash-Fake), damit der Kernel den "Text
+# busy"-Schutz überhaupt übt.
+test_update_replaces_running_binary() {
+  local test_dir
+  test_dir=$(setup_test_env "running-update")
+  local home="$test_dir/home"
+  local install_dir="$home/.oc-sandbox"
+
+  # Fixture: minimales gültiges Release (validate_installation-Kontrakt)
+  # mit echter ELF-Datei als Plattform-Binary.
+  local fixture="$test_dir/fixture"
+  mkdir -p "$fixture/scripts" "$fixture/bin"
+  local f
+  for f in start build-container init-project configure-project uninstall; do
+    printf '#!/usr/bin/env bash\necho stub\n' > "$fixture/scripts/$f.sh"
+  done
+  printf 'FROM scratch\n' > "$fixture/Dockerfile"
+  cp "$(command -v sleep)" "$fixture/bin/oc-sandbox_linux_amd64"
+  chmod +x "$fixture"/scripts/*.sh "$fixture/bin/"*
+
+  # git-Mock: klont die lokale Fixture — kein Netz. 'git -c k=v clone'
+  # (download_via_git) — das -c-Flag-Paar erst abzählen.
+  local mockbin="$test_dir/mockbin"
+  mkdir -p "$mockbin" "$home" # home existiert im Realfall immer
+  cat > "$mockbin/git" << EOF
+#!/usr/bin/env bash
+if [[ "\$1" == "-c" ]]; then shift 2; fi
+if [[ "\$1" == "clone" ]]; then
+  target="\${@: -1}"
+  mkdir -p "\$target"
+  cp -r "$fixture"/. "\$target/"
+  exit 0
+fi
+echo "Mock git: \$*" >&2
+exit 1
+EOF
+  chmod +x "$mockbin/git"
+
+  # Install #1: füllt das Installationsverzeichnis (Entry-Point = ELF)
+  local rc=0
+  (cd "$test_dir" &&
+   PATH="$mockbin:$PATH" HOME="$home" \
+   bash "$INSTALL_SCRIPT" --yes --version v0.0.1 --no_symlinks --no_shortcut \
+  ) > "$test_dir/install1.log" 2>&1 || rc=$?
+  if ! assert_equals "0" "$rc" "Erstinstallation muss gelingen"; then
+    cat "$test_dir/install1.log"
+    cleanup_test_env "$test_dir"
+    return 1
+  fi
+
+  # laufende "TUI" aus dem neuen Entry-Point
+  "$install_dir/bin/oc-sandbox" 0.4 &
+  local pid=$!
+  sleep 0.05
+  local ino1
+  ino1=$(stat -c %i "$install_dir/bin/oc-sandbox")
+
+  # Install #2 = Update: überschreibt das LAUFENDE Binary → früher Exit 1
+  rc=0
+  (cd "$test_dir" &&
+   PATH="$mockbin:$PATH" HOME="$home" \
+   bash "$INSTALL_SCRIPT" --yes --version v0.0.1 --no_symlinks --no_shortcut \
+  ) > "$test_dir/install2.log" 2>&1 || rc=$?
+
+  if ! kill "$pid" 2>/dev/null; then :; fi
+  wait "$pid" 2>/dev/null || true
+
+  if ! assert_equals "0" "$rc" "Update muss das laufende Binary ersetzen können"; then
+    cat "$test_dir/install2.log"
+    cleanup_test_env "$test_dir"
+    return 1
+  fi
+  local ino2
+  ino2=$(stat -c %i "$install_dir/bin/oc-sandbox")
+  if [[ "$ino1" == "$ino2" ]]; then
+    echo "Binary wurde nicht ersetzt (gleicher Inode)"
+    cleanup_test_env "$test_dir"
+    return 1
+  fi
+
+  cleanup_test_env "$test_dir"
+}
+
 test_extract_go_binary_missing_fails_clearly() {
   local test_dir
   test_dir=$(setup_test_env "bin-extract-missing")
@@ -1461,6 +1551,7 @@ main() {
   run_test "install_dir_binary nutzt Go-Naming" test_install_dir_binary_uses_go_naming
   run_test "--bin: Plattform-Binary extrahiert" test_extract_go_binary_copies_platform_match
   run_test "--bin: fehlendes Binary bricht klar ab" test_extract_go_binary_missing_fails_clearly
+  run_test "--bin: laufendes Binary wird ersetzt (TUI-Update)" test_update_replaces_running_binary
   run_test "--bin: Symlink zeigt auf Binary" test_bin_symlink_points_at_binary
   run_test "--bin: Shortcut zeigt auf Binary" test_bin_shortcut_points_at_binary
   run_test "Default: Symlink zeigt auf Go-Binary" test_default_symlink_points_at_binary
