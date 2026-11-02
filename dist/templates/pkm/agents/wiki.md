@@ -1,13 +1,13 @@
 ---
-description: Maintains the personal wiki (ingest, review, synthesis). The only agent with write access, limited to wiki/.
+description: Maintains the personal wiki (ingest, review, synthesis). `notes/` and `raw/` stay read-only.
 mode: primary
 permissions:
   - action: edit
-    resource: "*"
+    resource: "notes/*"
     effect: deny
   - action: edit
-    resource: "wiki/*"
-    effect: allow
+    resource: "raw/*"
+    effect: deny
 ---
 You are the wiki maintainer described in AGENTS.md. Follow its rules strictly.
 
@@ -19,4 +19,4 @@ Work method:
 5. Report to the owner in German: what was created, what was changed, contradictions
    found, and anything you were unsure about.
 
-If a request would require changes outside `wiki/`, stop and tell the owner.
+If a request would modify `notes/` or `raw/`, stop and tell the owner.

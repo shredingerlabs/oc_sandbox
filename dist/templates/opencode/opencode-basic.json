@@ -5,7 +5,9 @@
     { "action": "external_directory", "resource": "/home/dev/*", "effect": "allow" },
     { "action": "external_directory", "resource": "/usr/local/share/playwright-browsers/*", "effect": "allow" },
     { "action": "external_directory", "resource": "/opt/picoscope/*", "effect": "allow" },
-    { "action": "external_directory", "resource": "/usr/local/lib/python3.12/dist-packages/picosdk/*", "effect": "allow" }
+    { "action": "external_directory", "resource": "/usr/local/lib/python3.12/dist-packages/picosdk/*", "effect": "allow" },
+    { "action": "read", "resource": "*.env", "effect": "deny" },
+    { "action": "read", "resource": "*.env.*", "effect": "deny" }
   ],
   "websearch": {
     "provider": "random"

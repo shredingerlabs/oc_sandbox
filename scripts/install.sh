@@ -494,6 +494,12 @@ extract_go_binary() {
   fi
   
   mkdir -p "${install_dir}/bin"
+  # Ziel vor dem Kopieren entfernen: Das TUI-Update läuft, während die
+  # TUI (also dieses Binary) noch ausgeführt wird — cp überschreibt eine
+  # laufende Programmdatei nicht ("Text file busy", exit 1). Unlink + neu
+  # anlegen ersetzt die Datei; der laufende Prozess hält weiter den alten
+  # Inode (Linux).
+  rm -f "${install_dir}/bin/${BINARY_NAME}"
   cp "$source_binary" "${install_dir}/bin/${BINARY_NAME}"
   chmod +x "${install_dir}/bin/${BINARY_NAME}"
   log_verbose "Go-Binary installiert: ${install_dir}/bin/${BINARY_NAME}"

@@ -143,8 +143,9 @@ if [[ "$PROJECT_KIND" == "pkm" ]]; then
     cp -r "$PKM_TEMPLATE/$dir/." "${PROJECT_ROOT}/.opencode_config/$dir/"
   done
 
-  # default_agent + permissions aus dem pkm-Template (Plain-JSON, jq-tauglich)
-  # in die seeded opencode.json mergen, ohne den Rest zu beschädigen.
+  # default_agent aus dem pkm-Template (Plain-JSON, jq-tauglich); permissions
+  # werden konkateniert (Basis + pkm), damit die Basisregeln (.env-Schutz,
+  # external_directory) wie in den anderen Modi erhalten bleiben.
   OC_JSON="${PROJECT_ROOT}/.opencode_config/opencode.json"
   if [[ -f "$PKM_TEMPLATE/opencode.jsonc" && -f "$OC_JSON" ]]; then
     if ! command -v jq >/dev/null 2>&1; then
@@ -152,7 +153,7 @@ if [[ "$PROJECT_KIND" == "pkm" ]]; then
       exit 1
     fi
     MERGE_TMP="$(mktemp)"
-    if jq -s '.[0] * (.[1] | {default_agent, permissions})' "$OC_JSON" "$PKM_TEMPLATE/opencode.jsonc" > "$MERGE_TMP"; then
+    if jq -s '.[0] * {default_agent: .[1].default_agent} * {permissions: (.[0].permissions + .[1].permissions)}' "$OC_JSON" "$PKM_TEMPLATE/opencode.jsonc" > "$MERGE_TMP"; then
       mv "$MERGE_TMP" "$OC_JSON"
     else
       rm -f "$MERGE_TMP"

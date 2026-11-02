@@ -10,6 +10,7 @@ package settingsview
 import (
 	"time"
 
+	"github.com/charmbracelet/x/ansi"
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/shredingerlabs/oc-sandbox/internal/cmdrun"
@@ -312,6 +313,16 @@ func (v *View) Body(width, height int) string {
 		return v.ps.Body(width, height) // Project settings (#108)
 	}
 	rows = append(rows, shell.Toast(v.toast))
+	if v.sub == subUpdate {
+		// Update card: its informative rows (keep note, failure reason,
+		// toast text) can grow arbitrarily long — clip every row to the
+		// body budget so the frame never wraps wider than the window
+		// (uninstall-pane container-row parity).
+		budget := max(1, width-6)
+		for i, r := range rows {
+			rows[i] = ansi.Truncate(r, budget, "…")
+		}
+	}
 	if v.focusChanged {
 		v.focusChanged = false
 		v.follow.Arm() // the focused row pulls the scroll again
