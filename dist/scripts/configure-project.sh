@@ -356,7 +356,9 @@ cmd_ai_provider() {
 # opencode-config: merges the models-discovery plugin entry plus a generated
 # providers.<id> block into the project-local opencode.json (v2 schema, ADR
 # 0025); when the file does not exist it is built from the basic template
-# plus plugin plus the provider block. The modelsDiscovery options keep the
+# plus plugin plus the provider block. Merging replaces older versions of an
+# injected plugin (same name@, different version — a config written by an
+# earlier release keeps pinning @2.0.0/@1.5.3) instead of accumulating; The modelsDiscovery options keep the
 # unchanged GWDG-era settings; the apiKey is a {file:...} reference to the
 # provider's credential file and is only written when that file exists.
 cmd_opencode_config() {
@@ -389,7 +391,7 @@ cmd_opencode_config() {
   fi
   provider_block=$(PROVIDER_ID="$p_id" PROVIDER_NAME="$name" PROVIDER_ENDPOINT="$endpoint" \
     PROVIDER_CREF="$cred_ref" jq -n '
-    {plugins: ["opencode-models-discovery@2.0.0"],
+    {plugins: ["opencode-models-discovery@2.1.0"],
      providers: {($ENV.PROVIDER_ID): {
        package: "@opencode/ai/providers/openai-compatible",
        name: $ENV.PROVIDER_NAME,
@@ -413,7 +415,11 @@ cmd_opencode_config() {
 
   if [[ -f "$config_file" ]]; then
     config=$(jq --argjson block "$provider_block" '
-      .plugins = ((.plugins // []) + $block.plugins | unique) |
+      def base: (rindex("@") // -1) as $i | if $i < 0 then . else .[0:$i] end;
+      .plugins = (
+        (.plugins // [])
+        | map(select((base) as $b | ($block.plugins | map(base) | index($b)) | not))
+        + $block.plugins | unique) |
       .providers = ((.providers // {}) * $block.providers)
     ' "$config_file") || die "Merging provider block into opencode.json failed"
   else

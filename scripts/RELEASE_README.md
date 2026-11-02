@@ -131,8 +131,9 @@ Run these steps before cutting a release; CI cannot verify them:
    or the SearXNG MCP fails to spawn in running projects.
 2. **Restart both kinds of projects** (a `search_mode: searxng` project and a
    `--use_proxy` project) and verify inside the container:
-   - `searxng_web_search` returns structured results (per-pod SearXNG member
-     reached at `http://127.0.0.1:8080/search`);
+   - `searxng_web_search` returns structured results (per-pod SearXNG member,
+     `SEARXNG_URL=http://127.0.0.1:8080` bare — mcp-searxng appends `/search`
+     itself, a `/search`-suffixed value 404s via `/search/search`);
    - `searxng_instance_info` answers;
    - `web_url_read` still fetches arbitrary pages;
    - a proxied project reaches the squid member (`127.0.0.1:3128`) and the

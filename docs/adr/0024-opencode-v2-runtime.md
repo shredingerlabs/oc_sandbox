@@ -43,7 +43,7 @@ the sandbox to v2 in one flip:
   stand) as well as this ADR's earlier `mini` invocation for this
   stage.
 - **Plugin**: the models-discovery plugin pins
-  `opencode-models-discovery@2.0.0` (the v2 line).
+  `opencode-models-discovery@2.1.0` (the v2 line).
 
 ## Considered Options
 
