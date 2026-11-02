@@ -188,6 +188,10 @@ grep -q 'resource: "raw/\*"' "$root_pkm/.opencode_config/agents/wiki.md"
 # Schema: notes/raw bleibt read-only, die globale Wiki-Sperre entfällt
 grep -q 'READ-ONLY' "$root_pkm/.opencode_config/AGENTS.md"
 ! grep -q 'Never edit outside' "$root_pkm/.opencode_config/AGENTS.md"
+# researcher/linter bleiben vollständig read-only (5 deny-Regeln, unverändert)
+[[ "$(grep -c 'effect: deny' "$root_pkm/.opencode_config/agents/researcher.md")" == 5 ]]
+[[ "$(grep -c 'effect: deny' "$root_pkm/.opencode_config/agents/linter.md")" == 5 ]]
+grep -q 'resource: "\*"' "$root_pkm/.opencode_config/agents/researcher.md"
 
 # opencode.json: default_agent + Basis-Rechte + pkm-Edit-Denies (Rechte-Angleichung)
 oc_json="$root_pkm/.opencode_config/opencode.json"
