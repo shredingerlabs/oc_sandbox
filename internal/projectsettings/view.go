@@ -14,6 +14,7 @@ package projectsettings
 
 import (
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -645,13 +646,24 @@ func (v *View) leftPane(w, h int) string {
 	return padLines(lines, 0, w, h)
 }
 
-// cardRows builds one project card: name + path rows, and on the selected
-// card the divider plus the vcs / AI Provider button row.
+// lastUsedRow renders the card's second row: the last-used stamp as a
+// relative date (Today / Yesterday / n d ago / the absolute date); a
+// project never stamped (or an unreadable stamp) keeps showing its path.
+func (v *View) lastUsedRow(p registry.Project) string {
+	if row := shell.RelativeLastUsed(p.LastUsed, time.Now()); row != "" {
+		return row
+	}
+	return p.Path
+}
+
+// cardRows builds one project card: name + last-used rows (an unstamped
+// project keeps its path), and on the selected card the divider plus the
+// vcs / AI Provider button row.
 func (v *View) cardRows(idx int) []string {
 	p := v.projects[idx]
 	rows := []string{
 		padTo(cardInnerW, truncate(p.Name, cardInnerW)),
-		padTo(cardInnerW, truncate(p.Path, cardInnerW)),
+		padTo(cardInnerW, truncate(v.lastUsedRow(p), cardInnerW)),
 	}
 	if idx == v.sel {
 		for i, r := range rows {

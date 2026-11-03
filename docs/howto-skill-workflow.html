@@ -127,7 +127,7 @@
 
 <h1>Matt Pococks Skills im Entwickler-Workflow</h1>
 
-<p>Die <strong>Skills</strong> (26 Stück, MIT-lizenziert, Repo:
+<p>Die <strong>Skills</strong> (MIT-lizenziert, Repo:
 <a href="https://github.com/mattpocock/skills/"><code>mattpocock/skills</code></a>) sind
 schlanke Instruktionsdateien, die einem Coding-Agenten einen wiederholbaren,
 zuverlässigen Prozess geben, statt ihn raten zu lassen.</p>
@@ -153,6 +153,11 @@ npx skills update
 </code></pre>
 
 <p>oder manuell downloaden: <a href="https://github.com/mattpocock/skills/">github.com/mattpocock/skills</a></p>
+
+<p>In oc-sandbox werden die Skills bei der Projekterstellung automatisch
+geladen — zusätzlich aus dem begleitenden Set
+<a href="https://github.com/shredingerlabs/shredinger-skills"><code>shredingerlabs/shredinger-skills</code></a>
+(Einrichtung über <code>/setup-matt-pocock-skills</code>, siehe Abschnitt 2).</p>
 
 <h2 id="setup">2. Setup (oc-sandbox: bereits beim container init)</h2>
 
@@ -451,13 +456,12 @@ grill-with-docs-Flow nach <code>/to-tickets</code>. Am Ende läuft
 
 <p>Die offizielle Doku von Matt Pocock:
 <a href="https://www.aihero.dev/skills">www.aihero.dev/skills</a> — dort listet er
-alle 26 Skills, den Main Flow (Idee → Ship) und den Changelog.
-Installiert/aktualisiert wird über:</p>
-
+alle Skills, den Main Flow (Idee → Ship) und den Changelog.
+Installiert/aktualisiert wird über <code>npx skills@latest add
+mattpocock/skills</code> bzw. <code>npx skills update</code> (siehe Abschnitt 1).</p>
 
 <footer>
-  Matt Pococks Skills im Entwickler-Workflow · Stand: September 2026 ·
-  Erzeugt aus <code>HOWTO_SKILL_WORKFLOW.md</code>
+  Matt Pococks Skills im Entwickler-Workflow · Stand: November 2026
 </footer>
 
 </body>

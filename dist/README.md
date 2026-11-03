@@ -8,7 +8,7 @@ mehreren Editionen.
 
 ```
 dist/
-├── Dockerfile                    <- Multi-Stage: base, web, embedded, swdev, matlab, ros2, writing
+├── Dockerfile                    <- Multi-Stage: base, web, embedded, swdev, matlab, ros2, writing, latex, pkm
 ├── scripts/
 │   ├── start.sh                  <- Einheitliches Start-Skript (--edition flag)
 │   ├── configure-project.sh      <- Projekt-Konfiguration (Git-Identität, VCS-Credentials, AI-Provider)
@@ -32,9 +32,17 @@ dist/
     │   └── glab-cli/
     ├── bash/
     │   └── bash_profile
-    └── opencode/
-        ├── opencode-basic.json
+    ├── opencode/
+    │   ├── opencode-basic.json
+    │   ├── AGENTS.md
+    │   ├── AGENTS_chat.md
+    │   └── skills/
+    └── pkm/
         ├── AGENTS.md
+        ├── .gitignore
+        ├── agents/
+        ├── commands/
+        ├── opencode.jsonc
         └── skills/
 ```
 
@@ -122,6 +130,8 @@ pflegen keine eigene Whitelist. Mitgeliefert werden:
 - **matlab**: base + GNU Octave + Python Scientific-Stack (lizenzfrei)
 - **ros2**: base + ROS 2 Jazzy (colcon/rosdep/vcstool)
 - **writing**: base + LibreOffice + pandoc + Fonts
+- **latex**: base + latexmk + TeX Live collections
+- **pkm**: nur base (PKM-Wiki-Templates werden bei der Projekterstellung eingesät)
 
 Eigene Editionen per `Dockerfile.custom` ergänzen (Vorlage in der Datei) – sie
 erscheinen danach automatisch in `build-container.sh`, `start.sh` und der TUI.
@@ -157,6 +167,7 @@ Fehler beim Erstellen warnen nur und brechen die Installation nie ab.
 - `--install_path <pfad>` – Installationspfad (default: `$HOME/.oc-sandbox`)
 - `--version <tag>` – Spezifische Version installieren (default: latest)
 - `--force` – Vorhandene Installation ohne Nachfrage überschreiben
+- `--yes` – Alias von `--force`: nicht-interaktives Update (z.B. vom Update-Menü der TUI)
 - `--no_symlinks` – Default-Symlink nicht erstellen
 - `--no_shortcut` – Default-Desktop-Shortcut nicht erstellen
 - `--symlinks` / `--shortcut` – Ohne Wirkung (Kompatibilität: die
@@ -198,8 +209,9 @@ Ohne Symlink direkt über den Installationspfad bzw. aus diesem Ordner:
 ```
 
 Die TUI ist ein einzelnes Go-Binary (BubbleTea, volles Fenster, maus- und
-tastaturbedienbar). Über die Hauptansicht
-(**Open Project**, **New Project**, **Build Images**, **Settings**) laufen
+tastaturbedienbar). Über die Hauptansicht (**Open Project**, **New Project**,
+**Container** mit den Sub-Tabs **Build Images**, **Delete Images**,
+**Start/Stop/Delete Container**, **Settings**) laufen
 alle weiteren Schritte: Edition bauen, Projekt-Root anlegen, VCS/Tokens
 verborgen abfragen, Start-Option wählen (`console`, `opencode` oder `web`) und
 die Sandbox starten. Laufende Container werden per `podman exec` wiederverwendet
@@ -248,6 +260,8 @@ später aus `<url>` geklont.
 - `--cbm_ui` – CBM Knowledge-Graph-UI (Port 9749)
 - `--start_opencode` – OpenCode direkt nach Container-Start starten
 - `--start_web` – OpenCode-Weboberfläche starten (v2-Hintergrunddienst auf Container-Port 4096, veröffentlicht auf 127.0.0.1, Port-Scan 4096-4196; mit `--detach` läuft der Dienst als Container-Hauptprozess, Zugriff über einmaligen Pair-Link; ohne `--detach` läuft `opencode serve` im Vordergrund)
+- `--detach` – Container im Hintergrund starten (Hauptprozess: OpenCode-Web-Service mit `--start_web`, sonst `sleep infinity`)
+- `--container-id <id>` – Persistierte Container-Identität aus der Projekt-Registry setzen (sonst: Basisname des Projekt-Roots)
 
 ## Deinstallation
 
@@ -275,7 +289,7 @@ Direkt per Skript:
 - Prüft auf laufende Container und warnt
 - Bietet Backup vor Entfernung an
 - Entfernt niemals Projekt-Roots oder User-Daten
-- Entfernt automatisch Symlinks und gum-Installation
+- Entfernt automatisch Symlinks (Aufräumen einer legacy gum-Installation wird mitversucht)
 
 ## Verwendung
 

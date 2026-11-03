@@ -66,6 +66,10 @@ dist/scripts/init-project.sh ~/projects/customer-x
 # ... clone the repo into ~/projects/customer-x/project, adjust git config ...
 ```
 
+The optional `--project_kind` flag seeds the OpenCode templates accordingly:
+`code` (default), `chat` (chat-style `AGENTS_chat.md`), or `pkm` (full
+Personal-Knowledge-Wiki templates, also applied to cloned projects).
+
 Note: re-running `init-project.sh` overwrites the project-specific templates
 (incl. `.opencode_config/opencode.json`) — your own customizations there are
 lost; only `proxy/allowlist.txt` is preserved on updates.
@@ -247,3 +251,16 @@ dist/scripts/uninstall.sh --remove-config    # Also removes ~/.config/oc-sandbox
 dist/scripts/uninstall.sh --force            # No prompts (scripts/CI)
 dist/scripts/uninstall.sh --dry-run          # Show only, delete nothing
 ```
+
+Full flag reference:
+
+| Flag                     | Meaning                                                                    |
+| ------------------------ | -------------------------------------------------------------------------- |
+| `--install_path <path>`  | Installation path (default: `$HOME/.oc-sandbox`)                            |
+| `--remove-config`        | Also removes `~/.config/oc-sandbox/` (with backup)                          |
+| `--no-backup`            | No backup (also for `--remove-config`)                                      |
+| `--no-symlinks`          | Don't remove symlinks                                                       |
+| `--remove-shortcuts`     | Also removes desktop shortcuts (`.desktop`/`.lnk`/`.app`) and installed icons |
+| `--force`                | No prompts (scripts/CI)                                                     |
+| `--dry-run`              | Show only, delete nothing                                                   |
+| `--verbose`              | Detailed output                                                             |

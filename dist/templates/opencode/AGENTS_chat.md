@@ -25,6 +25,7 @@ Act like an AI chat, not a coding agent: converse first, touch files only when n
 - Searching project files: use codebase-memory-mcp (project=home-dev-project). Fall back to Grep/Glob.
 - Learned a durable fact about me (preference, decision)? Propose adding to USER_CONTEXT.md. Don't write without asking.
 - Learned a new terminology about the project? Use domain-modeling.
+- Create a subfolder for every new session and work only inside it. Touch other subfolders only when I explicitly reference them.
 
 ## Research
 - Current facts (people, prices, laws, versions, news): search web before answering.

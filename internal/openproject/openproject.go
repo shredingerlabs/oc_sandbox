@@ -13,6 +13,7 @@ package openproject
 import (
 	"fmt"
 	"os/exec"
+	"runtime"
 	"strings"
 	"time"
 
@@ -120,7 +121,8 @@ type Model struct {
 
 	staged  staged
 	cursor  int          // index into the settings pane's navigable rows
-	pscroll int          // settings pane scroll offset
+	pscroll int          // settings pane scroll offset (below the pinned login block)
+	pinnedN int          // pinned leading settings-pane rows (the login block)
 	follow  shell.Follow // the cursor pulls the pane; wheel scrolling pauses it
 
 	state    viewState
@@ -160,6 +162,16 @@ type Model struct {
 	log   shell.LogPane
 	dbl   shell.DblClick
 	toast string
+
+	// loginLink caches the fresh one-time pair link (ADR 0024) of the
+	// last web access; loginPath binds it to its owning project. It
+	// renders as the pinned Login WEB button above the Project Settings
+	// heading and clears when used (browser opened) or the container
+	// stopped (toast stays the manual-copy backup). View state only — a
+	// TUI restart re-announces on the next web access.
+	loginLink, loginPath string
+	loginRects           []shell.Rect // pinned button hit rects (list state)
+	loginBusy            bool         // a browser open is in flight (guard the queued double click)
 
 	// running is the cached live podman-ps list for the card dots. It is
 	// refreshed through a background cmd (runningMsg) — never queried on
@@ -312,7 +324,7 @@ func (m *Model) Update(msg tea.Msg) tea.Cmd {
 		return m.resumeSwitch(msg)
 	case runningMsg:
 		m.running = msg
-		return nil
+		return m.expireLogin()
 	case taskmgr.LineEvent:
 		if msg.ID == m.busyID && (msg.Key == "" || msg.Key == m.busyKey) { // our op only (Key disambiguates reused numeric ids)
 			var cmd tea.Cmd
@@ -322,6 +334,8 @@ func (m *Model) Update(msg tea.Msg) tea.Cmd {
 		return nil
 	case accessDoneMsg:
 		return m.accessDone(msg)
+	case loginDoneMsg:
+		return m.loginDone(msg)
 	case shell.LineMsg, spinner.TickMsg:
 		var cmd tea.Cmd
 		m.log, cmd = m.log.Update(msg)
@@ -355,7 +369,76 @@ func (m *Model) accessDone(msg accessDoneMsg) tea.Cmd {
 	return tea.Batch(cmds...) // the session continued outside; re-check live state
 }
 
+// accessDoneMsg is the terminal-handoff callback message.
 type accessDoneMsg struct{ Err error }
+
+// loginDoneMsg closes the Login WEB button's handoff: a successful
+// browser open consumed the one-time pair token (button removed), a
+// failed opener (headless machine, SSH session) falls back to the
+// bottom toast and keeps the button until a successful open.
+type loginDoneMsg struct{ Err error }
+
+func (m *Model) loginDone(msg loginDoneMsg) tea.Cmd {
+	m.loginBusy = false
+	if msg.Err != nil {
+		m.toast = "Could not open a browser — " + m.loginLink // the toast is the copy fallback, so it must carry the link
+		return nil
+	}
+	m.loginLink, m.loginPath = "", "" // the pair token is used
+	m.loginRects = nil
+	return nil
+}
+
+// openLogin chains the pinned Login WEB button to the platform browser
+// opener through the terminal handoff. Handoff while background tasks
+// run is guarded (#82) like every other ExecProcess entry.
+func (m *Model) openLogin() tea.Cmd {
+	if m.loginLink == "" || m.loginBusy { // consumed already, or a queued double click
+		return nil
+	}
+	if m.hasOtherWork() {
+		m.toast = "Background tasks are running — wait for them, then retry"
+		return nil
+	}
+	m.loginBusy = true
+	return m.deps.Exec(openBrowser(m.loginLink), func(err error) tea.Msg { return loginDoneMsg{Err: err} })
+}
+
+// openBrowser returns the platform opener for a URL (Linux xdg-open,
+// macOS open, Windows cmd start) — the pair link opens as a new
+// tab/window in the default browser.
+func openBrowser(url string) *exec.Cmd {
+	switch runtime.GOOS {
+	case "darwin":
+		return exec.Command("open", url)
+	case "windows":
+		return exec.Command("cmd", "/c", "start", "", url)
+	default:
+		return exec.Command("xdg-open", url)
+	}
+}
+
+// expireLogin hides the pinned Login WEB button when its container
+// stopped or was replaced (the fresh-poll running cache misses it): the
+// one-time pair token belongs to the dead session, and a fresh web
+// access re-announces a new link anyway.
+func (m *Model) expireLogin() tea.Cmd {
+	if m.loginLink == "" || m.loginPath == "" {
+		return nil
+	}
+	for _, p := range m.projects {
+		if p.Path != m.loginPath {
+			continue
+		}
+		if hasString(m.running, registry.ContainerName(p.ContainerID)) {
+			return nil
+		}
+		break
+	}
+	m.loginLink, m.loginPath = "", ""
+	m.loginRects = nil
+	return nil
+}
 
 // runningMsg is the fresh podman ps result from a background poll.
 type runningMsg []string
@@ -662,6 +745,11 @@ func (m *Model) mouse(msg tea.MouseMsg) tea.Cmd {
 			return nil
 		}
 	}
+	for _, lr := range m.loginRects {
+		if lr.Hit(msg.X, msg.Y) {
+			return m.openLogin()
+		}
+	}
 	for i, r := range m.navRects {
 		if r.Hit(msg.X, msg.Y) {
 			m.focus = 1
@@ -957,6 +1045,12 @@ func (m *Model) launchSwitch(p registry.Project, cfg sandboxcfg.Config, variant,
 	m.pending = p
 	m.pendingCfg = cfg
 	m.opTitle = title
+	// The verified stop kills the session any armed pair link belongs
+	// to (web relaunch / edition switch replace the container); a
+	// successful start re-arms the button with a fresh link in access().
+	if p.Path == m.loginPath {
+		m.loginLink, m.loginPath = "", ""
+	}
 	m.log = shell.NewLogPane().Run(true)
 	m.busyID++
 	m.busyKey = p.ContainerID
@@ -1154,6 +1248,10 @@ func (m *Model) access(p registry.Project, cfg sandboxcfg.Config, variant string
 		if !firstRun {
 			if link := discovery.PairLink(m.deps.Runner, registry.ContainerName(p.ContainerID), "http://"+port); link != "" {
 				m.toast = "OpenCode Web: " + link
+				// The fresh one-time pair token also arms the pinned
+				// Login WEB button (opens the browser on click; the
+				// bottom toast stays the manual-copy backup).
+				m.loginLink, m.loginPath = link, p.Path
 			} else {
 				m.toast = "OpenCode Web: http://" + port
 			}
@@ -1239,9 +1337,22 @@ func (m *Model) cardsPerRow() int {
 func paneWidth(width int) int { return clamp(width/2, 36, 48) }
 func leftWidth(width int) int { return max(shell.CardWidth, width-paneWidth(width)-1) }
 
+// loginBlock returns the pinned Login WEB button lines (shell's
+// 3-line focused button) when a fresh pair link is armed for the
+// selected project. Click-only: the middle line is the hit row.
+func (m *Model) loginBlock() []string {
+	if m.loginLink == "" || m.selected < 0 || m.selected >= len(m.projects) ||
+		m.projects[m.selected].Path != m.loginPath {
+		return nil
+	}
+	return shell.ButtonLines("Login WEB", true)
+}
+
 // layout builds the settings-pane rows and navigable hit rects from the
 // last known size, so keyboard activation resolves a cursor to a row
-// without a fresh render.
+// without a fresh render. The login block (when armed) is pinned: it
+// always renders at the pane top; the scroll window covers the rows
+// below it.
 func (m *Model) layout() []paneRow {
 	if m.width <= 0 || m.height <= 0 {
 		m.navRows, m.navRects = nil, nil
@@ -1253,9 +1364,20 @@ func (m *Model) layout() []paneRow {
 	}
 	leftW := leftWidth(m.width)
 	paneX, paneW := leftW+1, paneWidth(m.width)
-	rows := m.settingsRows(paneW)
+	block := m.loginBlock()
+	rows := m.settingsRows(paneW, block)
+	m.pinnedN = len(block)
 	m.layoutRows = rows
-	m.paneScrollMax = max(0, len(rows)-m.height)
+	region := len(rows) - m.pinnedN
+	avail := max(1, m.height-m.pinnedN)
+	m.paneScrollMax = max(0, region-avail)
+	m.pscroll = min(m.pscroll, m.paneScrollMax)
+	m.loginRects = nil
+	if m.pinnedN > 0 { // the focused (middle) line of the 3-line button is the hit row
+		m.loginRects = append(m.loginRects, shell.Rect{
+			X: paneX, Y: BodyTop + 1, W: shell.Width(block[1]), H: 1,
+		})
+	}
 	for i, r := range rows {
 		if r.section != "" || r.save {
 			m.navRows = append(m.navRows, i)
@@ -1264,22 +1386,27 @@ func (m *Model) layout() []paneRow {
 	if len(m.navRows) > 0 {
 		m.cursor = clamp(m.cursor, 0, len(m.navRows)-1)
 		focused := m.navRows[m.cursor]
-		m.follow.Pull(&m.pscroll, m.cursor, focused, len(rows), m.height) // the focus pull only on a cursor change
+		m.follow.Pull(&m.pscroll, m.cursor, focused-m.pinnedN, region, avail) // the focus pull only on a cursor change
 		m.navRects = make([]shell.Rect, len(m.navRows))
 		for i, rowIdx := range m.navRows {
-			if rowIdx >= m.pscroll && rowIdx < m.pscroll+m.height {
-				m.navRects[i] = shell.Rect{X: paneX, Y: BodyTop + rowIdx - m.pscroll, W: paneW, H: 1}
+			// screen row = pinned offset + region row - scroll offset
+			if visible := rowIdx - m.pinnedN - m.pscroll; visible >= 0 && visible < m.height-m.pinnedN {
+				m.navRects[i] = shell.Rect{X: paneX, Y: BodyTop + m.pinnedN + visible, W: paneW, H: 1}
 			}
 		}
 	}
 	return rows
 }
 
-// settingsRows builds the settings pane: label above options, divider
+// settingsRows builds the settings pane: the pinned Login WEB block
+// (a fresh pair link above everything), label above options, divider
 // rules, ● current / ○ muted alternatives, Save button last.
-func (m *Model) settingsRows(paneW int) []paneRow {
+func (m *Model) settingsRows(paneW int, loginBlock []string) []paneRow {
 	rows := []paneRow{}
 	add := func(text string) { rows = append(rows, paneRow{text: text}) }
+	for _, bl := range loginBlock { // the pinned block leads on purpose (see layout)
+		rows = append(rows, paneRow{text: bl})
+	}
 	s := m.staged
 	if !s.loaded {
 		if s.cfgErr != "" {
@@ -1385,7 +1512,9 @@ func (m *Model) Body(width, height int) string {
 }
 
 // renderSettings renders the laid-out rows with the scroll window and
-// the focused-row highlight, recording hit rects.
+// the focused-row highlight, recording hit rects. The pinned leading
+// rows (the Login WEB block) always render at the pane top; the scroll
+// window covers the rows below.
 func (m *Model) renderSettings(rows []paneRow, indent, paneW, height int) string {
 	focused := -1
 	if m.focus == 1 && len(m.navRows) > 0 && m.cursor < len(m.navRows) {
@@ -1393,7 +1522,12 @@ func (m *Model) renderSettings(rows []paneRow, indent, paneW, height int) string
 	}
 	var lines []string
 	for i, r := range rows {
-		if i < m.pscroll || i >= m.pscroll+height {
+		if i < m.pinnedN { // pinned block: always visible
+			lines = append(lines, r.text)
+			continue
+		}
+		region := i - m.pinnedN
+		if region < m.pscroll || region >= m.pscroll+height-m.pinnedN {
 			continue
 		}
 		text := r.text
@@ -1511,6 +1645,20 @@ func toastRows(text string, w, max int) []string {
 	return rows
 }
 
+// lastUsedRow renders the card's second row: the last-used stamp as a
+// relative date (Today / Yesterday / n d ago / the absolute date); a
+// project never stamped (or an unreadable stamp) keeps showing its path.
+func (m *Model) lastUsedRow(p registry.Project) string {
+	now := m.deps.Now
+	if now == nil {
+		now = time.Now
+	}
+	if row := shell.RelativeLastUsed(p.LastUsed, now()); row != "" {
+		return row
+	}
+	return p.Path
+}
+
 func (m *Model) cardRows(p registry.Project, running bool) []string {
 	var name string
 	sym, st := shell.SymOff, shell.StyleStatusStopped
@@ -1530,7 +1678,7 @@ func (m *Model) cardRows(p registry.Project, running bool) []string {
 	}
 	rows := []string{
 		st.Render(sym) + " " + name,
-		truncate(p.Path, cardInnerW),
+		truncate(m.lastUsedRow(p), cardInnerW),
 	}
 	if m.selected == indexOfProject(m.projects, p.ContainerID) {
 		for i, r := range rows {
