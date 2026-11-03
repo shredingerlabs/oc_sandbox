@@ -177,6 +177,8 @@ Whitelist:</p>
   <tr><td><code>matlab</code></td><td>base + GNU Octave + Python Scientific-Stack (numpy/scipy/matplotlib/pandas) – lizenzfrei</td><td>Numerik / Skripte</td></tr>
   <tr><td><code>ros2</code></td><td>base + ROS 2 Jazzy (ros-base, RViz2, CycloneDDS, colcon/rosdep/vcstool)</td><td>Robotik</td></tr>
   <tr><td><code>writing</code></td><td>base + LibreOffice + pandoc + Fonts (odt/odp, docx/pptx, PDF-Export)</td><td>Dokumente / Schreiben</td></tr>
+  <tr><td><code>latex</code></td><td>base + latexmk + ausgedehnte TeX-Live-Collections, biber/chktex/latexdiff, Ghostscript, pandoc</td><td>LaTeX-Dokumente</td></tr>
+  <tr><td><code>pkm</code></td><td>nur base (PKM-Wiki-Templates werden bei der Projekterstellung eingesät)</td><td>Personal Knowledge Wiki-Projekte</td></tr>
 </table>
 
 <p><strong>Eigene Editionen (Custom Editions):</strong> Über die Vorlage
@@ -477,6 +479,7 @@ gewählten Pfad) und enthält Konfigurationsordner, die du im Alltag
   .ssh_local/           ← SSH-Keys dieses Projekts
   .git_local/           ← Git-Identität + Credentials
   .cbm_cache/           ← Knowledge-Graph-Datenbank
+  .bash_local/          ← optional: bash_profile des Containers (persistente Prompt-/Env-Anpassungen)
 </code></pre>
 
 <h3>Container-Sicht (aus OpenCode heraus)</h3>
@@ -588,8 +591,11 @@ Aufruf im OpenCode-TUI:</p>
 <pre><code>/skills
 </code></pre>
 
-  <p>Das <strong>First-Setup</strong> installiert automatisch bereits die ersten Skills
-über den Befehl <code>setup-matt-pocock-skills</code> – deshalb ist die erste Session so wichtig
+  <p>Die <strong>ersten Skills</strong> werden bereits bei der Projekterstellung
+installiert: geladen werden sie aus zwei Repos — <code>mattpocock/skills</code>
+und <code>shredingerlabs/shredinger-skills</code> — nach
+<code>.opencode_config/skills/</code>, eingerichtet wird das Set im First-Setup
+über den Befehl <code>/setup-matt-pocock-skills</code> — deshalb ist die erste Session so wichtig
 (siehe Warnung in 5.3). Danach kannst du über <code>/skills</code> weitere
 hinzufügen oder aktivieren.</p>
 
