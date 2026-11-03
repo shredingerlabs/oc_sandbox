@@ -244,7 +244,7 @@ echo "$(id -un):20:1" | sudo tee -a /etc/subgid
   (`.ssh_local/`, `.opencode_data/`, `.git_local/`)
 - Per-project git keys, git identity, and OpenCode login without script edits
 - SSH-key and git-credential permissions are checked at start
-- Optional network egress via proxy allowlist; `--offline` for no-network runs
+- Optional network egress via proxy allowlist (squid config is validated at image build, and the `oc-proxy` image is rebuilt on every proxied start, so `proxy/allowlist.txt` edits apply on next container start); `--offline` for no-network runs
 - HIL mode uses bus-level passthrough (only the scope's USB bus, never `/dev/bus/usb` entirely)
 - Config backups contain no VCS or AI credentials; restores validate JSON and replace one file atomically
 

@@ -1,25 +1,25 @@
 # Eine Domain pro Zeile. Subdomains ggf. mit führendem "." erlauben.
+# WICHTIG: Squid-6.x-Regel — ein Eintrag und sein ".Eintrag" (Basis-Domain +
+# Wildcard) dürfen NICHT zusammen auftauchen (squid: "... is a subdomain of
+# ..." → FATAL: Bungled ... → der Squid-Container beendet sich sofort).
+# Der vorangestellte Punkt erlaubt die Basis-Domain UND alle Subdomains —
+# die nackte Basis-Domain also nie zusätzlich anzugeben.
 # WICHTIG: eigene GitLab-Domain unten anpassen!
 
-github.com
+# GitHub (Wildcard deckt github.com UND alle Subdomains ab)
 .github.com
-codeload.github.com
 raw.githubusercontent.com
 objects.githubusercontent.com
-api.github.com
-
 # --- GitLab.com: ---
 gitlab.com
 
 # --- Eigener GitLab-Server: ---
-gitlab.reutlingen-university.de
 .reutlingen-university.de
-reutlingen-university.de
 
 # --- GWDG SAIA ENDPOINT: ---
 chat-ai.academiccloud.de
 
-# Node/npm
+# Node/npm (registry-gentry, nicht durch npmjs.org gedeckt)
 registry.npmjs.org
 npmjs.org
 .npmjs.com
@@ -38,10 +38,8 @@ sum.golang.org
 archive.ubuntu.com
 security.ubuntu.com
 
-# OpenCode API
-opencode.ai
+# OpenCode API (Wildcard deckt die Basis-Domain mit ab)
 .opencode.ai
-api.opencode.ai
 
 # OpenCode Modell-Katalog
 models.dev
@@ -50,4 +48,3 @@ models.dev
 mcp.exa.ai
 search.parallel.ai
 mcp.context7.com
-

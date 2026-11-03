@@ -306,11 +306,14 @@ if [[ -f "${CONFIG_DIR}/opencode.json" ]] && command -v jq >/dev/null 2>&1; then
 fi
 
 # --- Proxy ----------------------------------------------------------------------
+# Image wird bei jedem Proxy-Start gebaut: Copy-Layer für squid.conf/
+# allowlist.txt wird so bei jeder Änderung frisch — ein veraltetes oc-proxy-
+# Image (einmal gebaut, nie erneuert) ließe Allowlist-Änderungen stumm vor
+# den laufenden Editionen vorbei laufen (Bug: bungled allowlist tötete den
+# Squid-Member still statt laut beim Build).
 if $USE_PROXY; then
-  if ! podman image exists oc-proxy 2>/dev/null; then
-    echo "==> Baue oc-proxy Image ..."
-    podman build -t oc-proxy -f "${REPO_ROOT}/proxy/Dockerfile" "${REPO_ROOT}/proxy/"
-  fi
+  echo "==> Baue/aktualisiere oc-proxy Image ..."
+  podman build -t oc-proxy -f "${REPO_ROOT}/proxy/Dockerfile" "${REPO_ROOT}/proxy/"
 fi
 
 # --- Netzwerk: Pod pro Projekt (ADR 0029) ---------------------------------------
