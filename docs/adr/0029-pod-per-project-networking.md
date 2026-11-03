@@ -107,6 +107,14 @@ ahead of any podman interaction.
 - Companions work regardless of podman version or host network topology;
   their addresses are constants and can never go stale. Two searxng projects
   run concurrently with per-pod instances and no port conflicts.
+- `NO_PROXY` must cover `0.0.0.0` (the web-pinned `service.json` hostname,
+  ADR 0024): opencode v2 derives managed-service URLs verbatim from that
+  hostname, and a probe bent through the squid allowlist is answered with a
+  refusal the client reads as "service missing" — it then spawns a competing
+  `opencode serve --service` that dies on the 4096 bind conflict
+  ("Managed service port 4096 on 0.0.0.0 is already in use"). The listing is
+  transport-scoped: only the in-container service handshake escapes the
+  proxy; agent egress traffic stays under the allowlist.
 - Stop/delete flows target the pod for pod-based runs (companions go down as
   one unit) with a container-only fallback for pre-upgrade containers.
 - Host-side leftovers (`oc-searxng`/`oc-proxy` containers started before the

@@ -387,7 +387,13 @@ if [[ "$proxy_run_line" == *' -p '* ]]; then
 fi
 grep -q -- '-e HTTP_PROXY=http://127.0.0.1:3128' "$PODMAN_LOG"
 grep -q -- '-e HTTPS_PROXY=http://127.0.0.1:3128' "$PODMAN_LOG"
-grep -q -- '-e NO_PROXY=localhost,127.0.0.1' "$PODMAN_LOG"
+# NO_PROXY muss 0.0.0.0 decken: opencode v2 baut seine Managed-Service-URLs
+# aus dem gepinnten service.json-Hostname (0.0.0.0, ADR 0024). Deckt NO_PROXY
+# den Host nicht, wandern die Health-Probes durch den Squid-Allowlist-Proxy,
+# der sie verweigert - der Client haelt den Dienst fuer fehlend und startet
+# einen zweiten serve --service, der mit dem ersten auf 4096 kollidiert
+# ("Managed service port 4096 ... is already in use", Spawn-Sturm).
+grep -q -- '-e NO_PROXY=localhost,127.0.0.1,0.0.0.0' "$PODMAN_LOG"
 # Kein hostseitig geteilter oc-proxy-Run und kein Host-Loopback-Publishing.
 if grep -q -- 'run -d --replace --name oc-proxy' "$PODMAN_LOG"; then
   printf 'host-side shared oc-proxy run is back\n' >&2

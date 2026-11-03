@@ -339,12 +339,21 @@ fi
 
 # Proxy: In-Namespace-Konstante (ADR 0029) - der per-Pod Squid-Member
 # wird beim Pod-Aufbau unten gestartet.
+# NO_PROXY umfasst 0.0.0.0: opencode v2 haengt die Managed-Service-URLs am
+# gepinnten service.json-Hostname (0.0.0.0 bei Web-Pinned-Config, ADR 0024).
+# Ohne diesen Eintrag laufen Service-Handshakes/Health-Probes der
+# Hintergrunddienst-Erkennung durch den Squid-Allowlist-Proxy (der sie
+# verweigert), der Client haelt den laufenden Dienst fuer "missing", startet
+# Kollidierende `opencode serve --service`-Kinder dagegen auf 4096 und bricht
+# mit "Managed service port 4096 on 0.0.0.0 is already in use" ab.
+# 0.0.0.0 ist nur als Zieladresse des In-Container-Service wirksam - ein
+# Egress-Kanal des Agents bleibt gebunden (der Proxy ist die Regel).
 PROXY_ENV=()
 if $USE_PROXY; then
   PROXY_ENV=(
     -e HTTPS_PROXY="http://127.0.0.1:3128"
     -e HTTP_PROXY="http://127.0.0.1:3128"
-    -e NO_PROXY="localhost,127.0.0.1"
+    -e NO_PROXY="localhost,127.0.0.1,0.0.0.0"
   )
 fi
 if $OFFLINE; then
