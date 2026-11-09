@@ -6,6 +6,11 @@
   dark AND bright modes; objects as cards in grids; Standard (default) / Advanced display modes.
   Three look-and-feel variants remain radical on purpose: card composition, density, typography,
   affordance treatment and accent usage differ; the settled frame does not.
+ _DIRECTION SETTLED (user reaction 2026-11-09): Variant C — Signal is the winner. Amendments folded in:_
+  _1 workspace selector on Settings pages, entered via menu (small dropdown); 2 New Workspace gains_
+  _Workspace-name (derived from repo URL in From-Repo), VCS credential + AI-provider selectors from_
+  _the global lists with token input; 3 fixed the Start-option/modes clipping on New Workspace_
+  _(rows now carry padding); 4 workspace settings icon on cards preselects that workspace._
   Run: double-click this file (or serve statically). Hash = state, e.g. #b/dark/std/set-containers.
 -->
 <html lang="en" data-theme="bright">
@@ -45,6 +50,15 @@ a { color: inherit; }
 .modal h3 { font-size: 15px; margin-bottom: 8px; display: flex; align-items: center; gap: 8px; }
 .modal p { line-height: 1.5; opacity: .85; }
 .modal .actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 18px; }
+/* form fields (per-variant color from the v- scoping) */
+.flabel { display: block; font-size: 11px; font-weight: 700; letter-spacing: .5px;
+  text-transform: uppercase; color: var(--ink2); margin-bottom: 6px; }
+.v-a input[type="text"], .v-a select, .v-b input[type="text"], .v-b select, .v-c input[type="text"], .v-c select {
+  width: 100%; max-width: 430px; padding: 8px 12px; font: inherit; color: var(--ink);
+  background: var(--surface2); border: 1px solid var(--hairline); border-radius: 9px; }
+.v-c input[type="text"]:focus, .v-c select:focus, .v-a input[type="text"]:focus, .v-b input[type="text"]:focus {
+  outline: 2px solid var(--accent); outline-offset: -1px; }
+.v-c .row > .rl, .v-c .row > .rc { padding: 2px 0; }
 </style>
 
 <!-- ================= VARIANT A · "Atelier" — Claude-inspired warmth ================= -->
@@ -360,6 +374,9 @@ a { color: inherit; }
 .v-c .bigtile .bt-t i { width:34px; height:34px; border-radius:9px; display:inline-flex; align-items:center;
   justify-content:center; color:#fff; background:var(--bt, var(--accent)); }
 .v-c .bigtile .bt-d { color:var(--ink2); font-size:12.5px; line-height:1.55; flex:1; }
+.v-c button.bigtile { text-align:left; cursor:pointer; font:inherit; color:inherit; border:none; }
+.v-c button.bigtile[aria-pressed="false"] { opacity:.55; }
+.v-c button.bigtile[aria-pressed="true"] { outline:2px solid var(--accent); outline-offset:-2px; }
 .v-c .hint-card { border:2px dashed var(--hairline); border-radius:13px; padding:20px; color:var(--ink2);
   display:flex; align-items:center; gap:12px; }
 .v-c .prog { height:8px; border-radius:999px; background:var(--surface2); overflow:hidden; }
@@ -446,13 +463,24 @@ const EDITIONS = Object.keys(ED).filter(k => k !== 'base'); // base never user-f
 
 /* workspaces: modes mirror start.sh flags */
 const WORKSPACES = [
-  { id:'klimadashboard', edition:'swdev',    running:true,  modes:{ proxy:false, search:'searxng', cbm_ui:true,  offline:false }, start:'web',     last:'yesterday' },
-  { id:'clients-site',   edition:'web',      running:true,  modes:{ proxy:true,  search:'websearch', cbm_ui:false, offline:false }, start:'web',     last:'today' },
-  { id:'thesis-figures', edition:'latex',    running:false, modes:{ proxy:false, search:'none',      cbm_ui:false, offline:true  }, start:'web',     last:'3 days ago' },
-  { id:'pkm-vault',      edition:'pkm',      running:false, modes:{ proxy:false, search:'searxng',   cbm_ui:true,  offline:false }, start:'web',     last:'2 weeks ago' },
-  { id:'firmware-bringup',edition:'embedded',running:true,  modes:{ proxy:false, search:'none',      cbm_ui:false, offline:false, hil:true }, start:'opencode', last:'today' },
-  { id:'robotics-ros2',  edition:'ros2',     running:false, modes:{ proxy:true,  search:'websearch', cbm_ui:true,  offline:false }, start:'web',     last:'last month' },
+  { id:'klimadashboard', edition:'swdev',    running:true,  vcs:'github.com/shredingerlabs', provider:'acme-llm',      modes:{ proxy:false, search:'searxng', cbm_ui:true,  offline:false }, start:'web',     last:'yesterday' },
+  { id:'clients-site',   edition:'web',      running:true,  vcs:'github.com/shredingerlabs', provider:'acme-llm',      modes:{ proxy:true,  search:'websearch', cbm_ui:false, offline:false }, start:'web',     last:'today' },
+  { id:'thesis-figures', edition:'latex',    running:false, vcs:null,                        provider:'ollama-local',  modes:{ proxy:false, search:'none',      cbm_ui:false, offline:true  }, start:'web',     last:'3 days ago' },
+  { id:'pkm-vault',      edition:'pkm',      running:false, vcs:'gitlab.company.com',        provider:'acme-llm',      modes:{ proxy:false, search:'searxng',   cbm_ui:true,  offline:false }, start:'web',     last:'2 weeks ago' },
+  { id:'firmware-bringup',edition:'embedded',running:true,  vcs:null,                        provider:'ollama-local',  modes:{ proxy:false, search:'none',      cbm_ui:false, offline:false, hil:true }, start:'opencode', last:'today' },
+  { id:'robotics-ros2',  edition:'ros2',     running:false, vcs:'git.company.de',            provider:'acme-llm',      modes:{ proxy:true,  search:'websearch', cbm_ui:true,  offline:false }, start:'web',     last:'last month' },
 ];
+const byId = (id) => WORKSPACES.find(w => w.id === id) || WORKSPACES[0];
+let setWsSel = 'klimadashboard'; // which workspace the Settings→Workspace page shows
+const UI = { newType: 'blank' }; // creation wizard mock state
+function deriveName(url) {
+  url = (url || '').trim().replace(/\/+$/, '');
+  if (!url) return '';
+  const m = url.match(/([^\/:]+)\.git\/?$/i);
+  if (m) return m[1];
+  const parts = url.split(/[\/:]/).filter(Boolean);
+  return parts[parts.length - 1] || '';
+}
 
 const VCS = [
   { name:'github.com/shredingerlabs/oc_sandbox', auth:'SSH key', status:'ok' },
@@ -676,7 +704,7 @@ function wsCardC(w) {
         <div class="sub">${e.label}</div>
       </div>
       <div class="acts">
-        <button class="btn icon" title="workspace settings" data-nav="set-ws">${icons.settings}</button>
+        <button class="btn icon" title="workspace settings" data-nav="set-ws" data-setws="${w.id}">${icons.settings}</button>
         <button class="btn icon" title="Open">${icons.play}</button>
       </div>
     </div>
@@ -705,56 +733,82 @@ const T = {
   },
 
   'ws-new'() {
+    const repo = UI.newType === 'repo';
     const edChips = EDITIONS.map(e =>
       `<button aria-pressed="${e==='swdev'}"><i style="--ed:${ED[e].hue}"></i>${e}</button>`).join('');
+    const vcsOpts = VCS.map(v => `<option>${v.name} — ${v.auth}${v.status==='expired'?' (expired — re-login)':''}</option>`).join('');
+    const provOpts = PROVIDERS.map(p => `<option>${p.name}${p.legacy?' — legacy, read-only':''}</option>`).join('');
     const advRows = adv() ? `
-      <div style="margin-top:14px">
-        <div class="mono" style="opacity:.7;margin-bottom:6px">START OPTION</div>
-        <div class="edotsel">
-          <button aria-pressed="true">${icons.globe} Web</button>
-          <button>${icons.terminal} OpenCode TUI</button>
-        </div>
-      </div>
-      <div style="margin-top:14px">
-        <div class="mono" style="opacity:.7;margin-bottom:6px">MODES</div>
-        <div class="edotsel">
-          <button>${icons.shield} use proxy</button>
-          <button aria-pressed="true">${icons.search} SearXNG</button>
-          <button>${icons.offline} offline</button>
-          ${adv()?`<button disabled style="opacity:.35" title="project kind, not an edition row — shown for completeness only">${icons.user} chat agent</button>`:''}
-          <button aria-pressed="true">${icons.search} CBM-UI</button>
-          <button disabled style="opacity:.35" title="HIL mode needs the embedded edition">${icons.user} HIL</button>
-        </div>
-      </div>` : `
-      <div style="margin-top:14px;color:var(--ink2);font-size:12px">Standard: edition is the only choice here — modes stay managed (SearXNG always on, web start).</div>`;
+      <div class="row"><div class="ic">${icons.globe}</div>
+        <div class="rl"><div class="t">Start option</div><div class="s">What "Open" launches for this workspace.</div>
+          <div class="edotsel" style="margin-top:9px">
+            <button aria-pressed="true">${icons.globe} Web</button>
+            <button>${icons.terminal} OpenCode TUI</button>
+          </div></div></div>
+      <div class="row"><div class="ic">${icons.shield}</div>
+        <div class="rl"><div class="t">Modes</div><div class="s">start.sh flags — apply on next start.</div>
+          <div class="edotsel" style="margin-top:9px">
+            <button>${icons.shield} use_proxy</button>
+            <button aria-pressed="true">${icons.search} SearXNG</button>
+            <button>${icons.search} websearch</button>
+            <button>${icons.offline} offline</button>
+            <button aria-pressed="true">${icons.search} CBM-UI</button>
+            <button disabled style="opacity:.35" title="HIL mode needs the embedded edition">${icons.user} HIL</button>
+          </div></div></div>` : `
+      <div class="row"><div class="ic">${icons.check}</div>
+        <div class="rl"><div class="t">Managed in Standard</div>
+          <div class="s">Web start + SearXNG are fixed; no proxy/CBM rows. Edition above is the only container choice — the rest lives in Advanced.</div></div></div>`;
     return `
     <div class="pagehead"><div>
       <h2 style="font-size:15px;margin-bottom:4px">Create a workspace</h2>
-      <div class="desc">A workspace is a folder you work in across sessions. The wizard records edition${adv()?', modes and start option':''} once; changes apply on next start.</div>
-    </div></div>
-    <div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(280px,1fr))">
-      <div class="bigtile"><span class="bt-t"><i>${icons.plus}</i>Blank</span>
-        <span class="bt-d">Empty folder, seeded by the init script. Pick an edition below — the image is built on create (Build now) or deferred (Build later).</span>
-        <div><button class="btn">${icons.play} Create blank workspace</button></div>
-      </div>
-      <div class="bigtile"><span class="bt-t"><i style="--bt:#16a34a">${icons.branch}</i>From Repo</span>
-        <span class="bt-d">Clone an existing repository from your VCS tracker into the new workspace folder. Credentials come from the tracker entry.</span>
-        <div><button class="btn ghost">${icons.branch} Create from repo</button></div>
-      </div>
+      <div class="desc">Name, source, edition${adv()?', modes and start option':''}, tracker credential and provider are recorded once; later changes apply on next start.</div>
     </div>
+    <span class="seg" role="group" aria-label="creation path">
+      <button data-newtype="blank" aria-pressed="${!repo}">${icons.plus} Blank</button>
+      <button data-newtype="repo" aria-pressed="${repo}">${icons.branch} From Repo</button>
+    </span></div>
     <div class="panel" style="margin-top:18px">
+      <div class="row"><div class="ic">${icons.folder}</div>
+        <div class="rl"><label class="flabel" for="inName">Workspace name</label>
+          <input type="text" id="inName" value="${repo?'clients-site':''}" placeholder="my-workspace">
+          <div class="s" style="margin-top:6px">${repo?'Derived from the repo URL below — still editable.':'Plain folder under your workspaces root.'}</div></div>
+        ${repo?`<div class="rc">${chip('ok','from URL')}</div>`:''}
+      </div>
+      ${repo?`
+      <div class="row"><div class="ic">${icons.branch}</div>
+        <div class="rl"><label class="flabel" for="inUrl">Repo URL</label>
+          <input type="text" id="inUrl" value="https://github.com/shredingerlabs/clients-site.git" placeholder="https://host/org/repo.git" oninput="document.getElementById('inName').value = deriveName(this.value)">
+          <div class="s" style="margin-top:6px">Cloned at create. V2 note: Multi-Repo (several repos per workspace) is designed-for, never implemented here.</div>
+          <label class="flabel" style="margin-top:12px" for="selVcs">VCS credential</label>
+          <select id="selVcs" style="max-width:430px">${vcsOpts}</select>
+          <div class="s" style="margin-top:5px">From the global tracker list — manage entries in Settings › VCS Tracker.</div></div>
+      </div>`:`
+      <div class="row"><div class="ic">${icons.branch}</div>
+        <div class="rl"><div class="t">No repository</div><div class="s">Blank starts empty — the init script seeds the folder. A tracker credential can be linked later.</div></div></div>`}
       <div class="row"><div class="ic" style="color:var(--ink)">${icons.layers}</div>
         <div class="rl"><div class="t">Edition</div><div class="s">Container image for this workspace. Base is infrastructure-only and never offered.</div>
           <div class="edotsel" style="margin-top:9px">${edChips}</div></div>
       </div>
       ${advRows}
+      <div class="row"><div class="ic">${icons.spark}</div>
+        <div class="rl"><label class="flabel" for="selProv">AI provider</label>
+          <select id="selProv" style="max-width:430px">${provOpts}</select>
+          <div style="display:flex;gap:8px;margin-top:9px;align-items:center;flex-wrap:wrap">
+            <input type="text" style="max-width:300px" placeholder="API token" aria-label="API token for the selected provider">
+            <button class="btn ghost">${icons.plus} Add provider…</button>
+          </div>
+          <div class="s" style="margin-top:5px">Tokens live in the <b>global</b> provider list; picking an existing provider reuses its stored credential. Manage entries in Settings › AI-Provider.</div></div>
+      </div>
+      <div class="row"><div class="rl"><div class="s">While the create chain runs (clone, build, init, credentials) an embedded log pane streams every step and the form stays inert — same contract as the TUI build plan.</div></div>
+        <div class="rc"><button class="btn">${icons.play} ${repo?'Create from repo':'Create blank'}</button></div></div>
     </div>
     ${bannerRow(`${icons.warn} <b>V2 note:</b> Multi-Repo — several repos as subfolders of one workspace folder — is <b>designed for, not built</b> in this version.`)}
     `;
   },
 
   'set-ws'() {
-    const w = WORKSPACES[0]; const e = ED[w.edition];
+    const w = byId(setWsSel); const e = ED[w.edition];
+    const wsOpts = WORKSPACES.map(x => `<option value="${x.id}"${x.id===setWsSel?' selected':''}>${x.id} · ${ED[x.edition].label}${x.running?' · running':''}</option>`).join('');
     const advRows = adv() ? `
       <div class="row"><div class="ic"><span style="color:${e.hue}">${icons.layers}</span></div>
         <div class="rl"><div class="t">Edition</div><div class="s">Current: ${e.label}. Switching takes effect on next start (image must exist).</div>
@@ -769,7 +823,7 @@ const T = {
         <div class="rl"><div class="t">Proxy (use_proxy)</div><div class="s">Route container traffic through the squid allowlist proxy.</div></div>
         <div class="rc"><button class="switch" aria-pressed="${w.modes.proxy}"></button></div></div>
       <div class="row"><div class="ic">${icons.search}</div>
-        <div class="rl"><div class="t">Search mode</div><div class="s">none · websearch · searxng. ${w.modes.search==='searxng'?'SearXNG runs as a companion service.':''}</div>
+        <div class="rl"><div class="t">Search mode</div><div class="s">none · websearch · searxng.${w.modes.search==='searxng'?' SearXNG runs as a companion service.':''}</div>
           <div class="edotsel" style="margin-top:8px">${['none','websearch','searxng'].map(m=>`<button aria-pressed="${m===w.modes.search}">${m}</button>`).join('')}</div></div></div>
       <div class="row"><div class="ic">${icons.search}</div>
         <div class="rl"><div class="t">CBM-UI</div><div class="s">Codebase-memory graph UI alongside the workspace (needs network).</div></div>
@@ -785,16 +839,24 @@ const T = {
         Search is fixed to SearXNG; HIL appears only on the embedded edition.</div></div></div>`;
     return `
     <div class="pagehead"><div>
-      <h2 style="font-size:15px;margin-bottom:4px">${chip('neutral', `${icons.layers} ${e.label}`)} klimadashboard</h2>
+      <h2 style="font-size:15px;margin-bottom:4px">Workspace Settings</h2>
       <div class="desc">Changes apply on <b>next start</b> — a running workspace keeps its current settings until stopped.</div>
-    </div></div>
+    </div>
+    ${chip(w.running?'ok':'neutral', w.running?'running':'stopped')}</div>
+    <div class="panel" style="margin-bottom:16px">
+      <div class="row"><div class="ic" style="color:#fff;background:${e.hue}">${e.letter}</div>
+        <div class="rl"><label class="flabel" for="selWs">Editing workspace</label>
+          <select id="selWs" onchange="setWsSel=this.value;render()" style="max-width:360px">${wsOpts}</select>
+          <div class="s" style="margin-top:5px">Entered via menu — pick workspace context here. Cards on Workspace › Open jump straight to their settings.</div></div>
+      </div>
+    </div>
     <div class="panel">
       <div class="row"><div class="ic">${icons.spark}</div>
-        <div class="rl"><div class="t">AI-Provider</div><div class="s">acme-llm · token set. Provider entries live in the workspace's opencode.json; the list itself is managed globally.</div></div>
+        <div class="rl"><div class="t">AI-Provider</div><div class="s">${w.provider} · token stored with the global provider entry; the model choice happens inside OpenCode.</div></div>
         <div class="rc"><button class="btn ghost" data-nav="set-ai">Manage…</button></div></div>
       <div class="row"><div class="ic">${icons.branch}</div>
-        <div class="rl"><div class="t">VCS Tracking</div><div class="s">Linked to github.com/shredingerlabs via tracker credential kunde-x-key.</div></div>
-        <div class="rc"><button class="btn ghost" data-nav="set-vcs">Tracker…</button> <button class="switch" aria-pressed="true"></button></div></div>
+        <div class="rl"><div class="t">VCS Tracking</div><div class="s">${w.vcs?`Linked to ${w.vcs} via tracker credential.`:'Not linked — this workspace is not a repository.'}</div></div>
+        <div class="rc"><button class="btn ghost" data-nav="set-vcs">Tracker…</button>${w.vcs?' <button class="switch" aria-pressed="true"></button>':''}</div></div>
       ${advRows}
       <div class="row" style="border-top:2px solid var(--hairline);margin-top:4px">
         <div class="ic" style="color:var(--danger)">${icons.trash}</div>
@@ -957,7 +1019,9 @@ document.addEventListener('click', (ev) => {
   const t = ev.target.closest('button');
   if (!t) return;
   if (t.id === 'themeBtn') { S.theme = S.theme === 'dark' ? 'bright' : 'dark'; writeHash(); render(); return; }
+  if (t.dataset.setws) setWsSel = t.dataset.setws;
   if (t.dataset.nav) { S.screen = t.dataset.nav; document.getElementById('sidebar').scrollTop = 0; writeHash(); render(); return; }
+  if (t.dataset.newtype) { UI.newType = t.dataset.newtype; render(); return; }
   if (t.dataset.mode) { S.display = t.dataset.mode; writeHash(); render(); return; }
   if (t.dataset.stop) { modal(`Stop “${t.dataset.stop}”?`, `The workspace container will shut down. Unsaved agent sessions end with it — OpenCode is stopped, not killed.`,'Stop container', ()=>{}); return; }
   if (t.dataset.del) { modal(`Delete “${t.dataset.del}”?`, `Removes the container${adv()?' (and pod when pod networking is active)':''} and unregisters the workspace. Workspace folders are kept.`,'Delete container', ()=>{}); return; }
