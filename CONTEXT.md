@@ -2,7 +2,7 @@
 
 ## Glossary
 
-**workspace** — The unit oc-sandbox manages for a user: a registered folder (the workspace root) holding its content, configuration, and container fleet; the central domain noun of this project. _Avoid_: project (the pre-rename noun; survives only until the one-time migration and in the archival record), project folder, project root (say workspace root), app, instance, sandbox (oc-sandbox is the whole tool, not one workspace), container (a workspace is not its container), repo (a repo is a git source/folder inside a workspace — not every workspace contains code or a repo).
+**workspace** — The unit oc-sandbox manages for a user: a registered folder (the workspace root) holding its content, configuration, and container fleet; the central domain noun of this project. _Avoid_: project (the pre-rename noun; survives only until the one-time migration and in the archival record), project folder, project root (say workspace root), app, instance, sandbox (oc-sandbox is the whole tool, not one workspace), container (a workspace is not its container), repo (a repo is a git source/folder inside a workspace — a single repo sits at the `workspace/` content-dir root today, and the future multi-repo workspace puts further repos in `workspace/` subfolders; not every workspace contains code or a repo).
 
 **MCP server config** — OpenCode (v2, ADR 0025) uses `mcp.servers.<name>` with `type: "local"` and `command` as an array. The v1 flat `mcp` map is migrated at workspace start; legacy `enabled: true` is dropped (`disabled: false` is default). Claude Desktop's `mcpServers`/`command`-string/`args` schema is incompatible.
 
