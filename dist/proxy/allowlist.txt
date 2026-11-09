@@ -14,7 +14,7 @@ objects.githubusercontent.com
 gitlab.com
 
 # --- Eigener GitLab-Server: ---
-.reutlingen-university.de
+reutlingen-university.de
 
 # --- GWDG SAIA ENDPOINT: ---
 chat-ai.academiccloud.de
@@ -22,7 +22,7 @@ chat-ai.academiccloud.de
 # Node/npm (registry-gentry, nicht durch npmjs.org gedeckt)
 registry.npmjs.org
 npmjs.org
-.npmjs.com
+npmjs.com
 
 # Python
 pypi.org
@@ -32,14 +32,14 @@ pythonhosted.org
 # Go
 proxy.golang.org
 sum.golang.org
-.storage.googleapis.com
+storage.googleapis.com
 
 # System-Pakete (falls im Container apt-Updates nötig sind)
 archive.ubuntu.com
 security.ubuntu.com
 
 # OpenCode API (Wildcard deckt die Basis-Domain mit ab)
-.opencode.ai
+opencode.ai
 
 # OpenCode Modell-Katalog
 models.dev
