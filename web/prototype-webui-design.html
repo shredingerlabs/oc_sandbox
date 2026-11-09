@@ -1,0 +1,992 @@
+<!DOCTYPE html>
+<!--
+  PROTOTYPE — THROWAWAY. Do not merge: ?variant=A|B|C via hash router, sensitivity-gated content, no backend.
+  Question: what should the oc_sandbox WebUI look & feel like? (ticket #136)
+  Frame (settled before this file): modern, ChatGPT/Claude-inspired; left sidebar tree nav;
+  dark AND bright modes; objects as cards in grids; Standard (default) / Advanced display modes.
+  Three look-and-feel variants remain radical on purpose: card composition, density, typography,
+  affordance treatment and accent usage differ; the settled frame does not.
+  Run: double-click this file (or serve statically). Hash = state, e.g. #b/dark/std/set-containers.
+-->
+<html lang="en" data-theme="bright">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PROTOTYPE · oc_sandbox WebUI mockup</title>
+<style>
+/* ============ shared skeleton (layout only; every variant restyles it) ============ */
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; }
+body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; font-size: 14px; }
+button { font: inherit; color: inherit; background: none; border: none; cursor: pointer; }
+input, select { font: inherit; color: inherit; }
+a { color: inherit; }
+.app { display: grid; grid-template-columns: auto 1fr; grid-template-rows: 1fr auto; height: 100vh; }
+.sidebar { grid-row: 1 / 3; overflow-y: auto; }
+.main { overflow-y: auto; min-width: 0; display: flex; flex-direction: column; }
+.content { flex: 1; overflow-y: auto; }
+.footer { flex-shrink: 0; }
+/* ---- floating prototype switcher (not part of the design) ---- */
+#protoBar { position: fixed; bottom: 12px; left: 50%; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 4px; z-index: 60; padding: 6px 10px;
+  border-radius: 999px; box-shadow: 0 6px 24px rgba(0,0,0,.35); background: #111;
+  color: #fff; font: 600 12px/1 system-ui; }
+#protoBar button.arrow { width: 26px; height: 26px; border-radius: 50%; background: #2a2a2a; color: #fff; }
+#protoBar button.arrow:hover { background: #3d3d3d; }
+#protoBar .sep { width: 1px; height: 18px; background: #444; margin: 0 6px; }
+#protoBar button.pill { padding: 5px 10px; border-radius: 999px; background: #2a2a2a; color: #fff; }
+#protoBar button.pill:hover { background: #3d3d3d; }
+#protoBar button.pill[aria-pressed="true"] { background: #d97757; }
+/* modal */
+.overlay { position: fixed; inset: 0; background: rgba(10,10,14,.5); display: flex;
+  align-items: center; justify-content: center; z-index: 50; }
+.modal { min-width: 340px; max-width: 480px; border-radius: 14px; padding: 20px 22px;
+  box-shadow: 0 18px 60px rgba(0,0,0,.45); }
+.modal h3 { font-size: 15px; margin-bottom: 8px; display: flex; align-items: center; gap: 8px; }
+.modal p { line-height: 1.5; opacity: .85; }
+.modal .actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 18px; }
+</style>
+
+<!-- ================= VARIANT A · "Atelier" — Claude-inspired warmth ================= -->
+<style>
+.v-a[data-theme="bright"] { --bg:#faf6ef; --bg-side:#f3ecdf; --surface:#fffdf8; --surface2:#f6f0e5;
+  --ink:#33302a; --ink2:#6f675a; --hairline:#e7ddcb; --slate:#4a453c; --accent:#c2643d;
+  --accent-ink:#fff; --danger:#b3402f; --ok:#4d7a45; --shadow:0 1px 2px rgba(80,60,30,.06),0 6px 22px rgba(80,60,30,.07); }
+.v-a[data-theme="dark"] { --bg:#201c17; --bg-side:#191612; --surface:#282320; --surface2:#302a25;
+  --ink:#ece5d8; --ink2:#a89c8b; --hairline:#3a332c; --slate:#c9bfae; --accent:#d98a63;
+  --accent-ink:#241c14; --danger:#e07a6b; --ok:#8fb887; --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 28px rgba(0,0,0,.35); }
+.v-a { background:var(--bg); color:var(--ink); }
+.v-a .sidebar { width:262px; background:var(--bg-side); padding:18px 14px; display:flex; flex-direction:column; gap:16px;
+  border-right:1px solid var(--hairline); }
+.v-a .brand { padding:4px 10px 8px; }
+.v-a .brand .name { font-family:Georgia,'Times New Roman',serif; font-size:17px; letter-spacing:.2px; }
+.v-a .brand .sub { font-size:11px; color:var(--ink2); margin-top:3px; font-style:italic; font-family:Georgia,serif; }
+.v-a .tree { flex:1; }
+.v-a .tree section { margin-bottom:14px; }
+.v-a .tree .group { display:flex; align-items:center; gap:9px; padding:7px 10px; border-radius:9px;
+  font-size:13.5px; color:var(--ink); width:100%; text-align:left; }
+.v-a .tree .group svg { opacity:.75; }
+.v-a .tree .chev { margin-left:auto; opacity:.55; transition:transform .15s; }
+.v-a .tree .open > .chev { transform:rotate(90deg); }
+.v-a .tree ul { list-style:none; margin:2px 0 4px; padding-left:20px; border-left:1px solid var(--hairline); margin-left:18px; }
+.v-a .tree li button { display:block; width:calc(100% - 20px); text-align:left; padding:6px 10px; margin:1px 0;
+  border-radius:8px; font-size:13px; color:var(--ink2); }
+.v-a .tree li button:hover { background:var(--surface2); color:var(--ink); }
+.v-a .tree li button.active { background:var(--surface); color:var(--ink); box-shadow:var(--shadow); font-weight:600; }
+.v-a .header { padding:20px 30px 0; }
+.v-a .title h1 { font-family:Georgia,serif; font-size:23px; font-weight:500; }
+.v-a .title .crumb { font-size:12px; color:var(--ink2); margin-bottom:6px; }
+.v-a .content-inner { padding:18px 30px 90px; max-width:1100px; }
+.v-a .seg { display:inline-flex; background:var(--surface2); border:1px solid var(--hairline); border-radius:999px; padding:3px; }
+.v-a .seg button { padding:5px 12px; border-radius:999px; font-size:12px; color:var(--ink2); }
+.v-a .seg button[aria-pressed="true"] { background:var(--surface); color:var(--ink); box-shadow:var(--shadow); font-weight:600; }
+.v-a .icontoggle { width:32px; height:32px; border-radius:9px; display:inline-flex; align-items:center; justify-content:center;
+  border:1px solid var(--hairline); background:var(--surface); box-shadow:var(--shadow); }
+.v-a .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(310px,1fr)); gap:20px; }
+.v-a .card { background:var(--surface); border:1px solid var(--hairline); border-radius:16px; box-shadow:var(--shadow);
+  padding:18px; display:flex; gap:14px; }
+.v-a .card .tile { width:64px; height:64px; border-radius:14px; flex-shrink:0; display:flex; align-items:center;
+  justify-content:center; font-family:Georgia,serif; font-size:25px; font-weight:600; background:var(--surface2);
+  border:1px solid var(--hairline); }
+.v-a .card .body { flex:1; min-width:0; display:flex; flex-direction:column; }
+.v-a .card .name { font-size:15px; font-weight:600; display:flex; align-items:center; gap:8px; }
+.v-a .card .dot { width:7px; height:7px; border-radius:50%; background:var(--ok); }
+.v-a .card .meta { margin-top:7px; display:flex; flex-wrap:wrap; gap:5px 14px; font-size:12px; color:var(--ink2); }
+.v-a .card .meta span { display:inline-flex; align-items:center; gap:5px; }
+.v-a .card .meta svg { opacity:.8; }
+.v-a .card .footrow { margin-top:auto; padding-top:14px; display:flex; align-items:center; gap:10px; }
+.v-a .card .lastused { font-size:11.5px; color:var(--ink2); font-style:italic; font-family:Georgia,serif; }
+.v-a .btn { display:inline-flex; align-items:center; gap:7px; border-radius:10px; padding:8px 15px; font-size:13px;
+  background:var(--accent); color:var(--accent-ink); font-weight:600; }
+.v-a .btn:hover { filter:brightness(1.06); }
+.v-a .btn.ghost { background:var(--surface2); color:var(--ink); border:1px solid var(--hairline); font-weight:500; }
+.v-a .btn.danger { background:var(--danger); color:#fff; }
+.v-a .btn.danger-ghost { background:transparent; color:var(--danger); border:1px solid var(--hairline); }
+.v-a .btn[disabled] { opacity:.45; cursor:not-allowed; }
+.v-a .banner { background:var(--accent); color:var(--accent-ink); }
+.v-a .footer { padding:12px 30px; border-top:1px solid var(--hairline); background:var(--bg-side); display:flex; gap:14px; align-items:center; }
+.v-a .footer .version { font-size:12px; color:var(--ink2); margin-left:auto; }
+.v-a .footer .btext { font-size:13px; }
+.v-a .footer .btext strong { font-weight:700; }
+.v-a .footer .btn { padding:6px 13px; border-radius:9px; font-size:12.5px; }
+.v-a .bannerrow { margin-top:22px; background:var(--surface); border:1px solid var(--hairline); border-radius:14px;
+  padding:14px 18px; display:flex; align-items:center; gap:14px; box-shadow:var(--shadow); }
+.v-a .pagehead { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; margin-bottom:16px; }
+.v-a .pagehead .desc { color:var(--ink2); font-size:13px; margin-top:5px; max-width:640px; line-height:1.5; }
+.v-a .panel { background:var(--surface); border:1px solid var(--hairline); border-radius:16px; box-shadow:var(--shadow); }
+.v-a .row { padding:15px 18px; display:flex; gap:16px; align-items:center; border-bottom:1px solid var(--hairline); }
+.v-a .row:last-child { border-bottom:none; }
+.v-a .row .ic { width:34px; height:34px; border-radius:10px; background:var(--surface2); border:1px solid var(--hairline);
+  display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+.v-a .row .rl { flex:1; min-width:0; }
+.v-a .row .rl .t { font-weight:600; font-size:13.5px; }
+.v-a .row .rl .s { font-size:12px; color:var(--ink2); margin-top:3px; line-height:1.4; }
+.v-a .row .rc { flex-shrink:0; display:flex; align-items:center; gap:8px; }
+.v-a .chip { display:inline-flex; align-items:center; gap:6px; padding:3px 10px; border-radius:999px; font-size:11.5px;
+  background:var(--surface2); border:1px solid var(--hairline); color:var(--ink2); }
+.v-a .chip.on { color:var(--ink); font-weight:600; }
+.v-a .chip.warn { color:var(--accent); }
+.v-a .chip.bad { color:var(--danger); }
+.v-a .chip.ok { color:var(--ok); }
+.v-a .chip .dot2 { width:6px; height:6px; border-radius:50%; background:currentColor; }
+.v-a .switch { width:34px; height:20px; border-radius:999px; background:var(--surface2); border:1px solid var(--hairline); position:relative; }
+.v-a .switch::after { content:""; position:absolute; width:14px; height:14px; border-radius:50%; background:var(--ink2); top:2px; left:2px; }
+.v-a .switch[aria-pressed="true"] { background:var(--accent); border-color:var(--accent); }
+.v-a .switch[aria-pressed="true"]::after { background:var(--accent-ink); left:16px; }
+.v-a .modal { background:var(--surface); color:var(--ink); border:1px solid var(--hairline); }
+.v-a .modal h3 { font-family:Georgia,serif; font-weight:600; font-size:16px; }
+.v-a .drop { border:1.5px dashed var(--hairline); border-radius:16px; background:var(--surface2); padding:44px 20px;
+  text-align:center; color:var(--ink2); }
+.v-a .drop .big { font-size:14px; font-weight:600; color:var(--ink); margin:10px 0 4px; }
+.v-a .bigtile { border-radius:16px; padding:22px; background:var(--surface); border:1px solid var(--hairline);
+  box-shadow:var(--shadow); display:flex; flex-direction:column; gap:8px; min-height:150px; }
+.v-a .bigtile .bt-t { font-family:Georgia,serif; font-size:17px; font-weight:600; display:flex; gap:10px; align-items:center; }
+.v-a .bigtile .bt-d { color:var(--ink2); font-size:12.5px; line-height:1.5; flex:1; }
+.v-a .hint-card { border:1.5px dashed var(--hairline); border-radius:16px; padding:22px; color:var(--ink2); }
+.v-a .prog { height:8px; border-radius:999px; background:var(--surface2); border:1px solid var(--hairline); overflow:hidden; }
+.v-a .prog i { display:block; height:100%; width:38%; background:var(--accent); border-radius:999px; }
+.v-a .mono { font-family:ui-monospace,"SF Mono",Menlo,monospace; font-size:11.5px; }
+.v-a .edotsel { display:flex; flex-wrap:wrap; gap:8px; }
+.v-a .edotsel button { padding:7px 14px; border-radius:10px; border:1px solid var(--hairline); background:var(--surface2);
+  font-size:12.5px; font-weight:600; }
+.v-a .edotsel button[aria-pressed="true"] { background:var(--accent); color:var(--accent-ink); border-color:var(--accent); }
+</style>
+
+<!-- ================= VARIANT B · "Mono" — ChatGPT-inspired neutrality, dense ================= -->
+<style>
+.v-b[data-theme="bright"] { --bg:#ffffff; --bg-side:#f9f9f9; --surface:#ffffff; --surface2:#f4f4f4;
+  --ink:#1d1d1f; --ink2:#8a8a8e; --hairline:#e4e4e7; --slate:#555; --accent:#1d1d1f;
+  --accent-ink:#fff; --danger:#c4331b; --ok:#157f3d; --shadow:0 0 0 1px var(--hairline); }
+.v-b[data-theme="dark"] { --bg:#0f0f10; --bg-side:#161617; --surface:#1c1c1e; --surface2:#262628;
+  --ink:#ececec; --ink2:#9a9aa0; --hairline:#2c2c30; --slate:#c8c8cc; --accent:#ececec;
+  --accent-ink:#111; --danger:#ff8a75; --ok:#4ed489; --shadow:0 0 0 1px var(--hairline); }
+.v-b, .v-b button, .v-b input, .v-b select { font-family:"SF Mono",ui-monospace,Menlo,Consolas,monospace; font-size:12.5px; }
+.v-b { background:var(--bg); color:var(--ink); }
+.v-b .sidebar { width:236px; background:var(--bg-side); padding:14px 10px; border-right:1px solid var(--hairline); }
+.v-b .brand { padding:6px 10px 12px; border-bottom:1px solid var(--hairline); margin-bottom:10px; }
+.v-b .brand .name { font-size:13px; font-weight:700; letter-spacing:.5px; text-transform:uppercase; }
+.v-b .brand .sub { font-size:11px; color:var(--ink2); margin-top:4px; }
+.v-b .tree section { margin-bottom:10px; }
+.v-b .tree .group { display:flex; align-items:center; gap:7px; padding:5px 10px; width:100%; text-align:left;
+  font-size:12px; text-transform:uppercase; letter-spacing:.8px; color:var(--slate); }
+.v-b .tree .group svg { opacity:.6; }
+.v-b .tree .chev { margin-left:auto; opacity:.5; transition:transform .15s; }
+.v-b .tree .open > .chev { transform:rotate(90deg); }
+.v-b .tree ul { list-style:none; margin:1px 0 6px; }
+.v-b .tree li button { display:flex; align-items:center; gap:7px; width:100%; text-align:left; padding:5px 10px 5px 24px;
+  font-size:12.5px; color:var(--ink2); border-left:2px solid transparent; }
+.v-b .tree li button:hover { color:var(--ink); background:var(--surface2); }
+.v-b .tree li button.active { background:var(--surface2); color:var(--ink); font-weight:700; border-left-color:var(--ink); }
+.v-b .header { padding:16px 24px 0; display:flex; align-items:baseline; justify-content:space-between; }
+.v-b .title h1 { font-size:15px; font-weight:700; letter-spacing:.3px; }
+.v-b .title .crumb { font-size:11px; color:var(--ink2); margin-bottom:4px; }
+.v-b .content-inner { padding:14px 24px 90px; max-width:1200px; }
+.v-b .seg { display:inline-flex; border:1px solid var(--hairline); border-radius:6px; overflow:hidden; }
+.v-b .seg button { padding:4px 9px; font-size:11px; color:var(--ink2); }
+.v-b .seg button + button { border-left:1px solid var(--hairline); }
+.v-b .seg button[aria-pressed="true"] { background:var(--ink); color:var(--bg); }
+.v-b .icontoggle { width:28px; height:28px; display:inline-flex; align-items:center; justify-content:center;
+  border:1px solid var(--hairline); border-radius:6px; }
+.v-b .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(300px,1fr)); gap:0; border:1px solid var(--hairline);
+  border-radius:8px; overflow:hidden; }
+.v-b .grid .card { border-radius:0; background:var(--surface); border-right:1px solid var(--hairline);
+  border-bottom:1px solid var(--hairline); padding:13px 14px; }
+.v-b .card { display:flex; gap:12px; }
+.v-b .card .tile { width:34px; height:34px; flex-shrink:0; display:flex; align-items:center; justify-content:center;
+  font-size:13px; font-weight:700; background:var(--surface2); border:1px solid var(--hairline); border-radius:4px; }
+.v-b .card .body { flex:1; min-width:0; }
+.v-b .card .name { font-size:13px; font-weight:700; display:flex; align-items:center; gap:7px; }
+.v-b .card .dot { width:6px; height:6px; border-radius:50%; background:var(--ok); }
+.v-b .card .meta { margin-top:8px; display:grid; grid-template-columns:auto 1fr; gap:2px 10px; font-size:11.5px;
+  color:var(--ink2); width:max-content; }
+.v-b .card .meta b { font-weight:400; color:var(--ink2); }
+.v-b .card .meta span { color:var(--ink); }
+.v-b .card .footrow { margin-top:10px; display:flex; align-items:center; gap:12px; padding-top:9px;
+  border-top:1px solid var(--hairline); }
+.v-b .card .lastused { font-size:11px; color:var(--ink2); margin-left:auto; }
+.v-b .btn { display:inline-flex; align-items:center; gap:6px; border-radius:6px; padding:5px 11px; font-size:11.5px;
+  border:1px solid var(--hairline); background:var(--surface2); font-weight:700; }
+.v-b .btn:hover { border-color:var(--ink); }
+.v-b .btn.primary { background:var(--ink); color:var(--bg); border-color:var(--ink); }
+.v-b .btn.ghost { background:transparent; font-weight:400; }
+.v-b .btn.danger { background:transparent; color:var(--danger); border-color:var(--danger); }
+.v-b .btn.danger.solid { background:var(--danger); color:#fff; }
+.v-b .btn[disabled] { opacity:.4; cursor:not-allowed; }.v-b .footer { padding:9px 24px; border-top:1px solid var(--hairline); background:var(--bg-side); display:flex; gap:12px; align-items:center; }
+.v-b .footer .version { font-size:11px; color:var(--ink2); margin-left:auto; }
+.v-b .footer .btext { font-size:11.5px; }
+.v-b .footer .btn { padding:3px 9px; font-size:11px; }
+.v-b .bannerrow { margin:18px 0; border:1px solid var(--hairline); border-radius:8px; padding:10px 14px;
+  display:flex; align-items:center; gap:12px; background:var(--surface2); }
+.v-b .pagehead { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; margin-bottom:14px; }
+.v-b .pagehead .desc { color:var(--ink2); font-size:12px; margin-top:4px; max-width:640px; line-height:1.5; }
+.v-b .panel { border:1px solid var(--hairline); border-radius:8px; overflow:hidden; }
+.v-b .row { padding:11px 14px; display:flex; gap:12px; align-items:center; border-bottom:1px solid var(--hairline); }
+.v-b .row:last-child { border-bottom:0; }
+.v-b .row .ic { width:26px; height:26px; border:1px solid var(--hairline); border-radius:4px; display:flex;
+  align-items:center; justify-content:center; flex-shrink:0; }
+.v-b .row .rl { flex:1; min-width:0; }
+.v-b .row .rl .t { font-weight:700; font-size:12.5px; }
+.v-b .row .rl .s { font-size:11.5px; color:var(--ink2); margin-top:2px; line-height:1.4; }
+.v-b .row .rc { display:flex; align-items:center; gap:8px; }
+.v-b .chip { display:inline-flex; align-items:center; gap:5px; padding:1px 7px; border-radius:4px; font-size:11px;
+  background:var(--surface2); border:1px solid var(--hairline); color:var(--ink2); }
+.v-b .chip .dot2 { width:6px; height:6px; border-radius:50%; background:currentColor; }
+.v-b .chip.ok { color:var(--ok); } .v-b .chip.bad { color:var(--danger); } .v-b .chip.warn { color:var(--accent); }
+.v-b .switch { width:30px; height:17px; border-radius:999px; background:var(--surface2); border:1px solid var(--hairline); position:relative; }
+.v-b .switch::after { content:""; position:absolute; width:11px; height:11px; border-radius:50%; background:var(--ink2); top:2px; left:2px; }
+.v-b .switch[aria-pressed="true"] { background:var(--ink); border-color:var(--ink); }
+.v-b .switch[aria-pressed="true"]::after { background:var(--bg); left:15px; }
+.v-b .modal { background:var(--surface); color:var(--ink); border:1px solid var(--hairline); border-radius:8px; }
+.v-b .modal h3 { font-size:13px; }
+.v-b .drop { border:1px dashed var(--hairline); border-radius:8px; background:var(--surface2); padding:38px 20px;
+  text-align:center; color:var(--ink2); }
+.v-b .drop .big { font-size:12.5px; font-weight:700; color:var(--ink); margin:8px 0 3px; }
+.v-b .bigtile { border:1px solid var(--hairline); border-radius:8px; padding:16px; background:var(--surface);
+  display:flex; flex-direction:column; gap:8px; min-height:130px; }
+.v-b .bigtile:hover { border-color:var(--ink); }
+.v-b .bigtile .bt-t { font-size:12.5px; font-weight:700; display:flex; gap:8px; align-items:center; }
+.v-b .bigtile .bt-d { color:var(--ink2); font-size:11.5px; line-height:1.5; flex:1; }
+.v-b .hint-card { border:1px dashed var(--hairline); border-radius:8px; padding:16px; color:var(--ink2); }
+.v-b .prog { height:6px; border:1px solid var(--hairline); border-radius:3px; overflow:hidden; background:var(--surface); }
+.v-b .prog i { display:block; height:100%; width:38%; background:var(--ink); }
+.v-b .edotsel { display:flex; flex-wrap:wrap; gap:6px; }
+.v-b .edotsel button { padding:4px 10px; border-radius:5px; border:1px solid var(--hairline); background:var(--surface2); font-size:11.5px; }
+.v-b .edotsel button[aria-pressed="true"] { background:var(--ink); color:var(--bg); border-color:var(--ink); font-weight:700; }
+.v-b .dangerzone { border-color:var(--danger); }
+.v-b .dangerzone .row { border-bottom-color:var(--hairline); }
+</style>
+
+<!-- ================= VARIANT C · "Signal" — edition-hued, expressive ================= -->
+<style>
+.v-c[data-theme="bright"] { --bg:#f6f8fb; --bg-side:#eef2f8; --surface:#ffffff; --surface2:#f1f4f9;
+  --ink:#182230; --ink2:#64748b; --hairline:#e2e8f0; --slate:#334155; --accent:#2f6fed;
+  --accent-ink:#fff; --danger:#dc2626; --ok:#16a34a; --shadow:0 1px 2px rgba(23,43,77,.08),0 4px 16px rgba(23,43,77,.08); }
+.v-c[data-theme="dark"] { --bg:#0e1320; --bg-side:#131a2b; --surface:#1a2233; --surface2:#222c42;
+  --ink:#e6ecf7; --ink2:#8d9ab5; --hairline:#28324a; --slate:#c4cfe4; --accent:#5b8bff;
+  --accent-ink:#0b1020; --danger:#f87171; --ok:#4ade80; --shadow:0 1px 2px rgba(0,0,0,.4),0 6px 24px rgba(0,0,0,.35); }
+.v-c { background:var(--bg); color:var(--ink); }
+.v-c .sidebar { width:248px; background:var(--bg-side); padding:16px 12px; border-right:1px solid var(--hairline);
+  display:flex; flex-direction:column; gap:14px; }
+.v-c .brand { padding:4px 10px; }
+.v-c .brand .name { font-size:15px; font-weight:800; letter-spacing:-.2px; display:flex; align-items:center; gap:8px; }
+.v-c .brand .name i { width:10px; height:10px; border-radius:3px; background:linear-gradient(135deg,var(--accent),var(--ok)); }
+.v-c .brand .sub { font-size:11.5px; color:var(--ink2); margin-top:3px; }
+.v-c .tree { flex:1; }
+.v-c .tree section { margin-bottom:10px; }
+.v-c .tree .group { display:flex; align-items:center; gap:9px; padding:8px 10px; border-radius:10px; width:100%;
+  text-align:left; font-weight:700; font-size:13px; }
+.v-c .tree .group svg { opacity:.7; }
+.v-c .tree .chev { margin-left:auto; opacity:.5; transition:transform .15s; }
+.v-c .tree .open > .chev { transform:rotate(90deg); }
+.v-c .tree ul { list-style:none; margin:3px 0 4px; }
+.v-c .tree li button { display:flex; align-items:center; gap:8px; width:100%; text-align:left; padding:6px 10px 6px 22px;
+  font-size:12.5px; color:var(--ink2); border-radius:8px; }
+.v-c .tree li button:hover { background:var(--surface2); color:var(--ink); }
+.v-c .tree li button.active { background:var(--accent); color:var(--accent-ink); font-weight:700; }
+.v-c .tree .count { margin-left:auto; font-size:10px; font-weight:700; padding:1px 6px; border-radius:999px;
+  background:var(--surface2); color:var(--ink2); }
+.v-c .tree li button.active .count { background:rgba(255,255,255,.2); color:var(--accent-ink); }
+.v-c .header { padding:18px 26px 0; }
+.v-c .title h1 { font-size:19px; font-weight:800; letter-spacing:-.2px; }
+.v-c .title .crumb { font-size:11.5px; color:var(--ink2); margin-bottom:5px; font-weight:600; }
+.v-c .content-inner { padding:16px 26px 90px; max-width:1150px; }
+.v-c .seg { display:inline-flex; background:var(--surface2); border-radius:9px; padding:2px; }
+.v-c .seg button { padding:5px 11px; border-radius:7px; font-size:11.5px; font-weight:700; color:var(--ink2); }
+.v-c .seg button[aria-pressed="true"] { background:var(--surface); color:var(--ink); box-shadow:var(--shadow); }
+.v-c .icontoggle { width:30px; height:30px; border-radius:9px; display:inline-flex; align-items:center; justify-content:center;
+  background:var(--surface); box-shadow:var(--shadow); }
+.v-c .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(330px,1fr)); gap:16px; }
+.v-c .card { position:relative; background:var(--surface); border-radius:13px; box-shadow:var(--shadow);
+  padding:16px 16px 16px 20px; overflow:hidden; }
+.v-c .card::before { content:""; position:absolute; left:0; top:10px; bottom:10px; width:4px; border-radius:999px;
+  background:var(--ed, var(--accent)); }
+.v-c .card .toprow { display:flex; gap:11px; align-items:center; }
+.v-c .card .tile { width:40px; height:40px; border-radius:11px; flex-shrink:0; display:flex; align-items:center;
+  justify-content:center; font-weight:800; font-size:16px; color:#fff; background:var(--ed, var(--accent)); }
+.v-c .card .body { flex:1; min-width:0; }
+.v-c .card .name { font-size:14.5px; font-weight:800; display:flex; align-items:center; gap:7px; }
+.v-c .card .dot { width:7px; height:7px; border-radius:50%; background:var(--ok); }
+.v-c .card .sub { font-size:12px; color:var(--ink2); margin-top:2px; }
+.v-c .card .toprow .acts { margin-left:auto; display:flex; gap:6px; }
+.v-c .card .meta { margin-top:11px; display:flex; flex-wrap:wrap; gap:6px; }
+.v-c .card .footrow { margin-top:12px; display:flex; align-items:center; gap:8px; padding-top:11px; border-top:1px solid var(--hairline); }
+.v-c .card .lastused { font-size:11.5px; color:var(--ink2); margin-left:auto; }
+.v-c .btn { display:inline-flex; align-items:center; gap:7px; border-radius:9px; padding:7px 14px; font-size:12.5px;
+  background:var(--accent); color:var(--accent-ink); font-weight:700; box-shadow:0 1px 2px rgba(31,60,120,.18); }
+.v-c .btn.ghost { background:var(--surface2); color:var(--slate); box-shadow:none; }
+.v-c .btn.danger { background:var(--danger); color:#fff; }
+.v-c .btn.danger.solid { background:var(--danger); color:#fff; }
+.v-c .btn.danger-ghost { background:transparent; color:var(--danger); }
+.v-c .btn.icon { width:30px; height:30px; padding:0; justify-content:center; border-radius:8px; background:var(--surface2); color:var(--slate); }
+.v-c .btn.icon.danger { color:var(--danger); }
+.v-c .btn[disabled] { opacity:.4; cursor:not-allowed; }
+.v-c .footer { padding:10px 26px; border-top:1px solid var(--hairline); background:var(--bg-side); display:flex; gap:12px; align-items:center; }
+.v-c .footer .version { font-size:11.5px; color:var(--ink2); margin-left:auto; }
+.v-c .footer .btext { font-size:12.5px; }
+.v-c .footer .btn { padding:5px 11px; font-size:11.5px; }
+.v-c .bannerrow { margin:16px 0; background:linear-gradient(90deg,var(--accent),color-mix(in srgb,var(--accent) 70%,#8b5cf6));
+  color:#fff; border-radius:13px; padding:13px 16px; display:flex; align-items:center; gap:13px; box-shadow:var(--shadow); }
+.v-c .bannerrow .btn { background:rgba(255,255,255,.2); color:#fff; }
+.v-c .pagehead { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; margin-bottom:15px; }
+.v-c .pagehead .desc { color:var(--ink2); font-size:12.5px; margin-top:5px; max-width:640px; line-height:1.5; }
+.v-c .panel { background:var(--surface); border-radius:13px; box-shadow:var(--shadow); overflow:hidden; }
+.v-c .row { padding:13px 16px; display:flex; gap:14px; align-items:center; border-bottom:1px solid var(--hairline); }
+.v-c .row:last-child { border-bottom:0; }
+.v-c .row .ic { width:38px; height:38px; border-radius:10px; display:flex; align-items:center; justify-content:center;
+  flex-shrink:0; color:#fff; background:var(--ed, var(--accent)); }
+.v-c .row .rl { flex:1; min-width:0; }
+.v-c .row .rl .t { font-weight:700; font-size:13px; }
+.v-c .row .rl .s { font-size:11.5px; color:var(--ink2); margin-top:2px; line-height:1.4; }
+.v-c .row .rc { display:flex; align-items:center; gap:8px; }
+.v-c .chip { display:inline-flex; align-items:center; gap:5px; padding:3px 9px; border-radius:999px; font-size:11px;
+  font-weight:700; background:color-mix(in srgb,var(--accent) 9%, var(--surface)); color:var(--accent); }
+.v-c .chip .dot2 { width:6px; height:6px; border-radius:50%; background:currentColor; }
+.v-c .chip.ok { background:color-mix(in srgb,var(--ok) 12%, var(--surface)); color:var(--ok); }
+.v-c .chip.bad { background:color-mix(in srgb,var(--danger) 12%, var(--surface)); color:var(--danger); }
+.v-c .chip.neutral { background:var(--surface2); color:var(--ink2); }
+.v-c .switch { width:36px; height:21px; border-radius:999px; background:var(--surface2); position:relative; }
+.v-c .switch::after { content:""; position:absolute; width:15px; height:15px; border-radius:50%; background:#fff;
+  top:3px; left:3px; box-shadow:0 1px 3px rgba(0,0,0,.25); }
+.v-c .switch[aria-pressed="true"] { background:var(--accent); }
+.v-c .switch[aria-pressed="true"]::after { left:18px; }
+.v-c .modal { background:var(--surface); color:var(--ink); }
+.v-c .modal h3 { font-weight:800; }
+.v-c .drop { border:2px dashed color-mix(in srgb,var(--accent) 40%, var(--hairline)); border-radius:13px;
+  background:color-mix(in srgb,var(--accent) 4%, var(--surface2)); padding:42px 20px; text-align:center; color:var(--ink2); }
+.v-c .drop .big { font-size:14px; font-weight:800; color:var(--ink); margin:9px 0 4px; }
+.v-c .bigtile { border-radius:13px; padding:20px; background:var(--surface); box-shadow:var(--shadow);
+  display:flex; flex-direction:column; gap:9px; min-height:150px; }
+.v-c .bigtile .bt-t { font-size:15px; font-weight:800; display:flex; gap:10px; align-items:center; }
+.v-c .bigtile .bt-t i { width:34px; height:34px; border-radius:9px; display:inline-flex; align-items:center;
+  justify-content:center; color:#fff; background:var(--bt, var(--accent)); }
+.v-c .bigtile .bt-d { color:var(--ink2); font-size:12.5px; line-height:1.55; flex:1; }
+.v-c .hint-card { border:2px dashed var(--hairline); border-radius:13px; padding:20px; color:var(--ink2);
+  display:flex; align-items:center; gap:12px; }
+.v-c .prog { height:8px; border-radius:999px; background:var(--surface2); overflow:hidden; }
+.v-c .prog i { display:block; height:100%; width:38%; background:linear-gradient(90deg,var(--accent),var(--ok)); border-radius:999px; }
+.v-c .mono { font-family:ui-monospace,Menlo,monospace; font-size:11px; }
+.v-c .edotsel { display:flex; flex-wrap:wrap; gap:8px; }
+.v-c .edotsel button { padding:7px 13px; border-radius:9px; font-size:12px; font-weight:700;
+  background:var(--surface); box-shadow:var(--shadow); display:inline-flex; align-items:center; gap:7px; }
+.v-c .edotsel button i { width:8px; height:8px; border-radius:50%; background:var(--ed,var(--ink2)); }
+.v-c .edotsel button[aria-pressed="true"] { box-shadow:0 0 0 2px var(--accent); }
+.v-c .dangerzone::before { display:none; }
+.v-c .dangerzone { background:color-mix(in srgb,var(--danger) 5%, var(--surface)); }
+</style>
+</head>
+<body>
+<div class="app v-a" id="app"
+  data-screen="ws-open">
+  <nav class="sidebar" id="sidebar"></nav>
+  <div class="main">
+    <header class="header" id="header"></header>
+    <div class="content"><div class="content-inner" id="screen"></div></div>
+    <footer class="footer" id="footer"></footer>
+  </div>
+</div>
+<div id="protoBar">
+  <button class="arrow" id="pPrev" title="previous variant">←</button>
+  <span id="pLabel">A</span>
+  <button class="arrow" id="pNext" title="next variant">→</button>
+  <span class="sep"></span>
+  <button class="pill" id="pTheme">◑ theme</button>
+  <button class="pill" id="pDisplay">Advanced</button>
+  <span class="sep"></span>
+  <span style="font-weight:400;opacity:.6">PROTOTYPE · throwaway</span>
+</div>
+<div id="modalRoot" hidden></div>
+<script>
+'use strict';
+/* ============================== icons (16px stroke) ============================== */
+const I = (d, extra='') => `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" ${extra||'aria-hidden="true"'}>${d}</svg>`;
+const icons = {
+  folder:   I('<path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>'),
+  open:     I('<path d="M15 3h6v6"/><path d="M21 3l-9 9"/><path d="M19 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h6"/>'),
+  plus:     I('<path d="M12 5v14M5 12h14"/>'),
+  settings: I('<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.01a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h.01a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.01a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>'),
+  globe:    I('<circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>'),
+  terminal: I('<polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/>'),
+  search:   I('<circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>'),
+  shield:   I('<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>'),
+  branch:   I('<line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/>'),
+  spark:    I('<path d="M12 2l2.1 6.3L20 12l-5.9 3.7L12 22l-2.1-6.3L4 12l5.9-3.7z"/>'),
+  layers:   I('<polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/>'),
+  offline:  I('<line x1="2" y1="2" x2="22" y2="22"/><path d="M18 13a5 5 0 0 0-7.09-4.63"/><path d="M5 13a6.06 6.06 0 0 1 2-2.98"/>'),
+  user:     I('<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>'),
+  box:      I('<path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/>'),
+  container:I('<rect x="3" y="7" width="18" height="13" rx="2"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M8 11v6M12 11v6M16 11v6"/>'),
+  update:   I('<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>'),
+  download: I('<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>'),
+  upload:   I('<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>'),
+  trash:    I('<polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>'),
+  play:     I('<polygon points="6 4 20 12 6 20 6 4"/>'),
+  stop:     I('<rect x="6" y="6" width="12" height="12" rx="2"/>'),
+  check:    I('<polyline points="20 6 9 17 4 12"/>'),
+  warn:     I('<path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>'),
+  sun:      I('<circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>'),
+  moon:     I('<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>'),
+  arrow:    I('<line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/>'),
+  wrench:   I('<path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>'),
+  grid:     I('<rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/>'),
+};
+
+/* ============================== dummy data ============================== */
+const ED = {
+  swdev:    { label:'Software Dev', letter:'S', hue:'#2f6fed' },
+  web:      { label:'Web',          letter:'W', hue:'#8b5cf6' },
+  embedded: { label:'Embedded',     letter:'E', hue:'#0ea5a4' },
+  matlab:   { label:'MATLAB',       letter:'M', hue:'#e8721c' },
+  ros2:     { label:'ROS 2',        letter:'R', hue:'#16a34a' },
+  writing:  { label:'Writing',      letter:'B', hue:'#d97757' },
+  latex:    { label:'LaTeX',        letter:'L', hue:'#4f46e5' },
+  pkm:      { label:'PKM',          letter:'P', hue:'#db2777' },
+  base:     { label:'Base (infra)', letter:'B', hue:'#94a3b8' },
+};
+const EDITIONS = Object.keys(ED).filter(k => k !== 'base'); // base never user-facing
+
+/* workspaces: modes mirror start.sh flags */
+const WORKSPACES = [
+  { id:'klimadashboard', edition:'swdev',    running:true,  modes:{ proxy:false, search:'searxng', cbm_ui:true,  offline:false }, start:'web',     last:'yesterday' },
+  { id:'clients-site',   edition:'web',      running:true,  modes:{ proxy:true,  search:'websearch', cbm_ui:false, offline:false }, start:'web',     last:'today' },
+  { id:'thesis-figures', edition:'latex',    running:false, modes:{ proxy:false, search:'none',      cbm_ui:false, offline:true  }, start:'web',     last:'3 days ago' },
+  { id:'pkm-vault',      edition:'pkm',      running:false, modes:{ proxy:false, search:'searxng',   cbm_ui:true,  offline:false }, start:'web',     last:'2 weeks ago' },
+  { id:'firmware-bringup',edition:'embedded',running:true,  modes:{ proxy:false, search:'none',      cbm_ui:false, offline:false, hil:true }, start:'opencode', last:'today' },
+  { id:'robotics-ros2',  edition:'ros2',     running:false, modes:{ proxy:true,  search:'websearch', cbm_ui:true,  offline:false }, start:'web',     last:'last month' },
+];
+
+const VCS = [
+  { name:'github.com/shredingerlabs/oc_sandbox', auth:'SSH key', status:'ok' },
+  { name:'gitlab.company.com/ops/automation',    auth:'Access token', status:'ok' },
+  { name:'git.company.de/kunde-x/docs',          auth:'Access token', status:'expired' },
+];
+const PROVIDERS = [
+  { name:'acme-llm', url:'https://api.acme.ai/v1', credential:'token set', status:'ok' },
+  { name:'ollama-local', url:'http://127.0.0.1:11434', credential:'none needed', status:'ok' },
+  { name:'gwdg-saia', url:'https://chat-ai.academiccloud.de/v1', credential:'orphan credential', status:'warn', legacy:true },
+];
+const CONTAINERS = WORKSPACES.map(w => ({ id:w.id, edition:w.edition, running:w.running, port:w.running ? '127.0.0.1:4096→4096' : '—' }));
+const IMAGES = EDITIONS.map(e => ({ id:e, size:e==='base'?'0':'—', exists:['swdev','web','latex','pkm','base'].includes(e) }));
+
+/* ============================== state / router (hash — file:// safe) ============================== */
+const VARIANTS = ['a','b','c'];
+const VNAMES = { a:'A — Atelier (Claude-ish)', b:'B — Mono (ChatGPT-ish)', c:'C — Signal (edition hues)' };
+const SCREENS = {
+  'ws-open':      'Open',
+  'ws-new':       'New',
+  'set-ws':       'Workspace Settings',
+  'set-vcs':      'VCS Tracker',
+  'set-ai':       'AI-Provider',
+  'set-import':   'Import Workspace',
+  'set-update':   'Update',
+  'set-config':   'Export / Restore Config',
+  'set-images':   'Images: Build / Delete',
+  'set-containers':'Container: Start / Stop / Delete',
+  'set-uninstall':'Uninstall',
+};
+const ADV_ONLY_SCREENS = []; // every screen reachable in both display modes; rows inside are gated
+
+let S = null; // { variant, theme, display, screen }
+function parseHash() {
+  const h = location.hash.replace(/^#/, '').split('/');
+  return {
+    variant: VARIANTS.includes(h[0]) ? h[0] : 'a',
+    theme: h[1] === 'dark' ? 'dark' : 'bright',
+    display: h[2] === 'std' ? 'std' : 'adv',
+    screen: SCREENS[h[3]] ? h[3] : 'ws-open',
+  };
+}
+function go(delta) {
+  const i = VARIANTS.indexOf(S.variant);
+  S.variant = VARIANTS[(i + delta + VARIANTS.length) % VARIANTS.length];
+  writeHash();
+}
+function writeHash() {
+  location.hash = `#${S.variant}/${S.theme}/${S.display}/${S.screen}`;
+}
+const adv = () => S.display === 'adv';
+const chip = (cls, txt) => `<span class="chip ${cls}">${txt}</span>`;
+
+/* ============================== shell ============================== */
+function render() {
+  const app = document.getElementById('app');
+  app.className = `app v-${S.variant}`;
+  app.dataset.theme = S.theme;
+  renderSidebar();
+  renderHeader();
+  const t = SCREENS[S.screen];
+  document.getElementById('screen').innerHTML = T[S.screen]();
+  document.getElementById('footer').innerHTML = footerHTML();
+  document.getElementById('pLabel').textContent = VNAMES[S.variant];
+  document.getElementById('pDisplay').textContent = S.display === 'adv' ? 'Advanced' : 'Standard';
+  document.getElementById('pTheme').textContent = S.theme === 'dark' ? 'Dark' : 'Bright';
+  document.title = `PROTOTYPE · ${VNAMES[S.variant]} · ${t}`;
+}
+
+function sidebarHTML() {
+  const item = (id) => {
+    const c = [];
+    if (id === 'ws-open') c.push(`<span class="count">${WORKSPACES.length}</span>`);
+    if (id === 'set-containers') c.push(`<span class="count">${CONTAINERS.filter(x=>x.running).length} live</span>`);
+    return `<li><button data-nav="${id}" class="${S.screen===id?'active':''}">${icons.grid.replace('width="15" height="15"','width="12" height="12"')}${SCREENS[id]}${c.join('')}</button></li>`;
+  };
+  const open = ['ws-open','ws-new'].includes(S.screen);
+  const so = S.screen.startsWith('set-');
+  return `
+  <div class="brand"><div class="name">oc_sandbox</div><div class="sub">${adv()?'Advanced':'Standard'} workspace</div></div>
+  <div class="tree">
+    <section class="${open?'open':''}">
+      <button class="group" data-fold="w">${icons.folder}Workspace<span class="chev">${icons.arrow}</span></button>
+      <ul ${open?'':'hidden'}>${['ws-open','ws-new'].map(item).join('')}</ul>
+    </section>
+    <section class="${so?'open':''}">
+      <button class="group" data-fold="s">${icons.settings}Settings<span class="chev">${icons.arrow}</span></button>
+      <ul ${so?'':'hidden'}>${['set-ws','set-vcs','set-ai','set-import','set-update','set-config','set-images','set-containers','set-uninstall'].map(item).join('')}</ul>
+    </section>
+  </div>`;
+}
+function renderSidebar() {
+  document.getElementById('sidebar').innerHTML = sidebarHTML();
+}
+function headerHTML() {
+  const t = SCREENS[S.screen];
+  return `
+  <div class="title"><div class="crumb">${S.screen === 'ws-new' ? 'Workspace' : S.screen.startsWith('set-') ? 'Workspace › Settings' : 'Workspace'}</div><h1>${t}</h1></div>
+  <div style="display:flex;align-items:center;gap:8px">
+    <span class="seg" role="group" aria-label="display mode" style="vertical-align:middle">
+      <button data-mode="std" aria-pressed="${!adv()}">Standard</button>
+      <button data-mode="adv" aria-pressed="${adv()}">Advanced</button>
+    </span>
+    <button class="icontoggle" id="themeBtn" title="toggle color mode">${S.theme==='dark'?icons.sun:icons.moon}</button>
+  </div>`;
+}
+function renderHeader() {
+  const h = document.getElementById('header');
+  h.innerHTML = headerHTML();
+  h.style.display = 'flex';
+  h.style.justifyContent = 'space-between';
+  h.style.alignItems = 'flex-start';
+}
+function footerHTML() {
+  const banner = `
+    <span class="btext">${icons.warn} <strong>Update available:</strong> v0.9.3 → <strong>v1.0.0</strong></span>
+    <button class="btn" data-nav="set-update">Open Update</button>
+    <span class="version">oc_sandbox v0.9.3 · WebUI ${VNAMES[S.variant].split(' ')[0]}</span>`;
+  return banner;
+}
+
+/* ============================== modal ============================== */
+function modal(title, body, okLabel, dangerFn) {
+  const root = document.getElementById('modalRoot');
+  root.hidden = false;
+  root.innerHTML = `
+  <div class="overlay" data-close="1">
+    <div class="modal" role="dialog" aria-modal="true">
+      <h3>${icons.warn} ${title}</h3>
+      <p>${body}</p>
+      <div class="actions">
+        <button class="btn ghost" close-modal>Cancel</button>
+        <button class="btn ${dangerFn?'danger solid':'primary'}" id="modalOk">${okLabel}</button>
+      </div>
+    </div>
+  </div>`;
+  root.querySelector('[data-close]').onclick = closeModal;
+  root.querySelector('[close-modal]').onclick = closeModal;
+  root.querySelector('#modalOk').onclick = () => { closeModal(); if (dangerFn) dangerFn(); };
+}
+function closeModal() {
+  const root = document.getElementById('modalRoot');
+  root.hidden = true; root.innerHTML = '';
+}
+
+/* ============================== screen templates ============================== */
+/* workspace card — three deliberately different compositions */
+function wsCardA(w) {
+  const e = ED[w.edition];
+  const modes = [];
+  if (adv()) {
+    if (w.modes.proxy) modes.push(`${icons.shield} proxy`);
+    if (adv() && w.modes.cbm_ui) modes.push(`${icons.search} CBM-UI`);
+    if (w.modes.search !== 'none') modes.push(`${icons.search} ${w.modes.search}`);
+    if (w.modes.offline) modes.push(`${icons.offline} offline`);
+  } else {
+    modes.push(`${icons.search} SearXNG (fixed)`);
+  }
+  if (w.modes.hil) modes.push(`${icons.user} HIL`);
+  return `<div class="card">
+    <div class="tile" style="color:${e.hue}">${e.letter}</div>
+    <div class="body">
+      <div class="name">${w.id} ${w.running ? `<span class="dot" title="container running"></span>` : ''}</div>
+      <div class="meta">
+        <span>${icons.layers}${e.label}</span>
+        <span>${w.running?icons.terminal:icons.globe}${w.start==='web'?'Web start':'OpenCode TUI'}</span>
+        ${modes.map(m=>`<span>${m}</span>`).join('')}
+      </div>
+      <div class="footrow"><span class="lastused">last used ${w.last}</span>
+        <button class="btn" style="margin-left:auto">${icons.play} Open</button>
+      </div>
+    </div>
+  </div>`;
+}
+function wsCardB(w) {
+  const e = ED[w.edition];
+  const kv = [];
+  kv.push(['edition', `<span>${e.label}</span>`]);
+  kv.push(['start', `<span>${w.start==='web'?'Web':'OpenCode TUI'}</span>`]);
+  if (adv()) {
+    kv.push(['search', `<span>${w.modes.search==='none'?'—':w.modes.search}</span>`]);
+    if (w.modes.proxy) kv.push(['proxy', '<span>on</span>']);
+    if (adv() && w.modes.cbm_ui) kv.push(['cbm', '<span>on</span>']);
+    if (w.modes.offline) kv.push(['net', '<span>offline</span>']);
+  } else {
+    kv.push(['search', '<span>SearXNG (fixed)</span>']);
+  }
+  if (w.modes.hil) kv.push(['hil', '<span>on</span>']);
+  return `<div class="card">
+    <div class="tile">${e.letter}</div>
+    <div class="body">
+      <div class="name">${w.id}${w.running?' <span class="dot"></span>':''} <span style="font-weight:400;color:var(--ink2)">· ${e.label}</span></div>
+      <div class="meta">${kv.map(([k,v])=>`<b>${k}</b><span>${v}</span>`).join('')}</div>
+      <div class="footrow">
+        <button class="btn primary">${icons.play} Open</button>
+        <button class="btn ghost" disabled title="per-repo open buttons arrive in V2">${icons.branch} per-repo</button>
+        <span class="lastused">used ${w.last}</span>
+      </div>
+    </div>
+  </div>`;
+}
+function wsCardC(w) {
+  const e = ED[w.edition];
+  const chips = [];
+  chips.push(chip('neutral', `${icons.layers} ${e.label}`));
+  if (adv()) {
+    chips.push(chip('neutral', icons.globe + ' ' + (w.start==='web'?'Web':'TUI')));
+    if (w.modes.search !== 'none') chips.push(chip('neutral', `${icons.search} ${w.modes.search}`));
+    if (w.modes.proxy) chips.push(chip('neutral', `${icons.shield} proxy`));
+    if (adv() && w.modes.cbm_ui) chips.push(chip('neutral', `${icons.search} CBM`));
+    if (w.modes.offline) chips.push(chip('neutral', `${icons.offline} offline`));
+  } else {
+    chips.push(chip('neutral', `${icons.search} SearXNG`));
+  }
+  if (w.modes.hil) chips.push(chip('neutral', `${icons.user} HIL`));
+  return `<div class="card" style="--ed:${e.hue}">
+    <div class="toprow">
+      <div class="tile">${e.letter}</div>
+      <div class="body">
+        <div class="name">${w.id}${w.running?'<span class="dot"></span>':''}</div>
+        <div class="sub">${e.label}</div>
+      </div>
+      <div class="acts">
+        <button class="btn icon" title="workspace settings" data-nav="set-ws">${icons.settings}</button>
+        <button class="btn icon" title="Open">${icons.play}</button>
+      </div>
+    </div>
+    <div class="meta">${chips.join('')}</div>
+    <div class="footrow">
+      <button class="btn">${icons.open} Open workspace</button>
+      <span class="lastused">last used ${w.last}</span>
+    </div>
+  </div>`;
+}
+const WSCARDS = { a: wsCardA, b: wsCardB, c: wsCardC };
+
+const T = {
+  'ws-open'() {
+    const cards = WORKSPACES.map(WSCARDS[S.variant]).join('');
+    return `
+    <div class="pagehead"><div>
+      <h2 style="font-size:15px;margin-bottom:4px">Registered workspaces</h2>
+      <div class="desc">Open a workspace to bring its container up and jump into your ${adv()?'': '<b>web</b> '}${adv()?'start mode of choice':'web service'}.</div>
+    </div></div>
+    <div class="grid">${cards}</div>
+    ${bannerRow(`
+      ${icons.branch} <b>V2 note:</b> per-repo Open buttons (multiple repos inside one workspace) arrive in a later version.
+      This mockup shows the position only.`)}
+    `;
+  },
+
+  'ws-new'() {
+    const edChips = EDITIONS.map(e =>
+      `<button aria-pressed="${e==='swdev'}"><i style="--ed:${ED[e].hue}"></i>${e}</button>`).join('');
+    const advRows = adv() ? `
+      <div style="margin-top:14px">
+        <div class="mono" style="opacity:.7;margin-bottom:6px">START OPTION</div>
+        <div class="edotsel">
+          <button aria-pressed="true">${icons.globe} Web</button>
+          <button>${icons.terminal} OpenCode TUI</button>
+        </div>
+      </div>
+      <div style="margin-top:14px">
+        <div class="mono" style="opacity:.7;margin-bottom:6px">MODES</div>
+        <div class="edotsel">
+          <button>${icons.shield} use proxy</button>
+          <button aria-pressed="true">${icons.search} SearXNG</button>
+          <button>${icons.offline} offline</button>
+          ${adv()?`<button disabled style="opacity:.35" title="project kind, not an edition row — shown for completeness only">${icons.user} chat agent</button>`:''}
+          <button aria-pressed="true">${icons.search} CBM-UI</button>
+          <button disabled style="opacity:.35" title="HIL mode needs the embedded edition">${icons.user} HIL</button>
+        </div>
+      </div>` : `
+      <div style="margin-top:14px;color:var(--ink2);font-size:12px">Standard: edition is the only choice here — modes stay managed (SearXNG always on, web start).</div>`;
+    return `
+    <div class="pagehead"><div>
+      <h2 style="font-size:15px;margin-bottom:4px">Create a workspace</h2>
+      <div class="desc">A workspace is a folder you work in across sessions. The wizard records edition${adv()?', modes and start option':''} once; changes apply on next start.</div>
+    </div></div>
+    <div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(280px,1fr))">
+      <div class="bigtile"><span class="bt-t"><i>${icons.plus}</i>Blank</span>
+        <span class="bt-d">Empty folder, seeded by the init script. Pick an edition below — the image is built on create (Build now) or deferred (Build later).</span>
+        <div><button class="btn">${icons.play} Create blank workspace</button></div>
+      </div>
+      <div class="bigtile"><span class="bt-t"><i style="--bt:#16a34a">${icons.branch}</i>From Repo</span>
+        <span class="bt-d">Clone an existing repository from your VCS tracker into the new workspace folder. Credentials come from the tracker entry.</span>
+        <div><button class="btn ghost">${icons.branch} Create from repo</button></div>
+      </div>
+    </div>
+    <div class="panel" style="margin-top:18px">
+      <div class="row"><div class="ic" style="color:var(--ink)">${icons.layers}</div>
+        <div class="rl"><div class="t">Edition</div><div class="s">Container image for this workspace. Base is infrastructure-only and never offered.</div>
+          <div class="edotsel" style="margin-top:9px">${edChips}</div></div>
+      </div>
+      ${advRows}
+    </div>
+    ${bannerRow(`${icons.warn} <b>V2 note:</b> Multi-Repo — several repos as subfolders of one workspace folder — is <b>designed for, not built</b> in this version.`)}
+    `;
+  },
+
+  'set-ws'() {
+    const w = WORKSPACES[0]; const e = ED[w.edition];
+    const advRows = adv() ? `
+      <div class="row"><div class="ic"><span style="color:${e.hue}">${icons.layers}</span></div>
+        <div class="rl"><div class="t">Edition</div><div class="s">Current: ${e.label}. Switching takes effect on next start (image must exist).</div>
+          <div class="edotsel" style="margin-top:8px">${EDITIONS.map(x=>`<button aria-pressed="${x===w.edition}"><i style="--ed:${ED[x].hue}"></i>${x}</button>`).join('')}</div></div></div>
+      <div class="row"><div class="ic">${icons.globe}</div>
+        <div class="rl"><div class="t">Start option</div><div class="s">What "Open" launches.</div>
+          <div class="edotsel" style="margin-top:8px">
+            <button aria-pressed="${w.start==='web'}">${icons.globe} Web</button>
+            <button aria-pressed="${w.start==='opencode'}">${icons.terminal} OpenCode TUI</button>
+          </div></div></div>
+      <div class="row"><div class="ic">${icons.shield}</div>
+        <div class="rl"><div class="t">Proxy (use_proxy)</div><div class="s">Route container traffic through the squid allowlist proxy.</div></div>
+        <div class="rc"><button class="switch" aria-pressed="${w.modes.proxy}"></button></div></div>
+      <div class="row"><div class="ic">${icons.search}</div>
+        <div class="rl"><div class="t">Search mode</div><div class="s">none · websearch · searxng. ${w.modes.search==='searxng'?'SearXNG runs as a companion service.':''}</div>
+          <div class="edotsel" style="margin-top:8px">${['none','websearch','searxng'].map(m=>`<button aria-pressed="${m===w.modes.search}">${m}</button>`).join('')}</div></div></div>
+      <div class="row"><div class="ic">${icons.search}</div>
+        <div class="rl"><div class="t">CBM-UI</div><div class="s">Codebase-memory graph UI alongside the workspace (needs network).</div></div>
+        <div class="rc"><button class="switch" aria-pressed="${w.modes.cbm_ui}"></button></div></div>
+      <div class="row"><div class="ic">${icons.offline}</div>
+        <div class="rl"><div class="t">Offline</div><div class="s">--network=none: no web access, no provider APIs.</div></div>
+        <div class="rc"><button class="switch" aria-pressed="${w.modes.offline}"></button></div></div>
+      ${w.modes.hil?`<div class="row"><div class="ic">${icons.user}</div>
+        <div class="rl"><div class="t">HIL mode</div><div class="s">Human-in-the-loop gates on every agent action (embedded edition).</div></div>
+        <div class="rc"><button class="switch" aria-pressed="true"></button></div></div>`:''}` : `
+      <div class="row"><div class="ic">${icons.user}</div>
+        <div class="rl"><div class="t">Standard view</div><div class="s">Edition, modes, start option, proxy and CBM live in Advanced view.
+        Search is fixed to SearXNG; HIL appears only on the embedded edition.</div></div></div>`;
+    return `
+    <div class="pagehead"><div>
+      <h2 style="font-size:15px;margin-bottom:4px">${chip('neutral', `${icons.layers} ${e.label}`)} klimadashboard</h2>
+      <div class="desc">Changes apply on <b>next start</b> — a running workspace keeps its current settings until stopped.</div>
+    </div></div>
+    <div class="panel">
+      <div class="row"><div class="ic">${icons.spark}</div>
+        <div class="rl"><div class="t">AI-Provider</div><div class="s">acme-llm · token set. Provider entries live in the workspace's opencode.json; the list itself is managed globally.</div></div>
+        <div class="rc"><button class="btn ghost" data-nav="set-ai">Manage…</button></div></div>
+      <div class="row"><div class="ic">${icons.branch}</div>
+        <div class="rl"><div class="t">VCS Tracking</div><div class="s">Linked to github.com/shredingerlabs via tracker credential kunde-x-key.</div></div>
+        <div class="rc"><button class="btn ghost" data-nav="set-vcs">Tracker…</button> <button class="switch" aria-pressed="true"></button></div></div>
+      ${advRows}
+      <div class="row" style="border-top:2px solid var(--hairline);margin-top:4px">
+        <div class="ic" style="color:var(--danger)">${icons.trash}</div>
+        <div class="rl"><div class="t" style="color:var(--danger)">Remove workspace</div>
+          <div class="s">Unregisters the workspace; container and folders stay. Real deletion is the container-flow job.</div></div>
+        <div class="rc"><button class="btn danger-ghost">Remove…</button></div></div>
+    </div>`;
+  },
+
+  'set-vcs'() {
+    const rows = VCS.map(v => `
+      <div class="row"><div class="ic" style="${v.status==='expired'?'color:var(--danger)':''}">${icons.branch}</div>
+        <div class="rl"><div class="t" style="${v.status==='expired'?'':'font-weight:600'}">${v.name}</div>
+          <div class="s">${v.auth}</div></div>
+        <div class="rc">${v.status==='ok'?chip('ok',`<span class="dot2"></span> authenticated`):chip('bad',`<span class="dot2"></span> expired — re-login`)}
+          <button class="btn ghost">Edit</button></div></div>`).join('');
+    return `
+    <div class="pagehead"><div>
+      <h2 style="font-size:15px;margin-bottom:4px">VCS tracker credentials</h2>
+      <div class="desc">Global list. Workspaces reuse these credentials for clone/push; one credential per named host identity.</div>
+    </div>
+    <button class="btn">${icons.plus} Add credential</button></div>
+    <div class="panel">${rows}</div>`;
+  },
+
+  'set-ai'() {
+    const rows = PROVIDERS.map(p => `
+      <div class="row"><div class="ic">${icons.spark}</div>
+        <div class="rl"><div class="t">${p.name}${p.legacy?' <span class="chip warn">legacy entry</span>':''}</div>
+          <div class="s mono">${p.url} — ${p.credential}</div></div>
+        <div class="rc">${p.status==='ok'?chip('ok',`<span class="dot2"></span> ready`):chip('bad',`<span class="dot2"></span> ${p.credential}${p.legacy?' · read-only':''}`)}
+          <button class="btn ghost"${p.legacy?' title="legacy: entries lacking a credential render read-only" disabled':''}>Edit</button></div></div>`).join('');
+    return `
+    <div class="pagehead"><div>
+      <h2 style="font-size:15px;margin-bottom:4px">AI providers</h2>
+      <div class="desc">OpenAI-compatible endpoints any workspace can select. Which provider's models run is chosen inside OpenCode, not here.</div>
+    </div>
+    <button class="btn">${icons.plus} Add provider</button></div>
+    <div class="panel">${rows}</div>`;
+  },
+
+  'set-import'() {
+    return `
+    <div class="pagehead"><div>
+      <h2 style="font-size:15px;margin-bottom:4px">Import a workspace</h2>
+      <div class="desc">Bring an exported workspace (config + registry entry${adv()?', sandbox_config.json':''}) back, or adopt an existing folder without re-running init.</div>
+    </div></div>
+    <div class="drop" style="max-width:640px">
+      ${icons.upload}<div class="big">Drop the workspace export here</div>
+      <div>or</div>
+      <div style="margin-top:8px"><button class="btn ghost">Browse…</button></div>
+    </div>
+    <div class="panel" style="margin-top:16px;max-width:640px"><div class="row">
+      <div class="ic">${icons.check}</div>
+      <div class="rl"><div class="t">What gets imported</div>
+        <div class="s">workspace name &amp; edition${adv()?' · modes · start option':''} · registered VCS link · provider selection. Credentials are <b>not</b> carried — re-link at first open.</div></div></div></div>`;
+  },
+
+  'set-update'() {
+    return `
+    ${bannerRow(`${icons.update} An update is available — the same banner lives in the <b>footer of every page</b> (your current footer at the bottom of this screen is the real thing). <button class="btn" style="margin-left:6px">Open Update</button>`)}
+    <div class="pagehead"><div>
+      <h2 style="font-size:15px;margin-bottom:4px">Update oc_sandbox</h2>
+      <div class="desc">The host serves everything from dist/ — an update swaps dist/ and restarts the WebUI service.</div>
+    </div></div>
+    <div class="panel" style="max-width:720px">
+      <div class="row"><div class="ic">${icons.box}</div>
+        <div class="rl"><div class="t">Current version</div><div class="s mono">v0.9.3 · installed via install script · WebUI from dist/</div></div>
+        <div class="rc"><button class="btn ghost">Check now</button></div></div>
+      <div class="row"><div class="ic">${icons.update}</div>
+        <div class="rl"><div class="t">Latest release</div>
+          <div class="s">v1.0.0 — WebUI as main UI · Workspace rename with migration · always-on OpenCode web access</div>
+          <div class="prog" style="margin-top:9px;max-width:320px"><i></i></div>
+          <div class="s mono" style="margin-top:5px;color:var(--ink2)">downloading dist bundle… 38%</div></div>
+        <div class="rc"><button class="btn">${icons.download} Update</button></div></div>
+      <div class="row"><div class="ic">${icons.warn}</div>
+        <div class="rl"><div class="t">During the update</div><div class="s">self-update behavior (browser usability mid-update, server restart) is <b>deliberately unresolved</b> — see the map's "Not yet specified".</div></div></div>
+    </div>`;
+  },
+
+  'set-config'() {
+    return `
+    <div class="pagehead"><div>
+      <h2 style="font-size:15px;margin-bottom:4px">Configuration export &amp; restore</h2>
+      <div class="desc">One file carrying the global config: registry${adv()?', display mode,':''} credentials locations, provider list, tracker list.</div>
+    </div></div>
+    <div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(300px,1fr))">
+      <div class="bigtile"><span class="bt-t"><i>${icons.download}</i>Export config</span>
+        <span class="bt-d">Saves oc_sandbox config as JSON. Workspace folders and containers stay untouched — move workspaces with <b>Import Workspace</b>.</span>
+        <div><button class="btn">${icons.download} Export…</button></div></div>
+      <div class="bigtile"><span class="bt-t"><i style="--bt:#e8721c">${icons.upload}</i>Restore config</span>
+        <span class="bt-d">Overwrites the current config from a file. A safety copy of the live config is kept next to it (config.json.bak).</span>
+        <div><button class="btn ghost">Choose file…</button></div></div>
+    </div>`;
+  },
+
+  'set-images'() {
+    const rows = IMAGES.map(im => {
+      const e = ED[im.id];
+      return `<div class="row" ${im.exists?'':`style="opacity:.78"`}>
+        <div class="ic" style="color:#fff;background:${e.hue}">${e.letter}</div>
+        <div class="rl"><div class="t">${e.label}</div>
+          <div class="s mono">opencode-sandbox-${im.id} · ${im.exists?'image present · 412 MB':'image missing — build to use'}</div></div>
+        <div class="rc">${chip(im.exists?'ok':'neutral', im.exists?'installed':'missing')}
+          <button class="btn ghost" ${im.exists?'disabled':''}>${icons.play} Build</button>
+          <button class="btn danger-ghost" ${im.exists?'':'disabled'}>${icons.trash} Delete</button></div></div>`;
+    }).join('');
+    return `
+    <div class="pagehead"><div>
+      <h2 style="font-size:15px;margin-bottom:4px">Container images</h2>
+      <div class="desc">Edition images from the Dockerfile stage registry (runtime detection). Delete is a confirm-dialog action like container delete.</div>
+    </div>
+    <button class="btn ghost">${icons.update} Re-check runtime</button></div>
+    <div class="panel">${rows}</div>`;
+  },
+
+  'set-containers'() {
+    const rows = CONTAINERS.map(c => {
+      const e = ED[c.edition];
+      return `<div class="row"><div class="ic" style="color:#fff;background:${e.hue}">${e.letter}</div>
+        <div class="rl"><div class="t">${c.id}</div>
+          <div class="s mono">${e.label} · port ${c.running ? c.port : 'not listening'}</div></div>
+        <div class="rc">${c.running?chip('ok',`<span class="dot2"></span> running`):chip('neutral','stopped')}
+          ${c.running
+            ? `<button class="btn ghost" data-stop="${c.id}">${icons.stop} Stop</button>`
+            : `<button class="btn ghost">${icons.play} Start</button>`}
+          <button class="btn danger-ghost" data-del="${c.id}">${icons.trash} Delete</button></div></div>`;
+    }).join('');
+    return `
+    <div class="pagehead"><div>
+      <h2 style="font-size:15px;margin-bottom:4px">Container center</h2>
+      <div class="desc">One list, three actions. Stop and delete confirm <b>always</b> — a stopped container is never killed, a delete never silent.</div>
+    </div>
+    <button class="btn ghost">${icons.update} Refresh</button></div>
+    <div class="panel">${rows}</div>`;
+  },
+
+  'set-uninstall'() {
+    return `
+    <div class="pagehead"><div>
+      <h2 style="font-size:15px;margin-bottom:4px">Uninstall</h2>
+      <div class="desc">Removes oc_sandbox itself: images, WebUI service, install folder, bin entry.</div>
+    </div></div>
+    <div class="panel dangerzone" style="max-width:680px;border:1.5px solid var(--danger)">
+      <div class="row"><div class="ic" style="color:var(--danger)">${icons.warn}</div>
+        <div class="rl"><div class="t" style="color:var(--danger)">What is removed</div>
+          <div class="s">container images · WebUI service &amp; binary · install folder. <b>Workspace folders</b> stay unless you tick them below (they're your work).</div></div></div>
+      <div class="row"><div class="ic">${icons.trash}</div>
+        <div class="rl"><div class="t">Also delete workspace folders</div><div class="s">Irrecoverable. Default: keep.</div></div>
+        <div class="rc"><button class="switch"></button></div></div>
+      <div class="row"><div class="rl"></div>
+        <div class="rc"><button class="btn danger solid" onclick="modal('Uninstall oc_sandbox?','This removes images, WebUI service, bin entry and the install folder. Workspace folders stay unless you enabled deletion above. This cannot be undone.','Uninstall',()=>{})">${icons.trash} Uninstall…</button></div></div>
+    </div>`;
+  },
+};
+function bannerRow(inner) { return `<div class="bannerrow">${inner}</div>`; }
+
+/* ============================== events ============================== */
+document.addEventListener('click', (ev) => {
+  const t = ev.target.closest('button');
+  if (!t) return;
+  if (t.id === 'themeBtn') { S.theme = S.theme === 'dark' ? 'bright' : 'dark'; writeHash(); render(); return; }
+  if (t.dataset.nav) { S.screen = t.dataset.nav; document.getElementById('sidebar').scrollTop = 0; writeHash(); render(); return; }
+  if (t.dataset.mode) { S.display = t.dataset.mode; writeHash(); render(); return; }
+  if (t.dataset.stop) { modal(`Stop “${t.dataset.stop}”?`, `The workspace container will shut down. Unsaved agent sessions end with it — OpenCode is stopped, not killed.`,'Stop container', ()=>{}); return; }
+  if (t.dataset.del) { modal(`Delete “${t.dataset.del}”?`, `Removes the container${adv()?' (and pod when pod networking is active)':''} and unregisters the workspace. Workspace folders are kept.`,'Delete container', ()=>{}); return; }
+  if (t.dataset.fold) {
+    const sec = t.closest('section');
+    sec.classList.toggle('open');
+    sec.querySelector('ul').hidden = !sec.classList.contains('open');
+    return;
+  }
+  if (t.closest('.switch')) t.setAttribute('aria-pressed', t.getAttribute('aria-pressed') !== 'true');
+  if (t.closest('.edotsel')) {
+    [...t.parentElement.children].forEach(b => b.setAttribute('aria-pressed', 'false'));
+    t.setAttribute('aria-pressed', 'true');
+  }
+});
+document.getElementById('pPrev').onclick = () => go(-1);
+document.getElementById('pNext').onclick = () => go(1);
+document.getElementById('pTheme').onclick = () => { S.theme = S.theme === 'dark' ? 'bright' : 'dark'; writeHash(); render(); };
+document.getElementById('pDisplay').onclick = () => { S.display = S.display === 'adv' ? 'std' : 'adv'; writeHash(); render(); };
+document.addEventListener('keydown', (ev) => {
+  if (['INPUT','TEXTAREA'].includes(document.activeElement?.tagName) || document.activeElement?.isContentEditable) return;
+  if (ev.key === 'ArrowLeft') go(-1);
+  if (ev.key === 'ArrowRight') go(1);
+});
+window.addEventListener('hashchange', () => { const n = parseHash();
+  if (n.variant !== S.variant || n.screen !== S.screen || n.theme !== S.theme || n.display !== S.display) { S = n; render(); } });
+
+S = parseHash();
+render();
+</script>
+</body>
+</html>
