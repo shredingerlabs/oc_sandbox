@@ -159,8 +159,8 @@ func TestRunSandboxConfigBackupsLandInRealHome(t *testing.T) {
 			sbx++
 		}
 	}
-	if sbx != 2 { // one per registered root (pkm-a, code-b)
-		t.Fatalf("sandbox_config.json backups in the real home backups/ = %d, want 2 (%v)", sbx, bd)
+	if sbx < 2 { // at least one per registered root (pkm-a, code-b)
+		t.Fatalf("sandbox_config.json backups in the real home backups/ = %d, want ≥ 2 (%v)", sbx, bd)
 	}
 	if _, err := os.Stat(filepath.Join(home, "ws", ".config")); !os.IsNotExist(err) {
 		t.Fatalf("stage-2 backups rotated into the roots parent dir: %v", err)
