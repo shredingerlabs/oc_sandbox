@@ -93,8 +93,9 @@ func TestOpenWebUIButtonFailureKeepsURLVisible(t *testing.T) {
 	}
 }
 
-// The click rects must match the painted layout: buttons on row 4, the
-// rect x-ranges inside the rendered (color-code-free) cells.
+// The click rects must match the painted layout: buttons on view row 2
+// (altscreen: also screen row 2), the rect x-ranges inside the rendered
+// (color-code-free) cells.
 func TestClickRectsMatchRenderedLayout(t *testing.T) {
 	m, _, _ := fixture(t, nil)
 	v := m.View()
@@ -178,7 +179,7 @@ func podList(fake *cmdrun.Fake, running string) {
 }
 
 // Quit with oc-sandbox containers running opens the containers prompt
-// (spec §4: "Stop running containers before quitting? [y/N]").
+// (three buttons: Yes, No (default), Cancel).
 func TestQuitWithRunningContainersPrompts(t *testing.T) {
 	m, _, fake := fixture(t, nil)
 	podList(fake, "opencode-sandbox-abc123456789\n")
@@ -189,12 +190,12 @@ func TestQuitWithRunningContainersPrompts(t *testing.T) {
 	if m.QuitRequested() {
 		t.Fatal("prompt did not hold the quit")
 	}
-	if !strings.Contains(m.View(), "Stop running containers before quitting? [y/N]") {
+	if !strings.Contains(m.View(), "Stop 1 oc-sandbox container(s) before quitting?") {
 		t.Error("prompt text missing from the face")
 	}
 }
 
-// esc cancels the whole quit — back to the face, nothing stopped.
+// Quit with running oc-sandbox containers opens the containers prompt.
 func TestQuitPromptEscCancels(t *testing.T) {
 	m, _, fake := fixture(t, nil)
 	podList(fake, "opencode-sandbox-abc123456789\n")
@@ -298,5 +299,129 @@ func TestQuitPromptStopFailureHoldsQuit(t *testing.T) {
 	}
 	if !strings.Contains(m.View(), "Stopping containers failed") {
 		t.Error("stop failure not shown on the face")
+	}
+}
+
+// The containers prompt renders Yes / No / Cancel buttons with their
+// click rects on the painted button row; focus starts on No.
+func TestQuitPromptButtonsRenderedWithRects(t *testing.T) {
+	m, _, fake := fixture(t, nil)
+	podList(fake, "opencode-sandbox-abc123456789\n")
+	m.Update(keyRunes("q"))
+	rows := strings.Split(m.View(), "\n")
+	row := rows[m.promptYesRect.y]
+	for _, want := range []string{"[ Yes ]", "[ No ]", "[ Cancel ]"} {
+		if !strings.Contains(row, want) {
+			t.Errorf("prompt button row missing %q (row %d: %q)", want, m.promptYesRect.y, row)
+		}
+	}
+	if m.promptYesRect.y != m.promptNoRect.y || m.promptNoRect.y != m.promptCancelRect.y {
+		t.Fatal("prompt buttons share one row")
+	}
+	if strings.Contains(row[:m.promptYesRect.x], "No") || strings.Contains(row[:m.promptYesRect.x], "Cancel") {
+		t.Fatal("Yes is not the leftmost prompt button")
+	}
+}
+
+// Prompt keys: tab cycles the focus (Yes → No → Cancel), enter activates
+// the focused button.
+func TestQuitPromptFocusCycleAndActivate(t *testing.T) {
+	m, _, fake := fixture(t, nil)
+	podList(fake, "opencode-sandbox-abc123456789\n")
+	m.Update(keyRunes("q"))
+
+	// focus starts on No: enter quits, leaves containers running
+	m.Update(keyT(tea.KeyEnter))
+	if !m.QuitRequested() {
+		t.Fatal("enter on the initial focus (No) did not quit")
+	}
+	for _, c := range fake.Calls {
+		if c.Name == "podman" && c.Args[0] == "stop" {
+			t.Fatal("No (default) stopped containers")
+		}
+	}
+
+	// one tab from No lands on Cancel: enter cancels, quit stays held
+	m2, _, fake2 := fixture(t, nil)
+	podList(fake2, "opencode-sandbox-abc123456789\n")
+	m2.Update(keyRunes("q"))
+	m2.Update(keyT(tea.KeyTab))
+	_, cmd := m2.Update(keyT(tea.KeyEnter))
+	if m2.QuitRequested() || cmd != nil {
+		t.Fatal("enter on Cancel quit or produced a cmd")
+	}
+	if m2.QuitPrompt() {
+		t.Fatal("enter on Cancel did not close the prompt")
+	}
+
+	// two tabs from No wrap to Yes: enter arms the graceful stop
+	m3, _, fake3 := fixture(t, nil)
+	podList(fake3, "opencode-sandbox-abc123456789\n")
+	m3.Update(keyRunes("q"))
+	m3.Update(keyT(tea.KeyTab))
+	m3.Update(keyT(tea.KeyTab))
+	_, cmd = m3.Update(keyT(tea.KeyEnter))
+	if m3.QuitRequested() {
+		t.Fatal("Yes quit before the stop finished")
+	}
+	if cmd == nil {
+		t.Fatal("enter on Yes produced no stop cmd")
+	}
+}
+
+// Mouse clicks on the prompt buttons answer the question: No quits
+// (default), Cancel backs out, Yes arms the stop.
+func TestQuitPromptButtonsMouseClicks(t *testing.T) {
+	newPrompt := func(t *testing.T) *Model {
+		t.Helper()
+		m, _, fake := fixture(t, nil)
+		podList(fake, "opencode-sandbox-abc123456789\n")
+		m.Update(keyRunes("q"))
+		m.View() // paint once: the click rects exist after render
+		return m
+	}
+
+	mNo := newPrompt(t)
+	mNo.Update(tea.MouseMsg{Action: tea.MouseActionPress, Button: tea.MouseButtonLeft,
+		X: mNo.promptNoRect.x, Y: mNo.promptNoRect.y})
+	if !mNo.QuitRequested() {
+		t.Fatal("clicking No did not quit")
+	}
+
+	mCancel := newPrompt(t)
+	mCancel.Update(tea.MouseMsg{Action: tea.MouseActionPress, Button: tea.MouseButtonLeft,
+		X: mCancel.promptCancelRect.x, Y: mCancel.promptCancelRect.y})
+	if mCancel.QuitPrompt() || mCancel.QuitRequested() {
+		t.Fatal("clicking Cancel did not cancel")
+	}
+
+	mYes := newPrompt(t)
+	_, cmd := mYes.Update(tea.MouseMsg{Action: tea.MouseActionPress, Button: tea.MouseButtonLeft,
+		X: mYes.promptYesRect.x, Y: mYes.promptYesRect.y})
+	if cmd == nil {
+		t.Fatal("clicking Yes returned no stop cmd")
+	}
+	if mYes.QuitRequested() {
+		t.Fatal("Yes quit before the stop finished")
+	}}
+
+// The guarded exit gets a Cancel button that cancels like any key.
+func TestGuardedExitCancelButtonMouseClick(t *testing.T) {
+	m, _, _ := fixture(t, nil)
+	busy := true
+	m.opts.Busy = func() bool { return busy }
+
+	m.Update(keyRunes("q"))
+	if !m.ExitPending() {
+		t.Fatal("busy Quit did not raise the guard")
+	}
+	v := m.View()
+	if !strings.Contains(v, "[ Cancel ]") {
+		t.Fatal("guarded exit missing the Cancel button")
+	}
+	m.Update(tea.MouseMsg{Action: tea.MouseActionPress, Button: tea.MouseButtonLeft,
+		X: m.guardCancelRect.x, Y: m.guardCancelRect.y})
+	if m.ExitPending() {
+		t.Fatal("clicking Cancel did not cancel the guard")
 	}
 }

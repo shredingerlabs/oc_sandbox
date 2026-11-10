@@ -48,17 +48,21 @@ func (r rect) hit(x, y int) bool {
 // Model is the tea.Model for the launcher face. Update has a pointer
 // receiver: quit-flow state mutates across messages.
 type Model struct {
-	opts          Options
-	focus         int // 0 = Open WebUI, 1 = Quit
-	openRect      rect
-	quitRect      rect
-	openFailed    bool
-	exitPending   bool // guarded exit is up: press Quit again
-	prompt        bool // containers prompt open
-	stopNames     []string
-	quitRequested bool
-	stopErr       error
-	exitStatus    int // 0 clean, 130 ctrl+c (story 28 SIGINT parity)
+	opts Options
+	focus int // 0 = Open WebUI, 1 = Quit
+	openRect, quitRect rect
+	promptFocus   int // during the containers prompt: 0 = Yes, 1 = No (default), 2 = Cancel
+	promptYesRect,
+	promptNoRect,
+	promptCancelRect rect
+	guardCancelRect rect // guarded exit's Cancel button
+	openFailed       bool
+	exitPending      bool // guarded exit is up: press Quit again
+	prompt           bool // containers prompt open
+	stopNames        []string
+	quitRequested    bool
+	stopErr          error
+	exitStatus       int // 0 clean, 130 ctrl+c (story 28 SIGINT parity)
 }
 
 // New builds the launcher face.
@@ -141,6 +145,26 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updateKey(msg)
 	case tea.MouseMsg:
 		if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft {
+			// While the containers prompt or guarded exit owns the
+			// bottom row, only its buttons respond (keyboard parity:
+			// the same states consume all other keys).
+			if m.prompt {
+				if m.promptYesRect.hit(msg.X, msg.Y) {
+					return m, m.answerYes()
+				}
+				if m.promptNoRect.hit(msg.X, msg.Y) {
+					return m, m.answerNo()
+				}
+				if m.promptCancelRect.hit(msg.X, msg.Y) {
+					m.prompt = false
+					return m, nil
+				}
+				return m, nil
+			}
+			if m.exitPending && m.guardCancelRect.hit(msg.X, msg.Y) {
+				m.exitPending = false
+				return m, nil
+			}
 			if m.openRect.hit(msg.X, msg.Y) {
 				return m, m.cmdOpen()
 			}
@@ -164,17 +188,18 @@ func (m *Model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	if m.prompt { // containers prompt consumes everything else
-		switch strings.ToLower(msg.String()) {
-		case "y":
-			m.prompt = false
-			return m, m.cmdStop()
-		case "n", "enter":
-			m.prompt = false
-			m.quitRequested = true
-			return m, tea.Quit // default: leave running
-		case "esc":
+		switch s := strings.ToLower(msg.String()); {
+		case s == "y":
+			return m, m.answerYes()
+		case s == "n":
+			return m, m.answerNo() // shortcut: leave them running
+		case s == "esc":
 			m.prompt = false // esc cancels the whole quit
 			return m, nil
+		case s == "enter" || s == " ":
+			return m, m.answerPrompt() // activates the focused button
+		case s == "tab" || s == "right" || s == "left" || s == "shift+tab":
+			m.promptFocus = (m.promptFocus + 1) % 3 // Yes, No, Cancel …
 		}
 		return m, nil
 	}
@@ -242,7 +267,36 @@ func (m *Model) askContainers() tea.Cmd {
 	}
 	m.stopNames = names
 	m.prompt = true
+	m.promptFocus = 1 // No is the default: leave them running
 	return nil
+}
+
+// answerPrompt activates the currently focused prompt button.
+func (m *Model) answerPrompt() tea.Cmd {
+	switch m.promptFocus {
+	case 0:
+		return m.answerYes()
+	case 2:
+		m.prompt = false
+		return nil
+	default:
+		return m.answerNo()
+	}
+}
+
+// answerYes stops the containers, then quits; a stop failure surfaces
+// through stopDoneMsg and aborts the quit (Quit can retry).
+func (m *Model) answerYes() tea.Cmd {
+	m.prompt = false
+	return m.cmdStop()
+}
+
+// answerNo quits right away, leaving the containers running (the prompt
+// default, glossary: detached containers outlive the launcher).
+func (m *Model) answerNo() tea.Cmd {
+	m.prompt = false
+	m.quitRequested = true
+	return tea.Quit
 }
 
 func (m *Model) cmdStop() tea.Cmd {
@@ -286,19 +340,49 @@ func (m *Model) View() string {
 		b.WriteString(warnStyle.Render(" WebUI: (not running)") + "\n\n")
 	}
 
+	// The status row (row 6) and the prompt's button row (row 7, only
+	// rendered together with its question) share the bottom area; their
+	// click rects derive from the same painted layout.
+	const promptBtnRow = 7
 	switch {
 	case m.prompt:
 		b.WriteString(warnStyle.Render(fmt.Sprintf(
-			"Stop running containers before quitting? [y/N] — %d oc-sandbox container(s) running (esc cancels, enter leaves them running)",
+			"Stop %d oc-sandbox container(s) before quitting? (esc cancels)",
 			len(m.stopNames))) + "\n")
+		yes, no, cancel := "[ Yes ]", "[ No ]", "[ Cancel ]"
+		yesX, yesW := 1, len(yes)
+		noX := yesX + yesW + 3
+		cancelX := noX + len(no) + 3
+		m.promptYesRect = rect{x: yesX, y: promptBtnRow, w: yesW}
+		m.promptNoRect = rect{x: noX, y: promptBtnRow, w: len(no)}
+		m.promptCancelRect = rect{x: cancelX, y: promptBtnRow, w: len(cancel)}
+		buttons := strings.Repeat(" ", yesX) +
+			renderButton(yes, m.promptFocus == 0) +
+			strings.Repeat(" ", noX-yesX-yesW) +
+			renderButton(no, m.promptFocus == 1) +
+			strings.Repeat(" ", cancelX-noX-len(no)) +
+			renderButton(cancel, m.promptFocus == 2)
+		b.WriteString(buttons + "\n")
 	case m.exitPending:
 		b.WriteString(warnStyle.Render("Background work is running — press Quit again to quit (esc cancels)") + "\n")
+		cancel := "[ Cancel ]"
+		m.guardCancelRect = rect{x: 1, y: promptBtnRow, w: len(cancel)}
+		b.WriteString(strings.Repeat(" ", 1) + renderButton(cancel, false) + "\n")
 	case m.stopErr != nil:
 		b.WriteString(warnStyle.Render("Stopping containers failed: "+m.stopErr.Error()) + "\n")
 	case m.openFailed:
 		b.WriteString(warnStyle.Render("Could not open a browser — copy the URL above") + "\n")
 	}
 	return b.String()
+}
+
+// renderButton paints one bracket button with the face's local styles
+// (focused = accent, idle = dimmed).
+func renderButton(label string, focused bool) string {
+	if focused {
+		return focusedStyle.Render(label)
+	}
+	return idleStyle.Render(label)
 }
 
 // palette — local to the launcher so the parity-gate flip deleting the
