@@ -296,8 +296,8 @@
     if (!box) return;
     var label = kind === "stop" ? "Stop this workspace?" : "Delete this workspace?";
     box.innerHTML =
-      '<span class="confirm" data-confirm-row="' + kind + '">' +
-      '<span class="confirm-label">' + label + '</span>' +
+      '<span class="card-confirm" data-confirm-row="' + kind + '">' +
+      '<span class="card-confirm-label">' + label + '</span>' +
       '<button class="btn danger" data-act="confirm-' + kind + '">Confirm</button>' +
       '<button class="btn" data-act="cancel-confirm">Cancel</button>' +
       '</span>';

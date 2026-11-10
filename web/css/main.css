@@ -150,9 +150,9 @@ body { background:var(--bg); color:var(--ink);
 .btn:hover { filter:brightness(1.1); }
 .btn.danger { background:none; border:1px solid var(--danger); color:var(--danger); }
 .confirms { display:flex; gap:8px; }
-.confirm { display:flex; align-items:center; gap:8px; background:var(--surface2);
+.card-confirm { display:flex; align-items:center; gap:8px; background:var(--surface2);
   border:1px solid var(--hairline); border-radius:8px; padding:6px 10px; flex-wrap:wrap; }
-.confirm-label { font-size:13px; font-weight:600; }
+.card-confirm-label { font-size:13px; font-weight:600; }
 .busy { color:var(--ink2); font-size:12.5px; font-style:italic; }
 .oplog { background:var(--bg); border:1px solid var(--hairline); border-radius:8px;
   font:12px/1.5 ui-monospace, monospace; color:var(--ink2); padding:8px 10px;
