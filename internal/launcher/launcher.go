@@ -87,6 +87,26 @@ func (m *Model) QuitPrompt() bool { return m.prompt }
 // bash parity); read the final model after tea.Program.Run.
 func (m *Model) ExitStatus() int { return m.exitStatus }
 
+// FinalSummary is what the caller prints to stdout after the program
+// exits: the face runs on the altscreen, so scrollback only gets the
+// pre-TUI transcript — the caller re-prints the URL/status line plus the
+// last outcome here to keep the launch transcript complete.
+func (m *Model) FinalSummary() string {
+	var b strings.Builder
+	if m.opts.URL != "" {
+		b.WriteString(" WebUI: " + urlStyle.Render(m.opts.URL))
+	} else {
+		b.WriteString(warnStyle.Render(" WebUI: (not running)"))
+	}
+	if m.stopErr != nil {
+		b.WriteString("\n" + warnStyle.Render("Stopping containers failed: "+m.stopErr.Error()))
+	}
+	if m.openFailed {
+		b.WriteString("\n" + warnStyle.Render("Could not open a browser — copy the URL above"))
+	}
+	return b.String()
+}
+
 // OpenBrowser opens the platform browser (§3 opener) — the launch-time
 // auto-open rides it alongside the Open WebUI button.
 func OpenBrowser(url string) error { return platformOpen(url) }
@@ -238,9 +258,9 @@ func (m *Model) View() string {
 	var b strings.Builder
 	b.WriteString(titleStyle.Render("oc-sandbox") + "\n\n")
 
-	// Two buttons on row 2 with the URL/status line directly beneath
-	// (row 3) — the click rects derive from the same layout the renderer
-	// paints (color codes never shift cells).
+	// Two buttons on row 2 with the URL/status line beneath them
+	// (separated by a blank, row 4) — the click rects derive from the
+	// same layout the renderer paints (color codes never shift cells).
 	openBtn, openFocused := "[ Open WebUI ]", m.focus == 0
 	quitBtn, quitFocused := "[ Quit ]", m.focus == 1
 	const row = 2
@@ -259,7 +279,7 @@ func (m *Model) View() string {
 	} else {
 		buttons += idleStyle.Render(quitBtn)
 	}
-	b.WriteString(buttons + "\n")
+	b.WriteString(buttons + "\n\n")
 	if m.opts.URL != "" {
 		b.WriteString(" WebUI: " + urlStyle.Render(m.opts.URL) + "\n\n")
 	} else {

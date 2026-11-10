@@ -136,16 +136,20 @@ func runLauncher() {
 		Runner:   cmdrun.ExecRunner{},
 		Registry: &registry.Registry{Home: home, Now: time.Now},
 	})
-	// Inline face: migration output and the URL line stay in scrollback.
-	// Mouse capture turns on here so the face's buttons are clickable —
-	// the launcher owns the hit rects; nothing else consumes mouse events.
-	p := tea.NewProgram(&m, tea.WithMouseCellMotion())
+	// Altscreen face (like the full TUI): the terminal reports mouse
+	// clicks in screen coordinates, which only match the view's rows with
+	// the view anchored at the screen origin — the inline face's rows sit
+	// below the banner/migration output, so clicks never landed there.
+	// Migration output stays in scrollback; the URL and the final outcome
+	// are re-printed after Run so the launch transcript keeps them.
+	p := tea.NewProgram(&m, tea.WithAltScreen(), tea.WithMouseCellMotion())
 	final, err := p.Run()
 	if ui != nil {
 		ui.Hub().PublishShutdown() // best-effort push; tabs stop reconnecting (§4/§12)
 		_ = ui.Close()
 	}
 	lm := final.(*launcher.Model)
+	fmt.Println(lm.FinalSummary()) // altscreen leaves scrollback untouched: re-print URL + last outcome
 	if err == nil {
 		if code := lm.ExitStatus(); code != 0 { // 130 = ctrl+c (story 28 parity)
 			os.Exit(code)
