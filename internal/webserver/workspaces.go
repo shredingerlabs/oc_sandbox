@@ -67,6 +67,13 @@ type cardView struct {
 	OpenVariant string // web (Standard, always) or the configured start option (Advanced)
 	Advanced    bool   // display mode: reveals the terminal access rows
 	Busy        bool   // an op is queued/running for this workspace
+
+	// First-run setup (#161, spec §11): the skills slot renders while a
+	// session holds; the recovery row reappears for an incomplete setup.
+	SetupPending bool   // the skills stage awaits the status-file relay
+	SetupWindow  bool   // the host terminal window opened (false = headless)
+	SetupCommand string // the exact wrapper command (manual-command copy)
+	SetupRetry   bool   // setup incomplete, no session — recovery action row
 }
 
 // wsScreenView is the template data of the whole screen fragment.
@@ -105,17 +112,29 @@ var wsTemplate = template.Must(template.New("ws").Parse(`
     {{end}}
   </div>
   {{if .Busy}}<div class="busy" data-busy>working — queued behind the running op</div>{{end}}
+  {{if .SetupPending}}
+  <div class="setup-slot" data-setup-slot>
+    <span class="chip" data-chip="setup">skills setup</span>
+    <div class="setup-status">{{if .SetupWindow}}Skills setup — interactive session open in a terminal window{{else}}Skills setup — no terminal window available; run the command in your own terminal{{end}}</div>
+    {{if not .SetupWindow}}<code class="setup-cmd">{{.SetupCommand}}</code>{{end}}
+    <div class="setup-acts">
+      <button class="btn" data-act="setup-copy" data-command="{{.SetupCommand}}">Copy manual command</button>
+      <button class="btn danger" data-act="setup-cancel">Cancel setup</button>
+    </div>
+  </div>
+  {{end}}
+  {{if .SetupRetry}}<div class="setup-retry"><button class="btn" data-act="setup-retry">Run setup</button></div>{{end}}
   <div class="acts">
-    <button class="btn open" data-act="open" data-variant="{{.OpenVariant}}">Open</button>
-    <button class="btn" data-act="web" title="OpenCode web — fresh pair link in a new tab">Web</button>
+    <button class="btn open" data-act="open" data-variant="{{.OpenVariant}}"{{if .SetupPending}} disabled title="refused — first-run setup session pending"{{end}}>Open</button>
+    <button class="btn" data-act="web" title="OpenCode web — fresh pair link in a new tab"{{if .SetupPending}} disabled data-disabled-reason="refused — first-run setup session pending"{{end}}>Web</button>
     {{if .Advanced}}
-    <button class="btn" data-act="console" data-advanced-only title="console session in a host terminal window">Console</button>
-    <button class="btn" data-act="opencode" data-advanced-only title="OpenCode TUI in a host terminal window">OpenCode</button>
+    <button class="btn" data-act="console" data-advanced-only title="console session in a host terminal window"{{if .SetupPending}} disabled data-disabled-reason="refused — first-run setup session pending"{{end}}>Console</button>
+    <button class="btn" data-act="opencode" data-advanced-only title="OpenCode TUI in a host terminal window"{{if .SetupPending}} disabled data-disabled-reason="refused — first-run setup session pending"{{end}}>OpenCode</button>
     {{end}}
   </div>
   <div class="confirms">
-    <button class="btn danger" data-confirm="stop" {{if .Busy}}disabled title="refused — an op is queued or running for this workspace"{{end}}>Stop…</button>
-    <button class="btn danger" data-confirm="delete" {{if .Busy}}disabled title="refused — an op is queued or running for this workspace"{{end}}>Delete…</button>
+    <button class="btn danger" data-confirm="stop" {{if .Busy}}disabled title="refused — an op is queued or running for this workspace"{{else if .SetupPending}}disabled title="refused — first-run setup session pending"{{end}}>Stop…</button>
+    <button class="btn danger" data-confirm="delete" {{if .Busy}}disabled title="refused — an op is queued or running for this workspace"{{else if .SetupPending}}disabled title="refused — first-run setup session pending"{{end}}>Delete…</button>
   </div>
   <div class="oplog" data-oplog hidden></div>
 </article>
@@ -197,6 +216,18 @@ func (s *Server) cardFor(e registry.Workspace, mode string) cardView {
 	if c.Busy {
 		c.OpID = s.queue.CurrentOpID(registry.ContainerName(e.ContainerID))
 	}
+	// The first-run setup slot (#161): one setup session per workspace —
+	// the pending skills stage renders the slot, a session (running op
+	// included) holds the recovery row back.
+	if pending, window, command, opID := s.setups.view(e.Name); pending {
+		c.SetupPending = true
+		c.SetupWindow = window
+		c.SetupCommand = command
+		if opID != 0 {
+			c.OpID = opID // the relay's outcome lines find the card log
+		}
+	}
+	hasSession := s.setups.sessionFor(e.Name) != nil
 	cfg, err := sandboxcfg.Read(sandboxcfg.Path(e.Path))
 	if err != nil {
 		// Unreadable sandbox_config must not dead-end the card: base
@@ -222,6 +253,7 @@ func (s *Server) cardFor(e registry.Workspace, mode string) cardView {
 	}
 	c.Proxy = cfg.UseProxy
 	c.SearchMode = cfg.SearchMode
+	c.SetupRetry = !cfg.SetupComplete && !hasSession // recovery actions reappear (§11)
 	if c.Advanced {
 		if cfg.StartOption == "console" || cfg.StartOption == "opencode" || cfg.StartOption == "web" {
 			c.OpenVariant = cfg.StartOption

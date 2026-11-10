@@ -246,13 +246,18 @@ func (s *Server) stopFirstHint(name string) string {
 // handleWorkspaceStart serves POST /workspaces/{name}/start — the
 // Container-center reuse semantics: no confirm, queued per workspace
 // key (the workspace's container name — the key the stop/delete ops
-// share, so confirms refuse across all of a workspace's actions).
+// share, so confirms refuse across all of a workspace's actions). A
+// first-run setup session holds the workspace (one-at-a-time, #161).
 func (s *Server) handleWorkspaceStart(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	ws, err := s.deps.Registry.ByName(name)
 	if err != nil {
 		_, _ = w.Write([]byte(s.renderContainers("workspace " + name + " is not registered")))
+		return
+	}
+	if s.setupHolds(name) {
+		http.Error(w, "refused — first-run setup session pending for "+name, http.StatusConflict)
 		return
 	}
 	s.queue.Launch(webOp{Key: registry.ContainerName(ws.ContainerID), Run: s.startOp(name)})

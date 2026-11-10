@@ -143,6 +143,26 @@
       pairInto(rcard, tabFor(rcard));
       return;
     }
+    // First-run setup (#161, spec §11): Copy manual command copies the
+    // exact wrapper; Cancel setup marks the pending session abandoned;
+    // Run setup (re-)starts the machine from the stored flags. The SSE
+    // workspace push re-renders the card after each POST.
+    if (btn.dataset.act === "setup-copy") {
+      var cmd = btn.getAttribute("data-command");
+      if (navigator.clipboard) navigator.clipboard.writeText(cmd);
+      btn.textContent = "copied";
+      return;
+    }
+    if (btn.dataset.act === "setup-cancel") {
+      fetch(post(card, "setup/cancel"), { method: "POST", referrerPolicy: "no-referrer" })
+        .catch(function () { renderWorkspaces(); });
+      return;
+    }
+    if (btn.dataset.act === "setup-retry") {
+      fetch(post(card, "setup/retry"), { method: "POST", referrerPolicy: "no-referrer" })
+        .catch(function () { showNote(card, "setup refused — an op or session holds this workspace"); });
+      return;
+    }
     if (btn.dataset.act !== "open" && btn.dataset.act !== "web" &&
         btn.dataset.act !== "console" && btn.dataset.act !== "opencode") return;
 

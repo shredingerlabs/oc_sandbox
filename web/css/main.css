@@ -154,6 +154,13 @@ body { background:var(--bg); color:var(--ink);
   border:1px solid var(--hairline); border-radius:8px; padding:6px 10px; flex-wrap:wrap; }
 .card-confirm-label { font-size:13px; font-weight:600; }
 .busy { color:var(--ink2); font-size:12.5px; font-style:italic; }
+.setup-slot { border:1px dashed var(--hairline); border-radius:8px; padding:8px 10px;
+  display:flex; flex-direction:column; gap:7px; margin:2px 0; }
+.setup-status { color:var(--ink2); font-size:12.5px; }
+.setup-cmd { background:var(--bg); border:1px solid var(--hairline); border-radius:6px;
+  padding:4px 6px; font:12px ui-monospace, monospace; word-break:break-all; }
+.setup-acts { display:flex; gap:8px; }
+.setup-retry { display:flex; }
 .oplog { background:var(--bg); border:1px solid var(--hairline); border-radius:8px;
   font:12px/1.5 ui-monospace, monospace; color:var(--ink2); padding:8px 10px;
   max-height:140px; overflow-y:auto; white-space:pre-wrap; word-break:break-all; margin:0; }
