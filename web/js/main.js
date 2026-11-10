@@ -809,17 +809,19 @@
         "",
         btn.dataset.danger !== undefined ? "Delete" : "Confirm",
         function () {
-          go(btn.dataset.action === "img-delete"
-            ? "tag=" + encodeURIComponent(btn.dataset.tag)
-            : btn.dataset.tag
-              ? "tag=" + encodeURIComponent(btn.dataset.tag)
-              : null);
+          go(tagParam(btn));
         }
       );
       return;
     }
-    go(btn.dataset.tag ? "tag=" + encodeURIComponent(btn.dataset.tag) : null);
+    go(tagParam(btn));
   });
+
+  // tagParam renders the images payload of a tagged screen button
+  // (single-image build/delete); untagged buttons post bare.
+  function tagParam(btn) {
+    return btn.dataset.tag ? "tag=" + encodeURIComponent(btn.dataset.tag) : null;
+  }
 
   // --- §12 update phases: footer banner + Update card render purely
   //     from the one SSE `update` event; the run streams its log into

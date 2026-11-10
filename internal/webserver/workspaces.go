@@ -59,13 +59,6 @@ func cardDisabled(title string) template.HTMLAttr {
 	return template.HTMLAttr(` disabled title="` + template.HTMLEscapeString(title) + `"`)
 }
 
-// restartRestitution renders the restart button's disabled state
-// (round-tripping the card's own state computed in cardFor).
-func restartDisabled(v any) template.HTMLAttr {
-	title, _ := v.(cardView)
-	return cardDisabled(title.RestartTitle)
-}
-
 // cardView is the template data of one workspace card.
 type cardView struct {
 	Name       string
@@ -108,7 +101,7 @@ type wsScreenView struct {
 const wsEmptyText = "No workspaces registered"
 
 var wsTemplate = template.Must(template.New("ws").
-	Funcs(template.FuncMap{"restartDisabled": restartDisabled}).
+	Funcs(template.FuncMap{"restartDisabled": cardDisabled}).
 	Parse(`
 {{define "card"}}
 <article class="card" data-ws="{{.Name}}"{{if .Hue}} style="--ed:{{.Hue}}"{{end}}{{if .OpID}} data-op-id="{{.OpID}}"{{end}}>
@@ -146,12 +139,12 @@ var wsTemplate = template.Must(template.New("ws").
   {{end}}
   {{if .SetupRetry}}<div class="setup-retry"><button class="btn" data-act="setup-retry">Run setup</button></div>{{end}}
   <div class="acts">
-    <button class="btn" data-act="web" title="OpenCode web — fresh pair link in a new tab"{{if .SetupPending}} disabled{{end}}>Web</button>
-    <button class="btn" data-act="opencode" title="OpenCode TUI in a host terminal window"{{if .SetupPending}} disabled{{end}}>OpenCode</button>
-    <button class="btn" data-act="console" title="console session in a host terminal window"{{if .SetupPending}} disabled{{end}}>Console</button>
+    <button class="btn" data-act="web" title="OpenCode web — fresh pair link in a new tab"{{if .SetupPending}} disabled title="refused — first-run setup session pending"{{end}}>Web</button>
+    <button class="btn" data-act="opencode" title="OpenCode TUI in a host terminal window"{{if .SetupPending}} disabled title="refused — first-run setup session pending"{{end}}>OpenCode</button>
+    <button class="btn" data-act="console" title="console session in a host terminal window"{{if .SetupPending}} disabled title="refused — first-run setup session pending"{{end}}>Console</button>
   </div>
   <div class="confirms">
-    <button class="btn danger" data-confirm="restart"{{restartDisabled .}}>Restart</button>
+    <button class="btn danger" data-confirm="restart"{{restartDisabled .RestartTitle}}>Restart</button>
   </div>
   <div class="oplog" data-oplog hidden></div>
 </article>
@@ -237,9 +230,14 @@ func (s *Server) cardFor(e registry.Workspace, mode string) cardView {
 	cfg, err := sandboxcfg.Read(sandboxcfg.Path(e.Path))
 	if err != nil {
 		// Unreadable sandbox_config must not dead-end the card: base
-		// tile, no chips, restart disabled.
-		if !c.Busy && c.Running {
-			c.RestartTitle = "sandbox_config.json unreadable — restart disabled"
+		// tile, no chips, restart disabled (its running state carries
+		// the unreadability reason).
+		if !c.Busy {
+			if c.Running {
+				c.RestartTitle = "sandbox_config.json unreadable — restart disabled"
+			} else {
+				c.RestartTitle = "stopped — restart starts nothing; use the start options"
+			}
 		}
 		return c
 	}

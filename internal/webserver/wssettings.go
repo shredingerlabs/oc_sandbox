@@ -97,7 +97,6 @@ type wsSettingsView struct {
 	Edition      string
 	Editions     []string
 	ImageMissing bool
-	StartOption  string
 	Proxy        bool
 	SearchMode   string
 	Offline      bool
@@ -391,7 +390,6 @@ func (s *Server) handleWsSettingsPost(w http.ResponseWriter, r *http.Request) {
 		UseProxy:    cfg.UseProxy,
 		SearchMode:  cfg.SearchMode,
 	}
-	var offline, cbm bool
 	if v := r.PostFormValue("edition"); v != "" {
 		dockerfile, dockerfileCustom := "", ""
 		if s.deps != nil {
@@ -404,13 +402,9 @@ func (s *Server) handleWsSettingsPost(w http.ResponseWriter, r *http.Request) {
 		}
 		merged.Edition = v
 	}
-	if v := r.PostFormValue("start_option"); v != "" {
-		if !validVariant(v) {
-			s.renderWsSettingsScreen(w, name, "invalid start option — console, OpenCode TUI or web", nil)
-			return
-		}
-		merged.StartOption = v
-	}
+	// The start_option radio is retired (ADR-0033): no screen posts the
+	// field; the stored value keeps the config file legacy-shaped.
+
 	if v := r.PostFormValue("proxy"); v != "" {
 		if v != "no" && v != "yes" {
 			s.renderWsSettingsScreen(w, name, "invalid proxy value", nil)
@@ -426,8 +420,8 @@ func (s *Server) handleWsSettingsPost(w http.ResponseWriter, r *http.Request) {
 		merged.SearchMode = v
 	}
 	if r.PostFormValue("modes_present") == "1" { // the modes row rendered
-		offline = r.PostFormValue("offline") == "on"
-		cbm = r.PostFormValue("cbm_ui") == "on"
+		offline := r.PostFormValue("offline") == "on"
+		cbm := r.PostFormValue("cbm_ui") == "on"
 		hil := r.PostFormValue("hil") == "on"
 		modes := []string{}
 		if offline {
@@ -443,7 +437,11 @@ func (s *Server) handleWsSettingsPost(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Combination rules (ADR-0026, validateStartCfg parity): the refusals
-	// start.sh hard-exits on never reach the stored file.
+	// start.sh hard-exits on never reach the stored file. The mode
+	// booleans read off the merged list, so partial edits validate
+	// against the stored truth instead of an all-off default.
+	offline := slices.Contains(merged.Modes, "offline")
+	cbm := slices.Contains(merged.Modes, "cbm_ui")
 	if offline && cbm {
 		s.renderWsSettingsScreen(w, name, "offline and cbm_ui are mutually exclusive — fix settings first", nil)
 		return
@@ -796,11 +794,9 @@ func (s *Server) renderWsSettingsScreen(w http.ResponseWriter, name, errMsg stri
 		PresetsHint:  PresetsHint,
 		TrackerKinds: catalogs.TrackerKinds,
 		SearchMode:   sandboxcfg.SearchWebsearch, // absent legacy key reads websearch (§6)
-		StartOption:  "web",
 	}
 	if cfgErr == nil {
 		v.Edition = cfg.ContainerEdition
-		v.StartOption = cfg.StartOption
 		v.Proxy = cfg.UseProxy
 		v.SearchMode = cfg.SearchMode
 		v.VCSTrackingSt = cfg.VCSTracking

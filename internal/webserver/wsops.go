@@ -119,6 +119,14 @@ func (s *Server) handleWorkspaceRestart(w http.ResponseWriter, r *http.Request) 
 		refuseSidecar(w, err.Error())
 		return
 	}
+	// ADR-0033 activation, re-checked fresh at click time: the restart
+	// refuses while the started-config evidence reads current (no
+	// consent-popup bounce for a config that no longer drifts; the card
+	// only pre-renders this state).
+	if !workspaceStale(s.runnerSeam(), ws, cfg) {
+		refuseSidecar(w, "config is current — no restart needed")
+		return
+	}
 	if running := s.runningEdition(cname); running != "" && running != cfg.ContainerEdition {
 		if !discovery.ImageExists(s.runnerSeam(), cfg.ContainerEdition) {
 			refuseSidecar(w, errImageMissing(cfg.ContainerEdition).Error()+" — build it first (Settings → Images); nothing was stopped")

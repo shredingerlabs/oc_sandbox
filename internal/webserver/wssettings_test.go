@@ -213,7 +213,7 @@ func TestWsSettingsPostPersistsNextStart(t *testing.T) {
 	postForm(t, fx.s.URL()+"settings", map[string]string{"display_mode": "advanced"})
 
 	resp := postForm(t, fx.s.URL()+"workspaces/alpha/settings", map[string]string{
-		"edition": "embedded", "start_option": "console", "proxy": "yes",
+		"edition": "embedded", "proxy": "yes",
 		"search_mode": "none", "modes_present": "1", "offline": "on", "hil": "on",
 	})
 	if resp.StatusCode != http.StatusOK {
@@ -223,7 +223,9 @@ func TestWsSettingsPostPersistsNextStart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.ContainerEdition != "embedded" || cfg.StartOption != "console" ||
+	// The start_option radio is retired (ADR-0033): the stored value
+	// keeps its legacy shape and the write must not touch it.
+	if cfg.ContainerEdition != "embedded" || cfg.StartOption != "web" ||
 		!cfg.UseProxy || cfg.SearchMode != "none" {
 		t.Fatalf("next-start values not persisted: %+v", cfg)
 	}
@@ -249,7 +251,6 @@ func TestWsSettingsPostValidation(t *testing.T) {
 		"searxng+offline": {"search_mode": "searxng", "modes_present": "1", "offline": "on"},
 		"offline+cbm":     {"modes_present": "1", "offline": "on", "cbm_ui": "on"},
 		"bad-edition":     {"edition": "ghost"},
-		"bad-start":       {"start_option": "x11"},
 		"bad-search":      {"search_mode": "bing"},
 	} {
 		resp := postForm(t, fx.s.URL()+"workspaces/alpha/settings", form)
@@ -302,14 +303,15 @@ func TestWsSettingsCrossEditStickiness(t *testing.T) {
 	}
 
 	// Advanced again: the previous edits are sticky, a new edit applies
-	// on top of them.
+	// on top of them (the retired start_option row proves the merge: a
+	// POST without it keeps the stored truth).
 	postForm(t, fx.s.URL()+"settings", map[string]string{"display_mode": "advanced"})
 	doc = body(t, get(t, fx.s.URL()+"workspaces/alpha/settings"))
 	if !strings.Contains(doc, `value="none" checked`) || !strings.Contains(doc, `name="proxy" value="yes" checked`) {
 		t.Fatalf("Advanced edits of Standard-hidden options must stay sticky:\n%s", doc)
 	}
 	resp = postForm(t, fx.s.URL()+"workspaces/alpha/settings", map[string]string{
-		"start_option": "opencode",
+		"edition": "embedded",
 	})
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("second advanced edit: status = %d", resp.StatusCode)
@@ -318,7 +320,7 @@ func TestWsSettingsCrossEditStickiness(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.StartOption != "opencode" || cfg.SearchMode != "none" || !cfg.UseProxy {
+	if cfg.ContainerEdition != "embedded" || cfg.SearchMode != "none" || !cfg.UseProxy {
 		t.Fatalf("second edit lost the first edit's values: %+v", cfg)
 	}
 }

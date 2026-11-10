@@ -363,10 +363,13 @@ func (s *Server) finishVerifiedStart(ws registry.Workspace, emit func(string)) e
 	if err := d.Registry.UpdateLastUsed(ws.Path); err != nil {
 		return err
 	}
-	if cfg, err := readSandboxCfg(ws.Path); err == nil {
-		if err := s.recordStartedEvidence(ws, cfg); err != nil {
-			emit("started-config evidence not written: " + err.Error())
-		}
+	cfg, err := readSandboxCfg(ws.Path)
+	if err != nil {
+		emit("started-config evidence not written: " + err.Error())
+		return nil
+	}
+	if err := s.recordStartedEvidence(ws, cfg); err != nil {
+		emit("started-config evidence not written: " + err.Error())
 	}
 	return nil
 }

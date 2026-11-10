@@ -144,19 +144,22 @@ func (s *Server) renderImages(msg string, opID int) string {
 		b.WriteString(`</div><div class="actions">`)
 		// Per-image build/rebuild: one op per row on the shared images
 		// queue key (in-use images may rebuild — running containers keep
-		// the old image until they are replaced).
+		// the old image until they are replaced). While the queue holds,
+		// the buttons disable and keep their state-correct labels.
+		label := "Build"
+		if row.Built {
+			label = "Rebuild"
+		}
 		if busy {
-			b.WriteString(`<button disabled title="an image operation is queued or running">Build</button>`)
+			b.WriteString(`<button disabled title="an image operation is queued or running">` + label + `</button>`)
+		} else if row.Built {
+			b.WriteString(`<button data-action="build" data-href="images/build" data-tag="` +
+				html.EscapeString(row.Tag) + `" data-confirm="Rebuild image ` +
+				html.EscapeString(row.Tag) + `? Running containers keep the old image until they are replaced.">Rebuild</button>`)
 		} else {
-			if row.Built {
-				b.WriteString(`<button data-action="build" data-href="images/build" data-tag="` +
-					html.EscapeString(row.Tag) + `" data-confirm="Rebuild image ` +
-					html.EscapeString(row.Tag) + `? Running containers keep the old image until they are replaced.">Rebuild</button>`)
-			} else {
-				b.WriteString(`<button data-action="build" data-href="images/build" data-tag="` +
-					html.EscapeString(row.Tag) + `" data-confirm="Build image ` +
-					html.EscapeString(row.Tag) + `? This can take a while.">Build</button>`)
-			}
+			b.WriteString(`<button data-action="build" data-href="images/build" data-tag="` +
+				html.EscapeString(row.Tag) + `" data-confirm="Build image ` +
+				html.EscapeString(row.Tag) + `? This can take a while.">Build</button>`)
 		}
 		// Delete renders always; disabled when there is nothing to
 		// delete (not built) or when in use (remove its containers

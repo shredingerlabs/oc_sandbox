@@ -180,15 +180,12 @@ func validateStartCfg(cfg sandboxcfg.Config) error {
 
 // startScriptArgs rebuilds the start.sh argument vector exactly as the
 // TUI does (openworkspace.StartArgs; always detached). The retired
-// start_option reads as web for legacy/empty values (ADR-0033): the
-// field stays in legacy config files, only web ever adds --start_web.
+// start_option reads as web (ADR-0033): the web start variant is the
+// container center's and the restart's default — the cards grant the
+// other access variants explicitly.
 func startScriptArgs(root, containerID string, cfg sandboxcfg.Config) []string {
-	variant := cfg.StartOption
-	if variant != "console" && variant != "opencode" && variant != "web" {
-		variant = "web"
-	}
 	return openworkspace.StartArgs(root, cfg.ContainerEdition, containerID,
-		cfg.ContainerModes, variant, cfg.UseProxy, cfg.SearchMode)
+		cfg.ContainerModes, "web", cfg.UseProxy, cfg.SearchMode)
 }
 
 func errImageMissing(edition string) error {

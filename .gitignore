@@ -11,3 +11,4 @@ gum*
 !tests/gum_bin/gum
 prototypes/
 dist/bin/
+.temp/*

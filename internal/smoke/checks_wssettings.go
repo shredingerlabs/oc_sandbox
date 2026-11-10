@@ -146,11 +146,11 @@ func checkWebUISettings(home, root string) Item {
 	}
 
 	// Next-start persistence (Advanced): edition switch, modes incl. HIL,
-	// start option, proxy, search — one atomic write into the stored
-	// sandbox_config.json.
+	// proxy, search — one atomic write into the stored sandbox_config.json
+	// (the start_option row is retired, ADR-0033).
 	post(s.URL()+"settings", map[string]string{"display_mode": "advanced"})
 	resp, _ := post(s.URL()+"workspaces/mural/settings", map[string]string{
-		"edition": "embedded", "start_option": "console", "proxy": "yes",
+		"edition": "embedded", "proxy": "yes",
 		"search_mode": "none", "modes_present": "1", "offline": "on", "hil": "on",
 	})
 	if resp == nil || resp.StatusCode != http.StatusOK {
@@ -161,7 +161,7 @@ func checkWebUISettings(home, root string) Item {
 		p.reasonf("sandbox_config unreadable: %v", err)
 		return p.finish()
 	}
-	if cfg.ContainerEdition != "embedded" || cfg.StartOption != "console" ||
+	if cfg.ContainerEdition != "embedded" ||
 		!cfg.UseProxy || cfg.SearchMode != "none" ||
 		len(cfg.ContainerModes) != 2 {
 		p.reasonf("next-start values not persisted: %+v", cfg)
@@ -180,12 +180,12 @@ func checkWebUISettings(home, root string) Item {
 	if !strings.Contains(adv2, `value="none" checked`) {
 		p.reasonf("Advanced edits of Standard-hidden options must stay sticky")
 	}
-	resp, _ = post(s.URL()+"workspaces/mural/settings", map[string]string{"start_option": "opencode"})
+	resp, _ = post(s.URL()+"workspaces/mural/settings", map[string]string{"cbm_ui": "on", "modes_present": "1"})
 	if resp == nil || resp.StatusCode != http.StatusOK {
 		p.reasonf("second advanced edit: want 200, got %v", respStatusCT(resp))
 	}
 	cfg, _ = sandboxcfg.Read(sandboxcfg.Path(rootA))
-	if cfg.StartOption != "opencode" || cfg.SearchMode != "none" || !cfg.UseProxy {
+	if cfg.SearchMode != "none" || !cfg.UseProxy {
 		p.reasonf("second edit lost the first edit's values: %+v", cfg)
 	}
 
