@@ -56,6 +56,66 @@ func TestHealthzTokenLessAndSilent(t *testing.T) {
 	}
 }
 
+// Index shell (§5/#150): GET / under the token prefix serves the Signal
+// index shell — sidebar tree (Workspace → Open/New; Settings sub-menus),
+// Standard/Advanced control, dark/bright theme toggle, footer update
+// banner slot. Screens are stubs (later tickets).
+func TestIndexShell(t *testing.T) {
+	s := startTestServer(t)
+	resp := get(t, s.URL())
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	if ct := resp.Header.Get("Content-Type"); !strings.HasPrefix(ct, "text/html") {
+		t.Fatalf("content-type = %q, want text/html", ct)
+	}
+	doc := body(t, resp)
+	for _, want := range []string{
+		`data-nav="ws-open"`,  // sidebar: Workspace → Open
+		`data-nav="ws-new"`,   // sidebar: Workspace → New
+		`data-nav="set-vcs"`,  // sidebar: Settings → VCS Tracker
+		`data-nav="set-ai"`,   // sidebar: Settings → AI-Provider
+		`data-nav="set-update"`,
+		`data-role="display-mode"`,   // Standard/Advanced control slot
+		`data-role="theme-toggle"`,   // dark/bright toggle slot
+		`data-role="update-banner"`,  // footer banner slot
+		`data-role="screen"`,         // screen content slot (stub)
+	} {
+		if !strings.Contains(doc, want) {
+			t.Fatalf("index shell missing %q", want)
+		}
+	}
+}
+
+// The shell serves its assets with the right content types, and the
+// stylesheet carries both color modes (dark AND bright, §5).
+func TestShellAssets(t *testing.T) {
+	s := startTestServer(t)
+	for _, c := range []struct{ path, ct string }{
+		{"css/main.css", "text/css"},
+		{"js/main.js", "text/javascript"},
+		{"img/editions/swdev.svg", "image/svg+xml"},
+		{"img/editions/base.svg", "image/svg+xml"},
+	} {
+		resp := get(t, s.URL()+c.path)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("%s: status = %d, want 200", c.path, resp.StatusCode)
+		}
+		if ct := resp.Header.Get("Content-Type"); !strings.HasPrefix(ct, c.ct) {
+			t.Fatalf("%s: content-type = %q, want %s", c.path, ct, c.ct)
+		}
+		if resp.Header.Get("Referrer-Policy") != "no-referrer" {
+			t.Fatalf("%s: missing Referrer-Policy", c.path)
+		}
+	}
+	css := body(t, get(t, s.URL()+"css/main.css"))
+	for _, theme := range []string{"dark", "bright"} {
+		if !strings.Contains(css, `data-theme="`+theme+`"`) {
+			t.Fatalf("stylesheet missing the %q color mode", theme)
+		}
+	}
+}
+
 // Auth grammar (#150): a tokenized URL is the capability. Missing and
 // wrong tokens refuse EVERY route — pages, assets, SSE, unsafe verbs —
 // with 404 (capability URLs don't advertise what exists behind them).
