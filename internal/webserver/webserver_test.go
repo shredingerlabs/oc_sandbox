@@ -71,15 +71,15 @@ func TestIndexShell(t *testing.T) {
 	}
 	doc := body(t, resp)
 	for _, want := range []string{
-		`data-nav="ws-open"`,  // sidebar: Workspace → Open
-		`data-nav="ws-new"`,   // sidebar: Workspace → New
-		`data-nav="set-vcs"`,  // sidebar: Settings → VCS Tracker
-		`data-nav="set-ai"`,   // sidebar: Settings → AI-Provider
+		`data-nav="ws-open"`, // sidebar: Workspace → Open
+		`data-nav="ws-new"`,  // sidebar: Workspace → New
+		`data-nav="set-vcs"`, // sidebar: Settings → VCS Tracker
+		`data-nav="set-ai"`,  // sidebar: Settings → AI-Provider
 		`data-nav="set-update"`,
-		`data-role="display-mode"`,   // Standard/Advanced control slot
-		`data-role="theme-toggle"`,   // dark/bright toggle slot
-		`data-role="update-banner"`,  // footer banner slot
-		`data-role="screen"`,         // screen content slot (stub)
+		`data-role="display-mode"`,  // Standard/Advanced control slot
+		`data-role="theme-toggle"`,  // dark/bright toggle slot
+		`data-role="update-banner"`, // footer banner slot
+		`data-role="screen"`,        // screen content slot (stub)
 	} {
 		if !strings.Contains(doc, want) {
 			t.Fatalf("index shell missing %q", want)
