@@ -48,6 +48,7 @@ func TestFrontendCardStyles(t *testing.T) {
 		`.oplog`,   // streamed op log
 		`.busy`,    // busy row
 		`.confirm`, // stop/delete confirm row
+		`.confirm-backdrop[hidden]`, // display:flex must not beat the hidden attribute
 	} {
 		if !strings.Contains(css, want) {
 			t.Fatalf("main.css missing %q", want)
