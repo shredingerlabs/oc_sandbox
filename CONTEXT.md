@@ -84,6 +84,10 @@
 
 **update menu** — Settings sub-tab directly left of Uninstall, showing installed and available oc-sandbox versions with the Update action behind the confirmation popup (ADR-0021); while an update is available, a footer badge appears that jumps here on click, and after an update the menu notes that restarting oc-sandbox applies it. _Avoid_: update tab, upgrade menu.
 
+**update phase** — The state of the self-update surface, one of `up-to-date`, `available`, `installing`, `applied`, `failed`: the footer banner and the update card render from it. `available` carries the badge; `installing` means the update op is running (the task queue accepts nothing else until it ends); `applied` is installed-but-not-running — the banner clears, and the persistent "Update installed — restart oc-sandbox to apply" note stays on the update card, with a completion toast; `failed` keeps the error visible until the next attempt. _Avoid_: update state, badge status.
+
+**server-stopped screen** — The browser screen an open WebUI tab ends on when the WebUI server is gone: pushed best-effort via SSE on quit, and rendered by the client itself when reconnect attempts exhaust (hard crash, no push possible). It reads "server stopped — relaunch oc-sandbox" and never auto-redirects or reconnects — the per-launch token dies with the process, and the relaunched instance opens its own fresh tab. One screen for both causes. _Avoid_: dead tab, stale tab, reconnect prompt.
+
 **github API fallback** — Uses GitHub releases API to detect latest release; falls back to HTML scraping if API fails.
 
 **git clone method** — Uses `git clone --depth 1 --branch <tag>` for clean repository handling.
