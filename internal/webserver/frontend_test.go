@@ -55,6 +55,28 @@ func TestFrontendCardStyles(t *testing.T) {
 	}
 }
 
+// The frontend wiring of the workspace ops (#154): the confirm rows
+// post the real stop/delete ops, the Open chain carries the variant and
+// handles the mismatch verdict, and the web-native adopt confirm gates
+// both running-container replacements.
+func TestFrontendWorkspaceOpsWiring(t *testing.T) {
+	s := startTestServer(t)
+	js := body(t, get(t, s.URL()+"js/main.js"))
+	for _, want := range []string{
+		`runWorkspaceOp(card, "stop")`,   // the Stop confirm row's op
+		`runWorkspaceOp(card, "delete")`, // the Delete confirm row's op (danger confirm stays)
+		`post(card, "adopt")`,            // the adopt confirm's action
+		`mismatch`,                       // the #115 verdict handling in the Open chain
+		`running_edition`,                // the mismatch prompt names what runs
+		`an agent may be mid-task`,       // the adopt confirm copy
+		`variant=`,                       // the requested access rides the start POST
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("main.js missing %q", want)
+		}
+	}
+}
+
 // The busy card carries the op id so the streamed line events land in
 // the right card's log — across re-renders too (GET re-renders the op
 // id from the queue), and confirms refuse while an op is
