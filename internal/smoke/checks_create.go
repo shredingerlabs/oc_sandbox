@@ -20,19 +20,22 @@ import (
 // chain). The image query rides a fake podman (nothing podman-dependent
 // in the harness).
 func checkCreateChain(home, root string) Item {
-	p := newPhase("A10", "New Workspace create chain: wizard feeds + create-summary confirm, one chain (init → configure in credential order) against the real scripts, §6 presets recorded, catalog token-free (#156)")
+	p := newPhase("A11", "New Workspace create chain: wizard feeds + create-summary confirm, one chain (init → configure in credential order) against the real scripts, §6 presets recorded, catalog token-free (#156)")
 
 	dist := filepath.Join(root, "dist")
 	s := webserver.New(webserver.Options{
-		BasePort:             0,
-		Home:                 home,
-		Runner:               podmanImageExistsFake{},
-		DefaultWorkspacePath: filepath.Join(home, "ws"),
-		InitScript:           filepath.Join(dist, "scripts", "init-workspace.sh"),
-		ConfigureScript:      filepath.Join(dist, "scripts", "configure-workspace.sh"),
-		BuildScript:          filepath.Join(dist, "scripts", "build-container.sh"),
-		StartScript:          filepath.Join(dist, "scripts", "start.sh"),
-		Dockerfile:           filepath.Join(dist, "Dockerfile"),
+		BasePort: 0,
+		Home:     home,
+		Deps: &webserver.Deps{
+			Run:                  podmanImageExistsFake{},
+			Registry:             &registry.Registry{Home: home},
+			DefaultWorkspacePath: filepath.Join(home, "ws"),
+			InitScript:           filepath.Join(dist, "scripts", "init-workspace.sh"),
+			ConfigureScript:      filepath.Join(dist, "scripts", "configure-workspace.sh"),
+			BuildScript:          filepath.Join(dist, "scripts", "build-container.sh"),
+			StartScript:          filepath.Join(dist, "scripts", "start.sh"),
+			Dockerfile:           filepath.Join(dist, "Dockerfile"),
+		},
 	})
 	if err := s.Start(); err != nil {
 		p.reasonf("start: %v", err)

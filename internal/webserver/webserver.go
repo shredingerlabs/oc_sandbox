@@ -23,32 +23,24 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
-	"sync"
-
-	"github.com/shredingerlabs/oc-sandbox/internal/cmdrun"
 )
 
 // tokenRe matches the tokenized path prefix — the redaction pattern the
 // server error log runs every line through.
 var tokenRe = regexp.MustCompile(`/t/[0-9a-f]{32}/`)
 
+// BasePort is the launcher's base webserver port (spec §4): scanned
+// upward on conflict, never persisted — re-derived per launch.
+const BasePort = 8090
+
 // Options carries the launch-time knobs. The zero value is production:
 // base port 8090 (scans upward on conflict, never persisted).
 type Options struct {
-	BasePort int    // first port tried; 0 means "pick a free port" (tests)
-	Version  string // reported nowhere until a screen needs it
-	Home     string // the oc-sandbox home: ~/.config/oc-sandbox holds catalogs.json etc. and global_config.json (GET/POST /settings)
-	// Creation-wizard wiring (#156): the runner seam (nil → exec) and the
-	// install-layout paths — scripts invoked exactly as the TUI invokes
-	// them (native script enhancement, ADR-0007).
-	Runner               cmdrun.Runner
-	DefaultWorkspacePath string // base dir of the derived workspace root; "" → Home/oc-sandbox
-	StartScript          string // scripts/start.sh
-	InitScript           string // scripts/init-workspace.sh
-	ConfigureScript      string // scripts/configure-workspace.sh
-	BuildScript          string // scripts/build-container.sh
-	Dockerfile           string // Dockerfile (edition registry, ADR-0019)
-	DockerfileCustom     string // Dockerfile.custom ("" = none)
+	BasePort    int    // first port tried; 0 means "pick a free port" (tests)
+	Version     string // compiled-in version — the update card's fallback when the VERSION file is absent
+	InstallRoot string // the install layout root (app.LayoutFor): the VERSION file lives here
+	Home        string // the oc-sandbox home: ~/.config/oc-sandbox holds catalogs.json etc. and global_config.json (GET/POST /settings)
+	Deps        *Deps  // container/image screens (#158) + the New Workspace wizard (#156); nil = shell + update/settings/catalogs only
 }
 
 // Server is one WebUI instance: a loopback listener with a per-launch
@@ -56,30 +48,29 @@ type Options struct {
 // on quit — the token dies with the process.
 type Server struct {
 	opts    Options
+	deps    *Deps
 	token   string // hex, ≥128 bit of CSPRNG entropy
 	hub     *Hub
+	queue   *opRunner
+	updater *Updater
 	srv     *http.Server
 	ln      net.Listener
 	url     string
 	errLog  strings.Builder // captured (token-redacted) http.Server error log — test seam
 	errSink *redactingLog   // the http.Server ErrorLog sink — redaction seam
-
-	// create-chain bookkeeping (#156): one chain at a time per workspace
-	// name (confirms refuse while queued/running), parallel across names.
-	createMu   sync.Mutex
-	createBusy map[string]bool
-	createSeq  int
 }
 
 // New creates an unstarted server with a fresh per-launch token.
 func New(opts Options) *Server {
 	s := &Server{
-		opts:       opts,
-		token:      newToken(),
-		hub:        newHub(),
-		createBusy: map[string]bool{},
+		opts:  opts,
+		token: newToken(),
+		hub:   newHub(),
 	}
+	s.deps = opts.Deps
 	s.errSink = &redactingLog{next: &s.errLog}
+	s.queue = newOpRunner(s.hub)
+	s.updater = newUpdater(s.hub, s.queue, opts.InstallRoot, opts.Version)
 	return s
 }
 
@@ -119,7 +110,7 @@ func (s *Server) ErrorLog() string { return s.errLog.String() }
 func (s *Server) Start() error {
 	base := s.opts.BasePort
 	if base == 0 {
-		base = 8090
+		base = BasePort
 	}
 	var ln net.Listener
 	var err error
@@ -145,11 +136,17 @@ func (s *Server) Start() error {
 	inner.HandleFunc("GET /events", s.hub.serveEvents)
 	inner.HandleFunc("GET /workspaces/new", s.handleNewWorkspaceGET)
 	inner.HandleFunc("POST /workspaces", s.handleWorkspacesPOST)
+	inner.HandleFunc("GET /update", s.handleUpdateCard)
+	inner.HandleFunc("POST /update/check", s.handleUpdateCheck)
+	inner.HandleFunc("POST /update/run", s.handleUpdateRun)
 	inner.HandleFunc("GET /catalogs", s.handleCatalogsGET)
 	inner.HandleFunc("POST /catalogs/trackers", s.handleTrackersPOST)
 	inner.HandleFunc("POST /catalogs/providers", s.handleProvidersPOST)
 	inner.HandleFunc("GET /settings", s.handleSettingsGet)
 	inner.HandleFunc("POST /settings", s.handleSettingsPost)
+	if s.deps != nil {
+		s.wireRoutes(inner) // container/image screens (#158)
+	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", s.handleHealthz)
 	mux.Handle("/", s.auth(inner))

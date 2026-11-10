@@ -38,7 +38,7 @@
           <li><button data-nav="set-vcs">VCS Tracker</button></li>
           <li><button data-nav="set-ai">AI-Provider</button></li>
           <li><button data-nav="set-import">Import Workspace</button></li>
-          <li><button data-nav="set-update">Update</button></li>
+          <li><button data-nav="set-update" hx-get="update" hx-target="[data-role='screen']" hx-swap="innerHTML">Update</button></li>
           <li><button data-nav="set-config">Export / Restore Config</button></li>
           <li><button data-nav="set-images">Images</button></li>
           <li><button data-nav="set-containers">Containers</button></li>
@@ -67,5 +67,17 @@
     </footer>
   </main>
 </div>
+<!-- shared confirm popup (ADR-0021 set): copy is per-action, Cancel-safe -->
+<div class="confirm-backdrop" data-role="confirm" hidden>
+  <div class="confirm" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
+    <h3 id="confirm-title" data-role="confirm-title"></h3>
+    <div class="confirm-body" data-role="confirm-body"></div>
+    <div class="confirm-actions">
+      <button class="btn" data-role="confirm-cancel">Cancel</button>
+      <button class="btn primary" data-role="confirm-ok"></button>
+    </div>
+  </div>
+</div>
+<div class="toasts" data-role="toasts" aria-live="polite"></div>
 </body>
 </html>

@@ -183,7 +183,7 @@ var wizardTemplate = template.Must(template.New("wizard").Parse(`
 {{end}}
 
 {{define "confirm"}}
-<div class="confirm" id="create-confirm" data-role="create-confirm">
+<div class="create-confirm" id="create-confirm" data-role="create-confirm">
   <h2>Create this workspace?</h2>
   {{if .Error}}<p class="form-error" role="alert">{{.Error}}</p>{{end}}
   <ul class="summary">
@@ -306,7 +306,7 @@ func (s *Server) renderWizard(w http.ResponseWriter, f wizardForm) {
 // registry; an unreadable registry yields nil (the wizard shows the
 // refusal on create — never guesses an edition).
 func (s *Server) wizardEditions() []string {
-	eds, err := discovery.SelectableEditions(s.opts.Dockerfile, s.opts.DockerfileCustom)
+	eds, err := discovery.SelectableEditions(s.deps.Dockerfile, s.deps.DockerfileCustom)
 	if err != nil {
 		return nil
 	}
@@ -336,8 +336,8 @@ func wizardHasEdition(eds []string, e string) bool {
 
 // runner resolves the command runner (nil → exec).
 func (s *Server) runner() cmdrun.Runner {
-	if s.opts.Runner != nil {
-		return s.opts.Runner
+	if s.deps != nil && s.deps.Run != nil {
+		return s.deps.Run
 	}
 	return cmdrun.ExecRunner{}
 }
@@ -361,32 +361,41 @@ func (s *Server) handleWorkspacesPOST(w http.ResponseWriter, r *http.Request) {
 		s.renderConfirm(w, r, f)
 		return
 	}
-	// confirm=1: refuse while a chain for this workspace is queued or
+	// confirm=1: refuse while an op for this workspace is queued or
 	// running (one-at-a-time per workspace, parallel across workspaces),
-	// then launch the ONE create-chain task.
+	// then launch the ONE create-chain task through the shared op queue.
 	if msg := s.validateWizard(r, f); msg != "" {
 		f.Error = msg
 		s.renderWizard(w, f)
 		return
 	}
-	opID, busy := s.createBegin(f.Name)
-	if busy {
+	if s.queue.BusyKey(f.Name) {
 		f.Error = "A create chain for this workspace is already queued or running — wait for it to finish."
 		s.renderWizard(w, f)
 		return
 	}
 	chain := s.newCreateChain(r, f)
 	if chain.err != "" {
-		s.createBusyEnd(f.Name) // the launch is abandoned before any script runs
-		f.Error = chain.err
+		f.Error = chain.err // abandoned before any script runs
 		s.renderWizard(w, f)
 		return
 	}
-	chain.opID = opID
-	f.OpID = opID
+	chain.opID = s.queue.reserve()
+	f.OpID = chain.opID
 	f.Inert = true // the form stays visible but inert while the chain runs
 	s.renderWizard(w, f)
-	go chain.run(s)
+	s.queue.Launch(webOp{
+		ID:  chain.opID,
+		Key: chain.name,
+		Run: func(emit func(string)) error { return chain.runSteps(s, emit) },
+		Done: func(err error) {
+			if err != nil {
+				s.hub.PublishWorkspaceOp(chain.opID, "failed")
+			} else {
+				s.hub.PublishWorkspaceOp(chain.opID, "done")
+			}
+		},
+	})
 }
 
 // trackerLabel maps a tracker kind onto the stored vcs_tracking value —
@@ -592,15 +601,15 @@ func (s *Server) validateWizard(r *http.Request, f wizardForm) string {
 	return ""
 }
 
-// registry returns the registry view for the server's home.
+// registry returns the Deps registry view.
 func (s *Server) registry() *registry.Registry {
-	return &registry.Registry{Home: s.opts.Home}
+	return s.deps.Registry
 }
 
 // wizardRoot derives the workspace root from the name — the default
 // workspace path base + the name (the wizard has no path row; §6).
 func (s *Server) wizardRoot(name string) string {
-	base := s.opts.DefaultWorkspacePath
+	base := s.deps.DefaultWorkspacePath
 	if base == "" {
 		base = s.opts.Home + "/oc-sandbox"
 	}
@@ -624,27 +633,6 @@ func pathSlug(name string) string {
 }
 
 // --- the create chain (ONE task: image build → init → configure) ------------
-
-// createBegin reserves the workspace's chain slot and assigns the op ID
-// for the SSE line events. The reservation is the conflict semantics:
-// while a chain is queued or running for the name, confirms refuse;
-// chains for other names run in parallel.
-func (s *Server) createBegin(name string) (int, bool) {
-	s.createMu.Lock()
-	defer s.createMu.Unlock()
-	if s.createBusy[name] {
-		return 0, true
-	}
-	s.createSeq++
-	s.createBusy[name] = true
-	return s.createSeq, false
-}
-
-func (s *Server) createBusyEnd(name string) {
-	s.createMu.Lock()
-	defer s.createMu.Unlock()
-	delete(s.createBusy, name)
-}
 
 // createChain is the captured payload of one confirmed create — every
 // request-scoped value (tokens included) is read before the chain goes
@@ -784,12 +772,13 @@ func wizardModes(f wizardForm) []string {
 	return modes
 }
 
-// run executes the chain: every step streams into the log pane under
-// the form via SSE line events keyed by the op ID; the scripts are
-// invoked exactly as the TUI invokes them — `bash <script> <args>` —
-// through the runner seam (ADR-0007).
-func (c *createChain) run(s *Server) {
-	emit := func(line string) { s.hub.PublishLine(c.opID, line) }
+// runSteps executes the chain, streaming every step into the log pane
+// under the form via the op queue's emit (SSE line events keyed by the
+// op ID); the scripts are invoked exactly as the TUI invokes them —
+// `bash <script> <args>` — through the runner seam (ADR-0007). The
+// returned error is the chain outcome (Done publishes the workspace op
+// event).
+func (c *createChain) runSteps(s *Server, emit func(string)) error {
 	emitf := func(format string, a ...any) { emit(fmt.Sprintf(format, a...)) }
 	runScript := func(script string, args ...string) error {
 		out, err := s.runner().Output("bash", append([]string{script}, args...)...)
@@ -798,19 +787,17 @@ func (c *createChain) run(s *Server) {
 		}
 		return err
 	}
-	fail := func(msg string) {
+	fail := func(msg string) error {
 		emit(msg)
-		s.createBusyEnd(c.name)
-		s.hub.PublishWorkspaceOp(c.opID, "failed")
+		return errors.New(msg)
 	}
 
 	// image build (only when the image is missing and Build now won)
 	if c.build {
 		emitf("==> Building image %s", c.edition)
-		if err := runScript(s.opts.BuildScript, c.edition); err != nil ||
+		if err := runScript(s.deps.BuildScript, c.edition); err != nil ||
 			!discovery.ImageExists(s.runner(), c.edition) {
-			fail("Build failed — the " + c.edition + " image is still unavailable. Press Create Workspace to retry.")
-			return
+			return fail("Build failed — the " + c.edition + " image is still unavailable. Press Create Workspace to retry.")
 		}
 	}
 
@@ -823,9 +810,8 @@ func (c *createChain) run(s *Server) {
 	if c.fromRepo {
 		initArgs = append(initArgs, "--repo_url", c.repoURL)
 	}
-	if err := runScript(s.opts.InitScript, initArgs...); err != nil {
-		fail("Workspace initialization failed: " + err.Error() + " — no workspace state was registered.")
-		return
+	if err := runScript(s.deps.InitScript, initArgs...); err != nil {
+		return fail("Workspace initialization failed: " + err.Error() + " — no workspace state was registered.")
 	}
 
 	// sandbox_config.json: the Create payload + the atomic patches
@@ -835,45 +821,39 @@ func (c *createChain) run(s *Server) {
 		providerID = "none"
 	}
 	if err := sandboxcfg.Create(s.opts.Home, cfgPath, c.edition, c.modes, c.start, providerID, c.search); err != nil {
-		fail("sandbox_config.json could not be created: " + err.Error())
-		return
+		return fail("sandbox_config.json could not be created: " + err.Error())
 	}
 	if err := c.patchConfig(s.opts.Home, cfgPath); err != nil {
-		fail("sandbox_config.json could not be patched: " + err.Error())
-		return
+		return fail("sandbox_config.json could not be patched: " + err.Error())
 	}
 
 	// configure-workspace.sh in credential order (TUI buildCreds parity)
 	if c.vcsKind != "" && strings.TrimSpace(c.vcsToken) != "" {
 		emit("==> Configuring credentials")
-		if err := runScript(s.opts.ConfigureScript, vcsCredArgs(c)...); err != nil {
-			fail("Workspace configuration failed — " + err.Error())
-			return
+		if err := runScript(s.deps.ConfigureScript, vcsCredArgs(c)...); err != nil {
+			return fail("Workspace configuration failed — " + err.Error())
 		}
 	}
 	if c.vcsKind != "" && c.gitName != "" && c.gitEmail != "" {
 		emit("==> Configuring credentials")
-		if err := runScript(s.opts.ConfigureScript, "git-identity", c.root, "--name", c.gitName, "--email", c.gitEmail); err != nil {
-			fail("Workspace configuration failed — " + err.Error())
-			return
+		if err := runScript(s.deps.ConfigureScript, "git-identity", c.root, "--name", c.gitName, "--email", c.gitEmail); err != nil {
+			return fail("Workspace configuration failed — " + err.Error())
 		}
 	}
 	if c.providerName != "" {
 		emit("==> Configuring credentials")
-		if err := runScript(s.opts.ConfigureScript, "ai-provider", c.root, "--name", c.providerName,
+		if err := runScript(s.deps.ConfigureScript, "ai-provider", c.root, "--name", c.providerName,
 			"--endpoint", c.providerEndpoint, "--token", c.providerToken); err != nil {
-			fail("Workspace configuration failed — " + err.Error())
-			return
+			return fail("Workspace configuration failed — " + err.Error())
 		}
-		if err := runScript(s.opts.ConfigureScript, "opencode-config", c.root, "--id", c.providerID,
+		if err := runScript(s.deps.ConfigureScript, "opencode-config", c.root, "--id", c.providerID,
 			"--name", c.providerName, "--endpoint", c.providerEndpoint); err != nil {
-			fail("Workspace configuration failed — " + err.Error())
-			return
+			return fail("Workspace configuration failed — " + err.Error())
 		}
 	}
 
 	// the registry write (missing workspaces.json seeds once)
-	reg := &registry.Registry{Home: s.opts.Home}
+	reg := s.registry()
 	req := registry.AddRequest{
 		Name: c.name, Path: c.root,
 		GitTracking: c.vcsLabel, RepoURL: c.repoURL,
@@ -886,12 +866,10 @@ func (c *createChain) run(s *Server) {
 		}
 	}
 	if err != nil {
-		fail("Workspace not registered: " + err.Error())
-		return
+		return fail("Workspace not registered: " + err.Error())
 	}
 	emit("Workspace created successfully.")
-	s.createBusyEnd(c.name)
-	s.hub.PublishWorkspaceOp(c.opID, "done")
+	return nil
 }
 
 // patchConfig applies the field patches via the atomic paths

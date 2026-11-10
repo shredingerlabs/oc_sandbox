@@ -80,6 +80,8 @@ func TestIndexShell(t *testing.T) {
 		`data-role="theme-toggle"`,  // dark/bright toggle slot
 		`data-role="update-banner"`, // footer banner slot
 		`data-role="screen"`,        // screen content slot (stub)
+		`data-role="confirm"`,       // shared confirm popup (ADR-0021 set)
+		`data-role="toasts"`,        // toast slot
 		`data-display="standard"`,   // display-mode default on <html> (#152)
 	} {
 		if !strings.Contains(doc, want) {
@@ -143,12 +145,22 @@ func TestAuthGrammar(t *testing.T) {
 	base := s.baseURL() // http://127.0.0.1:<port>/
 	withTok := s.URL()  // .../t/<token>/
 	routes := []string{
+		"containers", // #158 container center
+		"containers/opencode-sandbox-x/stop",
+		"containers/opencode-sandbox-x/delete",
+		"workspaces/x/start",
+		"images",        // #158 image screen
+		"images/build",  // #158
+		"images/delete", // #158
 		"",
 		"css/main.css",
 		"img/editions/swdev.svg",
 		"events",
 		"settings",
 		"workspaces",
+		"update",
+		"update/check",
+		"update/run",
 		"catalogs",
 	}
 	for _, c := range []struct{ name, prefix string }{

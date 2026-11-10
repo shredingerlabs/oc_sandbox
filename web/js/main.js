@@ -69,16 +69,17 @@
       document.querySelectorAll(".tree [data-nav]").forEach(function (b) {
         b.classList.toggle("active", b === btn);
       });
+      if (btn.hasAttribute("hx-get")) return; // htmx swaps its own fragment in (Update, #160)
       // Catalogs screen (#155): Settings → VCS Tracker / AI-Provider
       // both load GET /catalogs (one fragment, both sections).
       if ((btn.dataset.nav === "set-vcs" || btn.dataset.nav === "set-ai") && window.htmx) {
         htmx.ajax("GET", base + "catalogs", { target: '[data-role="screen"]', swap: "innerHTML" });
         return;
       }
-      // New Workspace wizard (#156): Workspace → New loads GET
-      // /workspaces/new — the form + the create-chain log pane.
-      if (btn.dataset.nav === "ws-new" && window.htmx) {
-        htmx.ajax("GET", base + "workspaces/new", { target: '[data-role="screen"]', swap: "innerHTML" });
+      // Container center + images (#158): fragment screens with the
+      // reactive workspace re-render.
+      if (screenPaths[btn.dataset.nav]) {
+        loadScreen(screenPaths[btn.dataset.nav]);
         return;
       }
       renderStub(btn.dataset.nav);
@@ -174,19 +175,10 @@
     else if (ev.target.name === "provider") applyCatalogSelect(form, '[name="provider"]', '[data-row="provider_new"]', '[data-row="provider_token"]');
   });
 
-  // --- SSE consumption (per-screen tickets consume; the shell holds
-  // the door): the create chain streams its steps into the log pane
-  // under the wizard form (line events keyed by the op ID).
-  function onCreateLine(data) {
-    var pane = document.querySelector('[data-role="create-log"][data-op-id="' + data.op + '"]');
-    if (!pane) return;
-    var div = document.createElement("div");
-    div.className = "logline";
-    div.textContent = data.text;
-    pane.appendChild(div);
-    pane.scrollTop = pane.scrollHeight;
-  }
-
+  // onCreateWorkspace reacts to the create chain's terminal workspace
+  // event ({op, state}): success swaps a fresh empty wizard (the TUI
+  // resets the form too); failure wakes the form for a retry while the
+  // pane stays readable.
   function onCreateWorkspace(data) {
     if (!data.op) return; // plain card re-render (Open screen ticket)
     var pane = document.querySelector('[data-role="create-log"][data-op-id="' + data.op + '"]');
@@ -201,13 +193,204 @@
     }
   }
 
-  function parseSSE(ev) {
-    try { return JSON.parse(ev.data); } catch (e) { return null; }
-  }
-
 
   // Stub screen (#152 foundation): per-screen tickets replace it —
   // catalogs (#155) and the New Workspace wizard (#156) already do.
+  // --- screens (#158): containers + images load as HTML fragments; the
+  // log pane's streamed lines live in JS memory, so the reactive
+  // workspace re-renders never lose build output ---
+  var screenPaths = { "set-containers": "containers", "set-images": "images" };
+  var currentScreen = null;
+  var logLines = {};   // op id → array of streamed lines
+  var lastLineId = 0;  // SSE id dedupe across reconnect replay
+
+  function loadScreen(name) {
+    fetch(base + name, { referrerPolicy: "no-referrer" })
+      .then(function (r) { return r.text(); })
+      .then(function (html) {
+        currentScreen = name;
+        screenEl.innerHTML = html;
+        restoreLog();
+      })
+      .catch(function () { /* server may be gone; SSE shutdown covers it */ });
+  }
+
+  // restoreLog re-fills the current log pane from streamed memory.
+  function restoreLog() {
+    var pane = screenEl.querySelector('[data-role="log"]');
+    if (!pane) return;
+    var op = parseInt(pane.getAttribute("data-op"), 10) || 0;
+    if (!op) return;
+    var lines = logLines[op] || [];
+    pane.textContent = lines.join("\n");
+    if (lines.length) pane.scrollTop = pane.scrollHeight;
+  }
+
+  // --- shared confirm popup (ADR-0021 set): per-action copy, Cancel-safe ---
+  var confirmEl = document.querySelector('[data-role="confirm"]');
+  var confirmState = null;
+  function showConfirm(title, body, okLabel, onOk) {
+    confirmState = onOk;
+    confirmEl.querySelector('[data-role="confirm-title"]').textContent = title;
+    confirmEl.querySelector('[data-role="confirm-body"]').textContent = body;
+    confirmEl.querySelector('[data-role="confirm-ok"]').textContent = okLabel;
+    confirmEl.hidden = false;
+    confirmEl.querySelector('[data-role="confirm-cancel"]').focus();
+  }
+  confirmEl.addEventListener("click", function (ev) {
+    if (confirmState && ev.target.closest('[data-role="confirm-ok"]')) {
+      var ok = confirmState;
+      confirmState = null;
+      confirmEl.hidden = true;
+      ok();
+    } else if (ev.target.closest('[data-role="confirm-cancel"]') || ev.target === confirmEl) {
+      confirmState = null;
+      confirmEl.hidden = true;
+    }
+  });
+
+  // --- toasts ---
+  var toastsEl = document.querySelector('[data-role="toasts"]');
+  function toast(text, kind) {
+    var el = document.createElement("div");
+    el.className = "toast" + (kind ? " " + kind : "");
+    el.textContent = text;
+    toastsEl.appendChild(el);
+    setTimeout(function () { el.remove(); }, 6000);
+  }
+
+  // --- container/image actions (#158): buttons carry data-action +
+  // data-href (+ optional data-confirm / data-danger / data-tag).
+  // Confirmed actions fire the POST only on confirm — the popup set
+  // carried 1:1 (stop/delete container, build, delete image; the
+  // deletes the danger ones). Confirms refuse while an op is
+  // queued/running: the busy fragment comes back from the server and
+  // swaps in like any other response.
+  screenEl.addEventListener("click", function (ev) {
+    var btn = ev.target.closest("button[data-action]");
+    if (!btn || btn.disabled) return;
+    ev.preventDefault();
+    var href = btn.dataset.href;
+    function go(form) {
+      fetch(base + href, {
+        method: "POST",
+        body: form || null,
+        headers: form ? { "Content-Type": "application/x-www-form-urlencoded" } : undefined,
+        referrerPolicy: "no-referrer"
+      })
+        .then(function (r) { return r.text(); })
+        .then(function (html) {
+          screenEl.innerHTML = html;
+          restoreLog();
+          var refused = screenEl.querySelector('[data-toast]');
+          if (refused) toast(refused.textContent, "warn");
+        })
+        .catch(function () { /* SSE shutdown covers a dead server */ });
+    }
+    if (btn.dataset.confirm) {
+      showConfirm(
+        btn.dataset.confirm,
+        "",
+        btn.dataset.danger !== undefined ? "Delete" : "Confirm",
+        function () {
+          go(btn.dataset.action === "img-delete"
+            ? "tag=" + encodeURIComponent(btn.dataset.tag)
+            : null);
+        }
+      );
+      return;
+    }
+    go(null);
+  });
+
+  // --- §12 update phases: footer banner + Update card render purely
+  //     from the one SSE `update` event; the run streams its log into
+  //     the pane under the card; there is no in-WebUI restart.
+  var bannerEl = document.querySelector('[data-role="update-banner"]');
+  var updateOp = null; // the running/last update op — the log pane's filter
+  function onUpdate(ev) {
+    var st;
+    try { st = JSON.parse(ev.data); } catch (e) { return; }
+    if (st.op) updateOp = st.op;
+    renderBanner(st);
+    renderUpdateCard(st);
+    if (st.phase === "applied") {
+      toast("Update installed — restart oc-sandbox to apply.", "ok");
+    } else if (st.phase === "failed") {
+      toast("Update failed: " + (st.error || "see the log"), "warn");
+    }
+  }
+  function renderBanner(st) {
+    if (st.phase === "available") {
+      bannerEl.textContent = "Update available: " + (st.latest || "");
+      bannerEl.className = "banner";
+      bannerEl.hidden = false;
+    } else if (st.phase === "installing") {
+      bannerEl.textContent = "Updating oc-sandbox…";
+      bannerEl.className = "banner";
+      bannerEl.hidden = false;
+    } else if (st.phase === "failed") {
+      bannerEl.textContent = "Update failed — see Settings → Update.";
+      bannerEl.className = "banner danger";
+      bannerEl.hidden = false;
+    } else { // up-to-date / applied: the banner clears (§12)
+      bannerEl.hidden = true;
+    }
+  }
+  function renderUpdateCard(st) {
+    var card = document.querySelector('[data-role="update-card"]');
+    if (!card) return;
+    var rowVerdict = card.querySelector('[data-role="update-verdict"]');
+    var rowInstalled = card.querySelector('[data-role="update-installed"]');
+    var rowLatest = card.querySelector('[data-role="update-latest"]');
+    var rowError = card.querySelector('[data-role="update-error"]');
+    var rowNote = card.querySelector('[data-role="update-note"]');
+    var runBtn = card.querySelector('[data-role="update-run"]');
+    if (st.installed && rowInstalled) rowInstalled.textContent = "Installed version: " + st.installed;
+    if (st.latest && rowLatest && st.phase !== "installing") rowLatest.textContent = "Latest version: " + st.latest;
+    var verdict = { "available": "Update available!", "up-to-date": "You are up to date.", "installing": "Updating…" }[st.phase] || "";
+    if (rowVerdict) {
+      rowVerdict.textContent = verdict;
+      rowVerdict.dataset.phase = st.phase;
+    }
+    if (rowError) { // the failure stays visible until the next attempt
+      if (st.phase === "failed") {
+        rowError.textContent = "Update failed: " + (st.error || "");
+        rowError.hidden = false;
+      } else if (st.phase === "installing" || st.phase === "applied") {
+        rowError.hidden = true; // the next attempt started / succeeded
+      }
+    }
+    if (rowNote) rowNote.hidden = st.phase !== "applied";
+    if (runBtn) {
+      if (st.phase === "installing") runBtn.setAttribute("disabled", "");
+      else runBtn.removeAttribute("disabled");
+    }
+  }
+
+  // --- the update run behind the shared confirm popup (§12): the popup
+  //     copy carries the keep-note; the POST answers at once, phases
+  //     stream via /events ---
+  document.addEventListener("click", function (ev) {
+    var runBtn = ev.target.closest('[data-role="update-run"]');
+    if (!runBtn || runBtn.hasAttribute("disabled")) return;
+    ev.preventDefault();
+    showConfirm(
+      runBtn.dataset.confirmTitle || "Update oc-sandbox?",
+      runBtn.dataset.confirmBody || "",
+      "Update",
+      function () {
+        htmx.ajax("POST", base + "update/run", { target: '[data-role="update-card"]', swap: "outerHTML" });
+      }
+    );
+  });
+
+    es.addEventListener("update", function (ev) { onUpdate(ev); });
+
+  // Stub screen (#152 foundation): one Standard row, one advanced-only
+  // row (stored value survives the Standard view — presets, not
+  // pinning), and the presets hint. Per-screen tickets (#153,
+  // #155–#157) replace this with real rows driven by the Go matrix.
   function renderStub(nav) {
     screenEl.innerHTML =
       '<div class="stub">Screen "' + nav + '" arrives with its ticket.</div>' +
@@ -221,21 +404,61 @@
   function connect() {
     var es = new EventSource(base + "events");
     es.addEventListener("open", function () { /* stub: clear reconnect exhaustion UI */ });
-    es.addEventListener("line", function (ev) {
-      var d = parseSSE(ev);
-      if (d && d.op !== undefined) onCreateLine(d);
-    });
+    es.addEventListener("line", function (ev) { onLine(ev); });
     es.addEventListener("workspace", function (ev) {
-      var d = parseSSE(ev);
-      if (d) onCreateWorkspace(d);
+      // reactive re-render (#158, spec §9): fresh rows/markers after
+      // every op state change — the log pane re-fills from memory
+      var d = null;
+      try { d = JSON.parse(ev.data); } catch (e) {}
+      if (d && d.state) onCreateWorkspace(d); // the create chain's terminal event (#156)
+      else if (currentScreen) loadScreen(currentScreen);
     });
-    es.addEventListener("update", function (ev) { stubEvent("update", ev); });
+    es.addEventListener("update", function (ev) { onUpdate(ev); });
     es.addEventListener("shutdown", function () {
       es.close();
       screenEl.innerHTML =
         '<div class="stub">Server stopped — relaunch oc-sandbox.</div>'; // §12 screen stub
     });
     return es;
+  }
+
+  // Line events stream into the embedded log pane under the Update card
+  // while the update op runs (spec §12) — keyed by the op ID the update
+  // event carries. #158: build lines stream the same way into the image
+  // screen's log pane, buffered in JS memory across re-renders.
+  function onLine(ev) {
+    var id = parseInt(ev.lastEventId, 10) || 0;
+    var replayed = lastLineId > 0 && id > 0 && id <= lastLineId;
+    if (id > lastLineId) lastLineId = id;
+    var line;
+    try { line = JSON.parse(ev.data); } catch (e) { return; }
+    // buffered copy for the container/image log panes (#158); replayed
+    // lines are already in memory, so they are not appended twice
+    if (line.op && !replayed) {
+      if (!logLines[line.op]) logLines[line.op] = [];
+      logLines[line.op].push(line.text);
+      var pane = screenEl.querySelector('[data-role="log"]');
+      if (pane && (parseInt(pane.getAttribute("data-op"), 10) || 0) === line.op) {
+        pane.textContent = logLines[line.op].join("\n");
+        pane.scrollTop = pane.scrollHeight;
+      }
+      // the create chain streams into the log pane under the wizard (#156)
+      var cpane = document.querySelector('[data-role="create-log"][data-op-id="' + line.op + '"]');
+      if (cpane) {
+        var div = document.createElement("div");
+        div.className = "logline";
+        div.textContent = line.text;
+        cpane.appendChild(div);
+        cpane.scrollTop = cpane.scrollHeight;
+      }
+    }
+    var card = document.querySelector('[data-role="update-card"]');
+    var upane = card && card.querySelector('[data-role="update-log"]');
+    if (upane && updateOp !== null && line.op === updateOp) {
+      upane.hidden = false;
+      upane.textContent += (upane.textContent ? "\n" : "") + line.text;
+      upane.scrollTop = upane.scrollHeight;
+    }
   }
 
   function stubEvent(kind, ev) {

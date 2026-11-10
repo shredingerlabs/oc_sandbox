@@ -37,8 +37,8 @@ FROM opencode-sandbox-base AS opencode-sandbox-swdev
 FROM opencode-sandbox-base AS opencode-sandbox-embedded
 `
 
-// errImageMissing mirrors podman's non-zero exit for a missing image.
-var errImageMissing = errors.New("exit status 1")
+// errTestImageMissing mirrors podman's non-zero exit for a missing image.
+var errTestImageMissing = errors.New("exit status 1")
 
 func newCreateFixture(t *testing.T, script func(name string, args []string) (string, error)) createFixture {
 	t.Helper()
@@ -52,15 +52,18 @@ func newCreateFixture(t *testing.T, script func(name string, args []string) (str
 	}
 	fake := &cmdrun.Fake{Script: script}
 	s := New(Options{
-		BasePort:             0,
-		Home:                 home,
-		Runner:               fake,
-		DefaultWorkspacePath: filepath.Join(home, "ws"),
-		StartScript:          filepath.Join(install, "scripts", "start.sh"),
-		InitScript:           filepath.Join(install, "scripts", "init-workspace.sh"),
-		ConfigureScript:      filepath.Join(install, "scripts", "configure-workspace.sh"),
-		BuildScript:          filepath.Join(install, "scripts", "build-container.sh"),
-		Dockerfile:           filepath.Join(install, "Dockerfile"),
+		BasePort: 0,
+		Home:     home,
+		Deps: &Deps{
+			Run:                  fake,
+			Registry:             &registry.Registry{Home: home},
+			DefaultWorkspacePath: filepath.Join(home, "ws"),
+			StartScript:          filepath.Join(install, "scripts", "start.sh"),
+			InitScript:           filepath.Join(install, "scripts", "init-workspace.sh"),
+			ConfigureScript:      filepath.Join(install, "scripts", "configure-workspace.sh"),
+			BuildScript:          filepath.Join(install, "scripts", "build-container.sh"),
+			Dockerfile:           filepath.Join(install, "Dockerfile"),
+		},
 	})
 	if err := s.Start(); err != nil {
 		t.Fatalf("Start: %v", err)
@@ -76,7 +79,7 @@ func imageExistsScript(exists bool) func(string, []string) (string, error) {
 			if exists {
 				return "", nil
 			}
-			return "", errImageMissing
+			return "", errTestImageMissing
 		}
 		return "", nil
 	}
@@ -285,7 +288,7 @@ func TestCreateChainBlank(t *testing.T) {
 		t.Fatalf("bash calls = %v, want exactly [init-workspace.sh <root>]", calls)
 	}
 	root := registry.CanonicalPath(f.home + "/ws/demo")
-	want := []string{f.s.opts.InitScript, root}
+	want := []string{f.s.deps.InitScript, root}
 	for i, w := range want {
 		if calls[0][i] != w {
 			t.Fatalf("init args = %v, want %v", calls[0], want)
@@ -325,7 +328,7 @@ func TestCreateChainFromRepo(t *testing.T) {
 	waitDone(t, sse)
 
 	calls := bashCalls(f)
-	if len(calls) != 1 || calls[0][0] != f.s.opts.InitScript {
+	if len(calls) != 1 || calls[0][0] != f.s.deps.InitScript {
 		t.Fatalf("bash calls = %v", calls)
 	}
 	if !slices.Contains(calls[0], "--repo_url") {
@@ -397,10 +400,10 @@ func TestCreateChainBuildSemantics(t *testing.T) {
 	f.confirm(t, vals)
 	waitDone(t, sse)
 	calls := bashCalls(f)
-	if len(calls) != 2 || calls[0][0] != f.s.opts.BuildScript || calls[0][1] != "swdev" {
+	if len(calls) != 2 || calls[0][0] != f.s.deps.BuildScript || calls[0][1] != "swdev" {
 		t.Fatalf("build-now calls = %v, want [build-container.sh swdev, init…]", calls)
 	}
-	if calls[1][0] != f.s.opts.InitScript {
+	if calls[1][0] != f.s.deps.InitScript {
 		t.Fatalf("build-now tail = %v", calls)
 	}
 
@@ -411,7 +414,7 @@ func TestCreateChainBuildSemantics(t *testing.T) {
 	vals2["build"] = "later"
 	f2.confirm(t, vals2)
 	waitDone(t, sse2)
-	if calls2 := bashCalls(f2); len(calls2) != 1 || calls2[0][0] != f2.s.opts.InitScript {
+	if calls2 := bashCalls(f2); len(calls2) != 1 || calls2[0][0] != f2.s.deps.InitScript {
 		t.Fatalf("build-later calls = %v", calls2)
 	}
 
@@ -591,11 +594,11 @@ func TestCreateChainCredentialOrder(t *testing.T) {
 	root := registry.CanonicalPath(f.home + "/ws/demo")
 	calls := bashCalls(f)
 	want := [][]string{
-		{f.s.opts.ConfigureScript, "vcs-credentials", "github", root, "--token", "vcs-secret-1"},
-		{f.s.opts.ConfigureScript, "git-identity", root, "--name", "ada", "--email", "ada@example.com"},
-		{f.s.opts.ConfigureScript, "ai-provider", root, "--name", "ACME AI",
+		{f.s.deps.ConfigureScript, "vcs-credentials", "github", root, "--token", "vcs-secret-1"},
+		{f.s.deps.ConfigureScript, "git-identity", root, "--name", "ada", "--email", "ada@example.com"},
+		{f.s.deps.ConfigureScript, "ai-provider", root, "--name", "ACME AI",
 			"--endpoint", "https://api.acme.example/v1", "--token", "provider-secret-2"},
-		{f.s.opts.ConfigureScript, "opencode-config", root, "--id", "acme-ai",
+		{f.s.deps.ConfigureScript, "opencode-config", root, "--id", "acme-ai",
 			"--name", "ACME AI", "--endpoint", "https://api.acme.example/v1"},
 	}
 	if len(calls) != len(want)+1 { // + init
@@ -677,12 +680,12 @@ func TestCreateChainInlineNewSavesToCatalog(t *testing.T) {
 	root := registry.CanonicalPath(f.home + "/ws/demo")
 	calls := bashCalls(f)
 	if !slices.ContainsFunc(calls, func(c []string) bool {
-		return equalArgs(c, []string{f.s.opts.ConfigureScript, "vcs-credentials", "gitlab", root, "--token", "vcs-tok", "--host", "gitlab.example.org"})
+		return equalArgs(c, []string{f.s.deps.ConfigureScript, "vcs-credentials", "gitlab", root, "--token", "vcs-tok", "--host", "gitlab.example.org"})
 	}) {
 		t.Errorf("vcs-credentials call missing: %v", calls)
 	}
 	if !slices.ContainsFunc(calls, func(c []string) bool {
-		return equalArgs(c, []string{f.s.opts.ConfigureScript, "git-identity", root, "--name", "grace", "--email", "grace@example.com"})
+		return equalArgs(c, []string{f.s.deps.ConfigureScript, "git-identity", root, "--name", "grace", "--email", "grace@example.com"})
 	}) {
 		t.Errorf("git-identity call missing: %v", calls)
 	}
