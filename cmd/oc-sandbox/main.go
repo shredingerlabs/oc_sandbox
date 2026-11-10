@@ -152,17 +152,21 @@ func runLauncher() {
 	os.Exit(1)
 }
 
-// startWebserver starts the embedded WebUI (spec §3/#150) and prints
-// the full tokenized URL as the status line the launcher face (#151)
 // will take over. Home wires GET/POST /settings to global_config.json
 // (#152). A failed start never kills the TUI — it prints a warning and
-// returns nil.
+// returns nil. The §12 update check rides the server start: one silent
+// GitHub request, badge pushed via /events.
 func startWebserver(home, version string) *webserver.Server {
-	ui := webserver.New(webserver.Options{Version: version, Home: home})
+	ui := webserver.New(webserver.Options{
+		Version:     version,
+		Home:        home,
+		InstallRoot: app.LayoutFor(home).InstallRoot,
+	})
 	if err := ui.Start(); err != nil {
 		fmt.Fprintf(os.Stderr, "oc-sandbox: WebUI could not start: %v (the TUI keeps running)\n", err)
 		return nil
 	}
+	ui.StartupCheck()
 	fmt.Printf("WebUI: %s\n", ui.URL())
 	return ui
 }

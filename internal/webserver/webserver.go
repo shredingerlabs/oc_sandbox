@@ -36,9 +36,10 @@ const BasePort = 8090
 // Options carries the launch-time knobs. The zero value is production:
 // base port 8090 (scans upward on conflict, never persisted).
 type Options struct {
-	BasePort int    // first port tried; 0 means "pick a free port" (tests)
-	Version  string // reported nowhere until a screen needs it
-	Home     string // the oc-sandbox home: ~/.config/oc-sandbox holds catalogs.json etc. and global_config.json (GET/POST /settings)
+	BasePort    int    // first port tried; 0 means "pick a free port" (tests)
+	Version     string // compiled-in version — the update card's fallback when the VERSION file is absent
+	InstallRoot string // the install layout root (app.LayoutFor): the VERSION file lives here
+	Home        string // the oc-sandbox home: ~/.config/oc-sandbox holds catalogs.json etc. and global_config.json (GET/POST /settings)
 }
 
 // Server is one WebUI instance: a loopback listener with a per-launch
@@ -48,6 +49,8 @@ type Server struct {
 	opts    Options
 	token   string // hex, ≥128 bit of CSPRNG entropy
 	hub     *Hub
+	queue   *opRunner
+	updater *Updater
 	srv     *http.Server
 	ln      net.Listener
 	url     string
@@ -63,6 +66,8 @@ func New(opts Options) *Server {
 		hub:   newHub(),
 	}
 	s.errSink = &redactingLog{next: &s.errLog}
+	s.queue = newOpRunner(s.hub)
+	s.updater = newUpdater(s.hub, s.queue, opts.InstallRoot, opts.Version)
 	return s
 }
 
@@ -126,6 +131,9 @@ func (s *Server) Start() error {
 		http.FileServerFS(assetsFS).ServeHTTP(w, r)
 	}))
 	inner.HandleFunc("GET /events", s.hub.serveEvents)
+	inner.HandleFunc("GET /update", s.handleUpdateCard)
+	inner.HandleFunc("POST /update/check", s.handleUpdateCheck)
+	inner.HandleFunc("POST /update/run", s.handleUpdateRun)
 	inner.HandleFunc("GET /catalogs", s.handleCatalogsGET)
 	inner.HandleFunc("POST /catalogs/trackers", s.handleTrackersPOST)
 	inner.HandleFunc("POST /catalogs/providers", s.handleProvidersPOST)

@@ -80,6 +80,8 @@ func TestIndexShell(t *testing.T) {
 		`data-role="theme-toggle"`,  // dark/bright toggle slot
 		`data-role="update-banner"`, // footer banner slot
 		`data-role="screen"`,        // screen content slot (stub)
+		`data-role="confirm"`,       // shared confirm popup (ADR-0021 set)
+		`data-role="toasts"`,        // toast slot
 		`data-display="standard"`,   // display-mode default on <html> (#152)
 	} {
 		if !strings.Contains(doc, want) {
@@ -149,6 +151,9 @@ func TestAuthGrammar(t *testing.T) {
 		"events",
 		"settings",
 		"workspaces",
+		"update",
+		"update/check",
+		"update/run",
 		"catalogs",
 	}
 	for _, c := range []struct{ name, prefix string }{
