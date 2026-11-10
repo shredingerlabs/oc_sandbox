@@ -39,7 +39,6 @@ func TestQueueOneAtATimePerWorkspaceParallelAcross(t *testing.T) {
 	}}
 	s := startServerWith(t, home, fake)
 
-
 	r1 := post(t, s.URL()+"workspaces/alpha/start", nil)
 	if r1.StatusCode != 200 {
 		t.Fatalf("first start: %d", r1.StatusCode)

@@ -147,20 +147,21 @@
       // The new tab opens synchronously under the click gesture (§10),
       // then navigates once the fresh pair link arrives.
       openPairTab(card);
-      chainStart(card, variant, function () { pairInto(card, tabFor(card)); });
+      chainStart(card, variant, function (fresh) { pairInto(fresh, tabFor(fresh)); });
     } else {
-      chainStart(card, variant, function () {
-        accessVariant(card, variant);
+      chainStart(card, variant, function (fresh) {
+        accessVariant(fresh, variant);
       });
     }
   });
 
-  // chainStart runs the start op and then continues the access chain;
-  // card re-renders ride the SSE workspace events.
+  // chainStart runs the start op and then continues the access chain
+  // with the fresh card node; card re-renders ride the SSE workspace
+  // events.
   function chainStart(card, variant, then) {
     fetch(post(card, "start"), { method: "POST" })
       .then(function (r) { return r.text(); })
-      .then(function (frag) { swapCard(card, frag); })
+      .then(function (frag) { return swapCard(card, frag); })
       .then(then)
       .catch(function () { showNote(card, "start failed — retry"); });
   }
@@ -259,22 +260,16 @@
       '</span>';
   }
 
-  // swapCard replaces the card with the server fragment, keeping the
-  // streamed log contents.
+  // swapCard replaces the card with the server fragment, re-applying
+  // the streamed log contents.
   function swapCard(card, frag) {
     var tmp = document.createElement("div");
     tmp.innerHTML = frag;
     var fresh = tmp.querySelector(".card");
-    if (!fresh) return;
-    var log = card.querySelector("[data-oplog]");
-    if (log && !log.hidden) {
-      var freshLog = fresh.querySelector("[data-oplog]");
-      if (freshLog) {
-        freshLog.innerHTML = log.innerHTML;
-        freshLog.hidden = false;
-      }
-    }
+    if (!fresh) return card;
     card.replaceWith(fresh);
+    applyLogs(fresh);
+    return fresh;
   }
 
   // --- SSE consumption: reactive re-render, no polling ---
@@ -292,19 +287,36 @@
     return es;
   }
 
-  // Line events stream into the busy card's log (matched by op id, §9).
+  // Line events stream into the busy card's log (matched by op id, §9);
+  // lines are kept per op so re-renders never lose the stream.
+  var opLogs = {};
   function appendLine(ev) {
-    try {
-      var data = JSON.parse(ev.data);
-      var card = document.querySelector('[data-op-id="' + data.op + '"]');
-      if (!card) return;
-      var log = card.querySelector("[data-oplog]");
-      if (!log) return;
-      log.hidden = false;
-      log.textContent += data.text + "\n";
-      log.scrollTop = log.scrollHeight;
-    } catch (e) { /* malformed line payloads are dropped */ }
+    var data;
+    try { data = JSON.parse(ev.data); } catch (e) { return; }
+    opLogs[data.op] = (opLogs[data.op] || "") + data.text + "\n";
+    forEachCard(function (card) { applyLogs(card); });
   }
+
+  function forEachCard(fn) {
+    document.querySelectorAll(".card[data-op-id]").forEach(fn);
+  }
+
+  // applyLogs re-fills a card's log from the kept per-op lines.
+  function applyLogs(card) {
+    var op = card.getAttribute("data-op-id");
+    var text = opLogs[op];
+    if (!text) return;
+    var log = card.querySelector("[data-oplog]");
+    if (!log) return;
+    log.hidden = false;
+    log.textContent = text;
+    log.scrollTop = log.scrollHeight;
+  }
+
+  // The grid re-render from a workspace event keeps busy logs visible.
+  screenEl.addEventListener("htmx:afterSwap", function () {
+    forEachCard(function (card) { applyLogs(card); });
+  });
 
   function stubEvent(kind, ev) {
     // The per-screen tickets consume these; the shell only holds the door.

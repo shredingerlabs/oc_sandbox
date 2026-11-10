@@ -24,8 +24,9 @@ type opQueue struct {
 
 // opChain is one key's FIFO: an idle drain goroutine walks the queue.
 type opChain struct {
-	pending []queuedOp
-	running bool
+	pending   []queuedOp
+	running   bool
+	runningID int
 }
 
 type queuedOp struct {
@@ -46,6 +47,22 @@ func (q *opQueue) Busy(key string) bool {
 	return c != nil && (c.running || len(c.pending) > 0)
 }
 
+// CurrentOp returns the op id of the key's in-flight (running or first
+// queued) op, 0 when idle — the id busy cards carry so streamed line
+// events find their log across re-renders.
+func (q *opQueue) CurrentOp(key string) int {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	c := q.chains[key]
+	if c == nil || (!c.running && len(c.pending) == 0) {
+		return 0
+	}
+	if len(c.pending) > 0 {
+		return c.pending[0].id
+	}
+	return c.runningID
+}
+
 // Enqueue queues the op under key and returns its op id (never zero).
 // Queued-not-refused: an existing op on the key delays this one; ops on
 // other keys run in parallel.
@@ -62,6 +79,7 @@ func (q *opQueue) Enqueue(key string, fn opFn) int {
 	idle := !c.running
 	if idle {
 		c.running = true
+		c.runningID = id
 	}
 	q.mu.Unlock()
 	if idle {
@@ -78,11 +96,13 @@ func (q *opQueue) drain(c *opChain) {
 		q.mu.Lock()
 		if len(c.pending) == 0 {
 			c.running = false
+			c.runningID = 0
 			q.mu.Unlock()
 			return
 		}
 		op := c.pending[0]
 		c.pending = c.pending[1:]
+		c.runningID = op.id
 		q.mu.Unlock()
 
 		err := op.fn(func(line string) { q.hub.PublishLine(op.id, line) })

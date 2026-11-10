@@ -3,6 +3,8 @@ package webserver
 import (
 	"strings"
 	"testing"
+
+	"github.com/shredingerlabs/oc-sandbox/internal/cmdrun"
 )
 
 // The frontend wiring of the Open screen (#153): the shell script loads
@@ -39,12 +41,12 @@ func TestFrontendCardStyles(t *testing.T) {
 		`.grid`,
 		`.card`,
 		`.tile`,
-		`--ed`,      // edition hue tinting
-		`.chip`,     // HIL + advanced chips
-		`.dot`,      // running marker
-		`.oplog`,    // streamed op log
-		`.busy`,     // busy row
-		`.confirm`,  // stop/delete confirm row
+		`--ed`,     // edition hue tinting
+		`.chip`,    // HIL + advanced chips
+		`.dot`,     // running marker
+		`.oplog`,   // streamed op log
+		`.busy`,    // busy row
+		`.confirm`, // stop/delete confirm row
 	} {
 		if !strings.Contains(css, want) {
 			t.Fatalf("main.css missing %q", want)
@@ -53,17 +55,34 @@ func TestFrontendCardStyles(t *testing.T) {
 }
 
 // The card fragment carries the op id on the busy card so the streamed
-// line events land in the right card's log.
+// line events land in the right card's log — across re-renders too
+// (GET re-renders the op id from the queue), and confirms refuse while
+// an op is queued/running (§9).
 func TestCardFragmentCarriesOpID(t *testing.T) {
 	home := t.TempDir()
 	seedWorkspace(t, home, "alpha", "swdev", nil)
-	var bashCalls []string
-	fake := plainStartFake(&bashCalls)
+	release := make(chan struct{})
+	fake := &cmdrun.Fake{Script: func(name string, args []string) (string, error) {
+		if name == "bash" {
+			<-release
+		}
+		return "", nil
+	}}
 	s := startServerWith(t, home, fake)
-	defer func() { _ = s.Close() }()
 
 	resp := post(t, s.URL()+"workspaces/alpha/start", nil)
 	if frag := body(t, resp); !strings.Contains(frag, `data-op-id="`) {
 		t.Fatalf("busy card missing data-op-id, got:\n%s", frag)
 	}
+
+	// A GET re-render (SSE workspace event path) still carries the op
+	// id, and the confirm buttons refuse while the op runs.
+	doc := body(t, get(t, s.URL()+"workspaces"))
+	if !strings.Contains(doc, `data-op-id="`) {
+		t.Fatal("GET re-render lost the busy card's op id")
+	}
+	if !strings.Contains(doc, `data-confirm="stop" disabled`) {
+		t.Fatal("confirms must refuse while an op is queued/running")
+	}
+	close(release)
 }

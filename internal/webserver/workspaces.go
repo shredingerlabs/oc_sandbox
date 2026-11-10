@@ -114,8 +114,8 @@ var wsTemplate = template.Must(template.New("ws").Parse(`
     {{end}}
   </div>
   <div class="confirms">
-    <button class="btn danger" data-confirm="stop">Stop…</button>
-    <button class="btn danger" data-confirm="delete">Delete…</button>
+    <button class="btn danger" data-confirm="stop" {{if .Busy}}disabled title="refused — an op is queued or running for this workspace"{{end}}>Stop…</button>
+    <button class="btn danger" data-confirm="delete" {{if .Busy}}disabled title="refused — an op is queued or running for this workspace"{{end}}>Delete…</button>
   </div>
   <div class="oplog" data-oplog hidden></div>
 </article>
@@ -193,6 +193,9 @@ func (s *Server) cardFor(e registry.Workspace, mode string) cardView {
 		OpenVariant: "web", // Standard: always web, never a terminal concept (§6)
 		Advanced:    mode == config.DisplayAdvanced,
 		Busy:        s.queue.Busy(registry.ContainerIdentity(e.Path)),
+	}
+	if c.Busy {
+		c.OpID = s.queue.CurrentOp(registry.ContainerIdentity(e.Path))
 	}
 	cfg, err := sandboxcfg.Read(sandboxcfg.Path(e.Path))
 	if err != nil {

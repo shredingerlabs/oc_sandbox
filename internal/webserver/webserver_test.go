@@ -123,9 +123,9 @@ func TestShellAssets(t *testing.T) {
 	}
 	js := body(t, get(t, s.URL()+"js/main.js"))
 	for _, want := range []string{
-		`"settings"`,         // GET on load — stored truth, no localStorage
-		`method: "POST"`,     // toggle persists via POST /settings
-		"displaychange",      // screens re-render reactively on this event
+		`"settings"`,          // GET on load — stored truth, no localStorage
+		`method: "POST"`,      // toggle persists via POST /settings
+		"displaychange",       // screens re-render reactively on this event
 		`base + "workspaces"`, // #153: the Open screen rides the same reactive re-render
 	} {
 		if !strings.Contains(js, want) {

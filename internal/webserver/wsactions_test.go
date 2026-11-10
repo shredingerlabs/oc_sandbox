@@ -202,12 +202,6 @@ func TestStartScriptFailureKeepsRegistry(t *testing.T) {
 	}
 }
 
-// plainStartFake is the minimal start fixture: nothing running, image
-// exists, start.sh succeeds.
-func plainStartFake(bashCalls *[]string) *cmdrun.Fake {
-	return &cmdrun.Fake{Script: fakePodmanScript(bashCalls, "", false, "", nil)}
-}
-
 // post sends a form POST (nil form → empty body).
 func post(t *testing.T, url string, form map[string]string) *http.Response {
 	t.Helper()
