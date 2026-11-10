@@ -136,7 +136,10 @@ func runLauncher() {
 		Runner:   cmdrun.ExecRunner{},
 		Registry: &registry.Registry{Home: home, Now: time.Now},
 	})
-	p := tea.NewProgram(&m) // inline face: migration output and the URL line stay in scrollback
+	// Inline face: migration output and the URL line stay in scrollback.
+	// Mouse capture turns on here so the face's buttons are clickable —
+	// the launcher owns the hit rects; nothing else consumes mouse events.
+	p := tea.NewProgram(&m, tea.WithMouseCellMotion())
 	final, err := p.Run()
 	if ui != nil {
 		ui.Hub().PublishShutdown() // best-effort push; tabs stop reconnecting (§4/§12)

@@ -237,17 +237,13 @@ func (m *Model) cmdStop() tea.Cmd {
 func (m *Model) View() string {
 	var b strings.Builder
 	b.WriteString(titleStyle.Render("oc-sandbox") + "\n\n")
-	if m.opts.URL != "" {
-		b.WriteString(" WebUI: " + urlStyle.Render(m.opts.URL) + "\n\n")
-	} else {
-		b.WriteString(warnStyle.Render(" WebUI: (not running)") + "\n\n")
-	}
 
-	// Two buttons on row 4 — the click rects derive from the same layout
-	// the renderer paints (color codes never shift cells).
+	// Two buttons on row 2 with the URL/status line directly beneath
+	// (row 3) — the click rects derive from the same layout the renderer
+	// paints (color codes never shift cells).
 	openBtn, openFocused := "[ Open WebUI ]", m.focus == 0
 	quitBtn, quitFocused := "[ Quit ]", m.focus == 1
-	const row = 4
+	const row = 2
 	openX, openW := 1, len(openBtn)
 	quitX := openX + openW + 3
 	m.openRect, m.quitRect = rect{x: openX, y: row, w: openW}, rect{x: quitX, y: row, w: len(quitBtn)}
@@ -263,7 +259,12 @@ func (m *Model) View() string {
 	} else {
 		buttons += idleStyle.Render(quitBtn)
 	}
-	b.WriteString(buttons + "\n\n")
+	b.WriteString(buttons + "\n")
+	if m.opts.URL != "" {
+		b.WriteString(" WebUI: " + urlStyle.Render(m.opts.URL) + "\n\n")
+	} else {
+		b.WriteString(warnStyle.Render(" WebUI: (not running)") + "\n\n")
+	}
 
 	switch {
 	case m.prompt:
