@@ -40,7 +40,7 @@ type Options struct {
 	Version     string // compiled-in version — the update card's fallback when the VERSION file is absent
 	InstallRoot string // the install layout root (app.LayoutFor): the VERSION file lives here
 	Home        string // the oc-sandbox home: ~/.config/oc-sandbox holds catalogs.json etc. and global_config.json (GET/POST /settings)
-	Deps        *Deps  // container/image screens (#158); nil = shell + update/settings/catalogs only
+	Deps        *Deps  // container/image screens (#158) + the New Workspace wizard (#156); nil = shell + update/settings/catalogs only
 }
 
 // Server is one WebUI instance: a loopback listener with a per-launch
@@ -134,6 +134,8 @@ func (s *Server) Start() error {
 		http.FileServerFS(assetsFS).ServeHTTP(w, r)
 	}))
 	inner.HandleFunc("GET /events", s.hub.serveEvents)
+	inner.HandleFunc("GET /workspaces/new", s.handleNewWorkspaceGET)
+	inner.HandleFunc("POST /workspaces", s.handleWorkspacesPOST)
 	inner.HandleFunc("GET /update", s.handleUpdateCard)
 	inner.HandleFunc("POST /update/check", s.handleUpdateCheck)
 	inner.HandleFunc("POST /update/run", s.handleUpdateRun)

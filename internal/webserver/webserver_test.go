@@ -145,7 +145,7 @@ func TestAuthGrammar(t *testing.T) {
 	base := s.baseURL() // http://127.0.0.1:<port>/
 	withTok := s.URL()  // .../t/<token>/
 	routes := []string{
-		"containers",                     // #158 container center
+		"containers", // #158 container center
 		"containers/opencode-sandbox-x/stop",
 		"containers/opencode-sandbox-x/delete",
 		"workspaces/x/start",

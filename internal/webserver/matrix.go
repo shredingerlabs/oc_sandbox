@@ -34,6 +34,16 @@ var matrix = []Row{
 	{Screen: "ws-settings", Key: "offline", Label: "Offline", AdvancedOnly: true},
 	{Screen: "ws-settings", Key: "cbm_ui", Label: "CBM-UI", AdvancedOnly: true},
 	{Screen: "ws-settings", Key: "hil", Label: "HIL", AdvancedOnly: true},
+	// New Workspace wizard (#156, §6): Standard shows name, source pair,
+	// agent, edition, VCS-credential + AI-provider selects — the §6
+	// presets (start web, proxy off, searxng, offline/CBM-UI off, HIL on
+	// for embedded) are recorded without their rows.
+	{Screen: "ws-new", Key: "start_option", Label: "Start option", AdvancedOnly: true},
+	{Screen: "ws-new", Key: "proxy", Label: "Proxy", AdvancedOnly: true},
+	{Screen: "ws-new", Key: "search_mode", Label: "Search mode", AdvancedOnly: true},
+	{Screen: "ws-new", Key: "offline", Label: "Offline", AdvancedOnly: true},
+	{Screen: "ws-new", Key: "cbm_ui", Label: "CBM-UI", AdvancedOnly: true},
+	{Screen: "ws-new", Key: "hil", Label: "HIL", AdvancedOnly: true},
 }
 
 // ScreenRows returns the matrix rows of a screen in display order.
