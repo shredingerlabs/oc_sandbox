@@ -51,6 +51,12 @@
       document.querySelectorAll(".tree [data-nav]").forEach(function (b) {
         b.classList.toggle("active", b === btn);
       });
+      // Catalogs screen (#155): Settings → VCS Tracker / AI-Provider
+      // both load GET /catalogs (one fragment, both sections).
+      if ((btn.dataset.nav === "set-vcs" || btn.dataset.nav === "set-ai") && window.htmx) {
+        htmx.ajax("GET", base + "catalogs", { target: '[data-role="screen"]', swap: "innerHTML" });
+        return;
+      }
       screenEl.innerHTML = ""; // screen stubs fill this slot (per-screen tickets)
     });
   });

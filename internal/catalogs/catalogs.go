@@ -189,8 +189,152 @@ func (d *Data) AddProvider(p Provider) error {
 	return nil
 }
 
+// Tracker kinds — the script-level slugs the seeded entries and
+// configure-workspace.sh vcs-credentials flow speak (ADR-0031).
+const (
+	KindGitHub    = "github"
+	KindGitLab    = "gitlab"
+	KindGitLabSel = "gitlab_self"
+	KindOther     = "other"
+)
+
+// TrackerKinds lists the selectable kinds in UI order.
+var TrackerKinds = []string{KindGitHub, KindGitLab, KindGitLabSel, KindOther}
+
+// ValidateTracker enforces the §8 entry shape: slugifiable display
+// name, a known kind, and a bare Host exactly where it is required —
+// for own GitLab and others. "none" is reserved (the empty default is
+// never a catalog entry).
+func ValidateTracker(t Tracker) error {
+	t.Name = strings.TrimSpace(t.Name)
+	if err := validateEntryName(t.Name); err != nil {
+		return err
+	}
+	switch t.Kind {
+	case KindGitHub, KindGitLab, KindGitLabSel, KindOther:
+	default:
+		return errors.New("unknown tracker kind")
+	}
+	if (t.Kind == KindGitLabSel || t.Kind == KindOther) && strings.TrimSpace(t.Host) == "" {
+		return errors.New("host is required for own GitLab and other trackers")
+	}
+	return nil
+}
+
+// ValidateProvider enforces the §8 entry shape: slugifiable display
+// name and an http(s) OpenAI-compatible endpoint. "none" is reserved.
+func ValidateProvider(p Provider) error {
+	p.Name = strings.TrimSpace(p.Name)
+	if err := validateEntryName(p.Name); err != nil {
+		return err
+	}
+	ep := strings.TrimSpace(p.Endpoint)
+	if !strings.HasPrefix(ep, "http://") && !strings.HasPrefix(ep, "https://") {
+		return errors.New("endpoint must be an http(s) URL")
+	}
+	return nil
+}
+
+// validateEntryName: non-empty after trim, slugifiable, never "none".
+func validateEntryName(name string) error {
+	if name == "" {
+		return errors.New("display name is required")
+	}
+	if Slug(name) == "none" {
+		return errors.New(`"none" is reserved — it is never a catalog entry`)
+	}
+	if !slugRe.MatchString(Slug(name)) {
+		return errors.New("display name must contain letters or digits")
+	}
+	return nil
+}
+
+// EditTracker replaces the entry identified by its current slugified
+// name (orig) in place — insertion order survives an edit — refusing
+// unknown entries and slug collisions with any other entry.
+func (d *Data) EditTracker(orig string, t Tracker) error {
+	t.Name = strings.TrimSpace(t.Name)
+	if err := ValidateTracker(t); err != nil {
+		return err
+	}
+	slug := Slug(orig)
+	idx := -1
+	for i, ex := range d.Trackers {
+		if Slug(ex.Name) == slug {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		return ErrNotFound
+	}
+	newSlug := Slug(t.Name)
+	for i, ex := range d.Trackers {
+		if i != idx && Slug(ex.Name) == newSlug {
+			return ErrNameExists
+		}
+	}
+	d.Trackers[idx] = t
+	return nil
+}
+
+// EditProvider replaces one provider entry in place, same rules.
+func (d *Data) EditProvider(orig string, p Provider) error {
+	p.Name = strings.TrimSpace(p.Name)
+	if err := ValidateProvider(p); err != nil {
+		return err
+	}
+	slug := Slug(orig)
+	idx := -1
+	for i, ex := range d.Providers {
+		if Slug(ex.Name) == slug {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		return ErrNotFound
+	}
+	newSlug := Slug(p.Name)
+	for i, ex := range d.Providers {
+		if i != idx && Slug(ex.Name) == newSlug {
+			return ErrNameExists
+		}
+	}
+	d.Providers[idx] = p
+	return nil
+}
+
+// RemoveTracker drops the entry with the given slugified name; an
+// unknown entry is refused (removal never cascades into workspaces).
+func (d *Data) RemoveTracker(slug string) error {
+	s := Slug(slug)
+	for i, ex := range d.Trackers {
+		if Slug(ex.Name) == s {
+			d.Trackers = append(d.Trackers[:i], d.Trackers[i+1:]...)
+			return nil
+		}
+	}
+	return ErrNotFound
+}
+
+// RemoveProvider drops one provider entry, same rules.
+func (d *Data) RemoveProvider(slug string) error {
+	s := Slug(slug)
+	for i, ex := range d.Providers {
+		if Slug(ex.Name) == s {
+			d.Providers = append(d.Providers[:i], d.Providers[i+1:]...)
+			return nil
+		}
+	}
+	return ErrNotFound
+}
+
 // ErrNameExists mirrors the registry refusal shape.
 var ErrNameExists = errors.New("entry already exists in catalog")
+
+// ErrNotFound mirrors the registry "not found" refusal shape.
+var ErrNotFound = errors.New("catalog entry not found")
 
 func docEntries(doc *jsonfmt.Doc, key string) []any {
 	arr, ok := doc.GetArray(key)
