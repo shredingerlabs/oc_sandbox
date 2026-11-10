@@ -12,6 +12,7 @@ import (
 	"github.com/shredingerlabs/oc-sandbox/internal/migration"
 	"github.com/shredingerlabs/oc-sandbox/internal/shell"
 	"github.com/shredingerlabs/oc-sandbox/internal/smoke"
+	"github.com/shredingerlabs/oc-sandbox/internal/webserver"
 )
 
 // Version is set at build time via -ldflags "-X main.Version=<tag>".
@@ -74,8 +75,15 @@ func runTUI() {
 	}
 	a := app.Compose(home, Version, cmdrun.ExecRunner{}, nil)
 	a.Model.AddInitCmd(a.StartupCheck) // silent background update check
+	ui := startWebserver(Version)      // webserver runs launch→quit (spec §4); #151 owns the launcher face
+	if ui != nil {
+		defer ui.Close()
+	}
 	p := tea.NewProgram(a.Model, tea.WithAltScreen(), tea.WithMouseCellMotion())
 	final, err := p.Run()
+	if ui != nil {
+		ui.Hub().PublishShutdown() // best-effort push; tabs stop reconnecting (§4/§12)
+	}
 	code := app.ExitCode(final.(shell.Model), err)
 	if code != 0 && code != 130 && err != nil { // signal kills exit silently, like the bash TUI's trap
 		fmt.Fprintf(os.Stderr, "oc-sandbox: %v\n", err)
@@ -83,6 +91,20 @@ func runTUI() {
 	if code != 0 {
 		os.Exit(code)
 	}
+}
+
+// startWebserver starts the embedded WebUI (spec §3/#150) and prints
+// the full tokenized URL as the status line the launcher face (#151)
+// will take over. A failed start never kills the TUI — it prints a
+// warning and returns nil.
+func startWebserver(version string) *webserver.Server {
+	ui := webserver.New(webserver.Options{Version: version})
+	if err := ui.Start(); err != nil {
+		fmt.Fprintf(os.Stderr, "oc-sandbox: WebUI could not start: %v (the TUI keeps running)\n", err)
+		return nil
+	}
+	fmt.Printf("WebUI: %s\n", ui.URL())
+	return ui
 }
 
 // runMigration detects and runs the one-time first-start workspace
