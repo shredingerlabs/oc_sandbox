@@ -126,7 +126,7 @@ if ! grep -q -- '-p 127.0.0.1:4097:4096' <<<"$pod_create_line"; then
   exit 1
 fi
 run_line="$(grep -m1 -- '--rm -d --name opencode-sandbox-' "$PODMAN_LOG")"
-if [[ "$run_line" != *'-c opencode service start && exec sleep infinity'* ]]; then
+if [[ "$run_line" != *'-c cd /home/dev/workspace && HOME=/home/dev/workspace opencode service start && exec sleep infinity'* ]]; then
   printf 'plain detached start lost the v2 background service command: %s\n' "$run_line" >&2
   exit 1
 fi
@@ -175,7 +175,7 @@ if ! bash "$PROJECT_ROOT/dist/scripts/start.sh" "$test_home" --edition swdev --o
   exit 1
 fi
 offline_web_run_line="$(grep -m1 -- '--rm -d --name opencode-sandbox-' "$PODMAN_LOG")"
-if [[ "$offline_web_run_line" != *'-c opencode service start && exec sleep infinity'* ]]; then
+if [[ "$offline_web_run_line" != *'-c cd /home/dev/workspace && HOME=/home/dev/workspace opencode service start && exec sleep infinity'* ]]; then
   printf 'offline detached start lost the v2 background service command: %s\n' "$offline_web_run_line" >&2
   exit 1
 fi

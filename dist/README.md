@@ -262,7 +262,7 @@ später aus `<url>` geklont.
 - `--cbm_ui` – CBM Knowledge-Graph-UI (Port 9749)
 - `--start_opencode` – OpenCode direkt nach Container-Start starten
 - `--start_web` – OpenCode-Weboberfläche im Vordergrund starten (v2-Hintergrunddienst auf Container-Port 4096, veröffentlicht auf 127.0.0.1, Port-Scan 4096-4196; ohne `--detach` läuft `opencode serve` im Vordergrund, Ctrl+C stoppt und entfernt den Container; im Detached-Modus läuft der Dienst unabhängig von diesem Flag)
-- `--detach` – Container im Hintergrund starten (Hauptprozess immer: OpenCode-v2-Hintergrunddienst + Keep-alive, `opencode service start && exec sleep infinity`; Port 4096 wird bei jedem Detached-Start veröffentlicht — außer mit `--offline`)
+- `--detach` – Container im Hintergrund starten (Hauptprozess immer: OpenCode-v2-Hintergrunddienst + Keep-alive, `cd /home/dev/workspace && HOME=/home/dev/workspace opencode service start && exec sleep infinity`, damit der Dienst im Workspace startet und die Weboberfläche nicht die Projekt-Auswahl zeigt; Port 4096 wird bei jedem Detached-Start veröffentlicht — außer mit `--offline`)
 - `--container-id <id>` – Persistierte Container-Identität aus der Projekt-Registry setzen (sonst: Basisname des Projekt-Roots)
 
 ## Deinstallation

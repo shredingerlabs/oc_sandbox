@@ -626,7 +626,11 @@ if $DETACH; then
   # here; the published host port comes from the 4096 scan. Hostname/Port
   # already sit in service.json (above) — the start itself is a single
   # idempotent ensure.
-  CONTAINER_COMMAND=(-c 'opencode service start && exec sleep infinity')
+  # idempotent ensure. The daemon resets its cwd to $HOME (upstream v2
+  # behaviour), landing in /home/dev -> not a git repo -> workspace root
+  # falls back to / (anomalyco/opencode#36858) -> the web UI shows the
+  # project picker. Override HOME so the daemon boots in the workspace.
+  CONTAINER_COMMAND=(-c 'cd /home/dev/workspace && HOME=/home/dev/workspace opencode service start && exec sleep infinity')
 fi
 
 if $START_WEB && ! $DETACH; then
