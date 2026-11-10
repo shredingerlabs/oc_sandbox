@@ -230,3 +230,36 @@ body { background:var(--bg); color:var(--ink);
 .inline-toast { background:var(--danger); color:#fff; border-radius:8px;
   padding:6px 12px; font-weight:600; font-size:13px; margin-bottom:12px; }
 .units + .logpane { margin-top:14px; max-height:280px; }
+
+/* #159 settings screens: Import / Export-Restore / Uninstall */
+:root, [data-theme="bright"] { --warn:#b45309; }
+[data-theme="dark"] { --warn:#fbbf24; }
+.pagehead { margin-bottom:16px; }
+.pagehead h2 { margin:0 0 4px; font-size:15px; font-weight:700; }
+.pagehead .desc { color:var(--ink2); font-size:13px; max-width:640px; }
+.panel { background:var(--surface); border:1px solid var(--hairline);
+  border-radius:12px; padding:16px; margin-bottom:16px; max-width:720px; }
+.notice { font-weight:700; margin-bottom:8px; font-size:13.5px; }
+.notice.ok { color:var(--ok); }
+.notice.warn { color:var(--warn); }
+.notice.bad { color:var(--danger); }
+.hint { color:var(--ink2); font-size:12.5px; margin:6px 0; }
+.flabel { display:block; font-weight:600; font-size:13px; margin:10px 0 4px; }
+.field { width:100%; max-width:480px; background:var(--surface);
+  border:1px solid var(--hairline); color:var(--ink); border-radius:8px;
+  padding:7px 10px; font-size:13.5px; }
+.rowacts { display:flex; gap:8px; margin-top:12px; flex-wrap:wrap; align-items:center; }
+.btn.ghost { background:none; }
+.btn.danger { background:var(--danger); color:#fff; border-color:var(--danger); }
+.kv { display:grid; grid-template-columns:120px 1fr; gap:4px 10px;
+  margin:10px 0; font-size:13px; }
+.kv dt { color:var(--ink2); }
+.kv dd { margin:0; }
+.cfgrow { display:flex; align-items:center; gap:10px; justify-content:space-between;
+  background:var(--surface2); border-radius:8px; padding:8px 12px; }
+.cfgname { font-weight:600; }
+.mono { font-family:ui-monospace, "SF Mono", Consolas, monospace; }
+.optrow { margin:6px 0; }
+.optrow label { display:flex; gap:8px; align-items:center; }
+.inline { display:inline; }
+.dangerzone { border-color:var(--danger); }

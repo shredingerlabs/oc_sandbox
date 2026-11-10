@@ -5,16 +5,14 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/shredingerlabs/oc-sandbox/internal/config"
-	"github.com/shredingerlabs/oc-sandbox/internal/jsonfmt"
+	"github.com/shredingerlabs/oc-sandbox/internal/importcheck"
 	"github.com/shredingerlabs/oc-sandbox/internal/migration"
 	"github.com/shredingerlabs/oc-sandbox/internal/registry"
-	"github.com/shredingerlabs/oc-sandbox/internal/sandboxcfg"
 	"github.com/shredingerlabs/oc-sandbox/internal/shell"
 )
 
@@ -31,31 +29,6 @@ var importDirs = []string{"workspace", ".opencode_config", ".opencode_data", ".s
 // selectFolderRow is the chooser's action row label: the required step
 // that copies the browsed folder into the path entry before Import.
 const selectFolderRow = "Select this folder"
-
-// matchesStructure is the import structure check: a sandbox_config.json
-// file and a workspace/.git worktree (ADR 0017, relaxed — the infra
-// directories are self-healing at container start; v1 checks .git
-// existence only).
-func matchesStructure(root string) bool {
-	if fi, err := os.Stat(sandboxcfg.Path(root)); err != nil || fi.IsDir() {
-		return false
-	}
-	_, err := os.Stat(filepath.Join(root, "workspace", ".git"))
-	return err == nil
-}
-
-var importSlugRe = regexp.MustCompile(`[^a-zA-Z0-9_-]`)
-
-// deriveImportName prefills the workspace name from the folder basename
-// (spaces become underscores, invalid characters drop, fallback
-// "imported_workspace" — bash derive_import_project_name).
-func deriveImportName(base string) string {
-	slug := importSlugRe.ReplaceAllString(strings.ReplaceAll(base, " ", "_"), "")
-	if slug == "" {
-		return "imported_workspace"
-	}
-	return slug
-}
 
 // importInit seeds the folder chooser: start at the configured default
 // workspace path when it exists on disk, else $HOME (ADR 0017).
@@ -256,19 +229,9 @@ func (v *View) importPromptPane() ([]string, []hitRow, int) {
 	return rows, []hitRow{wizard, convert, back}, wizard.row
 }
 
-// isLegacyLayout reports a pre-rename project/ layout: sandbox_config.json
-// present but a project/ git worktree instead of workspace/ (post-migration
-// checks accept only workspace/).
-func isLegacyLayout(root string) bool {
-	if fi, err := os.Stat(sandboxcfg.Path(root)); err != nil || fi.IsDir() {
-		return false
-	}
-	if _, err := os.Stat(filepath.Join(root, "workspace", ".git")); err == nil {
-		return false
-	}
-	_, err := os.Stat(filepath.Join(root, "project", ".git"))
-	return err == nil
-}
+// isLegacyLayout reports a pre-rename project/ layout (shared
+// classification, internal/importcheck).
+func isLegacyLayout(root string) bool { return importcheck.IsLegacyLayout(root) }
 
 // convertLegacyLayout runs the same per-root converter the first-start
 // migration uses (rename stages 1–2) and then imports normally.
@@ -336,32 +299,26 @@ func (v *View) importActivate() tea.Cmd {
 func (v *View) doImport() tea.Cmd {
 	root := registry.CanonicalPath(strings.TrimRight(v.impPath, "/"))
 	v.impRoot = root
-	// already-registered takes precedence over the structure check
-	// (ADR 0017: a registered path gets the info guard, never the
-	// referrer prompt — even when its folder is incomplete).
-	if _, err := v.registryView().ByPath(root); err == nil {
+	res, err := importcheck.Check(root, v.registryView())
+	switch {
+	case err != nil:
+		v.toast = "Could not read sandbox_config.json."
+		return nil
+	case res.Kind == importcheck.KindRegistered:
+		// already-registered takes precedence over the structure check
+		// (ADR 0017: a registered path gets the info guard, never the
+		// referrer prompt — even when its folder is incomplete).
 		v.toast = "Already registered — this path is a registered workspace."
 		return nil
-	}
-	cfgPath := sandboxcfg.Path(root)
-	if data, err := os.ReadFile(cfgPath); err == nil {
-		if _, perr := jsonfmt.Parse(data); perr != nil {
-			v.impStage, v.impBrokenCfg, v.impFocus, v.scroll = 2, true, 0, 0
-			return nil
-		}
-	}
-	if !matchesStructure(root) {
+	case res.Kind == importcheck.KindBrokenConfig:
+		v.impStage, v.impBrokenCfg, v.impFocus, v.scroll = 2, true, 0, 0
+		return nil
+	case res.Kind != importcheck.KindMatch:
 		v.impStage, v.impBrokenCfg, v.impFocus, v.scroll = 2, false, 0, 0
 		return nil
 	}
-	cfg, err := sandboxcfg.Read(cfgPath)
-	if err != nil {
-		v.toast = "Could not read sandbox_config.json."
-		return nil
-	}
-	v.impCfg = cfg
-	name := deriveImportName(filepath.Base(root))
-	v.impName, v.impNameCur = name, len(name)
+	v.impCfg = res.Config
+	v.impName, v.impNameCur = res.Name, len(res.Name)
 	v.impStage, v.impFocus, v.scroll = 1, 0, 0
 	return nil
 }

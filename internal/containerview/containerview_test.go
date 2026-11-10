@@ -433,7 +433,7 @@ func TestOneOpAtATimeAndGuardedExit(t *testing.T) {
 	if cmd == nil || !m.Busy() {
 		t.Fatal("first op did not start")
 	}
-	before := len(fake.Calls)
+	before := len(fake.Snapshot())
 	// keyboard and mouse attempts while busy do not start a second op
 	m.Update(keyType(tea.KeyEnter))
 	if !m.confirm.IsOpen() { // busy fires no fresh popup
@@ -443,8 +443,8 @@ func TestOneOpAtATimeAndGuardedExit(t *testing.T) {
 	} else {
 		t.Fatal("busy activated a fresh popup")
 	}
-	if after := len(fake.Calls); after != before {
-		t.Fatalf("second op started while busy: %v", fake.Calls)
+	if after := len(fake.Snapshot()); after != before {
+		t.Fatalf("second op started while busy: %v", fake.Snapshot())
 	}
 	if !m.Busy() {
 		t.Fatal("Busy() went false while the op runs")

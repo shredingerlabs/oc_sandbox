@@ -199,7 +199,9 @@
   // --- screens (#158): containers + images load as HTML fragments; the
   // log pane's streamed lines live in JS memory, so the reactive
   // workspace re-renders never lose build output ---
-  var screenPaths = { "set-containers": "containers", "set-images": "images" };
+  var screenPaths = { "set-containers": "containers", "set-images": "images",
+    // global settings screens (#159)
+    "set-import": "import", "set-config": "config", "set-uninstall": "uninstall" };
   var currentScreen = null;
   var logLines = {};   // op id → array of streamed lines
   var lastLineId = 0;  // SSE id dedupe across reconnect replay
@@ -225,6 +227,33 @@
     pane.textContent = lines.join("\n");
     if (lines.length) pane.scrollTop = pane.scrollHeight;
   }
+
+  // #159: confirm-gated HTMX actions carry data-confirm-popup + per-action
+  // copy in data-confirm-* attributes — the htmx:confirm hook opens the
+  // shared popup; the request issues only on OK.
+  document.body.addEventListener("htmx:confirm", function (evt) {
+    var elt = evt.detail.elt;
+    if (!elt || !elt.hasAttribute || !elt.hasAttribute("data-confirm-popup")) return;
+    evt.preventDefault();
+    showConfirm(
+      elt.getAttribute("data-confirm-title") || "Are you sure?",
+      elt.getAttribute("data-confirm-question") || "",
+      elt.getAttribute("data-confirm-label") || "Confirm",
+      function () { evt.detail.issueRequest(true); }
+    );
+  });
+
+  // #159: typed confirmations arm their submit button (delegated, so it
+  // survives fragment swaps): data-arms="<button id>" gates on the exact
+  // data-arms-match text (default "uninstall").
+  document.addEventListener("input", function (ev) {
+    var input = ev.target.closest("[data-arms]");
+    if (!input) return;
+    var btn = document.getElementById(input.getAttribute("data-arms"));
+    if (!btn) return;
+    var match = input.getAttribute("data-arms-match") || "uninstall";
+    btn.disabled = input.value.trim().toLowerCase() !== match.toLowerCase();
+  });
 
   // --- shared confirm popup (ADR-0021 set): per-action copy, Cancel-safe ---
   var confirmEl = document.querySelector('[data-role="confirm"]');

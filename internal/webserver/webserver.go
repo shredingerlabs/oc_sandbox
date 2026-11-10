@@ -40,7 +40,7 @@ type Options struct {
 	Version     string // compiled-in version — the update card's fallback when the VERSION file is absent
 	InstallRoot string // the install layout root (app.LayoutFor): the VERSION file lives here
 	Home        string // the oc-sandbox home: ~/.config/oc-sandbox holds catalogs.json etc. and global_config.json (GET/POST /settings)
-	Deps        *Deps  // container/image screens (#158) + the New Workspace wizard (#156); nil = shell + update/settings/catalogs only
+	Deps        *Deps  // screen seams (#156/#158/#159); nil = shell + update/settings/catalogs only
 }
 
 // Server is one WebUI instance: a loopback listener with a per-launch
@@ -58,6 +58,8 @@ type Server struct {
 	url     string
 	errLog  strings.Builder // captured (token-redacted) http.Server error log — test seam
 	errSink *redactingLog   // the http.Server ErrorLog sink — redaction seam
+
+	lastUninstallOp int // the last uninstall run's op id — the log pane's data-op
 }
 
 // New creates an unstarted server with a fresh per-launch token.
@@ -134,6 +136,15 @@ func (s *Server) Start() error {
 		http.FileServerFS(assetsFS).ServeHTTP(w, r)
 	}))
 	inner.HandleFunc("GET /events", s.hub.serveEvents)
+	inner.HandleFunc("GET /import", s.handleImportScreen)
+	inner.HandleFunc("POST /import-workspace", s.handleImportWorkspace)
+	inner.HandleFunc("POST /import-register", s.handleImportRegister)
+	inner.HandleFunc("POST /import-convert", s.handleImportConvert)
+	inner.HandleFunc("GET /config", s.handleConfigScreen)
+	inner.HandleFunc("POST /export-config", s.handleExportConfig)
+	inner.HandleFunc("POST /restore-config", s.handleRestoreConfig)
+	inner.HandleFunc("GET /uninstall", s.handleUninstallScreen)
+	inner.HandleFunc("POST /uninstall", s.handleUninstall)
 	inner.HandleFunc("GET /workspaces/new", s.handleNewWorkspaceGET)
 	inner.HandleFunc("POST /workspaces", s.handleWorkspacesPOST)
 	inner.HandleFunc("GET /update", s.handleUpdateCard)

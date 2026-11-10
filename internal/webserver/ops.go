@@ -129,6 +129,14 @@ func (r *opRunner) canStartLocked(op *webOp) bool {
 	return true
 }
 
+// Busy reports whether any op is queued or running — the §9/§12
+// confirmation refusal: confirm-gated POSTs refuse while it holds.
+func (r *opRunner) Busy() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return len(r.running) > 0 || len(r.pending) > 0
+}
+
 // run executes the op: streams its lines to the hub, then clears its
 // queue slot and pumps the successors before handing the outcome to
 // Done — so a Done handler may launch again without deadlocking.

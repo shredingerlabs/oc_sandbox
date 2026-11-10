@@ -68,7 +68,7 @@ func TestExitCodeOfMapping(t *testing.T) {
 
 func TestRunMissingDistTreeSkips(t *testing.T) {
 	rep := Run(t.TempDir())
-	if rep.Skipped() != 11 || rep.Failed() != 0 {
-		t.Fatalf("missing tree should skip all 10 boxes: %+v", rep.Items)
+	if rep.Skipped() != len(boxIDs) || rep.Failed() != 0 {
+		t.Fatalf("missing tree should skip all %d boxes: %+v", len(rep.Items), rep.Items)
 	}
 }
