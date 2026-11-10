@@ -23,21 +23,17 @@ import (
 	"html/template"
 	"net/http"
 	"net/url"
-	"regexp"
 	"sort"
 	"strings"
 
 	"github.com/shredingerlabs/oc-sandbox/internal/catalogs"
 	"github.com/shredingerlabs/oc-sandbox/internal/cmdrun"
 	"github.com/shredingerlabs/oc-sandbox/internal/discovery"
+	"github.com/shredingerlabs/oc-sandbox/internal/newworkspace"
 	"github.com/shredingerlabs/oc-sandbox/internal/providerid"
 	"github.com/shredingerlabs/oc-sandbox/internal/registry"
 	"github.com/shredingerlabs/oc-sandbox/internal/sandboxcfg"
 )
-
-// nameRe validates the workspace name exactly like the registry
-// (^[a-zA-Z0-9_-]+$).
-var nameRe = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
 
 // wizardEditionDefault is the §6 preselected edition.
 const wizardEditionDefault = "swdev"
@@ -558,7 +554,7 @@ func (s *Server) parseWizardForm(r *http.Request) wizardForm {
 // validateWizard checks the payload; "" when valid. Mirrors the TUI's
 // validateInputs plus the ADR-0026 exclusions start.sh hard-exits on.
 func (s *Server) validateWizard(r *http.Request, f wizardForm) string {
-	if !nameRe.MatchString(f.Name) {
+	if !newworkspace.NameRe.MatchString(f.Name) {
 		return "Invalid workspace name — use [a-zA-Z0-9_-]+."
 	}
 	if f.FromRepo && f.RepoURL == "" {
@@ -608,28 +604,13 @@ func (s *Server) registry() *registry.Registry {
 
 // wizardRoot derives the workspace root from the name — the default
 // workspace path base + the name (the wizard has no path row; §6).
+// The slug is newworkspace's canonical PathSlug (bash-rule parity).
 func (s *Server) wizardRoot(name string) string {
 	base := s.deps.DefaultWorkspacePath
 	if base == "" {
 		base = s.opts.Home + "/oc-sandbox"
 	}
-	return registry.CanonicalPath(base + "/" + pathSlug(name))
-}
-
-// pathSlug squeezes a name into a directory tail (newworkspace parity):
-// lowercase, alphanumerics kept, separator-ish characters become '-'.
-func pathSlug(name string) string {
-	lower := strings.ToLower(name)
-	var b []rune
-	for _, r := range lower {
-		switch {
-		case r >= 'a' && r <= 'z' || r >= '0' && r <= '9':
-			b = append(b, r)
-		case r == '-' || r == '_' || r == '.' || r == ' ':
-			b = append(b, '-')
-		}
-	}
-	return string(b)
+	return registry.CanonicalPath(base + "/" + newworkspace.PathSlug(name))
 }
 
 // --- the create chain (ONE task: image build → init → configure) ------------

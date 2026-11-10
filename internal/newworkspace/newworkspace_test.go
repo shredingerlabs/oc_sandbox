@@ -1624,3 +1624,18 @@ func testLongTokenBody(t *testing.T, setup func(*Model)) string {
 	setup(m)
 	return plain(t, m)
 }
+
+// PathSlug + NameRe are the canonical name derivation (bash-rule
+// parity) — the webserver wizard rides the exported pair instead of a
+// verbatim copy (#147).
+func TestPathSlugAndNameRe(t *testing.T) {
+	if got := PathSlug("My_Work Space.txt"); got != "my-work-space-txt" {
+		t.Errorf("PathSlug = %q, want %q", got, "my-work-space-txt")
+	}
+	if got := PathSlug("!!!"); got != "" {
+		t.Errorf("PathSlug of nothing sluggable = %q, want \"\"", got)
+	}
+	if !NameRe.MatchString("Alpha_1-x") || NameRe.MatchString("no spaces") {
+		t.Error("NameRe must match the registry rule ^[a-zA-Z0-9_-]+$")
+	}
+}
