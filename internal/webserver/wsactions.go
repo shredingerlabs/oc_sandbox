@@ -7,6 +7,7 @@
 package webserver
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -111,6 +112,34 @@ func (s *Server) runStart(ws registry.Workspace, emit func(string)) error {
 		return err
 	}
 	return reg.UpdateLastUsed(ws.Path)
+}
+
+// handlePairLink serves POST /workspaces/{name}/pair-link (§10): a
+// fresh one-time sign-in link per request — nothing persisted, every
+// access pairs afresh — as the {pair_link, plain_url} JSON sidecar.
+// plain_url is the published host binding: the fallback when pairing
+// fails or the v2 service is mid-boot.
+func (s *Server) handlePairLink(w http.ResponseWriter, r *http.Request) {
+	ws, err := s.lookupWorkspace(r.PathValue("name"))
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	run := s.runner()
+	ctr := registry.ContainerName(ws.ContainerID)
+	port := discovery.WebPort(run, ctr)
+	var v pairLinkView
+	if port != "" {
+		v.PlainURL = "http://" + port
+		v.PairLink = discovery.PairLink(run, ctr, "http://"+port)
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_, _ = w.Write([]byte(jsonfmtMarshal(v)))
+}
+
+func jsonfmtMarshal(v any) string {
+	b, _ := json.Marshal(v)
+	return string(b)
 }
 
 func hasCtr(names []string, name string) bool {
