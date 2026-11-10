@@ -67,24 +67,38 @@ func setupRefusal(name string) string {
 	return "refused — first-run setup session pending for " + name
 }
 
+// guardWorkspaceOp is the shared stop/delete/adopt guard preamble: the
+// URL identity resolves to a workspace, and the confirm refuses while
+// an op is queued or running for the workspace's container (§9) or a
+// first-run setup session holds it (§11). Returns the workspace and
+// its container-name queue key; refused=true means the request was
+// already answered.
+func (s *Server) guardWorkspaceOp(w http.ResponseWriter, r *http.Request) (registry.Workspace, string, bool) {
+	ws, err := s.lookupWorkspace(r.PathValue("name"))
+	if err != nil {
+		http.NotFound(w, r)
+		return registry.Workspace{}, "", true
+	}
+	cname := registry.ContainerName(ws.ContainerID)
+	if s.queue.BusyKey(cname) {
+		refuseSidecar(w, busyRefusal(cname))
+		return registry.Workspace{}, "", true
+	}
+	if s.setupHolds(ws.Name) {
+		refuseSidecar(w, setupRefusal(ws.Name))
+		return registry.Workspace{}, "", true
+	}
+	return ws, cname, false
+}
+
 // handleWorkspaceStop serves POST /workspaces/{name}/stop (#154) — the
 // existing graceful stop flow through the op runner (the pod-as-unit
 // stop, verified gone before the registry flip): the same op the
 // Container center's stop confirm launches, keyed on the workspace's
 // container name.
 func (s *Server) handleWorkspaceStop(w http.ResponseWriter, r *http.Request) {
-	ws, err := s.lookupWorkspace(r.PathValue("name"))
-	if err != nil {
-		http.NotFound(w, r)
-		return
-	}
-	cname := registry.ContainerName(ws.ContainerID)
-	if s.queue.BusyKey(cname) {
-		refuseSidecar(w, busyRefusal(cname))
-		return
-	}
-	if s.setupHolds(ws.Name) { // the pending skills session holds the container (#161)
-		refuseSidecar(w, setupRefusal(ws.Name))
+	_, cname, refused := s.guardWorkspaceOp(w, r)
+	if refused {
 		return
 	}
 	s.queue.Launch(webOp{Key: cname, Run: s.stopOp(cname)})
@@ -97,18 +111,8 @@ func (s *Server) handleWorkspaceStop(w http.ResponseWriter, r *http.Request) {
 // refusal re-checks fresh podman state; pod-as-unit), keyed on the
 // workspace's container name.
 func (s *Server) handleWorkspaceDelete(w http.ResponseWriter, r *http.Request) {
-	ws, err := s.lookupWorkspace(r.PathValue("name"))
-	if err != nil {
-		http.NotFound(w, r)
-		return
-	}
-	cname := registry.ContainerName(ws.ContainerID)
-	if s.queue.BusyKey(cname) {
-		refuseSidecar(w, busyRefusal(cname))
-		return
-	}
-	if s.setupHolds(ws.Name) { // the pending skills session holds the container (#161)
-		refuseSidecar(w, setupRefusal(ws.Name))
+	_, cname, refused := s.guardWorkspaceOp(w, r)
+	if refused {
 		return
 	}
 	if s.runningUnit(cname) {
@@ -142,9 +146,8 @@ func (s *Server) runningEdition(cname string) string {
 // on a verified success. A switch whose start fails leaves the
 // workspace stopped with the error surfaced in the op log.
 func (s *Server) handleWorkspaceAdopt(w http.ResponseWriter, r *http.Request) {
-	ws, err := s.lookupWorkspace(r.PathValue("name"))
-	if err != nil {
-		http.NotFound(w, r)
+	ws, cname, refused := s.guardWorkspaceOp(w, r)
+	if refused {
 		return
 	}
 	if err := r.ParseForm(); err != nil {
@@ -154,15 +157,6 @@ func (s *Server) handleWorkspaceAdopt(w http.ResponseWriter, r *http.Request) {
 	variant := r.PostFormValue("variant")
 	if !validVariant(variant) {
 		http.Error(w, "invalid variant", http.StatusBadRequest)
-		return
-	}
-	cname := registry.ContainerName(ws.ContainerID)
-	if s.queue.BusyKey(cname) {
-		refuseSidecar(w, busyRefusal(cname))
-		return
-	}
-	if s.setupHolds(ws.Name) { // the pending skills session holds the container (#161)
-		refuseSidecar(w, setupRefusal(ws.Name))
 		return
 	}
 	cfg, err := readSandboxCfg(ws.Path)
