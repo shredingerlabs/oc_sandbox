@@ -169,7 +169,7 @@ func readGitIdentity(root string) (string, string) {
 // readHost returns the first (sorted) host recorded in the tracker's CLI
 // host credential file, ignoring glab's "editor" key.
 func readHost(tracker, root string) string {
-	data, err := os.ReadFile(vcsHostFile(tracker, root))
+	data, err := os.ReadFile(VCSHostFile(tracker, root))
 	if err != nil {
 		return ""
 	}
@@ -190,10 +190,10 @@ func readHost(tracker, root string) string {
 	return keys[0]
 }
 
-// vcsHostFile resolves the CLI host credential file of a tracker (the
+// VCSHostFile resolves the CLI host credential file of a tracker (the
 // replacement-confirm guard target): github.com → gh-cli/hosts.yml;
 // gitlab.com / own GitLab → glab-cli/config.yml; others → vcs/hosts.yml.
-func vcsHostFile(tracker, root string) string {
+func VCSHostFile(tracker, root string) string {
 	var sub string
 	switch tracker {
 	case "github.com":
@@ -349,7 +349,7 @@ func (v *View) vcsSave() bool {
 		return true
 	}
 	if tok != "" && p.tracker != "none" && !p.replaceOK {
-		if _, err := os.Stat(vcsHostFile(p.tracker, p.root)); err == nil {
+		if _, err := os.Stat(VCSHostFile(p.tracker, p.root)); err == nil {
 			v.confirm.Open("Replace credentials?",
 				"Replace", "Keep existing",
 				[]string{"Credentials for " + p.tracker + " already exist."},

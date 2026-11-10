@@ -19,14 +19,18 @@ package webserver
 
 import (
 	"html/template"
-	"slices"
 	"net/http"
+	"os"
+	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/shredingerlabs/oc-sandbox/internal/catalogs"
+	"github.com/shredingerlabs/oc-sandbox/internal/cmdrun"
 	"github.com/shredingerlabs/oc-sandbox/internal/discovery"
 	"github.com/shredingerlabs/oc-sandbox/internal/registry"
 	"github.com/shredingerlabs/oc-sandbox/internal/sandboxcfg"
+	"github.com/shredingerlabs/oc-sandbox/internal/workspacesettings"
 )
 
 // wsSettingsRouteNames are the screen's URL identities (§9): the
@@ -461,6 +465,124 @@ func (s *Server) handleWsSettingsPost(w http.ResponseWriter, r *http.Request) {
 	s.renderWsSettingsScreen(w, name, "")
 }
 
+// vcsHostRe mirrors configure-workspace.sh validate_vcs_host: a bare
+// hostname (workspacesettings parity).
+var vcsHostRe = regexp.MustCompile(`^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?)+$`)
+
+// handleWsVCSCredentialsPost serves POST /workspaces/{name}/vcs-credentials
+// (§9: {kind, host, token, replace}) — the VCS Tracking row's write. The
+// tracker persists as the stored vcs_tracking label; a credential write
+// runs configure-workspace.sh vcs-credentials exactly as the TUI invokes
+// it (ADR-0007) as one queued op (lines stream into the screen's log
+// pane). The replace-credentials confirm gates the overwrite server-side:
+// replace=1 with stored credentials writes --replace; with them kept
+// (replace unset) the tracker still moves while the credentials stay —
+// the TUI's Keep existing, carried 1:1 (§9). github never takes
+// --replace (the script refuses it — its file is overwritten).
+func (s *Server) handleWsVCSCredentialsPost(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	ws, err := s.lookupWorkspace(name)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	root := ws.Path
+	key := registry.ContainerName(ws.ContainerID)
+	if s.queue.BusyKey(key) {
+		s.renderWsSettingsScreen(w, name, "an operation is queued or running for "+name+" — wait for it to finish")
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad form", http.StatusBadRequest)
+		return
+	}
+	kind := r.PostFormValue("kind")
+	host := strings.TrimSpace(r.PostFormValue("host"))
+	token := strings.TrimSpace(r.PostFormValue("token"))
+	replace := r.PostFormValue("replace")
+	if kind != "none" && !slices.Contains(catalogs.TrackerKinds, kind) {
+		s.renderWsSettingsScreen(w, name, "unknown tracker kind")
+		return
+	}
+	if kind == catalogs.KindGitLabSel || kind == catalogs.KindOther {
+		if host == "" {
+			s.renderWsSettingsScreen(w, name, "Host required for "+trackerLabel(kind)+".")
+			return
+		}
+		if !vcsHostRe.MatchString(host) {
+			s.renderWsSettingsScreen(w, name, "Invalid host — use a bare hostname (e.g. git.example.com).")
+			return
+		}
+	}
+
+	label := trackerLabel(kind)
+	hasCreds := kind != "" && kind != "none" &&
+		workspacesettings.VCSHostFile(label, root) != "" &&
+		fileExists(workspacesettings.VCSHostFile(label, root))
+
+	// Validation: a credential write always needs a typed token (TUI
+	// parity — a fresh entry has nothing to keep).
+	writeCreds := token != "" && kind != "none" && (!hasCreds || replace == "1")
+	if kind != "none" && token == "" && !hasCreds {
+		s.renderWsSettingsScreen(w, name, "Token required for "+label+".")
+		return
+	}
+	if kind != "none" && replace == "1" && token == "" {
+		s.renderWsSettingsScreen(w, name, "Token required to replace the credentials.")
+		return
+	}
+
+	// The tracker persists first (the stored config is the truth the
+	// Standard row shows back); the credentials ride the queued op.
+	stored := ""
+	if cfg, err := readSandboxCfg(root); err == nil {
+		stored = cfg.VCSTracking
+	}
+	if label != stored {
+		if err := sandboxcfg.PatchString(s.opts.Home, sandboxcfg.Path(root), "vcs_tracking", label); err != nil {
+			s.renderWsSettingsScreen(w, name, "vcs_tracking could not be written: "+err.Error())
+			return
+		}
+	}
+	if writeCreds {
+		args := vcsCredScriptArgs(kind, token, host, root, replace == "1" && hasCreds)
+		s.queue.Launch(webOp{
+			Key: key,
+			Run: func(emit func(string)) error {
+				return runScriptStep(s.runner(), s.deps.ConfigureScript, args, emit)
+			},
+			Done: func(err error) { s.hub.PublishWorkspace() },
+		})
+	}
+	s.hub.PublishWorkspace()
+	s.renderWsSettingsScreen(w, name, "")
+}
+
+// vcsCredScriptArgs renders the configure-workspace.sh vcs-credentials
+// invocation (workspacesettings.vcsCredArgs parity, catalog-kind driven
+// like the create chain's).
+func vcsCredScriptArgs(kind, token, host, root string, replace bool) []string {
+	var args []string
+	switch kind {
+	case catalogs.KindGitHub:
+		args = []string{"vcs-credentials", "github", root, "--token", token}
+	case catalogs.KindGitLab:
+		args = []string{"vcs-credentials", "gitlab", root, "--token", token, "--host", "gitlab.com"}
+	case catalogs.KindGitLabSel:
+		args = []string{"vcs-credentials", "gitlab", root, "--token", token, "--host", host}
+	case catalogs.KindOther:
+		args = []string{"vcs-credentials", "custom", root, "--token", token, "--host", host}
+	default:
+		return nil
+	}
+	// The script refuses --replace for github: its host file is
+	// overwritten with a fresh token anyway.
+	if replace && kind != catalogs.KindGitHub {
+		args = append(args, "--replace")
+	}
+	return args
+}
+
 // handleWsSettingsMenu serves GET /workspace-settings — the menu entry:
 // no name, so the most recent workspace jumps in preselected (§7); an
 // empty registry renders the explicit empty state, never a dead end.
@@ -521,6 +643,9 @@ func (s *Server) renderWsSettingsScreen(w http.ResponseWriter, name, errMsg stri
 		}
 	}
 	v.VCSKind = trackerKindForLabel(v.VCSTrackingSt)
+	if hostFile := workspacesettings.VCSHostFile(v.VCSTrackingSt, ws.Path); hostFile != "" {
+		v.VCSHasCreds = fileExists(hostFile) // the replace confirm gates an overwrite
+	}
 	v.Hue = editionFor(v.Edition).Hue
 	v.Letter = wsLetter(ws.Name)
 	v.SetupDone = cfgErr == nil && cfg.SetupComplete
@@ -593,4 +718,21 @@ func wsLetter(name string) string {
 		return "?"
 	}
 	return strings.ToUpper(name[:1])
+}
+
+// runScriptStep runs one configure-workspace.sh invocation through run
+// and emits its output lines (workspacesettings parity — the shared
+// queue-emit shape).
+func runScriptStep(run cmdrun.Runner, script string, args []string, emit func(string)) error {
+	out, err := run.Output("bash", append([]string{script}, args...)...)
+	for _, l := range cmdrun.Lines(out) {
+		emit(l)
+	}
+	return err
+}
+
+// fileExists reports whether path exists.
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
 }

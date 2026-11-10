@@ -4,8 +4,10 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/shredingerlabs/oc-sandbox/internal/cmdrun"
 	"github.com/shredingerlabs/oc-sandbox/internal/registry"
@@ -351,4 +353,200 @@ func TestWsSettingsPostBusyRefusal(t *testing.T) {
 		t.Fatalf("busy refusal rewrote sandbox_config.json")
 	}
 	close(release)
+}
+
+// --- POST /workspaces/{name}/vcs-credentials (§9: kind, host, token, replace) --
+
+// The VCS save runs the configure-workspace.sh vcs-credentials step in
+// the exact TUI argument vector (ADR-0007) as one queued op and mirrors
+// the tracker into the stored vcs_tracking (the Standard row's write).
+func TestWsVCSCredentialsSave(t *testing.T) {
+	fx := newCreateFixture(t, func(name string, args []string) (string, error) {
+		return "credential written\n", nil
+	})
+	root := seedWorkspace(t, fx.home, "alpha", "swdev", nil)
+
+	resp := postForm(t, fx.s.URL()+"workspaces/alpha/vcs-credentials", map[string]string{
+		"kind": "gitlab_self", "host": "git.example.com", "token": "t0k", "replace": "",
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200:\n%s", resp.StatusCode, body(t, resp))
+	}
+	waitForNoOp(t, fx)
+
+	// The script vector mirrors the TUI's vcsCredArgs — a fresh write
+	// (no stored credentials) needs no --replace.
+	want := []string{"vcs-credentials", "gitlab", root, "--token", "t0k", "--host", "git.example.com"}
+	var cred bool
+	for _, c := range fx.fake.Snapshot() {
+		if c.Name != "bash" || len(c.Args) < 3 {
+			continue
+		}
+		if strings.HasSuffix(c.Args[0], "configure-workspace.sh") && slices.Equal(c.Args[1:], want) {
+			cred = true
+		}
+	}
+	if !cred {
+		t.Fatalf("vcs-credentials script vector wrong:\n%v", fx.fake.Snapshot())
+	}
+
+	// The tracker persists as the stored vcs_tracking label.
+	cfg, err := sandboxcfg.Read(sandboxcfg.Path(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.VCSTracking != "own GitLab" {
+		t.Fatalf("vcs_tracking = %q, want own GitLab", cfg.VCSTracking)
+	}
+}
+
+// First save without stored credentials writes the credential without
+// --replace (the confirm gates only an overwrite); kind none unlinks —
+// the tracker persists "none", no script runs.
+func TestWsVCSCredentialsFreshAndNone(t *testing.T) {
+	fx := newCreateFixture(t, func(name string, args []string) (string, error) {
+		return "credential written\n", nil
+	})
+	root := seedWorkspace(t, fx.home, "alpha", "swdev", nil)
+
+	resp := postForm(t, fx.s.URL()+"workspaces/alpha/vcs-credentials", map[string]string{
+		"kind": "github", "token": "ghtok", "replace": "",
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("fresh save: status = %d", resp.StatusCode)
+	}
+	waitForNoOp(t, fx)
+	cfg, _ := sandboxcfg.Read(sandboxcfg.Path(root))
+	if cfg.VCSTracking != "github.com" {
+		t.Fatalf("vcs_tracking = %q, want github.com", cfg.VCSTracking)
+	}
+	// github never takes --replace (the script refuses it).
+	for _, c := range fx.fake.Snapshot() {
+		if c.Name == "bash" && slices.Contains(c.Args, "--replace") {
+			t.Fatalf("github save must not pass --replace: %v", c.Args)
+		}
+	}
+
+	// none: tracker unlinked, no script call.
+	postForm(t, fx.s.URL()+"workspaces/alpha/vcs-credentials", map[string]string{"kind": "none"})
+	waitForNoOp(t, fx)
+	cfg, _ = sandboxcfg.Read(sandboxcfg.Path(root))
+	if cfg.VCSTracking != "none" {
+		t.Fatalf("vcs_tracking = %q, want none", cfg.VCSTracking)
+	}
+	nBefore := len(fx.fake.Snapshot())
+	postForm(t, fx.s.URL()+"workspaces/alpha/vcs-credentials", map[string]string{"kind": "none"})
+	waitForNoOp(t, fx)
+	if len(fx.fake.Snapshot()) != nBefore {
+		t.Fatal("none must not run the script")
+	}
+}
+
+// The replace-credentials confirm gates the credential write (§9): with
+// stored credentials and replace unset, the save keeps the credentials —
+// the tracker still moves, the script does not run; with replace=1 the
+// confirm-gated write runs with --replace.
+func TestWsVCSCredentialsReplaceGate(t *testing.T) {
+	fx := newCreateFixture(t, func(name string, args []string) (string, error) {
+		return "credential written\n", nil
+	})
+	root := seedWorkspace(t, fx.home, "alpha", "swdev", nil)
+	// Stored credentials: the tracker's host file exists.
+	if err := os.MkdirAll(filepath.Join(root, ".git_local", "glab-cli"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".git_local", "glab-cli", "config.yml"), []byte("x: y\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := sandboxcfg.PatchString(fx.home, sandboxcfg.Path(root), "vcs_tracking", "own GitLab"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Screen renders the replace confirm on Save and the Keep option.
+	doc := body(t, get(t, fx.s.URL()+"workspaces/alpha/settings"))
+	if !strings.Contains(doc, `data-confirm-title="Replace credentials?"`) ||
+		!strings.Contains(doc, `name="replace" value="keep"`) {
+		t.Fatalf("existing credentials must arm the confirm + keep option:\n%s", doc)
+	}
+
+	// replace unset: tracker moves, credentials kept (no script run).
+	resp := postForm(t, fx.s.URL()+"workspaces/alpha/vcs-credentials", map[string]string{
+		"kind": "gitlab_self", "host": "git.example.com", "token": "t0k", "replace": "",
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("keep save: status = %d", resp.StatusCode)
+	}
+	waitForNoOp(t, fx)
+	for _, c := range fx.fake.Snapshot() {
+		if c.Name == "bash" {
+			t.Fatalf("keep must not write credentials: %v", c.Args)
+		}
+	}
+	cfg, _ := sandboxcfg.Read(sandboxcfg.Path(root))
+	if cfg.VCSTracking != "own GitLab" {
+		t.Fatalf("vcs_tracking = %q", cfg.VCSTracking)
+	}
+
+	// replace=1 (the confirm's OK): the write runs with --replace.
+	resp = postForm(t, fx.s.URL()+"workspaces/alpha/vcs-credentials", map[string]string{
+		"kind": "gitlab_self", "host": "git.example.com", "token": "t0k", "replace": "1",
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("replace save: status = %d", resp.StatusCode)
+	}
+	waitForNoOp(t, fx)
+	want := []string{"vcs-credentials", "gitlab", root, "--token", "t0k", "--host", "git.example.com", "--replace"}
+	var ran bool
+	for _, c := range fx.fake.Snapshot() {
+		if c.Name == "bash" && len(c.Args) > 1 && slices.Equal(c.Args[1:], want) {
+			ran = true
+		}
+	}
+	if !ran {
+		t.Fatalf("replace=1 must write the credentials with --replace:\n%v", fx.fake.Snapshot())
+	}
+}
+
+// Validation: a token is required for a fresh non-none tracker write,
+// the host for own GitLab / others (bare hostname), unknown kinds are
+// refused — the fragment re-renders with the error, nothing runs.
+func TestWsVCSCredentialsValidation(t *testing.T) {
+	fx := newCreateFixture(t, nil)
+	root := seedWorkspace(t, fx.home, "alpha", "swdev", nil)
+
+	for name, form := range map[string]map[string]string{
+		"token-required": {"kind": "github", "token": ""},
+		"host-required":  {"kind": "other", "host": "", "token": "t"},
+		"bad-host":       {"kind": "other", "host": "not a host", "token": "t"},
+		"bad-kind":       {"kind": "ftp", "token": "t"},
+	} {
+		resp := postForm(t, fx.s.URL()+"workspaces/alpha/vcs-credentials", form)
+		if doc := body(t, resp); !strings.Contains(doc, `role="alert"`) {
+			t.Fatalf("%s: refusal must render the form error:\n%s", name, doc)
+		}
+	}
+	waitForNoOp(t, fx)
+	for _, c := range fx.fake.Snapshot() {
+		if c.Name == "bash" {
+			t.Fatalf("refused save must not run the script: %v", c.Args)
+		}
+	}
+	cfg, _ := sandboxcfg.Read(sandboxcfg.Path(root))
+	if cfg.VCSTracking != "none" {
+		t.Fatalf("refused save must not move vcs_tracking: %q", cfg.VCSTracking)
+	}
+}
+
+// waitForNoOp polls (bounded) until the workspace's queue drains — the
+// op completion signal for the config/credential writes.
+func waitForNoOp(t *testing.T, fx createFixture) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if !fx.s.Busy() {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatal("op never drained")
 }
