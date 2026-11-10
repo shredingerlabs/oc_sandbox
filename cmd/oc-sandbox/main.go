@@ -77,6 +77,16 @@ func runTUI() {
 	a.Model.AddInitCmd(a.StartupCheck) // silent background update check
 	ui := startWebserver(Version)      // webserver runs launch→quit (spec §4); #151 owns the launcher face
 	if ui != nil {
+		// Business wiring (spec §9): the WebUI's global-settings ops run
+		// through the same task manager as the TUI's, so its confirmations
+		// refuse while any op is queued/running and uninstall.sh is
+		// invoked exactly as the TUI invokes it.
+		ui.Wire(webserver.Deps{
+			Home:            home,
+			UninstallScript: app.LayoutFor(home).UninstallScript,
+			Runner:          cmdrun.ExecRunner{},
+			Tasks:           a.Model.Queue,
+		})
 		defer ui.Close()
 	}
 	p := tea.NewProgram(a.Model, tea.WithAltScreen(), tea.WithMouseCellMotion())

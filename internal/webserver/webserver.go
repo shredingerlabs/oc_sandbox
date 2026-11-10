@@ -23,6 +23,8 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+
+	"github.com/shredingerlabs/oc-sandbox/internal/registry"
 )
 
 // tokenRe matches the tokenized path prefix — the redaction pattern the
@@ -48,6 +50,9 @@ type Server struct {
 	url     string
 	errLog  strings.Builder // captured (token-redacted) http.Server error log — test seam
 	errSink *redactingLog   // the http.Server ErrorLog sink — redaction seam
+
+	deps Deps
+	reg  *registry.Registry
 }
 
 // New creates an unstarted server with a fresh per-launch token.
@@ -74,6 +79,16 @@ func newToken() string {
 // Hub returns the SSE hub so launch wiring (#151) can push
 // line/workspace/update/shutdown events onto open tabs.
 func (s *Server) Hub() *Hub { return s.hub }
+
+// Wire attaches the business wiring (spec §9: business logic stays in
+// config/registry/taskmgr/discovery; scripts invoked exactly as the TUI
+// invokes them). Tasks is the process-wide task manager shared with the
+// TUI — the WebUI's ops queue behind the same per-key semantics and its
+// confirmations refuse while any op is queued/running. Call before Start.
+func (s *Server) Wire(d Deps) {
+	s.deps = d
+	s.reg = &registry.Registry{Home: d.Home}
+}
 
 // URL returns the full tokenized base URL, trailing slash included —
 // the surface the launcher's URL/status line shows (never logged).
@@ -121,6 +136,15 @@ func (s *Server) Start() error {
 		http.FileServerFS(assetsFS).ServeHTTP(w, r)
 	}))
 	inner.HandleFunc("GET /events", s.hub.serveEvents)
+	inner.HandleFunc("GET /import", s.handleImportScreen)
+	inner.HandleFunc("POST /import-workspace", s.handleImportWorkspace)
+	inner.HandleFunc("POST /import-register", s.handleImportRegister)
+	inner.HandleFunc("POST /import-convert", s.handleImportConvert)
+	inner.HandleFunc("GET /config", s.handleConfigScreen)
+	inner.HandleFunc("POST /export-config", s.handleExportConfig)
+	inner.HandleFunc("POST /restore-config", s.handleRestoreConfig)
+	inner.HandleFunc("GET /uninstall", s.handleUninstallScreen)
+	inner.HandleFunc("POST /uninstall", s.handleUninstall)
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", s.handleHealthz)
 	mux.Handle("/", s.auth(inner))
