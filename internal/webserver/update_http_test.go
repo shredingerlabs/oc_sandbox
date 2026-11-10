@@ -36,9 +36,9 @@ func TestUpdateFragmentRendersCard(t *testing.T) {
 	for _, want := range []string{
 		"Installed version: v1.0.0",
 		"Latest version: checking…",
-		"data-role=\"update-check\"", // Check now
-		"data-role=\"update-run\"",   // Update
-		`data-role="update-log"`,     // embedded log pane slot
+		"data-role=\"update-check\"",              // Check now
+		"data-role=\"update-run\"",                // Update
+		`data-role="update-log"`,                  // embedded log pane slot
 		`data-confirm-title="Update oc-sandbox?"`, // shared confirm popup
 		"Kept: proxy/allowlist.txt",               // popup copy carries the keep-note (§12)
 	} {

@@ -18,6 +18,33 @@ import (
 
 var errSentinel = errors.New("install script reported an error")
 
+// ---- version comparison (mirrors settingsview/update.go) -------------------
+
+// The comparison table — numeric per-segment after the optional "v",
+// suffixes ignored, unparseable counts as outdated, no latest → silent.
+func TestUpdateAvailableComparison(t *testing.T) {
+	cases := []struct {
+		installed, latest string
+		want              bool
+	}{
+		{"v0.1.0", "v0.2.0", true},
+		{"v0.2.0", "v0.2.0", false},
+		{"v0.2.1", "v0.2.0", false},
+		{"v0.10.0", "v0.9.0", false},
+		{"dev", "v0.2.0", true},  // unparseable counts as outdated
+		{"v0.2.0", "junk", true}, // …in either tag
+		{"", "", false},          // no information → no update claim
+		{"v0.2.0", "", false},    // check failed → silent
+		{"v1.2.3", "v1.3.0", true},
+		{"1.0.0", "v1.0.1", true}, // VERSION file may hold the plain tag
+	}
+	for _, c := range cases {
+		if got := updateAvailable(c.installed, c.latest); got != c.want {
+			t.Errorf("updateAvailable(%q, %q) = %v, want %v", c.installed, c.latest, got, c.want)
+		}
+	}
+}
+
 func newTestUpdater(t *testing.T) (*Server, *Updater) {
 	t.Helper()
 	s := New(Options{BasePort: 0, Version: "v1.0.0", InstallRoot: t.TempDir()})

@@ -74,7 +74,7 @@ func runTUI() {
 		os.Exit(1)
 	}
 	a := app.Compose(home, Version, cmdrun.ExecRunner{}, nil)
-	a.Model.AddInitCmd(a.StartupCheck) // silent background update check
+	a.Model.AddInitCmd(a.StartupCheck)  // silent background update check
 	ui := startWebserver(home, Version) // webserver runs launch→quit (spec §4); #151 owns the launcher face
 	if ui != nil {
 		defer ui.Close()
