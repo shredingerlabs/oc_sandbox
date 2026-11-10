@@ -243,6 +243,9 @@ body { background:var(--bg); color:var(--ink);
 /* shared confirm popup (ADR-0021 set) + toasts */
 .confirm-backdrop { position:fixed; inset:0; background:rgba(6,10,18,.45);
   display:flex; align-items:center; justify-content:center; z-index:60; }
+/* the display:flex above overrides the hidden attribute's UA display:none —
+   the backdrop would render at load; re-assert the hidden state explicitly */
+.confirm-backdrop[hidden] { display:none; }
 .confirm { background:var(--surface); border:1px solid var(--hairline); border-radius:12px;
   padding:18px 20px; max-width:440px; box-shadow:0 8px 30px rgba(0,0,0,.3); }
 .confirm h3 { margin:0 0 8px; font-size:15px; }
