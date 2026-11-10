@@ -74,8 +74,8 @@ func runTUI() {
 		os.Exit(1)
 	}
 	a := app.Compose(home, Version, cmdrun.ExecRunner{}, nil)
-	a.Model.AddInitCmd(a.StartupCheck) // silent background update check
-	ui := startWebserver(Version)      // webserver runs launch→quit (spec §4); #151 owns the launcher face
+	a.Model.AddInitCmd(a.StartupCheck)  // silent background update check
+	ui := startWebserver(home, Version) // webserver runs launch→quit (spec §4); #151 owns the launcher face
 	if ui != nil {
 		defer ui.Close()
 	}
@@ -95,10 +95,11 @@ func runTUI() {
 
 // startWebserver starts the embedded WebUI (spec §3/#150) and prints
 // the full tokenized URL as the status line the launcher face (#151)
-// will take over. A failed start never kills the TUI — it prints a
-// warning and returns nil.
-func startWebserver(version string) *webserver.Server {
-	ui := webserver.New(webserver.Options{Version: version})
+// will take over. Home wires GET/POST /settings to global_config.json
+// (#152). A failed start never kills the TUI — it prints a warning and
+// returns nil.
+func startWebserver(home, version string) *webserver.Server {
+	ui := webserver.New(webserver.Options{Version: version, Home: home})
 	if err := ui.Start(); err != nil {
 		fmt.Fprintf(os.Stderr, "oc-sandbox: WebUI could not start: %v (the TUI keeps running)\n", err)
 		return nil

@@ -80,6 +80,7 @@ func TestIndexShell(t *testing.T) {
 		`data-role="theme-toggle"`,  // dark/bright toggle slot
 		`data-role="update-banner"`, // footer banner slot
 		`data-role="screen"`,        // screen content slot (stub)
+		`data-display="standard"`,   // display-mode default on <html> (#152)
 	} {
 		if !strings.Contains(doc, want) {
 			t.Fatalf("index shell missing %q", want)
@@ -114,6 +115,24 @@ func TestShellAssets(t *testing.T) {
 			t.Fatalf("stylesheet missing the %q color mode", theme)
 		}
 	}
+	// Display-mode machinery (#152): Standard hides advanced-only rows
+	// client-side (immediate re-render, no reload).
+	if !strings.Contains(css, `[data-display="standard"]`) ||
+		!strings.Contains(css, "data-advanced-only") {
+		t.Fatal("stylesheet missing the Standard display-mode hiding rule")
+	}
+	js := body(t, get(t, s.URL()+"js/main.js"))
+	for _, want := range []string{
+		`"settings"`,            // GET on load — stored truth, no localStorage
+		`method: "POST"`,        // toggle persists via POST /settings
+		`data-advanced-only`,    // stub rows carry the matrix marker
+		"presets, see Advanced", // helper wording (spec §6, PresetsHint)
+		"displaychange",         // screens re-render reactively on this event
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("main.js missing %q", want)
+		}
+	}
 }
 
 // Auth grammar (#150): a tokenized URL is the capability. Missing and
@@ -128,6 +147,7 @@ func TestAuthGrammar(t *testing.T) {
 		"css/main.css",
 		"img/editions/swdev.svg",
 		"events",
+		"settings",
 		"workspaces",
 		"catalogs",
 	}

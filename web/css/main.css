@@ -105,6 +105,14 @@ body { background:var(--bg); color:var(--ink);
 .catalog button.danger { background:none; border:1px solid var(--danger);
   color:var(--danger); padding:4px 10px; font-size:12px; }
 
+/* Standard/Advanced display mode (#152, spec §6): presets, not pinning —
+   advanced-only rows/chips hide the moment data-display flips to
+   standard; the stored values stay (Advanced reveals them again). */
+[data-display="standard"] [data-advanced-only] { display:none; }
+.row.hint { color:var(--ink2); font-size:12.5px; font-style:italic; }
+.row { padding:6px 0; border-bottom:1px solid var(--hairline); }
+.row .label { font-weight:600; margin-right:8px; }
+
 /* footer: always-present update banner slot + version */
 .footer { display:flex; align-items:center; gap:14px; padding:10px 24px;
   border-top:1px solid var(--hairline); background:var(--bg-side); min-height:44px; }
