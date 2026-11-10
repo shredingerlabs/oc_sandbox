@@ -40,6 +40,7 @@ type Options struct {
 	Version     string // compiled-in version — the update card's fallback when the VERSION file is absent
 	InstallRoot string // the install layout root (app.LayoutFor): the VERSION file lives here
 	Home        string // the oc-sandbox home: ~/.config/oc-sandbox holds catalogs.json etc. and global_config.json (GET/POST /settings)
+	Deps        *Deps  // container/image screens (#158); nil = shell + update/settings/catalogs only
 }
 
 // Server is one WebUI instance: a loopback listener with a per-launch
@@ -47,6 +48,7 @@ type Options struct {
 // on quit — the token dies with the process.
 type Server struct {
 	opts    Options
+	deps    *Deps
 	token   string // hex, ≥128 bit of CSPRNG entropy
 	hub     *Hub
 	queue   *opRunner
@@ -65,6 +67,7 @@ func New(opts Options) *Server {
 		token: newToken(),
 		hub:   newHub(),
 	}
+	s.deps = opts.Deps
 	s.errSink = &redactingLog{next: &s.errLog}
 	s.queue = newOpRunner(s.hub)
 	s.updater = newUpdater(s.hub, s.queue, opts.InstallRoot, opts.Version)
@@ -139,6 +142,9 @@ func (s *Server) Start() error {
 	inner.HandleFunc("POST /catalogs/providers", s.handleProvidersPOST)
 	inner.HandleFunc("GET /settings", s.handleSettingsGet)
 	inner.HandleFunc("POST /settings", s.handleSettingsPost)
+	if s.deps != nil {
+		s.wireRoutes(inner) // container/image screens (#158)
+	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", s.handleHealthz)
 	mux.Handle("/", s.auth(inner))

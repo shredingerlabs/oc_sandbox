@@ -157,10 +157,19 @@ func runLauncher() {
 // returns nil. The §12 update check rides the server start: one silent
 // GitHub request, badge pushed via /events.
 func startWebserver(home, version string) *webserver.Server {
+	layout := app.LayoutFor(home)
 	ui := webserver.New(webserver.Options{
 		Version:     version,
 		Home:        home,
-		InstallRoot: app.LayoutFor(home).InstallRoot,
+		InstallRoot: layout.InstallRoot,
+		Deps: &webserver.Deps{ // container/image screens (#158)
+			Run:              cmdrun.ExecRunner{},
+			Registry:         &registry.Registry{Home: home},
+			BuildScript:      layout.BuildScript,
+			StartScript:      layout.StartScript,
+			Dockerfile:       layout.Dockerfile,
+			DockerfileCustom: layout.DockerfileCustom,
+		},
 	})
 	if err := ui.Start(); err != nil {
 		fmt.Fprintf(os.Stderr, "oc-sandbox: WebUI could not start: %v (the TUI keeps running)\n", err)
