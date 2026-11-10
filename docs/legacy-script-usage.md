@@ -62,15 +62,15 @@ sees them — not even accidentally via `git add .`.
 Create a new project root with correct structure/permissions:
 
 ```bash
-dist/scripts/init-project.sh ~/projects/customer-x
+dist/scripts/init-workspace.sh ~/workspaces/customer-x
 # ... clone the repo into ~/projects/customer-x/project, adjust git config ...
 ```
 
-The optional `--project_kind` flag seeds the OpenCode templates accordingly:
+The optional `--workspace_kind` flag seeds the OpenCode templates accordingly:
 `code` (default), `chat` (chat-style `AGENTS_chat.md`), or `pkm` (full
 Personal-Knowledge-Wiki templates, also applied to cloned projects).
 
-Note: re-running `init-project.sh` overwrites the project-specific templates
+Note: re-running `init-workspace.sh` overwrites the workspace-specific templates
 (incl. `.opencode_config/opencode.json`) — your own customizations there are
 lost; only `proxy/allowlist.txt` is preserved on updates.
 `dist/Dockerfile.custom` is also preserved on updates.

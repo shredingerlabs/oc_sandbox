@@ -11,9 +11,9 @@ dist/
 ├── Dockerfile                    <- Multi-Stage: base, web, embedded, swdev, matlab, ros2, writing, latex, pkm
 ├── scripts/
 │   ├── start.sh                  <- Einheitliches Start-Skript (--edition flag)
-│   ├── configure-project.sh      <- Projekt-Konfiguration (Git-Identität, VCS-Credentials, AI-Provider)
+│   ├── configure-workspace.sh      <- Workspace-Konfiguration (Git-Identität, VCS-Credentials, AI-Provider)
 │   ├── build-container.sh        <- Baut Sandbox-Editionen + Proxy
-│   ├── init-project.sh           <- Legt Projekt-Root-Struktur an
+│   ├── init-workspace.sh           <- Legt Workspace-Root-Struktur an
 │   └── uninstall.sh              <- Deinstalliert opencode-sandbox
 ├── Dockerfile.custom              <- Vorlage für eigene Editionen (auto-entdeckt)
 ├── proxy/
@@ -47,7 +47,7 @@ dist/
 ```
 
 The TUI stores each registered project's canonical root and a short SHA-256
-container identity in `~/.config/oc-sandbox/projects.json`. This keeps project
+container identity in `~/.config/oc-sandbox/workspaces.json`. This keeps workspace
 names unique while allowing projects with identical directory basenames.
 
 During project setup, the TUI can configure no VCS, GitHub, public GitLab,
@@ -105,7 +105,8 @@ authenticated with the same token, whether or not the project is cloned). SSH
 URLs require manually placed keys in the project's `.ssh_local/` directory
 (mounted read-only). There is no automatic submodule/LFS recursion.
 
-Settings can back up and restore `projects.json` or `global_config.json` one file
+Settings can back up and restore `workspaces.json`, `global_config.json`
+or `catalogs.json` one file
 at a time. Restore validates JSON and creates a safety backup before the atomic
 replacement. Credential files under `.git_local/` and `.opencode_data/` are
 never included in general configuration backups.
@@ -238,7 +239,7 @@ sudo udevadm trigger
 ### 3. Projekt-Root einrichten
 
 ```bash
-./scripts/init-project.sh ~/projects/mein-projekt
+./scripts/init-workspace.sh ~/workspaces/mein-workspace
 ```
 
 Optional: mit `--repo_url <url>` wird das Projekt als "cloned" angelegt —
