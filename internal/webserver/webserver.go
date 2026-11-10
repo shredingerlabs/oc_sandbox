@@ -172,6 +172,7 @@ func (s *Server) Start() error {
 	// the name-less alias (MRU workspace preselected).
 	inner.HandleFunc("GET /workspaces/{name}/settings", s.handleWsSettingsGET)
 	inner.HandleFunc("GET /workspace-settings", s.handleWsSettingsMenu)
+	inner.HandleFunc("POST /workspaces/{name}/settings", s.handleWsSettingsPost)
 	if s.deps != nil {
 		s.wireRoutes(inner) // container/image screens (#158)
 	}

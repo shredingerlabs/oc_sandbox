@@ -19,6 +19,7 @@ package webserver
 
 import (
 	"html/template"
+	"slices"
 	"net/http"
 	"strings"
 
@@ -346,6 +347,118 @@ func (s *Server) handleWsSettingsGET(w http.ResponseWriter, r *http.Request) {
 	if !s.renderWsSettingsScreen(w, r.PathValue("name"), "") {
 		http.NotFound(w, r)
 	}
+}
+
+// handleWsSettingsPost serves POST /workspaces/{name}/settings (§9):
+// the next-start values — edition, modes, start option, proxy, search —
+// persisted into the stored sandbox_config.json as ONE atomic write
+// (sandboxcfg.Rewrite, fixed-order). Only the fields the form carries
+// are applied (Standard hides rows and never re-imposes: hidden rows
+// post nothing); the merged write always starts from the stored truth,
+// so cross-editing Standard↔Advanced in either order just works.
+// Validations refuse what start.sh would hard-exit on (ADR-0026); a
+// refusal or a busy queue re-renders the fragment with the message and
+// writes nothing. Never live-apply: a running container is not touched.
+func (s *Server) handleWsSettingsPost(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	ws, err := s.lookupWorkspace(name)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	key := registry.ContainerName(ws.ContainerID)
+	if s.queue.BusyKey(key) {
+		s.renderWsSettingsScreen(w, name, "an operation is queued or running for "+name+" — wait for it to finish")
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad form", http.StatusBadRequest)
+		return
+	}
+	cfg, err := readSandboxCfg(ws.Path)
+	if err != nil {
+		s.renderWsSettingsScreen(w, name, "sandbox_config.json unreadable — "+err.Error())
+		return
+	}
+
+	// Merge: stored truth first, posted rows on top (presets, not pinning).
+	merged := sandboxcfg.Settings{
+		Edition:     cfg.ContainerEdition,
+		Modes:       cfg.ContainerModes,
+		StartOption: cfg.StartOption,
+		VCS:         cfg.VCSTracking,
+		AIProvider:  cfg.AIProvider,
+		UseProxy:    cfg.UseProxy,
+		SearchMode:  cfg.SearchMode,
+	}
+	var offline, cbm bool
+	if v := r.PostFormValue("edition"); v != "" {
+		dockerfile, dockerfileCustom := "", ""
+		if s.deps != nil {
+			dockerfile, dockerfileCustom = s.deps.Dockerfile, s.deps.DockerfileCustom
+		}
+		eds, err := discovery.SelectableEditions(dockerfile, dockerfileCustom)
+		if err != nil || !slices.Contains(eds, v) {
+			s.renderWsSettingsScreen(w, name, "unknown edition — choose a listed one")
+			return
+		}
+		merged.Edition = v
+	}
+	if v := r.PostFormValue("start_option"); v != "" {
+		if v != "console" && v != "opencode" && v != "web" {
+			s.renderWsSettingsScreen(w, name, "invalid start option — console, OpenCode TUI or web")
+			return
+		}
+		merged.StartOption = v
+	}
+	if v := r.PostFormValue("proxy"); v != "" {
+		if v != "no" && v != "yes" {
+			s.renderWsSettingsScreen(w, name, "invalid proxy value")
+			return
+		}
+		merged.UseProxy = v == "yes"
+	}
+	if v := r.PostFormValue("search_mode"); v != "" {
+		if !sandboxcfg.ValidSearchMode(v) {
+			s.renderWsSettingsScreen(w, name, "invalid search mode")
+			return
+		}
+		merged.SearchMode = v
+	}
+	if r.PostFormValue("modes_present") == "1" { // the modes row rendered
+		offline = r.PostFormValue("offline") == "on"
+		cbm = r.PostFormValue("cbm_ui") == "on"
+		hil := r.PostFormValue("hil") == "on"
+		modes := []string{}
+		if offline {
+			modes = append(modes, "offline")
+		}
+		if cbm {
+			modes = append(modes, "cbm_ui")
+		}
+		if hil {
+			modes = append(modes, "hil_mode")
+		}
+		merged.Modes = modes
+	}
+
+	// Combination rules (ADR-0026, validateStartCfg parity): the refusals
+	// start.sh hard-exits on never reach the stored file.
+	if offline && cbm {
+		s.renderWsSettingsScreen(w, name, "offline and cbm_ui are mutually exclusive — fix settings first")
+		return
+	}
+	if merged.SearchMode == sandboxcfg.SearchSearxng && (merged.UseProxy || offline) {
+		s.renderWsSettingsScreen(w, name, "SearXNG needs network — it excludes the proxy and offline mode")
+		return
+	}
+	if err := sandboxcfg.Rewrite(s.opts.Home, sandboxcfg.Path(ws.Path), merged); err != nil {
+		s.renderWsSettingsScreen(w, name, "sandbox_config.json could not be written: "+err.Error())
+		return
+	}
+	// Cards carry the config chips — re-render them reactively (§9).
+	s.hub.PublishWorkspace()
+	s.renderWsSettingsScreen(w, name, "")
 }
 
 // handleWsSettingsMenu serves GET /workspace-settings — the menu entry:
