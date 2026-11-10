@@ -10,11 +10,8 @@ import (
 	"github.com/shredingerlabs/oc-sandbox/internal/registry"
 )
 
-// pairLinkView is the GET-shape of the POST …/pair-link sidecar (§10).
-type pairLinkView struct {
-	PairLink string `json:"pair_link"`
-	PlainURL string `json:"plain_url"`
-}
+// POST /workspaces/{name}/pair-link tests: see pairlink_test.go — the
+// sidecar type lives in wsactions.go.
 
 // POST /workspaces/{name}/pair-link (§10/§9): a FRESH one-time sign-in
 // link per request — WebPort (live podman port, never persisted) plus

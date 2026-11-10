@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/shredingerlabs/oc-sandbox/internal/app"
 	"github.com/shredingerlabs/oc-sandbox/internal/cmdrun"
@@ -137,9 +138,79 @@ func (s *Server) handlePairLink(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write([]byte(jsonfmtMarshal(v)))
 }
 
+// jsonDecode decodes a JSON sidecar body.
+func jsonDecode(line string, v any) error {
+	return json.NewDecoder(strings.NewReader(line)).Decode(v)
+}
+
 func jsonfmtMarshal(v any) string {
 	b, _ := json.Marshal(v)
 	return string(b)
+}
+
+// pairLinkView is the {pair_link, plain_url} JSON sidecar (§10): the
+// fresh one-time sign-in link plus the published binding as the plain
+// fallback when pairing fails or the v2 service is mid-boot.
+type pairLinkView struct {
+	PairLink string `json:"pair_link"`
+	PlainURL string `json:"plain_url"`
+}
+
+// accessView is the POST …/access sidecar shape: opened tells whether a
+// host terminal window could be spawned; command is the exact copyable
+// command for the headless fallback (the session stays pending — no
+// in-browser terminal, §3). Web carries the pair-link resolution.
+type accessView struct {
+	Variant  string `json:"variant"`
+	Opened   bool   `json:"opened"`
+	Command  string `json:"command"`
+	PairLink string `json:"pair_link"`
+	PlainURL string `json:"plain_url"`
+}
+
+// handleAccess serves POST /workspaces/{name}/access (§9) with
+// variant=console|opencode|web: console/OpenCode spawn a host terminal
+// window (§3 machinery) — or the headless fallback renders the exact
+// copyable command and the session stays pending; web resolves the
+// fresh pair-link sidecar (§10).
+func (s *Server) handleAccess(w http.ResponseWriter, r *http.Request) {
+	ws, err := s.lookupWorkspace(r.PathValue("name"))
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad form", http.StatusBadRequest)
+		return
+	}
+	variant := r.PostFormValue("variant")
+	if variant != "console" && variant != "opencode" && variant != "web" {
+		http.Error(w, "invalid variant", http.StatusBadRequest)
+		return
+	}
+	ctr := registry.ContainerName(ws.ContainerID)
+	arg := "bash"
+	if variant == "opencode" {
+		arg = "opencode"
+	}
+	v := accessView{Variant: variant, Command: "podman exec -it --user dev " + ctr + " " + arg}
+	switch variant {
+	case "console", "opencode":
+		if err := s.terminalSpawn()(v.Command); err != nil {
+			v.Opened = false // headless fallback: copyable command, pending session
+		} else {
+			v.Opened = true
+		}
+	case "web":
+		run := s.runner()
+		port := discovery.WebPort(run, ctr)
+		if port != "" {
+			v.PlainURL = "http://" + port
+			v.PairLink = discovery.PairLink(run, ctr, "http://"+port)
+		}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_, _ = w.Write([]byte(jsonfmtMarshal(v)))
 }
 
 func hasCtr(names []string, name string) bool {

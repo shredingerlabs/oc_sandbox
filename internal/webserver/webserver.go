@@ -35,11 +35,12 @@ var tokenRe = regexp.MustCompile(`/t/[0-9a-f]{32}/`)
 // Options carries the launch-time knobs. The zero value is production:
 // base port 8090 (scans upward on conflict, never persisted).
 type Options struct {
-	BasePort int    // first port tried; 0 means "pick a free port" (tests)
-	Version  string // reported nowhere until a screen needs it
-	Home     string // the oc-sandbox home: ~/.config/oc-sandbox holds catalogs.json etc. and global_config.json (GET/POST /settings)
-	Runner   cmdrun.Runner // podman/script runner for start + access; nil → real execution
-	Now      func() time.Time // clock for relative last-used dates; nil → time.Now
+	BasePort      int    // first port tried; 0 means "pick a free port" (tests)
+	Version       string // reported nowhere until a screen needs it
+	Home          string // the oc-sandbox home: ~/.config/oc-sandbox holds catalogs.json etc. and global_config.json (GET/POST /settings)
+	Runner        cmdrun.Runner   // podman/script runner for start + access; nil → real execution
+	Now           func() time.Time // clock for relative last-used dates; nil → time.Now
+	TerminalSpawn func(command string) error // host terminal window opener (§3); nil → per-platform spawn
 }
 
 // Server is one WebUI instance: a loopback listener with a per-launch
@@ -136,6 +137,7 @@ func (s *Server) Start() error {
 	inner.HandleFunc("POST /settings", s.handleSettingsPost)
 	inner.HandleFunc("GET /workspaces", s.handleWorkspacesGET)
 	inner.HandleFunc("POST /workspaces/{name}/start", s.handleStart)
+	inner.HandleFunc("POST /workspaces/{name}/access", s.handleAccess)
 	inner.HandleFunc("POST /workspaces/{name}/pair-link", s.handlePairLink)
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", s.handleHealthz)
