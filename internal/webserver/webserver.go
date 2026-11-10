@@ -175,6 +175,7 @@ func (s *Server) Start() error {
 	inner.HandleFunc("POST /workspaces/{name}/settings", s.handleWsSettingsPost)
 	inner.HandleFunc("POST /workspaces/{name}/vcs-credentials", s.handleWsVCSCredentialsPost)
 	inner.HandleFunc("POST /workspaces/{name}/providers", s.handleWsProvidersPost)
+	inner.HandleFunc("POST /workspaces/{name}/remove-from-list", s.handleWsRemoveFromList)
 	if s.deps != nil {
 		s.wireRoutes(inner) // container/image screens (#158)
 	}

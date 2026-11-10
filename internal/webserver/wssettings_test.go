@@ -858,3 +858,57 @@ func TestWsProvidersCatalogPrefill(t *testing.T) {
 		t.Fatalf("provider catalog prefill missing:\n%s", doc)
 	}
 }
+
+// --- POST /workspaces/{name}/remove-from-list (§9) -----------------------------
+
+// The red confirm's action deletes the registry entry only — files,
+// configs and containers stay untouched (§7); a busy queue refuses.
+func TestWsRemoveFromList(t *testing.T) {
+	fx := newCreateFixture(t, nil)
+	root := seedWorkspace(t, fx.home, "alpha", "swdev", nil)
+	cfgPath := sandboxcfg.Path(root)
+
+	resp := postForm(t, fx.s.URL()+"workspaces/alpha/remove-from-list", nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d", resp.StatusCode)
+	}
+	reg := &registry.Registry{Home: fx.home}
+	if _, err := reg.ByName("alpha"); err == nil {
+		t.Fatal("registry entry must be gone")
+	}
+	// Files, configs, containers untouched.
+	if _, err := os.Stat(cfgPath); err != nil {
+		t.Fatalf("sandbox_config.json must stay: %v", err)
+	}
+	if _, err := os.Stat(root); err != nil {
+		t.Fatalf("workspace root must stay: %v", err)
+	}
+
+	// A second removal (already gone) refuses with 404 — the name is the
+	// URL identity.
+	resp = postForm(t, fx.s.URL()+"workspaces/alpha/remove-from-list", nil)
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("gone workspace: status = %d, want 404", resp.StatusCode)
+	}
+
+	// A busy queue refuses the removal (§9) — nothing is deleted while
+	// an op runs.
+	release := make(chan struct{})
+	fx2 := newCreateFixture(t, func(name string, args []string) (string, error) {
+		if name == "bash" {
+			<-release
+		}
+		return "", nil
+	})
+	seedWorkspace(t, fx2.home, "beta", "web", nil)
+	postMap(t, fx2.s.URL()+"workspaces/beta/start", nil)
+	waitForBusyCard(t, fx2.s, "beta")
+	resp = postForm(t, fx2.s.URL()+"workspaces/beta/remove-from-list", nil)
+	if doc := body(t, resp); !strings.Contains(doc, "queued or running") {
+		t.Fatalf("busy refusal must render the notice:\n%s", doc)
+	}
+	if _, err := (&registry.Registry{Home: fx2.home}).ByName("beta"); err != nil {
+		t.Fatalf("busy refusal must keep the entry: %v", err)
+	}
+	close(release)
+}

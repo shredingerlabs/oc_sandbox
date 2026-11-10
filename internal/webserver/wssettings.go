@@ -738,6 +738,30 @@ func (s *Server) handleWsProvidersPost(w http.ResponseWriter, r *http.Request) {
 	s.renderWsSettingsScreen(w, name, "", nil)
 }
 
+// handleWsRemoveFromList serves POST /workspaces/{name}/remove-from-list
+// (§9) — the red confirm's action behind the popup. The registry entry
+// is deleted only: files, configs and the container stay untouched (§7),
+// a running container keeps running untracked. A busy queue refuses (§9).
+func (s *Server) handleWsRemoveFromList(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	ws, err := s.lookupWorkspace(name)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	key := registry.ContainerName(ws.ContainerID)
+	if s.queue.BusyKey(key) {
+		s.renderWsSettingsScreen(w, name, "an operation is queued or running for "+name+" — wait for it to finish", nil)
+		return
+	}
+	if err := s.regView().RemoveWorkspace(ws.Path); err != nil {
+		s.renderWsSettingsScreen(w, name, "Removal failed — the workspace list is unchanged: "+err.Error(), nil)
+		return
+	}
+	s.hub.PublishWorkspace()
+	s.renderWsSettingsEmpty(w)
+}
+
 // handleWsSettingsMenu serves GET /workspace-settings — the menu entry:
 // no name, so the most recent workspace jumps in preselected (§7); an
 // empty registry renders the explicit empty state, never a dead end.
