@@ -69,13 +69,13 @@ var catalogsTemplate = template.Must(template.New("catalogs").Parse(`
             </select>
           </label>
           <label data-field="host"{{if or (eq .Kind "github") (eq .Kind "gitlab")}} hidden{{end}}>Host <input name="host" value="{{.Host}}" placeholder="gitlab.example.com"></label>
-          <button type="submit">Save</button>
+          <button type="submit" class="btn">Save</button>
         </form>
       </details>
       <form class="entry-remove" hx-post="{{$.P}}catalogs/trackers" hx-target="#catalogs-trackers" hx-swap="outerHTML">
         <input type="hidden" name="action" value="remove">
         <input type="hidden" name="orig" value="{{.Name}}">
-        <button type="submit" class="danger">Remove</button>
+        <button type="submit" class="btn danger">Remove</button>
       </form>
     </li>
     {{end}}
@@ -95,7 +95,7 @@ var catalogsTemplate = template.Must(template.New("catalogs").Parse(`
       </select>
     </label>
     <label data-field="host" hidden>Host <input name="host" placeholder="gitlab.example.com"> <span class="field-hint">required for own GitLab / others</span></label>
-    <button type="submit">Add tracker</button>
+    <button type="submit" class="btn">Add tracker</button>
   </form>
 </section>
 {{end}}
@@ -122,13 +122,13 @@ var catalogsTemplate = template.Must(template.New("catalogs").Parse(`
             <label>Display name <input name="name" value="{{.Name}}"></label>
             <label>Endpoint <input name="endpoint" value="{{.Endpoint}}" placeholder="https://api.example.com/v1"></label>
           </div>
-          <button type="submit">Save</button>
+          <button type="submit" class="btn">Save</button>
         </form>
       </details>
       <form class="entry-remove" hx-post="{{$.P}}catalogs/providers" hx-target="#catalogs-providers" hx-swap="outerHTML">
         <input type="hidden" name="action" value="remove">
         <input type="hidden" name="orig" value="{{.Name}}">
-        <button type="submit" class="danger">Remove</button>
+        <button type="submit" class="btn danger">Remove</button>
       </form>
     </li>
     {{end}}
@@ -143,7 +143,7 @@ var catalogsTemplate = template.Must(template.New("catalogs").Parse(`
       <label>Display name <input name="name"></label>
       <label>Endpoint <input name="endpoint" placeholder="https://api.example.com/v1"> <span class="field-hint">OpenAI-compatible endpoint</span></label>
     </div>
-    <button type="submit">Add provider</button>
+    <button type="submit" class="btn">Add provider</button>
   </form>
 </section>
 {{end}}

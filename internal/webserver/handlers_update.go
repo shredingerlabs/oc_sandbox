@@ -102,7 +102,7 @@ var updateCardTmpl = template.Must(template.New("updatecard").
     <div class="row muted">{{keepNote}}</div>
   </div>
   <div class="actions">
-    <button class="btn" data-role="update-check" hx-post="update/check" hx-target="closest section" hx-swap="outerHTML">Check now</button>
+    <button class="btn ghost" data-role="update-check" hx-post="update/check" hx-target="closest section" hx-swap="outerHTML">Check now</button>
     <button class="btn primary" data-role="update-run"{{if eq .Phase "installing"}} disabled{{end}}
       data-confirm-title="{{confirmTitle}}" data-confirm-body="{{confirmBody}}">Update</button>
   </div>

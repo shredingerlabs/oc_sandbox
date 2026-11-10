@@ -15,6 +15,30 @@
   var root = document.documentElement;
   var screenEl = document.querySelector('[data-role="screen"]');
 
+  // --- screen title (Signal header: crumb above the h1) ---
+  var crumbEl = document.querySelector('[data-role="crumb"]');
+  var titleEl = document.querySelector('.titlebar h1');
+  var SCREEN_TITLES = {
+    "ws-open":       ["Workspace", "Open"],
+    "ws-new":        ["Workspace", "New Workspace"],
+    "set-ws":        ["Workspace › Settings", "Workspace Settings"],
+    "set-vcs":       ["Workspace › Settings", "VCS Tracker"],
+    "set-ai":        ["Workspace › Settings", "AI-Provider"],
+    "set-import":    ["Workspace › Settings", "Import Workspace"],
+    "set-config":    ["Workspace › Settings", "Export / Restore Config"],
+    "set-images":    ["Workspace › Settings", "Images"],
+    "set-containers": ["Workspace › Settings", "Containers"],
+    "set-update":    ["Workspace › Settings", "Update"],
+    "set-uninstall": ["Workspace › Settings", "Uninstall"]
+  };
+  function setTitle(nav) {
+    var t = SCREEN_TITLES[nav];
+    if (!t) return; // stubs and unknown screens keep the shell title
+    crumbEl.textContent = t[0];
+    titleEl.textContent = t[1];
+  }
+  setTitle("ws-open");
+
   // --- theme toggle (client preference; no ambient authority) ---
   var saved = null;
   try { saved = localStorage.getItem("oc_sandbox.theme"); } catch (e) {}
@@ -72,6 +96,7 @@
       if (btn.hasAttribute("hx-get")) return; // htmx swaps its own fragment in (Update, #160)
       var nav = btn.dataset.nav;
       currentNav = nav;
+      setTitle(nav);
       // Workspace → Open (#153): the card grid loads as a fragment.
       if (nav === "ws-open" && window.htmx) {
         renderWorkspaces();
@@ -528,7 +553,7 @@
       '<span class="card-confirm" data-confirm-row="' + kind + '">' +
       '<span class="card-confirm-label">' + label + '</span>' +
       '<button class="btn danger" data-act="confirm-' + kind + '">Confirm</button>' +
-      '<button class="btn" data-act="cancel-confirm">Cancel</button>' +
+      '<button class="btn ghost" data-act="cancel-confirm">Cancel</button>' +
       '</span>';
   }
 

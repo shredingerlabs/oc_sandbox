@@ -12,9 +12,11 @@ package webserver
 
 import (
 	"html/template"
+	"io/fs"
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/shredingerlabs/oc-sandbox/internal/config"
@@ -59,6 +61,30 @@ func cardDisabled(title string) template.HTMLAttr {
 	return template.HTMLAttr(` disabled title="` + template.HTMLEscapeString(title) + `"`)
 }
 
+// editionGlyph carries the inline SVG markup of one Lucide edition glyph
+// from the embedded assets. Inlined (not <img>) so stroke="currentColor"
+// resolves against the card's CSS --ed hue, exactly like the signed-off
+// Signal mockup's tiles (spec §5); unknown editions fall back to base.
+var glyphCache sync.Map // name → template.HTML
+
+func glyphFor(name string) template.HTML {
+	if v, ok := glyphCache.Load(name); ok {
+		return v.(template.HTML)
+	}
+	data, err := fs.ReadFile(assetsFS, "img/editions/"+name+".svg")
+	if err != nil {
+		data, err = fs.ReadFile(assetsFS, "img/editions/base.svg")
+	}
+	markup := template.HTML(strings.Replace(string(data), "viewBox=\"0 0 24 24\"",
+		"viewBox=\"0 0 24 24\" data-edition=\""+template.HTMLEscapeString(name)+"\"", 1))
+	got, _ := glyphCache.LoadOrStore(name, markup)
+	return got.(template.HTML)
+}
+
+// glyphFuncs is the workspace template's marker func: the inline glyph
+// test hook (per-edition data-edition attribute on the root element).
+var glyphFuncs = template.FuncMap{"edicon": glyphFor}
+
 // cardView is the template data of one workspace card.
 type cardView struct {
 	Name       string
@@ -102,11 +128,12 @@ const wsEmptyText = "No workspaces registered"
 
 var wsTemplate = template.Must(template.New("ws").
 	Funcs(template.FuncMap{"restartDisabled": cardDisabled}).
+	Funcs(glyphFuncs).
 	Parse(`
 {{define "card"}}
 <article class="card" data-ws="{{.Name}}"{{if .Hue}} style="--ed:{{.Hue}}"{{end}}{{if .OpID}} data-op-id="{{.OpID}}"{{end}}>
   <div class="toprow">
-    <div class="tile"><img src="img/editions/{{.Icon}}.svg" alt="" draggable="false"></div>
+    <div class="tile">{{edicon .Icon}}</div>
     <div class="body">
       <div class="name">{{.Name}}{{if .Running}}<span class="dot" data-running title="running"></span>{{end}}</div>
       <div class="sub">last used {{.LastUsed}}</div>
@@ -135,16 +162,16 @@ var wsTemplate = template.Must(template.New("ws").
     <div class="setup-status">{{if .SetupWindow}}Skills setup — interactive session open in a terminal window{{else}}Skills setup — no terminal window available; run the command in your own terminal{{end}}</div>
     {{if not .SetupWindow}}<code class="setup-cmd">{{.SetupCommand}}</code>{{end}}
     <div class="setup-acts">
-      <button class="btn" data-act="setup-copy" data-command="{{.SetupCommand}}">Copy manual command</button>
-      <button class="btn danger" data-act="setup-cancel">Cancel setup</button>
+      <button class="btn ghost" data-act="setup-copy" data-command="{{.SetupCommand}}">Copy manual command</button>
+      <button class="btn danger-ghost" data-act="setup-cancel">Cancel setup</button>
     </div>
   </div>
   {{end}}
-  {{if .SetupRetry}}<div class="setup-retry"><button class="btn" data-act="setup-retry">Run setup</button></div>{{end}}
+  {{if .SetupRetry}}<div class="setup-retry"><button class="btn ghost" data-act="setup-retry">Run setup</button></div>{{end}}
   <div class="acts">
     <button class="btn" data-act="web" title="OpenCode web — fresh pair link in a new tab"{{if .SetupPending}} disabled title="refused — first-run setup session pending"{{end}}>Web</button>
-    <button class="btn" data-act="opencode" title="OpenCode TUI in a host terminal window"{{if .SetupPending}} disabled title="refused — first-run setup session pending"{{end}}>OpenCode</button>
-    <button class="btn" data-act="console" title="console session in a host terminal window"{{if .SetupPending}} disabled title="refused — first-run setup session pending"{{end}}>Console</button>
+    <button class="btn ghost" data-act="opencode" title="OpenCode TUI in a host terminal window"{{if .SetupPending}} disabled title="refused — first-run setup session pending"{{end}}>OpenCode</button>
+    <button class="btn ghost" data-act="console" title="console session in a host terminal window"{{if .SetupPending}} disabled title="refused — first-run setup session pending"{{end}}>Console</button>
   </div>
   <div class="confirms"></div>
   <div class="oplog" data-oplog hidden></div>

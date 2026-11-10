@@ -139,7 +139,7 @@ func checkWebUIWorkspaces(home, root string) Item {
 	} else {
 		for _, want := range []string{
 			`data-ws="mural"`, `data-ws="lab"`,
-			`img/editions/swdev.svg`, `img/editions/web.svg`,
+			`data-edition="swdev"`, `data-edition="web"`,
 			`data-chip="hil"`,
 			`data-act="web"`, `data-act="opencode"`, `data-act="console"`,
 			`data-confirm="restart"`,

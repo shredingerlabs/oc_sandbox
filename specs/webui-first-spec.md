@@ -237,9 +237,11 @@ documented release-docs item (§12), not a lock.
 ### 5. WebUI design language and navigation (§4) — decided in [Prototype: WebUI design mockup](https://github.com/shredingerlabs/oc_sandbox/issues/136) (user-signed-off Variant C — Signal) + [Research: Edition icon set for workspace cards](https://github.com/shredingerlabs/oc_sandbox/issues/143)
 
 - **Signal look** (locked; variants A Atelier / B Mono remain in the mockup file
-  for reference): per-edition hue via left accent bar + tinted tile on a cool
-  slate/navy palette, bold weights, count pills in the sidebar tree. **Dark AND
-  bright** color modes with an in-page theme toggle. Objects as cards in grid
+  for reference): per-edition hue via left accent bar + edition-hued tile
+  (solid `--ed` fill, white glyph — prototype Variant C is the golden source)
+  on a cool slate/navy palette, bold weights, count pills in the sidebar
+  tree. **Dark AND**
+  bright color modes with an in-page theme toggle. Objects as cards in grid
   views. Reference asset: `web/prototype-webui-design.html` on `dev_WebUI`
   @ a934154 (self-contained, hash router `#<variant>/<theme>/<display>/<screen>`).
 - **Navigation frame** (pre-decided): left sidebar tree — Workspace → Open / New;

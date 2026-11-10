@@ -164,7 +164,7 @@ var wizardTemplate = template.Must(template.New("wizard").
 
     </fieldset>
     <div class="actions">
-      <button type="submit" data-role="wizard-create">Create Workspace</button>
+      <button type="submit" class="btn" data-role="wizard-create">Create Workspace</button>
     </div>
   </form>
 </section>
@@ -180,8 +180,8 @@ var wizardTemplate = template.Must(template.New("wizard").
   <form hx-post="{{.P}}workspaces" hx-target="#new-workspace" hx-swap="outerHTML">
     {{range .Fields}}<input type="hidden" name="{{.Name}}" value="{{.Value}}">{{end}}
     <div class="actions">
-      <button type="submit" name="confirm" value="1">Create</button>
-      <button type="submit" name="confirm" value="">Back</button>
+      <button type="submit" class="btn" name="confirm" value="1">Create</button>
+      <button type="submit" class="btn ghost" name="confirm" value="">Back</button>
     </div>
   </form>
 </div>

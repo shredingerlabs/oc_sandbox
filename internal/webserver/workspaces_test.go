@@ -96,10 +96,10 @@ func TestWorkspacesCards(t *testing.T) {
 	for _, want := range []string{
 		`data-ws="alpha"`,
 		`data-ws="hil-lab"`,
-		`img/editions/swdev.svg`,    // edition icon tile (Lucide glyph, §5)
-		`img/editions/embedded.svg`, // per-edition glyph
-		`--ed:#2f6fed`,              // swdev hue tints the tile
-		`--ed:#0ea5a4`,              // embedded hue
+		`data-edition="swdev"`,    // inline Lucide glyph in the tile (§5, currentColor picks up --ed)
+		`data-edition="embedded"`, // per-edition glyph
+		`--ed:#2f6fed`,            // swdev hue tints the tile
+		`--ed:#0ea5a4`,            // embedded hue
 	} {
 		if !strings.Contains(doc, want) {
 			t.Fatalf("card fragment missing %q", want)
@@ -275,7 +275,7 @@ func TestWorkspacesUnknownEditionFallsBack(t *testing.T) {
 	}
 	s := startFixtureServer(t, home)
 	doc := body(t, get(t, s.URL()+"workspaces"))
-	if !strings.Contains(doc, `img/editions/base.svg`) {
-		t.Fatalf("unknown edition must fall back to base.svg, got:\n%s", doc)
+	if !strings.Contains(doc, `data-edition="base"`) {
+		t.Fatalf("unknown edition must fall back to the base glyph, got:\n%s", doc)
 	}
 }

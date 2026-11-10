@@ -131,7 +131,7 @@ func busyMarker() string {
 // (a refused confirm) rides at the top when msg is non-empty.
 func (s *Server) renderContainers(msg string) string {
 	var b strings.Builder
-	b.WriteString(`<section class="card" data-screen="containers">`)
+	b.WriteString(`<section class="panel" data-screen="containers">`)
 	b.WriteString(`<div class="card-head"><h2>Containers</h2></div>`)
 	if msg != "" {
 		b.WriteString(`<div class="inline-toast" data-toast>` + html.EscapeString(msg) + `</div>`)
@@ -156,17 +156,17 @@ func (s *Server) renderContainers(msg string) string {
 		}
 		b.WriteString(`</div><div class="actions">`)
 		if row.Workspace != "" {
-			b.WriteString(`<button data-action="start" data-href="workspaces/` +
+			b.WriteString(`<button class="btn ghost" data-action="start" data-href="workspaces/` +
 				html.EscapeString(row.Workspace) + `/start">Start</button>`)
 		}
 		if row.Busy {
-			b.WriteString(`<button disabled title="an operation is queued or running">Stop</button>`)
-			b.WriteString(`<button disabled title="an operation is queued or running" data-danger>Delete</button>`)
+			b.WriteString(`<button class="btn ghost" disabled title="an operation is queued or running">Stop</button>`)
+			b.WriteString(`<button class="btn danger-ghost" disabled title="an operation is queued or running" data-danger>Delete</button>`)
 		} else {
-			b.WriteString(`<button data-action="stop" data-href="containers/` +
+			b.WriteString(`<button class="btn ghost" data-action="stop" data-href="containers/` +
 				html.EscapeString(row.Unit) + `/stop" data-confirm="Stop ` +
 				html.EscapeString(row.Unit) + `?"` + stopDisabledAttr(row) + `>Stop</button>`)
-			b.WriteString(`<button data-action="delete" data-href="containers/` +
+			b.WriteString(`<button class="btn danger-ghost" data-action="delete" data-href="containers/` +
 				html.EscapeString(row.Unit) + `/delete" data-confirm="Delete ` +
 				html.EscapeString(row.Unit) + `?" data-danger` +
 				deleteDisabledAttr(row) + `>Delete</button>`)

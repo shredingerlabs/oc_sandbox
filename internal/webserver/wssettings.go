@@ -174,7 +174,7 @@ var wsSettingsTemplate = template.Must(template.New("wssettings").
               <label>Display name <input name="name" value="{{.Name}}"></label>
               <label>Endpoint <input name="endpoint" value="{{.Endpoint}}"></label>
               <label>Token <input type="password" name="token" value="" autocomplete="off" placeholder="(keep stored credential)"></label>
-              <button type="submit">Save</button>
+              <button type="submit" class="btn">Save</button>
             </form>
           </details>
           <form class="entry-remove" hx-post="{{$.P}}workspaces/{{$.Name}}/providers" hx-target="#ws-settings" hx-swap="outerHTML"
@@ -183,7 +183,7 @@ var wsSettingsTemplate = template.Must(template.New("wssettings").
                 data-confirm-label="Remove">
             <input type="hidden" name="action" value="remove">
             <input type="hidden" name="orig" value="{{.ID}}">
-            <button type="submit" class="danger">Remove</button>
+            <button type="submit" class="btn danger">Remove</button>
           </form>
           {{end}}
         </div>
@@ -203,7 +203,7 @@ var wsSettingsTemplate = template.Must(template.New("wssettings").
         <label>Display name <input name="name"></label>
         <label>Endpoint <input name="endpoint" placeholder="https://api.example.com/v1"></label>
         <label>Token <input type="password" name="token" autocomplete="off"></label>
-        <button type="submit">Add provider</button>
+        <button type="submit" class="btn">Add provider</button>
       </form>
     </div>
 
@@ -217,9 +217,9 @@ var wsSettingsTemplate = template.Must(template.New("wssettings").
         <input type="hidden" name="name" value="{{.ProvConfirm.Name}}">
         <input type="hidden" name="endpoint" value="{{.ProvConfirm.Endpoint}}">
         <input type="hidden" name="token" value="{{.ProvConfirm.Token}}">
-        <button type="submit" name="decision" value="keep">Keep existing</button>
-        <button type="submit" name="decision" value="replace">Replace</button>
-        <button type="submit" name="decision" value="">Cancel</button>
+        <button type="submit" class="btn ghost" name="decision" value="keep">Keep existing</button>
+        <button type="submit" class="btn danger" name="decision" value="replace">Replace</button>
+        <button type="submit" class="btn ghost" name="decision" value="">Cancel</button>
       </form>
     </div>
     {{end}}
@@ -242,11 +242,11 @@ var wsSettingsTemplate = template.Must(template.New("wssettings").
         <label>Host <input name="host" value="{{.VCSHost}}" placeholder="gitlab.example.com"> <span class="field-hint">required for own GitLab / others</span></label>
         <label>Token <input type="password" name="token" autocomplete="off"></label>
         <div class="actions">
-          <button type="submit" name="replace" value="1"
+          <button type="submit" class="btn" name="replace" value="1"
             {{if .VCSHasCreds}}data-confirm-popup data-confirm-title="Replace credentials?"
               data-confirm-question="Credentials for this tracker already exist — replace them with the typed token?"
               data-confirm-label="Replace"{{end}}>Save</button>
-          {{if .VCSHasCreds}}<button type="submit" name="replace" value="keep">Keep credentials</button>{{end}}
+          {{if .VCSHasCreds}}<button type="submit" class="btn ghost" name="replace" value="keep">Keep credentials</button>{{end}}
         </div>
         {{if .VCSHasCreds}}<div class="field-hint">credentials exist — Save replaces them after the confirm</div>{{end}}
       </form>
@@ -307,7 +307,7 @@ var wsSettingsTemplate = template.Must(template.New("wssettings").
         <span class="edotsel"><label>HIL<input type="checkbox" name="hil" value="on" {{if .HIL}}checked{{end}}></label></span>
       </div>
       {{end}}
-      <div class="actions"><button type="submit">Save settings</button></div>
+      <div class="actions"><button type="submit" class="btn">Save settings</button></div>
       <div class="field-hint">next-start apply — a running container is never reconfigured</div>
     </form>
     {{end}}
@@ -317,7 +317,7 @@ var wsSettingsTemplate = template.Must(template.New("wssettings").
     <div class="row" data-row="setup">
       <span class="label">First-run setup</span>
       <span class="cell">{{if .SetupDone}}complete{{else}}incomplete — retry from here{{end}}</span>
-      <button class="btn" data-act="setup-retry" title="first-run setup recovery">Retry setup…</button>
+      <button class="btn ghost" data-act="setup-retry" title="first-run setup recovery">Retry setup…</button>
     </div>
 
     <div class="row danger-row" data-row="remove">
@@ -327,7 +327,7 @@ var wsSettingsTemplate = template.Must(template.New("wssettings").
             data-confirm-popup data-confirm-title="Remove {{.Name}} from the workspace list?"
             data-confirm-question="Removes the registry entry only — files, configs and the container stay on disk. A running container keeps running untracked."
             data-confirm-label="Remove">
-        <button type="submit" class="danger">Remove from list…</button>
+        <button type="submit" class="btn danger">Remove from list…</button>
       </form>
     </div>
   </div>

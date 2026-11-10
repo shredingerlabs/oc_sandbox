@@ -106,12 +106,12 @@ func (s *Server) imageRows() []imageRow {
 func (s *Server) renderImages(msg string, opID int) string {
 	busy := s.queue.BusyKey(imagesKey)
 	var b strings.Builder
-	b.WriteString(`<section class="card" data-screen="images">`)
+	b.WriteString(`<section class="panel" data-screen="images">`)
 	b.WriteString(`<div class="card-head"><h2>Images</h2>`)
 	if busy {
-		b.WriteString(`<button disabled title="an image operation is queued or running">Build all</button>`)
+		b.WriteString(`<button class="btn ghost" disabled title="an image operation is queued or running">Build all</button>`)
 	} else {
-		b.WriteString(`<button data-action="build" data-href="images/build" data-confirm="Build all images? This can take a while.">Build all</button>`)
+		b.WriteString(`<button class="btn ghost" data-action="build" data-href="images/build" data-confirm="Build all images? This can take a while.">Build all</button>`)
 	}
 	b.WriteString(`</div>`)
 	if msg != "" {
@@ -151,13 +151,13 @@ func (s *Server) renderImages(msg string, opID int) string {
 			label = "Rebuild"
 		}
 		if busy {
-			b.WriteString(`<button disabled title="an image operation is queued or running">` + label + `</button>`)
+			b.WriteString(`<button class="btn ghost" disabled title="an image operation is queued or running">` + label + `</button>`)
 		} else if row.Built {
-			b.WriteString(`<button data-action="build" data-href="images/build" data-tag="` +
+			b.WriteString(`<button class="btn ghost" data-action="build" data-href="images/build" data-tag="` +
 				html.EscapeString(row.Tag) + `" data-confirm="Rebuild image ` +
 				html.EscapeString(row.Tag) + `? Running containers keep the old image until they are replaced.">Rebuild</button>`)
 		} else {
-			b.WriteString(`<button data-action="build" data-href="images/build" data-tag="` +
+			b.WriteString(`<button class="btn ghost" data-action="build" data-href="images/build" data-tag="` +
 				html.EscapeString(row.Tag) + `" data-confirm="Build image ` +
 				html.EscapeString(row.Tag) + `? This can take a while.">Build</button>`)
 		}
@@ -172,7 +172,7 @@ func (s *Server) renderImages(msg string, opID int) string {
 		} else if row.InUse {
 			disabled = ` disabled title="` + errInUseHint(row.Tag).Error() + `"`
 		}
-		b.WriteString(`<button data-action="img-delete" data-href="images/delete" data-tag="` +
+		b.WriteString(`<button class="btn danger-ghost" data-action="img-delete" data-href="images/delete" data-tag="` +
 			html.EscapeString(row.Tag) + `" data-confirm="Delete image ` +
 			html.EscapeString(row.Tag) + `?" data-danger` + disabled + `>Delete</button>`)
 		b.WriteString(`</div></div>`)
