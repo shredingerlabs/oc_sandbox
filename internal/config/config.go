@@ -272,9 +272,9 @@ type GlobalConfig struct {
 }
 
 // CreateGlobalConfig writes the initial global_config.json for first-run setup.
-func CreateGlobalConfig(home, projectPath string) error {
+func CreateGlobalConfig(home, workspacePath string) error {
 	return AtomicWrite(home, Paths{Home: home}.GlobalConfigPath(),
-		jsonfmt.Marshal(GlobalConfig{DefaultWorkspacePath: projectPath, Version: "2.0"}))
+		jsonfmt.Marshal(GlobalConfig{DefaultWorkspacePath: workspacePath, Version: "2.0"}))
 }
 
 // ReadGlobalConfig reads global_config.json.

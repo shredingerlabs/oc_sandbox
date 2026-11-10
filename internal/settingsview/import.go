@@ -18,9 +18,9 @@ import (
 	"github.com/shredingerlabs/oc-sandbox/internal/shell"
 )
 
-// newProjectViewIndex is the header-menu index of the New Workspace wizard
+// newWorkspaceViewIndex is the header-menu index of the New Workspace wizard
 // (shell.MenuItems order) — the import prompt refers into it (ADR 0017).
-const newProjectViewIndex = 1
+const newWorkspaceViewIndex = 1
 
 // importDirs are the sandbox directories a NEW workspace gets from
 // init-workspace.sh. They are not required for import: start.sh
@@ -246,7 +246,7 @@ func (v *View) importPromptPane() ([]string, []hitRow, int) {
 		)
 	}
 	rows, wizard, convert, back := buttonTriple(rows,
-		"Open New Workspace wizard", v.impFocus == 0, v.newProjectWizard,
+		"Open New Workspace wizard", v.impFocus == 0, v.newWorkspaceWizard,
 		"Convert to workspace layout", v.impFocus == 1, v.convertLegacyLayout,
 		"Back", v.impFocus == 2, v.importBack)
 	if v.impFocus <= 2 {
@@ -285,10 +285,10 @@ func (v *View) importBack() tea.Cmd {
 	return nil
 }
 
-// newProjectWizard emits the navigation request the shell root acts on:
+// newWorkspaceWizard emits the navigation request the shell root acts on:
 // jump into the New Workspace wizard.
-func (v *View) newProjectWizard() tea.Cmd {
-	return func() tea.Msg { return shell.NavRequestMsg{Index: newProjectViewIndex} }
+func (v *View) newWorkspaceWizard() tea.Cmd {
+	return func() tea.Msg { return shell.NavRequestMsg{Index: newWorkspaceViewIndex} }
 }
 
 // importActivate runs the picker/summary/prompt action for the focused
@@ -321,7 +321,7 @@ func (v *View) importActivate() tea.Cmd {
 		}
 		switch v.impFocus {
 		case 0:
-			return v.newProjectWizard()
+			return v.newWorkspaceWizard()
 		case 1:
 			return v.convertLegacyLayout()
 		default:

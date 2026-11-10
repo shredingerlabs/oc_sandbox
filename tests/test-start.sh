@@ -76,7 +76,7 @@ grep -q -- 'exec sleep infinity' "$PODMAN_LOG"
 ! grep -q -- 'opencode service set' "$PODMAN_LOG"
 ! grep -q -- 'opencode web' "$PODMAN_LOG"
 grep -q -- '-e START_WEB=false' "$PODMAN_LOG"
-grep -q 'OpenCode Web: http://127.0.0.1:4097' "$web_output"
+grep -q 'OpenCode web: http://127.0.0.1:4097' "$web_output"
 # Boot-unabhaengiges Pinnen: hostname/port stehen in der gemounteten service.json
 sq="$test_home/.opencode_config/service.json"
 jq -e '.hostname == "0.0.0.0" and .port == 4096' "$sq" >/dev/null || { printf 'web start did not pin service.json\n' >&2; exit 1; }
@@ -100,7 +100,7 @@ fi
 grep -q -- '-it' "$PODMAN_LOG"
 ! grep -q -- '-c sleep infinity' "$PODMAN_LOG"
 grep -q -- '-e START_WEB=true' "$PODMAN_LOG"
-grep -q 'OpenCode Web: http://127.0.0.1:4097' "$web_output"
+grep -q 'OpenCode web: http://127.0.0.1:4097' "$web_output"
 
 if ! bash "$PROJECT_ROOT/dist/scripts/start.sh" --help | grep -q -- '--start_web'; then
   printf 'help text does not mention --start_web\n' >&2
@@ -287,12 +287,12 @@ if run_start "$cloned_project" --edition rust --search_mode searxng --offline --
   printf 'start.sh accepted searxng + offline\n' >&2
   exit 1
 fi
-grep -q 'offline inkompatibel' "$test_home/edition-output"
+grep -q 'requires network' "$test_home/edition-output"
 if run_start "$cloned_project" --edition rust --search_mode bogus --detach; then
   printf 'start.sh accepted unknown search_mode\n' >&2
   exit 1
 fi
-grep -q -- 'Unbekannter --search_mode' "$test_home/edition-output"
+grep -q -- 'unknown --search_mode' "$test_home/edition-output"
 printf 'start search_mode combination tests passed\n'
 
 # 4. Custom-Edition wird akzeptiert und an podman durchgereicht

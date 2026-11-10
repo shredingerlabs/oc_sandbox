@@ -300,8 +300,8 @@ func TestNonMatchingFolderPromptAndWizardCmd(t *testing.T) {
 	if !ok {
 		t.Fatalf("cmd produced %T, want shell.NavRequestMsg", msg)
 	}
-	if nav.Index != newProjectViewIndex {
-		t.Errorf("nav index = %d, want %d (New Workspace wizard)", nav.Index, newProjectViewIndex)
+	if nav.Index != newWorkspaceViewIndex {
+		t.Errorf("nav index = %d, want %d (New Workspace wizard)", nav.Index, newWorkspaceViewIndex)
 	}
 }
 

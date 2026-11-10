@@ -30,15 +30,15 @@
 #   --container-id      persisted workspace container identity
 #
 # Beispiele:
-#   scripts/start.sh ~/workspaces/customer-x                            # Default (volle Netzanbindung)
-#   scripts/start.sh ~/workspaces/customer-x --use_proxy                 # Mit Egress-Allowlist
-#   scripts/start.sh ~/workspaces/customer-x --offline                   # Ohne Netzwerk
-#   scripts/start.sh ~/workspaces/customer-x --search_mode searxng       # SearXNG-Websuche
-#   scripts/start.sh ~/workspaces/customer-x --hil_mode                  # HIL-Tests
-#   scripts/start.sh ~/workspaces/customer-x --use_proxy --hil_mode      # Kombiniert
-#   scripts/start.sh ~/workspaces/customer-x --cbm_ui                    # Mit CBM Graph-UI
-#   scripts/start.sh ~/workspaces/customer-x --start_opencode            # Mit direktem OpenCode-Start
-#   scripts/start.sh ~/workspaces/customer-x --start_web --detach        # Als Webserver
+#   scripts/start.sh ~/workspaces/customer-x                            # default (full network)
+#   scripts/start.sh ~/workspaces/customer-x --use_proxy                  # with the egress allowlist
+#   scripts/start.sh ~/workspaces/customer-x --offline                    # no network
+#   scripts/start.sh ~/workspaces/customer-x --search_mode searxng        # SearXNG web search
+#   scripts/start.sh ~/workspaces/customer-x --hil_mode                   # HIL tests
+#   scripts/start.sh ~/workspaces/customer-x --use_proxy --hil_mode       # combined
+#   scripts/start.sh ~/workspaces/customer-x --cbm_ui                     # with the CBM graph UI
+#   scripts/start.sh ~/workspaces/customer-x --start_opencode             # with a direct OpenCode start
+#   scripts/start.sh ~/workspaces/customer-x --start_web --detach         # as a web server
 #
 set -euo pipefail
 
@@ -648,6 +648,6 @@ podman run --rm "${RUN_MODE[@]}" \
   "$IMAGE" "${CONTAINER_COMMAND[@]}"
 
 if $START_WEB && $DETACH; then
-  echo "OpenCode Web: http://127.0.0.1:${WEB_HOST_PORT}"
+  echo "OpenCode web: http://127.0.0.1:${WEB_HOST_PORT}"
   echo "Sign-in (one-time pair link): podman exec -it $CONTAINER_NAME opencode pair"
 fi
