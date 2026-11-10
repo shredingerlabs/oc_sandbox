@@ -77,6 +77,28 @@ func TestFrontendWorkspaceOpsWiring(t *testing.T) {
 	}
 }
 
+// The §12 crash path: a hard crash pushes no shutdown — the SSE error
+// handler starts a bounded reconnect watch that renders the same
+// server-stopped screen the shutdown push shows once exhausted, and a
+// successful open (reconnect) clears the watch.
+func TestFrontendServerStoppedCrashPath(t *testing.T) {
+	s := startTestServer(t)
+	js := body(t, get(t, s.URL()+"js/main.js"))
+	for _, want := range []string{
+		`addEventListener("error"`, // EventSource's reconnect-failure signal
+		`showServerStopped`,        // one screen for both causes (§12)
+		`setTimeout`,               // bounded reconnect watch
+		`clearTimeout`,             // a successful open clears the watch
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("main.js missing %q (§12 crash path)", want)
+		}
+	}
+	if strings.Count(js, "showServerStopped") < 2 {
+		t.Fatal("showServerStopped must be shared by the shutdown push and the crash path")
+	}
+}
+
 // The busy card carries the op id so the streamed line events land in
 // the right card's log — across re-renders too (GET re-renders the op
 // id from the queue), and confirms refuse while an op is
