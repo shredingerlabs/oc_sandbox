@@ -21,6 +21,16 @@ import (
 	"github.com/shredingerlabs/oc-sandbox/internal/sandboxcfg"
 )
 
+// mismatchSidecar is the start route's edition-mismatch verdict (#154):
+// the live container's image edition diverges from the saved one — the
+// card offers Use current / Switch to <saved>, the switch behind the
+// adopt confirm.
+type mismatchSidecar struct {
+	Mismatch       bool   `json:"mismatch"`
+	RunningEdition string `json:"running_edition"`
+	SavedEdition   string `json:"saved_edition"`
+}
+
 // opSidecar is the {ok, error} answer of the confirm-row verbs; op is
 // the queued op's id when one launched (the SSE line events key on it).
 type opSidecar struct {

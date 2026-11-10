@@ -34,6 +34,86 @@ func postSidecar(t *testing.T, url string, form string) map[string]any {
 	return v
 }
 
+// POST /workspaces/{name}/start with a variant (#154): the Open chain
+// runs the mismatch detection the TUI reconcile does (#115) — a live
+// container whose image edition diverges from the saved one answers a
+// {mismatch} sidecar instead of silently reusing, the registry flips
+// truthful ("running", verified live) and last_used bumps, and nothing
+// is started or stopped (the switch is the adopt confirm's move).
+func TestStartVariantDetectsEditionMismatch(t *testing.T) {
+	reg, roots := fixtureRegistry(t, "alpha")
+	root := roots["alpha"]
+	sandboxConfigFixture(t, root)
+	cname := "opencode-sandbox-" + registry.ContainerIdentity(root)
+	startCalls := &syncList{}
+	run := fakePodman([]string{cname}, nil,
+		[]string{containerState(cname, "running")}, nil, nil)
+	base := run.Script
+	run.Script = func(name string, args []string) (string, error) {
+		rest := ""
+		if name == "podman" {
+			rest = strings.Join(args, " ")
+		}
+		switch {
+		case name == "bash" && len(args) > 0 && args[0] == "/opt/oc-sandbox/scripts/start.sh":
+			startCalls.add("start")
+			return "started", nil
+		case name == "podman" && strings.HasPrefix(rest, "pod stop") || name == "podman" && strings.HasPrefix(rest, "stop "):
+			t.Fatal("mismatch detection must not stop anything")
+		case name == "podman" && strings.HasPrefix(rest, "ps --format {{.Names}}\t{{.Image}}"):
+			return cname + "\tlocalhost/opencode-sandbox-web:latest", nil // runs web, saved is swdev
+		}
+		return base(name, args)
+	}
+	s := depsServer(t, run, reg)
+
+	v := postSidecar(t, s.URL()+"workspaces/alpha/start", "variant=web")
+	if v["mismatch"] != true || v["running_edition"] != "web" || v["saved_edition"] != "swdev" {
+		t.Fatalf("start sidecar = %v, want the mismatch verdict", v)
+	}
+	waitFor(t, "registry truthfulness on mismatch", func() bool {
+		ws, err := reg.ByName("alpha")
+		return err == nil && ws.ContainerStatus == "running" && ws.LastUsed != ""
+	})
+	if len(startCalls.snapshot()) != 0 {
+		t.Fatalf("start.sh ran on a mismatched live container")
+	}
+}
+
+// Agreeing editions (or no variant — the Container-center route) keep
+// the reuse semantics: the variant POST answers ok and the queued reuse
+// op re-verifies the live container.
+func TestStartVariantAgreeingEditionsReuses(t *testing.T) {
+	reg, roots := fixtureRegistry(t, "alpha")
+	root := roots["alpha"]
+	sandboxConfigFixture(t, root)
+	cname := "opencode-sandbox-" + registry.ContainerIdentity(root)
+	run := fakePodman([]string{cname}, nil,
+		[]string{containerState(cname, "running")}, nil, nil)
+	base := run.Script
+	run.Script = func(name string, args []string) (string, error) {
+		rest := ""
+		if name == "podman" {
+			rest = strings.Join(args, " ")
+		}
+		if name == "podman" && strings.HasPrefix(rest, "ps --format {{.Names}}\t{{.Image}}") {
+			return cname + "\topencode-sandbox-swdev", nil // agrees with the saved edition
+		}
+		return base(name, args)
+	}
+	s := depsServer(t, run, reg)
+
+	v := postSidecar(t, s.URL()+"workspaces/alpha/start", "variant=web")
+	if v["ok"] != true {
+		t.Fatalf("start sidecar = %v, want ok:true on agreeing editions", v)
+	}
+	waitFor(t, "reuse op flips the registry", func() bool {
+		ws, err := reg.ByName("alpha")
+		return err == nil && ws.ContainerStatus == "running"
+	})
+	waitFor(t, "reuse op to drain", func() bool { return !s.Busy() })
+}
+
 // POST /workspaces/{name}/stop (#154): the existing graceful stop flow
 // through the op runner — a container running inside a pod stops as the
 // pod unit (pod stop, companions go down with it, #151's
