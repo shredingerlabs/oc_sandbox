@@ -80,6 +80,8 @@ func TestIndexShell(t *testing.T) {
 		`data-role="theme-toggle"`,  // dark/bright toggle slot
 		`data-role="update-banner"`, // footer banner slot
 		`data-role="screen"`,        // screen content slot (stub)
+		`data-role="confirm"`,       // shared confirm popup (ADR-0021 set)
+		`data-role="toasts"`,        // toast slot
 	} {
 		if !strings.Contains(doc, want) {
 			t.Fatalf("index shell missing %q", want)

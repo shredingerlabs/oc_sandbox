@@ -93,7 +93,7 @@ var updateCardTmpl = template.Must(template.New("updatecard").
 		`<section class="update-card" data-role="update-card">
   <h2>Update</h2>
   <div class="rows">
-    <div class="row">Installed version: {{.Installed}}</div>
+    <div class="row" data-role="update-installed">Installed version: {{.Installed}}</div>
     <div class="row" data-role="update-latest">{{latestRow .}}</div>
     <div class="row verdict" data-role="update-verdict" data-phase="{{.Phase}}">{{verdictRow .}}</div>
     <div class="row warn" data-role="update-error"{{if not .RunErr}} hidden{{end}}>{{if .RunErr}}Update failed: {{.RunErr}}{{end}}</div>
