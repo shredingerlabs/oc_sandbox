@@ -63,6 +63,55 @@ body { background:var(--bg); color:var(--ink);
 .screen { flex:1; overflow-y:auto; padding:24px; }
 .screen .stub { color:var(--ink2); font-size:13px; }
 
+/* #158 container/image screens: cards, rows, markers, actions */
+.card { background:var(--surface); border:1px solid var(--hairline);
+  border-radius:14px; padding:18px 20px; max-width:880px; }
+.card-head { display:flex; align-items:center; gap:14px; margin-bottom:12px; }
+.card-head h2 { margin:0; font-size:16px; font-weight:700; }
+.card-head button { margin-left:auto; }
+.rows { display:flex; flex-direction:column; gap:8px; }
+.row { display:flex; align-items:center; gap:14px;
+  background:var(--surface2); border:1px solid var(--hairline);
+  border-radius:10px; padding:9px 14px; }
+.row[data-busy] { opacity:.7; }
+.row-main { display:flex; align-items:center; gap:10px; min-width:0; flex:1; }
+.row-name { font-weight:700; }
+.row-name.muted { color:var(--ink2); font-weight:600; }
+.row-sub { color:var(--ink2); font-size:12px; font-family:ui-monospace, monospace; }
+.marker { font-size:12px; font-weight:600; white-space:nowrap; }
+.marker.st-running { color:var(--ok); }
+.marker.st-off { color:var(--ink2); }
+.marker.st-busy { color:var(--accent); }
+.actions { display:flex; gap:8px; margin-left:auto; }
+.actions button, .card-head button { border:1px solid var(--hairline); background:var(--surface);
+  color:var(--ink); font-weight:600; font-size:13px; padding:5px 12px;
+  border-radius:8px; cursor:pointer; }
+.actions button:hover:not(:disabled), .card-head button:hover { background:var(--surface2); }
+.actions button:disabled { opacity:.45; cursor:not-allowed; }
+.actions button[data-danger], .popup .btn-danger { color:var(--danger); border-color:var(--danger); }
+.empty { color:var(--ink2); font-size:13px; padding:8px 2px; }
+.toast { background:var(--danger); color:#fff; border-radius:8px;
+  padding:6px 12px; font-weight:600; font-size:13px; margin-bottom:12px; }
+.logpane { background:#0b1020; color:#cfe0ff; border-radius:10px;
+  font:12px/1.5 ui-monospace, monospace; padding:12px 14px; margin-top:14px;
+  max-height:280px; overflow-y:auto; white-space:pre-wrap; }
+.logpane:empty { display:none; }
+
+/* confirm popup (ADR-0021 set carried 1:1, §9) */
+.popup-overlay { position:fixed; inset:0; background:rgba(9,13,24,.55);
+  display:flex; align-items:center; justify-content:center; z-index:50; }
+.popup { background:var(--surface); border:1px solid var(--hairline);
+  border-radius:14px; padding:20px 22px; max-width:440px; box-shadow:0 18px 50px rgba(0,0,0,.35); }
+.popup.danger { border-color:var(--danger); }
+.popup-msg { font-weight:600; margin-bottom:16px; }
+.popup-actions { display:flex; gap:10px; justify-content:flex-end; }
+.popup-actions button { border-radius:8px; font-weight:600; font-size:13px;
+  padding:6px 14px; cursor:pointer; border:1px solid var(--hairline);
+  background:var(--surface); color:var(--ink); }
+.popup .btn-primary { background:var(--accent); color:var(--accent-ink); border-color:var(--accent); }
+.popup .btn-danger { background:var(--danger); color:#fff; }
+.popup .btn-muted { color:var(--ink2); }
+
 /* footer: always-present update banner slot + version */
 .footer { display:flex; align-items:center; gap:14px; padding:10px 24px;
   border-top:1px solid var(--hairline); background:var(--bg-side); min-height:44px; }

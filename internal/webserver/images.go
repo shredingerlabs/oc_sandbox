@@ -125,13 +125,13 @@ func (s *Server) renderImages(msg string, opID int) string {
 			if row.Size != "" {
 				b.WriteString(`<span class="row-sub">` + html.EscapeString(row.Size) + `</span>`)
 			}
+			if row.InUse {
+				b.WriteString(`<span class="marker st-running">● in use</span>`)
+			} else {
+				b.WriteString(`<span class="marker st-off">○ unused</span>`)
+			}
 		} else {
 			b.WriteString(`<span class="marker st-off">○ missing</span>`)
-		}
-		if row.InUse {
-			b.WriteString(`<span class="marker st-running">● in use</span>`)
-		} else if row.Built {
-			b.WriteString(`<span class="marker st-off">○ unused</span>`)
 		}
 		if row.Busy {
 			b.WriteString(busyMarker())
@@ -182,8 +182,10 @@ func (s *Server) handleImagesBuild(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleImagesDelete serves POST /images/delete {tag=…} — the danger
-// confirm's action; in-use images are refused with the
-// remove-containers-first hint.
+// confirm's action. In-use images are refused from the fresh container
+// refs with the remove-containers-first hint (TUI parity: podman rmi
+// never deletes a referenced image; the op re-checks), a busy key
+// refuses the confirm; otherwise the delete op launches.
 func (s *Server) handleImagesDelete(w http.ResponseWriter, r *http.Request) {
 	tag := strings.TrimSpace(r.FormValue("tag"))
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -193,6 +195,10 @@ func (s *Server) handleImagesDelete(w http.ResponseWriter, r *http.Request) {
 	}
 	if s.queue.BusyKey(imagesKey) {
 		_, _ = w.Write([]byte(s.renderImages("an image operation is already queued or running", 0)))
+		return
+	}
+	if discovery.ImageInUse(s.imageRefs(), tag) {
+		_, _ = w.Write([]byte(s.renderImages(errInUseHint(tag).Error(), 0)))
 		return
 	}
 	s.queue.Launch(imagesKey, s.deleteImageOp(tag))

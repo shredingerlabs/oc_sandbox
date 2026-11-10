@@ -61,7 +61,7 @@ func fakePodman(running []string, pods []string, containers []string, images []s
 		case strings.HasPrefix(rest, "image exists"):
 			tag := args[len(args)-1]
 			for _, img := range images {
-				if img == tag {
+				if strings.SplitN(img, "\t", 2)[0] == tag {
 					return "", nil
 				}
 			}
@@ -590,5 +590,119 @@ func TestDeletePodAsUnit(t *testing.T) {
 		if len(c.Args) > 0 && c.Args[0] == "rm" {
 			t.Fatalf("bare podman rm ran for a pod unit: %v", c.Args)
 		}
+	}
+}
+
+// Conflict semantics (#158, spec §9): ops queue per workspace key —
+// one-at-a-time per workspace, parallel across workspaces, no refusal
+// path. The second start of the same workspace queues behind the
+// running one; another workspace's start runs in parallel.
+func TestQueueConflictSemantics(t *testing.T) {
+	reg, roots := fixtureRegistry(t, "alpha", "beta")
+	for _, root := range roots {
+		sandboxConfigFixture(t, root)
+	}
+	release := map[string]chan struct{}{"alpha": make(chan struct{}), "beta": make(chan struct{})}
+	var mu sync.Mutex
+	running := map[string]int{"alpha": 0, "beta": 0}          // concurrent start.sh invocations per workspace
+	total := map[string]int{"alpha": 0, "beta": 0}            // total invocations
+	maxSeen := map[string]int{"alpha": 0, "beta": 0}          // peak concurrency
+	run := fakePodman(nil, nil, nil, []string{"opencode-sandbox-swdev"}, nil)
+	base := run.Script
+	run.Script = func(name string, args []string) (string, error) {
+		if name == "bash" && len(args) > 0 && args[0] == "/opt/oc-sandbox/scripts/start.sh" {
+			ws := "alpha"
+			if strings.Contains(args[1], "/beta") {
+				ws = "beta"
+			}
+			mu.Lock()
+			running[ws]++
+			total[ws]++
+			if running[ws] > maxSeen[ws] {
+				maxSeen[ws] = running[ws]
+			}
+			mu.Unlock()
+			<-release[ws]
+			mu.Lock()
+			running[ws]--
+			mu.Unlock()
+			return "started", nil
+		}
+		return base(name, args)
+	}
+	s := depsServer(t, run, reg)
+
+	// both workspaces start at once — parallel across keys, no refusal
+	for _, ws := range []string{"alpha", "beta"} {
+		resp := post(t, s.URL()+"workspaces/"+ws+"/start", "")
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("%s: status = %d, want 200", ws, resp.StatusCode)
+		}
+	}
+	// a second alpha start queues (200, no refusal) behind the running one
+	resp := post(t, s.URL()+"workspaces/alpha/start", "")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("queued start: status = %d, want 200 (no 409-refusal path)", resp.StatusCode)
+	}
+	mu.Lock()
+	both := running["alpha"] == 1 && running["beta"] == 1
+	mu.Unlock()
+	if !both {
+		t.Fatalf("expected one running start per workspace in parallel")
+	}
+	close(release["beta"])
+	close(release["alpha"])
+	waitFor(t, "both queued ops to drain", func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		// one-at-a-time per workspace (peak concurrency 1), the queued
+		// alpha start ran after the first (total 2), beta ran once —
+		// and while blocked, alpha+beta ran in parallel.
+		return total["alpha"] == 2 && total["beta"] == 1 &&
+			maxSeen["alpha"] == 1 && maxSeen["beta"] == 1
+	})
+}
+
+// Confirms refuse while an op is queued or running for the same unit
+// (spec §9): a stop POST against a workspace with an op in flight
+// carries the busy toast instead of launching.
+func TestContainerStopRefusesConfirmWhileBusy(t *testing.T) {
+	reg, roots := fixtureRegistry(t, "alpha")
+	sandboxConfigFixture(t, roots["alpha"])
+	cname := "opencode-sandbox-" + registry.ContainerIdentity(roots["alpha"])
+	release := make(chan struct{})
+	stopCalls := 0
+	var mu sync.Mutex
+	run := fakePodman(nil, nil, nil, []string{"opencode-sandbox-swdev"}, nil)
+	base := run.Script
+	run.Script = func(name string, args []string) (string, error) {
+		rest := ""
+		if name == "podman" {
+			rest = strings.Join(args, " ")
+		}
+		switch {
+		case name == "bash" && len(args) > 0 && args[0] == "/opt/oc-sandbox/scripts/start.sh":
+			<-release
+			return "started", nil
+		case name == "podman" && strings.HasPrefix(rest, "stop "):
+			mu.Lock()
+			stopCalls++
+			mu.Unlock()
+			return "stopped", nil
+		}
+		return base(name, args)
+	}
+	s := depsServer(t, run, reg)
+
+	post(t, s.URL()+"workspaces/alpha/start", "")
+	doc := body(t, post(t, s.URL()+"containers/"+cname+"/stop", ""))
+	if !strings.Contains(doc, "already queued or running") {
+		t.Fatalf("stop confirm not refused while busy:\n%s", doc)
+	}
+	close(release)
+	mu.Lock()
+	defer mu.Unlock()
+	if stopCalls != 0 {
+		t.Fatalf("stop ran while the workspace was busy")
 	}
 }

@@ -129,6 +129,13 @@ func TestAuthGrammar(t *testing.T) {
 		"img/editions/swdev.svg",
 		"events",
 		"workspaces",
+		"containers",                     // #158 container center
+		"containers/opencode-sandbox-x/stop",
+		"containers/opencode-sandbox-x/delete",
+		"workspaces/x/start",
+		"images",        // #158 image screen
+		"images/build",  // #158
+		"images/delete", // #158
 	}
 	for _, c := range []struct{ name, prefix string }{
 		{"missing token", base},

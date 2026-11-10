@@ -10,6 +10,7 @@ import (
 	"github.com/shredingerlabs/oc-sandbox/internal/app"
 	"github.com/shredingerlabs/oc-sandbox/internal/cmdrun"
 	"github.com/shredingerlabs/oc-sandbox/internal/migration"
+	"github.com/shredingerlabs/oc-sandbox/internal/registry"
 	"github.com/shredingerlabs/oc-sandbox/internal/shell"
 	"github.com/shredingerlabs/oc-sandbox/internal/smoke"
 	"github.com/shredingerlabs/oc-sandbox/internal/webserver"
@@ -74,8 +75,8 @@ func runTUI() {
 		os.Exit(1)
 	}
 	a := app.Compose(home, Version, cmdrun.ExecRunner{}, nil)
-	a.Model.AddInitCmd(a.StartupCheck) // silent background update check
-	ui := startWebserver(Version)      // webserver runs launch→quit (spec §4); #151 owns the launcher face
+	a.Model.AddInitCmd(a.StartupCheck)  // silent background update check
+	ui := startWebserver(Version, home) // webserver runs launch→quit (spec §4); #151 owns the launcher face
 	if ui != nil {
 		defer ui.Close()
 	}
@@ -93,12 +94,24 @@ func runTUI() {
 	}
 }
 
-// startWebserver starts the embedded WebUI (spec §3/#150) and prints
-// the full tokenized URL as the status line the launcher face (#151)
-// will take over. A failed start never kills the TUI — it prints a
-// warning and returns nil.
-func startWebserver(version string) *webserver.Server {
-	ui := webserver.New(webserver.Options{Version: version})
+// startWebserver starts the embedded WebUI (spec §3/#150) with the
+// container/image screens wired onto the install layout and the
+// workspace registry (#158), and prints the full tokenized URL as the
+// status line the launcher face (#151) will take over. A failed start
+// never kills the TUI — it prints a warning and returns nil.
+func startWebserver(version, home string) *webserver.Server {
+	layout := app.LayoutFor(home)
+	ui := webserver.New(webserver.Options{
+		Version: version,
+		Deps: &webserver.Deps{
+			Run:              cmdrun.ExecRunner{},
+			Registry:         &registry.Registry{Home: home},
+			BuildScript:      layout.BuildScript,
+			StartScript:      layout.StartScript,
+			Dockerfile:       layout.Dockerfile,
+			DockerfileCustom: layout.DockerfileCustom,
+		},
+	})
 	if err := ui.Start(); err != nil {
 		fmt.Fprintf(os.Stderr, "oc-sandbox: WebUI could not start: %v (the TUI keeps running)\n", err)
 		return nil
