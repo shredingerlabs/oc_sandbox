@@ -49,22 +49,25 @@ func (s *Server) handleStart(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	s.queue.Enqueue(ws.ContainerID, func(emit func(string)) error {
+	id := s.queue.Enqueue(ws.ContainerID, func(emit func(string)) error {
 		return s.runStart(ws, emit)
 	})
-	s.renderCard(w, ws.Name)
+	s.renderCard(w, ws.Name, id)
 }
 
 // renderCard re-renders one workspace's card fragment (the POST swap
-// target of the card actions).
-func (s *Server) renderCard(w http.ResponseWriter, name string) {
+// target of the card actions); opID rides the fragment so streamed line
+// events can find the busy card's log.
+func (s *Server) renderCard(w http.ResponseWriter, name string, opID int) {
 	ws, err := s.lookupWorkspace(name)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	card := s.cardFor(ws, s.displayMode())
+	card.OpID = opID
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := wsTemplate.ExecuteTemplate(w, "card", s.cardFor(ws, s.displayMode())); err != nil {
+	if err := wsTemplate.ExecuteTemplate(w, "card", card); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
 }

@@ -53,6 +53,7 @@ func editionFor(name string) editionMeta {
 // cardView is the template data of one workspace card.
 type cardView struct {
 	Name        string
+	OpID        int    // op id of the in-flight op (start response) — line events match it
 	Icon        string // edition glyph file (base.svg fallback)
 	Hue         string // CSS --ed value, "" → accent default
 	Edition     string // edition label chip
@@ -82,7 +83,7 @@ const wsEmptyText = "No workspaces registered"
 
 var wsTemplate = template.Must(template.New("ws").Parse(`
 {{define "card"}}
-<article class="card" data-ws="{{.Name}}"{{if .Hue}} style="--ed:{{.Hue}}"{{end}}>
+<article class="card" data-ws="{{.Name}}"{{if .Hue}} style="--ed:{{.Hue}}"{{end}}{{if .OpID}} data-op-id="{{.OpID}}"{{end}}>
   <div class="toprow">
     <div class="tile"><img src="img/editions/{{.Icon}}.svg" alt="" draggable="false"></div>
     <div class="body">
@@ -124,8 +125,9 @@ var wsTemplate = template.Must(template.New("ws").Parse(`
 <div class="ws-screen" id="ws-screen" data-count="{{.Count}}">
   <div class="pagehead">
     <h2>Registered workspaces</h2>
-    <input class="ws-search" data-role="ws-search" type="search" placeholder="Search workspaces"
-           value="{{.Query}}" autocomplete="off">
+    <input class="ws-search" data-role="ws-search" type="search" name="q" placeholder="Search workspaces"
+           value="{{.Query}}" autocomplete="off"
+           hx-get="workspaces" hx-trigger="input changed delay:300ms, search" hx-target="#ws-screen" hx-swap="outerHTML">
   </div>
   {{if .Error}}<p class="form-error" role="alert">{{.Error}}</p>{{end}}
   {{if .Empty}}
