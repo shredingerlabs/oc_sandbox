@@ -49,7 +49,7 @@ func seedRegistry(t *testing.T, home string, entries ...struct{ name, lastUsed, 
             "container_status": %q,
             "git_tracking": "none",
             "repo_url": ""
-        }`, e.name, root, registry.ContainerID(root), e.lastUsed, e.status)
+        }`, e.name, root, registry.ContainerIdentity(root), e.lastUsed, e.status)
 	}
 	body := fmt.Sprintf(`{
     "workspaces": [

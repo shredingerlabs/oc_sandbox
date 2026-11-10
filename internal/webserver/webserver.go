@@ -135,6 +135,7 @@ func (s *Server) Start() error {
 	inner.HandleFunc("GET /settings", s.handleSettingsGet)
 	inner.HandleFunc("POST /settings", s.handleSettingsPost)
 	inner.HandleFunc("GET /workspaces", s.handleWorkspacesGET)
+	inner.HandleFunc("POST /workspaces/{name}/start", s.handleStart)
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", s.handleHealthz)
 	mux.Handle("/", s.auth(inner))
