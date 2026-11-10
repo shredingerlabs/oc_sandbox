@@ -168,3 +168,32 @@ func readAll(t *testing.T, resp *http.Response) string {
 	}
 	return buf.String()
 }
+
+// --- Slice 2: the selects are fed from the catalogs ------------------------
+
+// The VCS and AI-provider selects list the catalog entries (§8); an
+// empty catalog never dead-ends first-run: "none" stays the default and
+// the inline "New…" affordance is always offered.
+func TestNewWorkspaceSelectsFeedFromCatalogs(t *testing.T) {
+	f := newCreateFixture(t, imageExistsScript(true))
+
+	resp, _ := http.Get(f.s.URL() + "workspaces/new")
+	empty := readAll(t, resp)
+	resp.Body.Close()
+	if !strings.Contains(empty, `<option value="none" selected>none</option>`) {
+		t.Error("empty catalog: selects must default to none")
+	}
+	if !strings.Contains(empty, `<option value="new">New…</option>`) {
+		t.Error("empty catalog: inline New… missing — first-run would dead-end")
+	}
+
+	f.seedCatalog(t)
+	resp2, _ := http.Get(f.s.URL() + "workspaces/new")
+	fed := readAll(t, resp2)
+	resp2.Body.Close()
+	for _, want := range []string{`value="GitHub Work"`, `>GitHub Work</option>`, `value="ACME AI"`, `>ACME AI</option>`} {
+		if !strings.Contains(fed, want) {
+			t.Errorf("seeded catalog: fragment misses %q", want)
+		}
+	}
+}
