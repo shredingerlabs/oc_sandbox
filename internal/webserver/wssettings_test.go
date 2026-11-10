@@ -9,7 +9,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/shredingerlabs/oc-sandbox/internal/catalogs"
 	"github.com/shredingerlabs/oc-sandbox/internal/cmdrun"
+	"github.com/shredingerlabs/oc-sandbox/internal/providerid"
 	"github.com/shredingerlabs/oc-sandbox/internal/registry"
 	"github.com/shredingerlabs/oc-sandbox/internal/sandboxcfg"
 )
@@ -549,4 +551,310 @@ func waitForNoOp(t *testing.T, fx createFixture) {
 		time.Sleep(5 * time.Millisecond)
 	}
 	t.Fatal("op never drained")
+}
+
+// --- POST /workspaces/{name}/providers (§9: add|edit|remove) -------------------
+
+// seedProviderEntry writes one stored provider entry: the opencode.json
+// v2 section plus its credential file (ADR 0025).
+func seedProviderEntry(t *testing.T, root, id, name, endpoint, token string) {
+	t.Helper()
+	dir := filepath.Join(root, ".opencode_config")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	doc := `{"providers": {"` + id + `": {"name": "` + name + `", "settings": {"baseURL": "` + endpoint + `"}}}}`
+	if err := os.WriteFile(filepath.Join(dir, "opencode.json"), []byte(doc), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if token != "" {
+		credDir := filepath.Join(root, ".opencode_data", "credentials")
+		if err := os.MkdirAll(credDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(credDir, id), []byte(token), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// The add flow writes the provider exactly as the TUI does — ai-provider
+// (token) + opencode-config (merge) — and the entry list renders from
+// the stored files once the op drained.
+func TestWsProvidersAddFresh(t *testing.T) {
+	var root string
+	fx := newCreateFixture(t, func(name string, args []string) (string, error) {
+		if name != "bash" || len(args) < 3 || root == "" {
+			return "", nil
+		}
+		switch args[1] {
+		case "ai-provider": // the credential file lands on disk
+			id, tok := "", ""
+			for i, a := range args {
+				if a == "--name" {
+					id = providerid.Slug(args[i+1])
+				}
+				if a == "--token" {
+					tok = args[i+1]
+				}
+			}
+			credDir := filepath.Join(root, ".opencode_data", "credentials")
+			if err := os.MkdirAll(credDir, 0o755); err != nil {
+				return "", err
+			}
+			if err := os.WriteFile(filepath.Join(credDir, id), []byte(tok), 0o644); err != nil {
+				return "", err
+			}
+		case "opencode-config": // the opencode.json section lands on disk
+			id, pName, endpoint := "", "", ""
+			for i, a := range args {
+				switch a {
+				case "--id":
+					id = args[i+1]
+				case "--name":
+					pName = args[i+1]
+				case "--endpoint":
+					endpoint = args[i+1]
+				}
+			}
+			seedProviderEntry(t, root, id, pName, endpoint, "")
+		}
+		return "provider configured\n", nil
+	})
+	root = seedWorkspace(t, fx.home, "alpha", "swdev", nil)
+
+	resp := postForm(t, fx.s.URL()+"workspaces/alpha/providers", map[string]string{
+		"action": "add", "name": "GWDG SAIA", "endpoint": "https://chat.gwdg.de/v1", "token": "tok123",
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d:\n%s", resp.StatusCode, body(t, resp))
+	}
+	waitForNoOp(t, fx)
+
+	var steps [][]string
+	for _, c := range fx.fake.Snapshot() {
+		if c.Name == "bash" && strings.HasSuffix(c.Args[0], "configure-workspace.sh") {
+			steps = append(steps, c.Args[1:])
+		}
+	}
+	if len(steps) != 2 ||
+		!slices.Equal(steps[0], []string{"ai-provider", root, "--name", "GWDG SAIA", "--endpoint", "https://chat.gwdg.de/v1", "--token", "tok123"}) ||
+		!slices.Equal(steps[1], []string{"opencode-config", root, "--id", "gwdg-saia", "--name", "GWDG SAIA", "--endpoint", "https://chat.gwdg.de/v1"}) {
+		t.Fatalf("provider add vectors wrong:\n%v", steps)
+	}
+
+	doc := body(t, get(t, fx.s.URL()+"workspaces/alpha/settings"))
+	if !strings.Contains(doc, `data-entry="gwdg-saia"`) {
+		t.Fatalf("entry list must render from the stored files:\n%s", doc)
+	}
+}
+
+// A token-optional edit: saving an entry without a typed token merges
+// the endpoint/name only — the stored credential stays untouched.
+func TestWsProvidersEditTokenOptional(t *testing.T) {
+	fx := newCreateFixture(t, func(name string, args []string) (string, error) {
+		return "provider configured\n", nil
+	})
+	root := seedWorkspace(t, fx.home, "alpha", "swdev", nil)
+	seedProviderEntry(t, root, "gwdg-saia", "GWDG", "https://old/v1", "storedtok")
+
+	resp := postForm(t, fx.s.URL()+"workspaces/alpha/providers", map[string]string{
+		"action": "edit", "orig": "gwdg-saia", "name": "GWDG SAIA", "endpoint": "https://new/v1", "token": "",
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d:\n%s", resp.StatusCode, body(t, resp))
+	}
+	waitForNoOp(t, fx)
+	var steps [][]string
+	for _, c := range fx.fake.Snapshot() {
+		if c.Name == "bash" && strings.HasSuffix(c.Args[0], "configure-workspace.sh") {
+			steps = append(steps, c.Args[1:])
+		}
+	}
+	if len(steps) != 1 ||
+		!slices.Equal(steps[0], []string{"opencode-config", root, "--id", "gwdg-saia", "--name", "GWDG SAIA", "--endpoint", "https://new/v1"}) {
+		t.Fatalf("token-optional edit must merge only:\n%v", steps)
+	}
+}
+
+// The replace-credentials confirm gates an overwrite (§9): adding with a
+// token when a credential exists renders the Keep/Replace round-trip and
+// runs nothing; Keep merges the section only; Replace writes with
+// --replace.
+func TestWsProvidersReplaceConfirm(t *testing.T) {
+	fx := newCreateFixture(t, func(name string, args []string) (string, error) {
+		return "provider configured\n", nil
+	})
+	root := seedWorkspace(t, fx.home, "alpha", "swdev", nil)
+	seedProviderEntry(t, root, "gwdg-saia", "GWDG", "https://old/v1", "storedtok")
+
+	form := map[string]string{
+		"action": "add", "name": "GWDG SAIA", "endpoint": "https://new/v1", "token": "tok123",
+	}
+	resp := postForm(t, fx.s.URL()+"workspaces/alpha/providers", form)
+	doc := body(t, resp)
+	for _, want := range []string{
+		`data-role="provider-confirm"`,
+		`value="keep">Keep existing<`, `value="replace">Replace<`,
+	} {
+		if !strings.Contains(doc, want) {
+			t.Fatalf("confirm block missing %q:\n%s", want, doc)
+		}
+	}
+	waitForNoOp(t, fx)
+	for _, c := range fx.fake.Snapshot() {
+		if c.Name == "bash" {
+			t.Fatalf("confirm must gate the write: %v", c.Args)
+		}
+	}
+
+	// Keep existing: merge only, the stored token stays.
+	form["decision"] = "keep"
+	resp = postForm(t, fx.s.URL()+"workspaces/alpha/providers", form)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("keep: status = %d", resp.StatusCode)
+	}
+	waitForNoOp(t, fx)
+	var mergeOnly bool
+	for _, c := range fx.fake.Snapshot() {
+		if c.Name == "bash" && strings.HasSuffix(c.Args[0], "configure-workspace.sh") {
+			mergeOnly = slices.Equal(c.Args[1:], []string{"opencode-config", root, "--id", "gwdg-saia", "--name", "GWDG SAIA", "--endpoint", "https://new/v1"})
+		}
+	}
+	if !mergeOnly {
+		t.Fatalf("keep must merge the section only:\n%v", fx.fake.Snapshot())
+	}
+
+	// Replace: the confirm-gated overwrite writes with --replace.
+	form["decision"] = "replace"
+	resp = postForm(t, fx.s.URL()+"workspaces/alpha/providers", form)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("replace: status = %d", resp.StatusCode)
+	}
+	waitForNoOp(t, fx)
+	var replaced bool
+	for _, c := range fx.fake.Snapshot() {
+		if c.Name == "bash" && strings.HasSuffix(c.Args[0], "configure-workspace.sh") &&
+			slices.Equal(c.Args[1:], []string{"ai-provider", root, "--name", "GWDG SAIA", "--endpoint", "https://new/v1", "--token", "tok123", "--replace"}) {
+			replaced = true
+		}
+	}
+	if !replaced {
+		t.Fatalf("replace must write with --replace:\n%v", fx.fake.Snapshot())
+	}
+}
+
+// Adding without a token and without an existing credential refuses —
+// the TUI's empty-token rule carried 1:1.
+func TestWsProvidersAddTokenRequired(t *testing.T) {
+	fx := newCreateFixture(t, nil)
+	seedWorkspace(t, fx.home, "alpha", "swdev", nil)
+	resp := postForm(t, fx.s.URL()+"workspaces/alpha/providers", map[string]string{
+		"action": "add", "name": "Solo", "endpoint": "https://x/v1", "token": "",
+	})
+	if doc := body(t, resp); !strings.Contains(doc, "Token required") {
+		t.Fatalf("token-required refusal missing:\n%s", doc)
+	}
+	waitForNoOp(t, fx)
+	if n := len(fx.fake.Snapshot()); n != 0 {
+		t.Fatalf("refused add must not run scripts: %d calls", n)
+	}
+}
+
+// A rename moves the provider id: the new values are written first, then
+// the old section is removed — a failure never leaves a half-renamed
+// config half-eaten. The emptied token is read back from the stored
+// credential (TUI #111 parity).
+func TestWsProvidersRename(t *testing.T) {
+	fx := newCreateFixture(t, func(name string, args []string) (string, error) {
+		return "provider configured\n", nil
+	})
+	root := seedWorkspace(t, fx.home, "alpha", "swdev", nil)
+	seedProviderEntry(t, root, "gwdg-saia", "GWDG", "https://old/v1", "storedtok")
+
+	resp := postForm(t, fx.s.URL()+"workspaces/alpha/providers", map[string]string{
+		"action": "edit", "orig": "gwdg-saia", "name": "Acme", "endpoint": "https://acme/v1", "token": "",
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d:\n%s", resp.StatusCode, body(t, resp))
+	}
+	waitForNoOp(t, fx)
+	var steps [][]string
+	for _, c := range fx.fake.Snapshot() {
+		if c.Name == "bash" && strings.HasSuffix(c.Args[0], "configure-workspace.sh") {
+			steps = append(steps, c.Args[1:])
+		}
+	}
+	want := [][]string{
+		{"ai-provider", root, "--name", "Acme", "--endpoint", "https://acme/v1", "--token", "storedtok"},
+		{"opencode-config", root, "--id", "acme", "--name", "Acme", "--endpoint", "https://acme/v1"},
+		{"ai-provider-remove", root, "--id", "gwdg-saia"},
+	}
+	if len(steps) != len(want) {
+		t.Fatalf("rename steps = %v, want %v", steps, want)
+	}
+	for i := range want {
+		if !slices.Equal(steps[i], want[i]) {
+			t.Fatalf("rename step %d = %v, want %v", i, steps[i], want[i])
+		}
+	}
+}
+
+// Remove deletes one entry behind its confirm popup — the ai-provider-remove
+// vector; the last entry simply leaves the workspace with no providers.
+func TestWsProvidersRemove(t *testing.T) {
+	fx := newCreateFixture(t, func(name string, args []string) (string, error) {
+		return "removed\n", nil
+	})
+	root := seedWorkspace(t, fx.home, "alpha", "swdev", nil)
+	seedProviderEntry(t, root, "gwdg-saia", "GWDG", "https://old/v1", "storedtok")
+
+	doc := body(t, get(t, fx.s.URL()+"workspaces/alpha/settings"))
+	if !strings.Contains(doc, `data-confirm-title="Remove provider gwdg-saia?"`) {
+		t.Fatalf("remove must carry its confirm popup:\n%s", doc)
+	}
+
+	resp := postForm(t, fx.s.URL()+"workspaces/alpha/providers", map[string]string{
+		"action": "remove", "orig": "gwdg-saia",
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d", resp.StatusCode)
+	}
+	waitForNoOp(t, fx)
+	var ran bool
+	for _, c := range fx.fake.Snapshot() {
+		if c.Name == "bash" && strings.HasSuffix(c.Args[0], "configure-workspace.sh") &&
+			slices.Equal(c.Args[1:], []string{"ai-provider-remove", root, "--id", "gwdg-saia"}) {
+			ran = true
+		}
+	}
+	if !ran {
+		t.Fatalf("remove vector wrong:\n%v", fx.fake.Snapshot())
+	}
+	// The fake mirrors the script's outcome: entry + credential deleted.
+	_ = os.Remove(filepath.Join(root, ".opencode_config", "opencode.json"))
+	_ = os.Remove(filepath.Join(root, ".opencode_data", "credentials", "gwdg-saia"))
+	doc = body(t, get(t, fx.s.URL()+"workspaces/alpha/settings"))
+	if !strings.Contains(doc, "no entries — add a provider below") {
+		t.Fatalf("the list must be empty after removal:\n%s", doc)
+	}
+}
+
+// Catalog prefill: the AI-Provider select feeds from the global catalog
+// (the prefill source, §8) — free-form add stays possible.
+func TestWsProvidersCatalogPrefill(t *testing.T) {
+	fx := newCreateFixture(t, nil)
+	seedWorkspace(t, fx.home, "alpha", "swdev", nil)
+	d := catalogs.Read(fx.home)
+	if err := d.AddProvider(catalogs.Provider{Name: "GWDG SAIA", Endpoint: "https://chat.gwdg.de/v1"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := catalogs.WriteFile(fx.home, d); err != nil {
+		t.Fatal(err)
+	}
+
+	doc := body(t, get(t, fx.s.URL()+"workspaces/alpha/settings"))
+	if !strings.Contains(doc, `data-endpoint="https://chat.gwdg.de/v1"`) {
+		t.Fatalf("provider catalog prefill missing:\n%s", doc)
+	}
 }

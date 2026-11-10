@@ -28,6 +28,7 @@ import (
 	"github.com/shredingerlabs/oc-sandbox/internal/catalogs"
 	"github.com/shredingerlabs/oc-sandbox/internal/cmdrun"
 	"github.com/shredingerlabs/oc-sandbox/internal/discovery"
+	"github.com/shredingerlabs/oc-sandbox/internal/providerid"
 	"github.com/shredingerlabs/oc-sandbox/internal/registry"
 	"github.com/shredingerlabs/oc-sandbox/internal/sandboxcfg"
 	"github.com/shredingerlabs/oc-sandbox/internal/workspacesettings"
@@ -348,7 +349,7 @@ var wsSettingsTemplate = template.Must(template.New("wssettings").
 // screen fragment with that workspace preselected (the card settings
 // icon's jump, §7).
 func (s *Server) handleWsSettingsGET(w http.ResponseWriter, r *http.Request) {
-	if !s.renderWsSettingsScreen(w, r.PathValue("name"), "") {
+	if !s.renderWsSettingsScreen(w, r.PathValue("name"), "", nil) {
 		http.NotFound(w, r)
 	}
 }
@@ -372,7 +373,7 @@ func (s *Server) handleWsSettingsPost(w http.ResponseWriter, r *http.Request) {
 	}
 	key := registry.ContainerName(ws.ContainerID)
 	if s.queue.BusyKey(key) {
-		s.renderWsSettingsScreen(w, name, "an operation is queued or running for "+name+" — wait for it to finish")
+		s.renderWsSettingsScreen(w, name, "an operation is queued or running for "+name+" — wait for it to finish", nil)
 		return
 	}
 	if err := r.ParseForm(); err != nil {
@@ -381,7 +382,7 @@ func (s *Server) handleWsSettingsPost(w http.ResponseWriter, r *http.Request) {
 	}
 	cfg, err := readSandboxCfg(ws.Path)
 	if err != nil {
-		s.renderWsSettingsScreen(w, name, "sandbox_config.json unreadable — "+err.Error())
+		s.renderWsSettingsScreen(w, name, "sandbox_config.json unreadable — "+err.Error(), nil)
 		return
 	}
 
@@ -403,28 +404,28 @@ func (s *Server) handleWsSettingsPost(w http.ResponseWriter, r *http.Request) {
 		}
 		eds, err := discovery.SelectableEditions(dockerfile, dockerfileCustom)
 		if err != nil || !slices.Contains(eds, v) {
-			s.renderWsSettingsScreen(w, name, "unknown edition — choose a listed one")
+			s.renderWsSettingsScreen(w, name, "unknown edition — choose a listed one", nil)
 			return
 		}
 		merged.Edition = v
 	}
 	if v := r.PostFormValue("start_option"); v != "" {
 		if v != "console" && v != "opencode" && v != "web" {
-			s.renderWsSettingsScreen(w, name, "invalid start option — console, OpenCode TUI or web")
+			s.renderWsSettingsScreen(w, name, "invalid start option — console, OpenCode TUI or web", nil)
 			return
 		}
 		merged.StartOption = v
 	}
 	if v := r.PostFormValue("proxy"); v != "" {
 		if v != "no" && v != "yes" {
-			s.renderWsSettingsScreen(w, name, "invalid proxy value")
+			s.renderWsSettingsScreen(w, name, "invalid proxy value", nil)
 			return
 		}
 		merged.UseProxy = v == "yes"
 	}
 	if v := r.PostFormValue("search_mode"); v != "" {
 		if !sandboxcfg.ValidSearchMode(v) {
-			s.renderWsSettingsScreen(w, name, "invalid search mode")
+			s.renderWsSettingsScreen(w, name, "invalid search mode", nil)
 			return
 		}
 		merged.SearchMode = v
@@ -449,20 +450,20 @@ func (s *Server) handleWsSettingsPost(w http.ResponseWriter, r *http.Request) {
 	// Combination rules (ADR-0026, validateStartCfg parity): the refusals
 	// start.sh hard-exits on never reach the stored file.
 	if offline && cbm {
-		s.renderWsSettingsScreen(w, name, "offline and cbm_ui are mutually exclusive — fix settings first")
+		s.renderWsSettingsScreen(w, name, "offline and cbm_ui are mutually exclusive — fix settings first", nil)
 		return
 	}
 	if merged.SearchMode == sandboxcfg.SearchSearxng && (merged.UseProxy || offline) {
-		s.renderWsSettingsScreen(w, name, "SearXNG needs network — it excludes the proxy and offline mode")
+		s.renderWsSettingsScreen(w, name, "SearXNG needs network — it excludes the proxy and offline mode", nil)
 		return
 	}
 	if err := sandboxcfg.Rewrite(s.opts.Home, sandboxcfg.Path(ws.Path), merged); err != nil {
-		s.renderWsSettingsScreen(w, name, "sandbox_config.json could not be written: "+err.Error())
+		s.renderWsSettingsScreen(w, name, "sandbox_config.json could not be written: "+err.Error(), nil)
 		return
 	}
 	// Cards carry the config chips — re-render them reactively (§9).
 	s.hub.PublishWorkspace()
-	s.renderWsSettingsScreen(w, name, "")
+	s.renderWsSettingsScreen(w, name, "", nil)
 }
 
 // vcsHostRe mirrors configure-workspace.sh validate_vcs_host: a bare
@@ -489,7 +490,7 @@ func (s *Server) handleWsVCSCredentialsPost(w http.ResponseWriter, r *http.Reque
 	root := ws.Path
 	key := registry.ContainerName(ws.ContainerID)
 	if s.queue.BusyKey(key) {
-		s.renderWsSettingsScreen(w, name, "an operation is queued or running for "+name+" — wait for it to finish")
+		s.renderWsSettingsScreen(w, name, "an operation is queued or running for "+name+" — wait for it to finish", nil)
 		return
 	}
 	if err := r.ParseForm(); err != nil {
@@ -501,16 +502,16 @@ func (s *Server) handleWsVCSCredentialsPost(w http.ResponseWriter, r *http.Reque
 	token := strings.TrimSpace(r.PostFormValue("token"))
 	replace := r.PostFormValue("replace")
 	if kind != "none" && !slices.Contains(catalogs.TrackerKinds, kind) {
-		s.renderWsSettingsScreen(w, name, "unknown tracker kind")
+		s.renderWsSettingsScreen(w, name, "unknown tracker kind", nil)
 		return
 	}
 	if kind == catalogs.KindGitLabSel || kind == catalogs.KindOther {
 		if host == "" {
-			s.renderWsSettingsScreen(w, name, "Host required for "+trackerLabel(kind)+".")
+			s.renderWsSettingsScreen(w, name, "Host required for "+trackerLabel(kind)+".", nil)
 			return
 		}
 		if !vcsHostRe.MatchString(host) {
-			s.renderWsSettingsScreen(w, name, "Invalid host — use a bare hostname (e.g. git.example.com).")
+			s.renderWsSettingsScreen(w, name, "Invalid host — use a bare hostname (e.g. git.example.com).", nil)
 			return
 		}
 	}
@@ -524,11 +525,11 @@ func (s *Server) handleWsVCSCredentialsPost(w http.ResponseWriter, r *http.Reque
 	// parity — a fresh entry has nothing to keep).
 	writeCreds := token != "" && kind != "none" && (!hasCreds || replace == "1")
 	if kind != "none" && token == "" && !hasCreds {
-		s.renderWsSettingsScreen(w, name, "Token required for "+label+".")
+		s.renderWsSettingsScreen(w, name, "Token required for "+label+".", nil)
 		return
 	}
 	if kind != "none" && replace == "1" && token == "" {
-		s.renderWsSettingsScreen(w, name, "Token required to replace the credentials.")
+		s.renderWsSettingsScreen(w, name, "Token required to replace the credentials.", nil)
 		return
 	}
 
@@ -540,7 +541,7 @@ func (s *Server) handleWsVCSCredentialsPost(w http.ResponseWriter, r *http.Reque
 	}
 	if label != stored {
 		if err := sandboxcfg.PatchString(s.opts.Home, sandboxcfg.Path(root), "vcs_tracking", label); err != nil {
-			s.renderWsSettingsScreen(w, name, "vcs_tracking could not be written: "+err.Error())
+			s.renderWsSettingsScreen(w, name, "vcs_tracking could not be written: "+err.Error(), nil)
 			return
 		}
 	}
@@ -555,7 +556,7 @@ func (s *Server) handleWsVCSCredentialsPost(w http.ResponseWriter, r *http.Reque
 		})
 	}
 	s.hub.PublishWorkspace()
-	s.renderWsSettingsScreen(w, name, "")
+	s.renderWsSettingsScreen(w, name, "", nil)
 }
 
 // vcsCredScriptArgs renders the configure-workspace.sh vcs-credentials
@@ -583,6 +584,160 @@ func vcsCredScriptArgs(kind, token, host, root string, replace bool) []string {
 	return args
 }
 
+// handleWsProvidersPost serves POST /workspaces/{name}/providers (§9:
+// {add|edit|remove}) — the AI-Provider row's entry management, the TUI
+// pane's flows carried 1:1 onto the queue (workspacesettings parity):
+// add validates with creation semantics, refuses an empty token without
+// an existing credential, and opens the id-parameterized Keep/Replace
+// round-trip when a credential exists (§9 replace-credentials confirm);
+// edit is token-optional (empty token merges the section only), and a
+// rename moves the id — new values first, old section removed after, so
+// a failure never leaves a half-renamed config half-eaten; remove is a
+// plain delete behind its client popup (the last entry simply leaves
+// the workspace with no providers, ADR-0023). Every step runs
+// configure-workspace.sh exactly as the TUI invokes it (ADR-0007) as
+// one queued op, its lines streaming into the screen's log pane.
+func (s *Server) handleWsProvidersPost(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	ws, err := s.lookupWorkspace(name)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	root := ws.Path
+	key := registry.ContainerName(ws.ContainerID)
+	if s.queue.BusyKey(key) {
+		s.renderWsSettingsScreen(w, name, "an operation is queued or running for "+name+" — wait for it to finish", nil)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad form", http.StatusBadRequest)
+		return
+	}
+	action := r.PostFormValue("action")
+	decision := r.PostFormValue("decision")
+
+	pName := r.PostFormValue("name")
+	endpoint := strings.TrimSpace(r.PostFormValue("endpoint"))
+	token := strings.TrimSpace(r.PostFormValue("token"))
+
+	var steps [][]string
+	switch action {
+	case "add":
+		if msg := workspacesettings.ValidateProviderFields(pName, endpoint, token); msg != "" {
+			s.renderWsSettingsScreen(w, name, msg, nil)
+			return
+		}
+		id := providerid.Slug(pName)
+		merge := []string{"opencode-config", root, "--id", id, "--name", pName, "--endpoint", endpoint}
+		idExists := workspacesettings.HasCredential(root, id)
+		switch {
+		case token == "":
+			if !idExists {
+				s.renderWsSettingsScreen(w, name, "Token required — no existing credential entry for '"+id+
+					"' was found; type a token to configure this provider.", nil)
+				return
+			}
+			steps = [][]string{merge}
+		case idExists && decision == "":
+			// The confirm gates the overwrite before any write.
+			s.renderWsSettingsScreen(w, name, "", &provConfirmView{
+				ID: id, Action: "add", Name: pName, Endpoint: endpoint, Token: token,
+			})
+			return
+		case decision == "replace": // idExists — the confirm's OK
+			steps = [][]string{
+				{"ai-provider", root, "--name", pName, "--endpoint", endpoint, "--token", token, "--replace"},
+				merge,
+			}
+		default: // fresh credential, or keep existing
+			steps = [][]string{merge}
+			if !idExists {
+				steps = [][]string{
+					{"ai-provider", root, "--name", pName, "--endpoint", endpoint, "--token", token},
+					merge,
+				}
+			}
+		}
+	case "edit":
+		orig := r.PostFormValue("orig")
+		var found bool
+		for _, e := range workspacesettings.ReadProviderEntries(root) {
+			if e.ID == orig {
+				found = true
+				if e.Orphan {
+					s.renderWsSettingsScreen(w, name, "stored credential missing — reconfigure via the add form", nil)
+					return
+				}
+			}
+		}
+		if !found {
+			s.renderWsSettingsScreen(w, name, "unknown provider entry '"+orig+"'", nil)
+			return
+		}
+		if msg := workspacesettings.ValidateProviderFields(pName, endpoint, token); msg != "" {
+			s.renderWsSettingsScreen(w, name, msg, nil)
+			return
+		}
+		newID := providerid.Slug(pName)
+		rename := newID != orig
+		merge := []string{"opencode-config", root, "--id", newID, "--name", pName, "--endpoint", endpoint}
+		if token == "" && !rename {
+			steps = [][]string{merge} // token-optional: the credential stays
+			break
+		}
+		if token == "" && rename {
+			// Renaming must move the stored credential; the emptied
+			// token is read back from the credential file (#111).
+			token = workspacesettings.StoredTokens(root)[orig]
+			if token == "" {
+				s.renderWsSettingsScreen(w, name, "Token required — renaming moves the stored credential from '"+orig+
+					"'; type the token and save again.", nil)
+				return
+			}
+		}
+		idExists := workspacesettings.HasCredential(root, newID)
+		if idExists && decision == "" {
+			s.renderWsSettingsScreen(w, name, "", &provConfirmView{
+				ID: newID, Action: "edit", Orig: orig, Name: pName, Endpoint: endpoint, Token: token,
+			})
+			return
+		}
+		steps = [][]string{{"ai-provider", root, "--name", pName, "--endpoint", endpoint, "--token", token}}
+		if decision == "replace" && idExists {
+			steps[0] = append(steps[0], "--replace")
+		}
+		steps = append(steps, merge)
+		if rename {
+			steps = append(steps, []string{"ai-provider-remove", root, "--id", orig})
+		}
+	case "remove":
+		orig := r.PostFormValue("orig")
+		if orig == "" {
+			s.renderWsSettingsScreen(w, name, "unknown provider entry", nil)
+			return
+		}
+		steps = [][]string{{"ai-provider-remove", root, "--id", orig}}
+	default:
+		s.renderWsSettingsScreen(w, name, "unknown provider action", nil)
+		return
+	}
+
+	s.queue.Launch(webOp{
+		Key: key,
+		Run: func(emit func(string)) error {
+			for _, args := range steps {
+				if err := runScriptStep(s.runner(), s.deps.ConfigureScript, args, emit); err != nil {
+					return err
+				}
+			}
+			return nil
+		},
+		Done: func(err error) { s.hub.PublishWorkspace() },
+	})
+	s.renderWsSettingsScreen(w, name, "", nil)
+}
+
 // handleWsSettingsMenu serves GET /workspace-settings — the menu entry:
 // no name, so the most recent workspace jumps in preselected (§7); an
 // empty registry renders the explicit empty state, never a dead end.
@@ -592,7 +747,7 @@ func (s *Server) handleWsSettingsMenu(w http.ResponseWriter, r *http.Request) {
 		s.renderWsSettingsEmpty(w)
 		return
 	}
-	s.renderWsSettingsScreen(w, entries[0].Name, "")
+	s.renderWsSettingsScreen(w, entries[0].Name, "", nil)
 }
 
 // renderWsSettingsEmpty renders the empty-state screen fragment.
@@ -606,7 +761,7 @@ func (s *Server) renderWsSettingsEmpty(w http.ResponseWriter) {
 // renderWsSettingsScreen assembles and renders the fragment for one
 // workspace; unknown names render nothing and return false (the caller
 // refuses with 404 — the registry name is the URL identity, §9).
-func (s *Server) renderWsSettingsScreen(w http.ResponseWriter, name, errMsg string) bool {
+func (s *Server) renderWsSettingsScreen(w http.ResponseWriter, name, errMsg string, confirm *provConfirmView) bool {
 	ws, err := s.lookupWorkspace(name)
 	if err != nil {
 		return false
@@ -642,6 +797,7 @@ func (s *Server) renderWsSettingsScreen(w http.ResponseWriter, name, errMsg stri
 			}
 		}
 	}
+	v.ProvConfirm = confirm
 	v.VCSKind = trackerKindForLabel(v.VCSTrackingSt)
 	if hostFile := workspacesettings.VCSHostFile(v.VCSTrackingSt, ws.Path); hostFile != "" {
 		v.VCSHasCreds = fileExists(hostFile) // the replace confirm gates an overwrite
@@ -683,6 +839,15 @@ func (s *Server) renderWsSettingsScreen(w http.ResponseWriter, name, errMsg stri
 	cat := catalogs.Read(s.opts.Home)
 	v.ProvCatalog = cat.Providers
 	v.VCSCatalog = cat.Trackers
+
+	// Provider entries read from the workspace's stored files (the list's
+	// single source of truth, ADR 0025) — orphaned sections render
+	// read-only.
+	for _, e := range workspacesettings.ReadProviderEntries(ws.Path) {
+		v.Providers = append(v.Providers, provEntryView{
+			ID: e.ID, Name: e.Name, Endpoint: e.Endpoint, Orphan: e.Orphan,
+		})
+	}
 
 	// In-flight op: the log pane rides the queue like the busy card's.
 	v.OpID = s.queue.CurrentOpID(registry.ContainerName(ws.ContainerID))
