@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/shredingerlabs/oc-sandbox/internal/catalogs"
 	"github.com/shredingerlabs/oc-sandbox/internal/config"
 	"github.com/shredingerlabs/oc-sandbox/internal/registry"
 )
@@ -73,6 +74,53 @@ func TestDetectFresh(t *testing.T) {
 	home := t.TempDir()
 	if got := Detect(home); got != Fresh {
 		t.Fatalf("Detect = %v, want Fresh", got)
+	}
+}
+
+// A fresh install never re-enters the migration on its second start
+// (§2 guard): every fresh-create path writes its general config file at
+// the 2.0 marker, so once the registry exists Detect reads Nothing.
+func TestDetectFreshInstallNoRerun(t *testing.T) {
+	home := t.TempDir()
+	if err := (&registry.Registry{Home: home}).CreateWorkspacesFile(); err != nil {
+		t.Fatal(err)
+	}
+	if err := config.CreateGlobalConfig(home, ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := catalogs.EnsureFile(home); err != nil {
+		t.Fatal(err)
+	}
+	if got := Detect(home); got != Nothing {
+		t.Fatalf("Detect = %v, want Nothing on a fresh install (fresh creates start at 2.0)", got)
+	}
+}
+
+// A catalogs.json still at 1.0 (mid-migration leftover) reruns the
+// migration, and stage 6 bumps it to the 2.0 completion marker.
+func TestRunBumpsLegacyCatalogVersion(t *testing.T) {
+	home := t.TempDir()
+	if err := (&registry.Registry{Home: home}).CreateWorkspacesFile(); err != nil {
+		t.Fatal(err)
+	}
+	cat := config.Paths{Home: home}.CatalogsPath()
+	if err := os.MkdirAll(filepath.Dir(cat), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(cat, []byte("{\n  \"trackers\": [],\n  \"providers\": [],\n  \"version\": \"1.0\"\n}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := Detect(home); got != Migrate {
+		t.Fatalf("Detect = %v, want Migrate (catalogs < 2.0 reruns)", got)
+	}
+	if _, err := Run(home); err != nil {
+		t.Fatal(err)
+	}
+	if v := ReadVersion(cat); v != "2.0" {
+		t.Fatalf("catalogs.json version = %q, want 2.0 after the rerun", v)
+	}
+	if got := Detect(home); got != Nothing {
+		t.Fatalf("Detect after rerun = %v, want Nothing", got)
 	}
 }
 
