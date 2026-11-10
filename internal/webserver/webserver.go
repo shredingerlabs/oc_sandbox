@@ -23,6 +23,8 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+
+	"github.com/shredingerlabs/oc-sandbox/internal/cmdrun"
 )
 
 // tokenRe matches the tokenized path prefix — the redaction pattern the
@@ -35,6 +37,17 @@ type Options struct {
 	BasePort int    // first port tried; 0 means "pick a free port" (tests)
 	Version  string // reported nowhere until a screen needs it
 	Home     string // the oc-sandbox home: ~/.config/oc-sandbox holds catalogs.json etc. and global_config.json (GET/POST /settings)
+	// Creation-wizard wiring (#156): the runner seam (nil → exec) and the
+	// install-layout paths — scripts invoked exactly as the TUI invokes
+	// them (native script enhancement, ADR-0007).
+	Runner               cmdrun.Runner
+	DefaultWorkspacePath string // base dir of the derived workspace root; "" → Home/oc-sandbox
+	StartScript          string // scripts/start.sh
+	InitScript           string // scripts/init-workspace.sh
+	ConfigureScript      string // scripts/configure-workspace.sh
+	BuildScript          string // scripts/build-container.sh
+	Dockerfile           string // Dockerfile (edition registry, ADR-0019)
+	DockerfileCustom     string // Dockerfile.custom ("" = none)
 }
 
 // Server is one WebUI instance: a loopback listener with a per-launch
@@ -122,6 +135,8 @@ func (s *Server) Start() error {
 		http.FileServerFS(assetsFS).ServeHTTP(w, r)
 	}))
 	inner.HandleFunc("GET /events", s.hub.serveEvents)
+	inner.HandleFunc("GET /workspaces/new", s.handleNewWorkspaceGET)
+	inner.HandleFunc("POST /workspaces", s.handleWorkspacesPOST)
 	inner.HandleFunc("GET /catalogs", s.handleCatalogsGET)
 	inner.HandleFunc("POST /catalogs/trackers", s.handleTrackersPOST)
 	inner.HandleFunc("POST /catalogs/providers", s.handleProvidersPOST)
