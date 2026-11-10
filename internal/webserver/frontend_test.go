@@ -99,6 +99,31 @@ func TestFrontendServerStoppedCrashPath(t *testing.T) {
 	}
 }
 
+// The SSE hub's `es` is local to connect() — a stray es.* reference
+// outside it throws a ReferenceError at load time, killing the whole
+// IIFE (no SSE, no popup dismissal). Guard: every es.addEventListener
+// call sits inside the connect() body.
+func TestFrontendSSEListenersStayInsideConnect(t *testing.T) {
+	s := startTestServer(t)
+	js := body(t, get(t, s.URL()+"js/main.js"))
+	start := strings.Index(js, "function connect()")
+	if start < 0 {
+		t.Fatal("main.js has no connect() hub")
+	}
+	end := strings.Index(js[start:], "\n  }")
+	if end < 0 {
+		t.Fatal("connect() body not delimited")
+	}
+	connectBody := js[start : start+end]
+	if strings.Contains(js[:start], "es.addEventListener") ||
+		strings.Contains(js[start+end:], "es.addEventListener") {
+		t.Fatal("stray es.addEventListener outside connect() — ReferenceError at load")
+	}
+	if strings.Count(connectBody, "es.addEventListener") != 6 {
+		t.Fatalf("connect() registers %d es.addEventListener calls, want 6 (line, workspace, update, shutdown, open, error)", strings.Count(connectBody, "es.addEventListener"))
+	}
+}
+
 // The busy card carries the op id so the streamed line events land in
 // the right card's log — across re-renders too (GET re-renders the op
 // id from the queue), and confirms refuse while an op is
