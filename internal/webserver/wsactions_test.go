@@ -3,10 +3,12 @@ package webserver
 import (
 	"errors"
 	"net/http"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/shredingerlabs/oc-sandbox/internal/app"
 	"github.com/shredingerlabs/oc-sandbox/internal/cmdrun"
 	"github.com/shredingerlabs/oc-sandbox/internal/registry"
 )
@@ -40,10 +42,18 @@ func fakePodmanScript(bashCalls *[]string, ctr string, alreadyRunning bool, out 
 	}
 }
 
-// startServerWith starts a fixture server with the given fake runner.
+// startServerWith starts a fixture server whose Deps carry the fake
+// runner — the start route (#158's Container-center route) rides Deps.
 func startServerWith(t *testing.T, home string, fake *cmdrun.Fake) *Server {
 	t.Helper()
-	s := New(Options{BasePort: 0, Home: home, Runner: fake})
+	s := New(Options{
+		BasePort: 0, Home: home,
+		Deps: &Deps{
+			Run:         fake,
+			Registry:    &registry.Registry{Home: home},
+			StartScript: app.LayoutFor(home).StartScript,
+		},
+	})
 	if err := s.Start(); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -77,48 +87,31 @@ func awaitWorkspace(t *testing.T, s *Server) {
 	}
 }
 
-// POST /workspaces/{name}/start (#153, §9): Container-center reuse
-// semantics — a not-running container goes through start.sh with the
-// StartArgs vector; the verified start flips the registry status and
-// last_used, and publishes the workspace SSE event.
-func TestStartRunsScriptAndUpdatesRegistry(t *testing.T) {
+// POST /workspaces/{name}/start — #158's Container-center route with
+// the #153 addition: the Open action is a use, so the verified start
+// also touches the registry's last_used.
+func TestStartUpdatesLastUsed(t *testing.T) {
 	home := t.TempDir()
-	root := seedWorkspace(t, home, "alpha", "swdev", nil)
+	seedWorkspace(t, home, "alpha", "swdev", nil)
 	var bashCalls []string
-	fake := &cmdrun.Fake{Script: fakePodmanScript(&bashCalls, registry.ContainerName(registry.ContainerIdentity(root)), false, "starting opencode-sandbox\n", nil)}
+	fake := &cmdrun.Fake{Script: fakePodmanScript(&bashCalls,
+		registry.ContainerName(registry.ContainerIdentity(rootOf(t, home, "alpha"))),
+		false, "starting opencode-sandbox\n", nil)}
 	s := startServerWith(t, home, fake)
 
-	resp := post(t, s.URL()+"workspaces/alpha/start", nil)
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("status = %d, want 200", resp.StatusCode)
-	}
-	if frag := body(t, resp); !strings.Contains(frag, `data-ws="alpha"`) {
-		t.Fatalf("start must return the re-rendered card fragment, got:\n%s", frag)
-	}
-	awaitWorkspace(t, s)
-
-	// The script invocation: start.sh with the StartArgs vector
-	// (bash <script> <workspace-root> … --detach).
-	if len(bashCalls) != 1 {
-		t.Fatalf("bash calls = %v, want exactly one start.sh run", bashCalls)
-	}
-	args := strings.Fields(bashCalls[0])
-	if !strings.HasSuffix(args[0], ".oc-sandbox/scripts/start.sh") {
-		t.Fatalf("start.sh invoked from the wrong path: %s", args[0])
-	}
-	want := []string{root, "--edition", "swdev", "--container-id", registry.ContainerIdentity(root),
-		"--search_mode", "searxng", "--start_web", "--detach"}
-	got := args[1:]
-	if len(got) != len(want) {
-		t.Fatalf("start.sh args = %v, want %v", got, want)
-	}
-	for i := range want {
-		if got[i] != want[i] {
-			t.Fatalf("start.sh args[%d] = %q, want %q (full: %v)", i, got[i], want[i], got)
+	postMap(t, s.URL()+"workspaces/alpha/start", nil)
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		w, err := (&registry.Registry{Home: home}).ByName("alpha")
+		if err == nil && w.ContainerStatus == "running" {
+			break
 		}
+		if time.Now().After(deadline) {
+			t.Fatalf("start never verified: status=%q err=%v", w.ContainerStatus, err)
+		}
+		time.Sleep(5 * time.Millisecond)
 	}
 
-	// Registry: verified start flips status + touches last_used.
 	reg := &registry.Registry{Home: home}
 	w, err := reg.ByName("alpha")
 	if err != nil {
@@ -128,53 +121,30 @@ func TestStartRunsScriptAndUpdatesRegistry(t *testing.T) {
 		t.Fatalf("container_status = %q, want running", w.ContainerStatus)
 	}
 	if w.LastUsed == "" {
-		t.Fatal("last_used must update on start")
+		t.Fatal("last_used must update on start (the Open action is a use)")
 	}
 }
 
-// Reuse semantics (Container-center): an already-running container is
-// reused — never restarted; no start.sh invocation fires.
-func TestStartReusesRunningContainer(t *testing.T) {
-	home := t.TempDir()
-	root := seedWorkspace(t, home, "alpha", "swdev", nil)
-	ctr := registry.ContainerName(registry.ContainerIdentity(root))
-	var bashCalls []string
-	fake := &cmdrun.Fake{Script: fakePodmanScript(&bashCalls, ctr, true, "", nil)}
-	s := startServerWith(t, home, fake)
+// rootOf resolves a fixture workspace's root from the registry.
+func rootOf(t *testing.T, home, name string) string {
+	t.Helper()
+	w, err := (&registry.Registry{Home: home}).ByName(name)
+	if err != nil {
+		t.Fatalf("registry: %v", err)
+	}
+	return w.Path
+}
 
-	resp := post(t, s.URL()+"workspaces/alpha/start", nil)
+// Unknown workspace names surface the error on the containers screen —
+// the registry name is the URL identity (percent-encoded slug).
+func TestStartUnknownWorkspace(t *testing.T) {
+	s := startServerWith(t, t.TempDir(), &cmdrun.Fake{})
+	resp := postMap(t, s.URL()+"workspaces/nope/start", nil)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d, want 200", resp.StatusCode)
 	}
-	awaitWorkspace(t, s)
-	if len(bashCalls) != 0 {
-		t.Fatalf("running container must be reused, got start.sh calls: %v", bashCalls)
-	}
-	if !strings.Contains(body(t, resp), `data-ws="alpha"`) {
-		t.Fatal("reuse must still re-render the card")
-	}
-}
-
-// The workspace SSE event re-renders open tabs after a start op — no
-// polling (§9); the event carries no payload the client needs.
-func TestStartPublishesWorkspaceEvent(t *testing.T) {
-	home := t.TempDir()
-	root := seedWorkspace(t, home, "alpha", "swdev", nil)
-	var bashCalls []string
-	fake := &cmdrun.Fake{Script: fakePodmanScript(&bashCalls, registry.ContainerName(registry.ContainerIdentity(root)), false, "", nil)}
-	s := startServerWith(t, home, fake)
-
-	post(t, s.URL()+"workspaces/alpha/start", nil)
-	awaitWorkspace(t, s)
-}
-
-// Unknown workspace names refuse — the registry name is the URL
-// identity (percent-encoded slug).
-func TestStartUnknownWorkspace(t *testing.T) {
-	s := startFixtureServer(t, t.TempDir())
-	resp := post(t, s.URL()+"workspaces/nope/start", nil)
-	if resp.StatusCode != http.StatusNotFound {
-		t.Fatalf("status = %d, want 404", resp.StatusCode)
+	if !strings.Contains(body(t, resp), "not registered") {
+		t.Fatal("unknown workspace must surface the not-registered error")
 	}
 }
 
@@ -187,7 +157,7 @@ func TestStartScriptFailureKeepsRegistry(t *testing.T) {
 	fake := &cmdrun.Fake{Script: fakePodmanScript(&bashCalls, "", false, "boom: image missing\n", errors.New("exit status 1"))}
 	s := startServerWith(t, home, fake)
 
-	resp := post(t, s.URL()+"workspaces/alpha/start", nil)
+	resp := postMap(t, s.URL()+"workspaces/alpha/start", nil)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("script failure must still re-render (HTTP layer is not the failure surface), got %d", resp.StatusCode)
 	}
@@ -202,21 +172,12 @@ func TestStartScriptFailureKeepsRegistry(t *testing.T) {
 	}
 }
 
-// post sends a form POST (nil form → empty body).
-func post(t *testing.T, url string, form map[string]string) *http.Response {
+// postMap issues a form POST via the package's string post helper.
+func postMap(t *testing.T, target string, form map[string]string) *http.Response {
 	t.Helper()
-	bodyStr := ""
-	if form != nil {
-		vals := make([]string, 0, len(form))
-		for k, v := range form {
-			vals = append(vals, k+"="+v)
-		}
-		bodyStr = strings.Join(vals, "&")
+	vals := make(url.Values, len(form))
+	for k, v := range form {
+		vals.Set(k, v)
 	}
-	resp, err := http.Post(url, "application/x-www-form-urlencoded", strings.NewReader(bodyStr))
-	if err != nil {
-		t.Fatalf("POST %s: %v", url, err)
-	}
-	t.Cleanup(func() { resp.Body.Close() })
-	return resp
+	return post(t, target, vals.Encode())
 }

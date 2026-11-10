@@ -32,13 +32,19 @@ import (
 // server error log runs every line through.
 var tokenRe = regexp.MustCompile(`/t/[0-9a-f]{32}/`)
 
+// BasePort is the launcher's base webserver port (spec §4): scanned
+// upward on conflict, never persisted — re-derived per launch.
+const BasePort = 8090
+
 // Options carries the launch-time knobs. The zero value is production:
 // base port 8090 (scans upward on conflict, never persisted).
 type Options struct {
 	BasePort      int                        // first port tried; 0 means "pick a free port" (tests)
-	Version       string                     // reported nowhere until a screen needs it
+	Version       string                     // compiled-in version — the update card's fallback when the VERSION file is absent
+	InstallRoot   string                     // the install layout root (app.LayoutFor): the VERSION file lives here
 	Home          string                     // the oc-sandbox home: ~/.config/oc-sandbox holds catalogs.json etc. and global_config.json (GET/POST /settings)
-	Runner        cmdrun.Runner              // podman/script runner for start + access; nil → real execution
+	Deps          *Deps                      // container/image screens (#158); nil = shell + update/settings/catalogs only
+	Runner        cmdrun.Runner              // podman/script runner for the workspace access verbs (#153); nil → deps.Run, then real execution
 	Now           func() time.Time           // clock for relative last-used dates; nil → time.Now
 	TerminalSpawn func(command string) error // host terminal window opener (§3); nil → per-platform spawn
 }
@@ -48,9 +54,11 @@ type Options struct {
 // on quit — the token dies with the process.
 type Server struct {
 	opts    Options
+	deps    *Deps
 	token   string // hex, ≥128 bit of CSPRNG entropy
 	hub     *Hub
-	queue   *opQueue
+	queue   *opRunner
+	updater *Updater
 	srv     *http.Server
 	ln      net.Listener
 	url     string
@@ -65,8 +73,10 @@ func New(opts Options) *Server {
 		token: newToken(),
 		hub:   newHub(),
 	}
-	s.queue = newOpQueue(s.hub)
+	s.deps = opts.Deps
 	s.errSink = &redactingLog{next: &s.errLog}
+	s.queue = newOpRunner(s.hub)
+	s.updater = newUpdater(s.hub, s.queue, opts.InstallRoot, opts.Version)
 	return s
 }
 
@@ -106,7 +116,7 @@ func (s *Server) ErrorLog() string { return s.errLog.String() }
 func (s *Server) Start() error {
 	base := s.opts.BasePort
 	if base == 0 {
-		base = 8090
+		base = BasePort
 	}
 	var ln net.Listener
 	var err error
@@ -130,15 +140,23 @@ func (s *Server) Start() error {
 		http.FileServerFS(assetsFS).ServeHTTP(w, r)
 	}))
 	inner.HandleFunc("GET /events", s.hub.serveEvents)
+	inner.HandleFunc("GET /update", s.handleUpdateCard)
+	inner.HandleFunc("POST /update/check", s.handleUpdateCheck)
+	inner.HandleFunc("POST /update/run", s.handleUpdateRun)
 	inner.HandleFunc("GET /catalogs", s.handleCatalogsGET)
 	inner.HandleFunc("POST /catalogs/trackers", s.handleTrackersPOST)
 	inner.HandleFunc("POST /catalogs/providers", s.handleProvidersPOST)
 	inner.HandleFunc("GET /settings", s.handleSettingsGet)
 	inner.HandleFunc("POST /settings", s.handleSettingsPost)
+	// Workspaces screen (#153): the card grid + access verbs. The start
+	// verb is #158's Container-center route (wireRoutes) — the same URL
+	// this screen's Open action posts to.
 	inner.HandleFunc("GET /workspaces", s.handleWorkspacesGET)
-	inner.HandleFunc("POST /workspaces/{name}/start", s.handleStart)
 	inner.HandleFunc("POST /workspaces/{name}/access", s.handleAccess)
 	inner.HandleFunc("POST /workspaces/{name}/pair-link", s.handlePairLink)
+	if s.deps != nil {
+		s.wireRoutes(inner) // container/image screens (#158)
+	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", s.handleHealthz)
 	mux.Handle("/", s.auth(inner))

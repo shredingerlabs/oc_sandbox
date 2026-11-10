@@ -153,7 +153,7 @@ func TestSSEShutdown(t *testing.T) {
 func TestSSEUpdatePhase(t *testing.T) {
 	s := startTestServer(t)
 	r := connect(t, s.URL()+"events")
-	s.Hub().PublishUpdate("available")
+	s.Hub().PublishUpdate(UpdateEvent{Phase: "available"})
 	ev := readEvent(t, r)
 	if ev["event"] != "update" || ev["data"] != `{"phase":"available"}` {
 		t.Fatalf("got %v, want update phase=available", ev)

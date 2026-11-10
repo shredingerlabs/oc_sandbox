@@ -11,7 +11,8 @@ import (
 
 // Queue semantics (#153, §9 — mirror taskmgr exactly): one-at-a-time per
 // workspace (queued-not-refused), parallel across workspaces, no
-// 409-refusal path.
+// 409-refusal path — exercised through the start route on the shared
+// opRunner (the update run's exclusivity is #160's).
 func TestQueueOneAtATimePerWorkspaceParallelAcross(t *testing.T) {
 	home := t.TempDir()
 	rootA := seedWorkspace(t, home, "alpha", "swdev", nil)
@@ -21,16 +22,11 @@ func TestQueueOneAtATimePerWorkspaceParallelAcross(t *testing.T) {
 	// deadlock the assertions, so each start is hand-released.
 	inFlight := make(chan string, 8)
 	release := make(chan struct{})
-	var bashCalls []string
 	fake := &cmdrun.Fake{Script: func(name string, args []string) (string, error) {
 		switch name {
 		case "podman":
-			if args[0] == "ps" {
-				return "", nil // nothing running: both starts run start.sh
-			}
-			return "", nil
+			return "", nil // nothing running: both starts run start.sh
 		case "bash":
-			bashCalls = append(bashCalls, args[1]) // workspace root
 			inFlight <- args[1]
 			<-release
 			return "", nil
@@ -39,7 +35,7 @@ func TestQueueOneAtATimePerWorkspaceParallelAcross(t *testing.T) {
 	}}
 	s := startServerWith(t, home, fake)
 
-	r1 := post(t, s.URL()+"workspaces/alpha/start", nil)
+	r1 := postMap(t, s.URL()+"workspaces/alpha/start", nil)
 	if r1.StatusCode != 200 {
 		t.Fatalf("first start: %d", r1.StatusCode)
 	}
@@ -47,23 +43,20 @@ func TestQueueOneAtATimePerWorkspaceParallelAcross(t *testing.T) {
 
 	// Second alpha start is queued-not-refused — 200 while the first op
 	// is still running.
-	r2 := post(t, s.URL()+"workspaces/alpha/start", nil)
+	r2 := postMap(t, s.URL()+"workspaces/alpha/start", nil)
 	if r2.StatusCode != 200 {
 		t.Fatalf("queued start must not be refused: %d", r2.StatusCode)
 	}
-	if frag := body(t, r2); !strings.Contains(frag, "data-busy") {
-		t.Fatalf("queued card must render busy, got:\n%s", frag)
-	}
 
 	// A beta start runs IN PARALLEL with the still-running alpha op.
-	rb := post(t, s.URL()+"workspaces/beta/start", nil)
+	rb := postMap(t, s.URL()+"workspaces/beta/start", nil)
 	if rb.StatusCode != 200 {
 		t.Fatalf("beta start: %d", rb.StatusCode)
 	}
 	waitInFlight(t, inFlight, rootB, "beta start while alpha still runs")
 
-	// Release alpha: only then does the queued second alpha op start —
-	// one-at-a-time per workspace.
+	// Release alpha: the queued alpha op starts only after the first
+	// finished — one-at-a-time per workspace.
 	release <- struct{}{}
 	waitInFlight(t, inFlight, rootA, "queued alpha start after the first finished")
 
@@ -71,9 +64,6 @@ func TestQueueOneAtATimePerWorkspaceParallelAcross(t *testing.T) {
 	release <- struct{}{}
 	release <- struct{}{}
 	awaitWorkspaceCount(t, s, 3)
-	if len(bashCalls) != 3 {
-		t.Fatalf("start.sh calls = %d, want 3", len(bashCalls))
-	}
 }
 
 func waitInFlight(t *testing.T, ch chan string, want, what string) {
@@ -100,8 +90,7 @@ func awaitWorkspaceCount(t *testing.T, s *Server, n int) {
 	defer resp.Body.Close()
 	var acc []byte
 	for {
-		k := strings.Count(string(acc), "event: workspace")
-		if k >= n {
+		if strings.Count(string(acc), "event: workspace") >= n {
 			return
 		}
 		tmp := make([]byte, 1024)

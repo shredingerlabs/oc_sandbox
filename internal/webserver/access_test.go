@@ -120,13 +120,13 @@ func TestAccessRefusals(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = s.Close() })
 
-	if resp := post(t, s.URL()+"workspaces/alpha/access", map[string]string{"variant": "ssh"}); resp.StatusCode != http.StatusBadRequest {
+	if resp := postMap(t, s.URL()+"workspaces/alpha/access", map[string]string{"variant": "ssh"}); resp.StatusCode != http.StatusBadRequest {
 		t.Fatalf("bad variant: status = %d, want 400", resp.StatusCode)
 	}
-	if resp := post(t, s.URL()+"workspaces/alpha/access", nil); resp.StatusCode != http.StatusBadRequest {
+	if resp := postMap(t, s.URL()+"workspaces/alpha/access", nil); resp.StatusCode != http.StatusBadRequest {
 		t.Fatalf("missing variant: status = %d, want 400", resp.StatusCode)
 	}
-	if resp := post(t, s.URL()+"workspaces/nope/access", map[string]string{"variant": "console"}); resp.StatusCode != http.StatusNotFound {
+	if resp := postMap(t, s.URL()+"workspaces/nope/access", map[string]string{"variant": "console"}); resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("unknown workspace: status = %d, want 404", resp.StatusCode)
 	}
 }
@@ -134,7 +134,7 @@ func TestAccessRefusals(t *testing.T) {
 // accessPOST posts the variant form and decodes the sidecar.
 func accessPOST(t *testing.T, s *Server, variant string) accessView {
 	t.Helper()
-	resp := post(t, s.URL()+"workspaces/alpha/access", map[string]string{"variant": variant})
+	resp := postMap(t, s.URL()+"workspaces/alpha/access", map[string]string{"variant": variant})
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("access %s: status = %d, want 200", variant, resp.StatusCode)
 	}

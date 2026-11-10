@@ -69,52 +69,53 @@
       document.querySelectorAll(".tree [data-nav]").forEach(function (b) {
         b.classList.toggle("active", b === btn);
       });
-      currentNav = btn.dataset.nav;
-      // Workspace → Open (#153) and Catalogs screen (#155) load server
-      // fragments via HTMX; the rest are per-ticket stubs.
-      if (currentNav === "ws-open" && window.htmx) {
-        htmx.ajax("GET", base + "workspaces", { target: '[data-role="screen"]', swap: "innerHTML" });
+      if (btn.hasAttribute("hx-get")) return; // htmx swaps its own fragment in (Update, #160)
+      var nav = btn.dataset.nav;
+      currentNav = nav;
+      // Workspace → Open (#153): the card grid loads as a fragment.
+      if (nav === "ws-open" && window.htmx) {
+        renderWorkspaces();
         return;
       }
-      if ((currentNav === "set-vcs" || currentNav === "set-ai") && window.htmx) {
+      // Catalogs screen (#155): Settings → VCS Tracker / AI-Provider
+      // both load GET /catalogs (one fragment, both sections).
+      if ((nav === "set-vcs" || nav === "set-ai") && window.htmx) {
         htmx.ajax("GET", base + "catalogs", { target: '[data-role="screen"]', swap: "innerHTML" });
         return;
       }
-      renderStub(currentNav);
+      // Container center + images (#158): fragment screens with the
+      // reactive workspace re-render.
+      if (screenPaths[nav]) {
+        loadScreen(screenPaths[nav]);
+        return;
+      }
+      renderStub(nav);
     });
   });
 
-  var currentNav = null;
+  var currentNav = "ws-open"; // the Open screen is the primary (#153)
 
-  // Re-render the Open screen in place — reactive from SSE workspace
-  // events and the display-mode switch (no reload, no polling, §9/§6).
+  // --- Workspace → Open screen (#153, spec §7): the card grid loads as
+  // a fragment; cards re-render reactively from the SSE workspace
+  // events and the display-mode switch — no polling (§6/§9).
   function renderWorkspaces() {
     if (currentNav !== "ws-open" || !window.htmx) return;
-    var q = document.querySelector('[data-role="ws-search"]');
+    var search = document.querySelector('[data-role="ws-search"]');
     var url = base + "workspaces";
-    if (q && q.value) url += "?q=" + encodeURIComponent(q.value);
+    if (search && search.value) url += "?q=" + encodeURIComponent(search.value);
     htmx.ajax("GET", url, { target: '[data-role="screen"]', swap: "innerHTML" });
   }
   document.addEventListener("displaychange", renderWorkspaces);
 
-  // Sidebar count pill rides every screen swap (§5 count pills).
-  screenEl.addEventListener("htmx:afterSwap", function (ev) {
-    var src = ev.target && ev.target.querySelector ? ev.target.querySelector("[data-count]") : null;
-    if (src) {
-      var pill = document.querySelector('[data-role="ws-count"]');
-      if (pill) pill.textContent = src.getAttribute("data-count");
-    }
-  });
-
-  // --- Open screen card actions (#153) ---
-  // Delegated clicks: Open (Standard always web; Advanced honors the
+  // Card actions: Open (Standard always web; Advanced honors the
   // configured start option), Web access (fresh pair link → new tab
   // under the click gesture), console/OpenCode host-terminal access,
-  // Stop/Delete confirm rows (#154 owns the stop/delete ops).
+  // and the Stop/Delete confirm rows (#154 owns the ops themselves).
   screenEl.addEventListener("click", function (ev) {
     var btn = ev.target.closest("button");
-    if (!btn) return;
+    if (!btn || btn.closest("[data-action]") || btn.disabled) return;
     var card = btn.closest(".card");
+    if (!card) return;
 
     if (btn.dataset.confirm === "stop" || btn.dataset.confirm === "delete") {
       showConfirmRow(card, btn.dataset.confirm);
@@ -136,7 +137,12 @@
       btn.textContent = "copied";
       return;
     }
-    if (btn.dataset.act === "retry-web") { retryPair(card); return; }
+    if (btn.dataset.act === "retry-web") {
+      var rcard = cardByWs(card.dataset.ws) || card;
+      openPairTab(rcard);
+      pairInto(rcard, tabFor(rcard));
+      return;
+    }
     if (btn.dataset.act !== "open" && btn.dataset.act !== "web" &&
         btn.dataset.act !== "console" && btn.dataset.act !== "opencode") return;
 
@@ -155,25 +161,57 @@
     }
   });
 
-  // chainStart runs the start op and then continues the access chain
-  // with the fresh card node; card re-renders ride the SSE workspace
-  // events.
+  // chainStart runs the start op (queued-not-refused on the shared
+  // opRunner) and continues the access chain once the workspace drains.
   function chainStart(card, variant, then) {
-    fetch(post(card, "start"), { method: "POST" })
-      .then(function (r) { return r.text(); })
-      .then(function (frag) { return swapCard(card, frag); })
+    fetch(post(card, "start"), { method: "POST", referrerPolicy: "no-referrer" })
+      .then(function () { return waitForIdle(card); })
       .then(then)
       .catch(function () { showNote(card, "start failed — retry"); });
+  }
+
+  // waitForIdle polls (bounded) until the workspace's op drains — the
+  // access chain continues only after the verified start.
+  function waitForIdle(card, tries) {
+    tries = tries === undefined ? 30 : tries;
+    if (!tries) return Promise.resolve(cardByWs(card.dataset.ws) || card);
+    return fetch(base + "workspaces", { referrerPolicy: "no-referrer" })
+      .then(function (r) { return r.text(); })
+      .then(function (doc) {
+        if (cardBlock(doc, card.dataset.ws).indexOf("data-busy") < 0) {
+          return cardByWs(card.dataset.ws) || card;
+        }
+        return promiseDelay(800).then(function () { return waitForIdle(card, tries - 1); });
+      })
+      .catch(function () { return cardByWs(card.dataset.ws) || card; });
   }
 
   function post(card, action) {
     return base + "workspaces/" + encodeURIComponent(card.dataset.ws) + "/" + action;
   }
 
+  function cardByWs(ws) { return document.querySelector('.card[data-ws="' + ws + '"]'); }
+
+  function cardBlock(doc, ws) {
+    var i = doc.indexOf('data-ws="' + ws + '"');
+    if (i < 0) return "";
+    var end = doc.indexOf("</article>", i);
+    return end < 0 ? "" : doc.slice(i, end);
+  }
+
+  function promiseDelay(ms) {
+    return new Promise(function (res) { setTimeout(res, ms); });
+  }
+
+  // Access variants: console/OpenCode ride the host-terminal spawn —
+  // the headless fallback renders the exact copyable command (§3).
   function accessVariant(card, variant) {
-    var form = new FormData();
-    form.append("variant", variant);
-    fetch(post(card, "access"), { method: "POST", body: new URLSearchParams(form) })
+    fetch(post(card, "access"), {
+      method: "POST",
+      body: "variant=" + encodeURIComponent(variant),
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      referrerPolicy: "no-referrer"
+    })
       .then(function (r) { return r.json(); })
       .then(function (v) {
         if (!v.opened && v.command) showCommand(card, v.command);
@@ -181,42 +219,47 @@
       .catch(function () { showNote(card, "access failed — retry"); });
   }
 
-  // Pair-link handoff (§10): fresh one-time link per request; the tab
-  // opened under the click gets the link, the plain URL is the fallback
-  // when pairing fails or the service is mid-boot; Retry rows stay on
-  // the card.
+  // Pair-link handoff (§10): a fresh one-time link per request; the tab
+  // opened under the click gets it. The plain URL is the fallback when
+  // pairing fails or the v2 service is mid-boot; Retry rows stay on the
+  // card.
   var tabs = {};
   function tabFor(card) { return tabs[card.dataset.ws]; }
 
   function openPairTab(card) {
     var tab = window.open("", "_blank");
     if (tab) {
-      tab.document.write('<p style="font:14px system-ui;padding:2em">Pairing OpenCode web…</p>');
+      tab.document.body.innerHTML =
+        '<p style="font:14px system-ui;padding:2em">Pairing OpenCode web…</p>';
       tabs[card.dataset.ws] = tab;
     }
     return tab;
   }
 
-  function pairInto(card, tab) {
-    fetch(post(card, "pair-link"), { method: "POST" })
+  function pairInto(card, tab, tries) {
+    tries = tries === undefined ? 5 : tries;
+    fetch(post(card, "pair-link"), { method: "POST", referrerPolicy: "no-referrer" })
       .then(function (r) { return r.json(); })
       .then(function (v) {
-        if (v.pair_link && tab) { tab.location.href = v.pair_link; return; }
+        if (v.pair_link) {
+          if (tab) tab.location.href = v.pair_link;
+          return;
+        }
+        if (tries > 0) { // service mid-boot: keep trying quietly
+          promiseDelay(1000).then(function () { pairInto(card, tab, tries - 1); });
+          return;
+        }
         if (v.plain_url && tab) {
-          tab.document.write('<p style="font:14px system-ui;padding:2em">OpenCode web: <a href="' +
-            v.plain_url + '">' + v.plain_url + '</a></p>');
+          tab.document.body.innerHTML = '<p style="font:14px system-ui;padding:2em">OpenCode web: <a href="' +
+            v.plain_url + '">' + v.plain_url + '</a></p>';
         }
         showRetry(card);
       })
       .catch(function () {
-        if (tab) tab.document.write('<p style="font:14px system-ui;padding:2em">Pairing failed.</p>');
+        if (tab) tab.document.body.innerHTML =
+          '<p style="font:14px system-ui;padding:2em">Pairing failed.</p>';
         showRetry(card);
       });
-  }
-
-  function retryPair(card) {
-    openPairTab(card);
-    pairInto(card, tabFor(card));
   }
 
   function showRetry(card) {
@@ -260,25 +303,355 @@
       '</span>';
   }
 
-  // swapCard replaces the card with the server fragment, re-applying
-  // the streamed log contents.
-  function swapCard(card, frag) {
-    var tmp = document.createElement("div");
-    tmp.innerHTML = frag;
-    var fresh = tmp.querySelector(".card");
-    if (!fresh) return card;
-    card.replaceWith(fresh);
-    applyLogs(fresh);
-    return fresh;
+  // The grid re-render keeps busy card logs and the sidebar count pill
+  // in step with what streamed while the fragment was in flight.
+  screenEl.addEventListener("htmx:afterSwap", function () {
+    var src = screenEl.querySelector("[data-count]");
+    if (src) {
+      var pill = document.querySelector('[data-role="ws-count"]');
+      if (pill) pill.textContent = src.getAttribute("data-count");
+    }
+    document.querySelectorAll(".card[data-op-id]").forEach(applyCardLog);
+  });
+
+  function applyCardLog(card) {
+    var lines = logLines[card.getAttribute("data-op-id")];
+    if (!lines || !lines.length) return;
+    var log = card.querySelector("[data-oplog]");
+    if (!log) return;
+    log.hidden = false;
+    log.textContent = lines.join("\n");
+    log.scrollTop = log.scrollHeight;
   }
 
-  // --- SSE consumption: reactive re-render, no polling ---
+  // --- New Workspace wizard (#156, spec §7/§8): live derivation and
+  // row toggles ride delegated events — HTMX swaps the fragments, so
+  // nothing is bound to specific nodes here.
+
+  // deriveName mirrors the server's newworkspace rule: the repo URL's
+  // basename, .git suffix stripped.
+  function deriveName(url) {
+    var u = url;
+    if (u.indexOf("https://") === 0) u = u.slice("https://".length);
+    else if (u.indexOf("ssh://") === 0) u = u.slice("ssh://".length);
+    else if (u.indexOf("git@") === 0) { var c = u.indexOf(":"); if (c >= 0) u = u.slice(c + 1); }
+    if (!u) return "";
+    var li = u.lastIndexOf("/");
+    if (li >= 0) u = u.slice(li + 1);
+    return u.replace(/\.git$/, "");
+  }
+
+  function wizardForm(el) { return el.closest('[data-role="new-workspace-form"]'); }
+  function q(form, sel) { return form.querySelector(sel); }
+  function setHidden(el, hidden) {
+    if (!el) return;
+    if (hidden) el.setAttribute("data-hidden", "1");
+    else el.removeAttribute("data-hidden");
+  }
+
+  // name derivation: the workspace name derives live from the repo URL
+  // in From Repo until hand-edited (the TUI's prefill rule).
+  document.addEventListener("input", function (ev) {
+    var form = wizardForm(ev.target);
+    if (!form) return;
+    if (ev.target.name === "name") form.dataset.nameManual = "1";
+    if (ev.target.name === "repo_url" && q(form, '[name="source"][value="repo"]').checked &&
+        !form.dataset.nameManual) {
+      q(form, '[name="name"]').value = deriveName(ev.target.value);
+    }
+  });
+
+  function applySource(form) {
+    var repo = q(form, '[name="source"][value="repo"]').checked;
+    var row = q(form, '[data-row="repo_url"]');
+    if (row) {
+      if (repo) row.removeAttribute("data-repo-only");
+      else row.setAttribute("data-repo-only", "1");
+    }
+    if (repo && !form.dataset.nameManual) {
+      q(form, '[name="name"]').value = deriveName(q(form, '[name="repo_url"]').value);
+    }
+  }
+
+  function applyAgent(form) {
+    var agentSel = q(form, '[data-role="wizard-agent"]');
+    var row = q(form, '[data-row="edition"]');
+    if (agentSel.value === "pkm") { // pkm pins the edition — the row hides
+      row.setAttribute("data-pkm-pin", "1");
+      q(form, '[data-role="wizard-edition"]').value = "pkm";
+    } else {
+      if (row.getAttribute("data-pkm-pin") !== null) {
+        row.removeAttribute("data-pkm-pin");
+        q(form, '[data-role="wizard-edition"]').value = "swdev"; // §6 preselect
+      }
+    }
+  }
+
+  function applyEditionPreset(form) {
+    // §6: HIL presets on for embedded creations — a preset, not a pin:
+    // the user can toggle it right back off in the same row.
+    var ed = q(form, '[data-role="wizard-edition"]').value;
+    var hil = q(form, '[name="hil"]');
+    if (hil) hil.checked = ed === "embedded";
+  }
+
+  // catalog selects: the inline "New…" rows and the token input appear
+  // per selection; "none" hides both (the empty default).
+  function applyCatalogSelect(form, selRole, newRow, tokenRow) {
+    var v = q(form, selRole).value;
+    setHidden(q(form, newRow), v !== "new");
+    setHidden(q(form, tokenRow), v === "none");
+  }
+
+  document.addEventListener("change", function (ev) {
+    var form = wizardForm(ev.target);
+    if (!form) return;
+    if (ev.target.name === "source") applySource(form);
+    else if (ev.target.name === "agent") applyAgent(form);
+    else if (ev.target.name === "edition") applyEditionPreset(form);
+    else if (ev.target.name === "vcs") applyCatalogSelect(form, '[name="vcs"]', '[data-row="vcs_new"]', '[data-row="vcs_token"]');
+    else if (ev.target.name === "provider") applyCatalogSelect(form, '[name="provider"]', '[data-row="provider_new"]', '[data-row="provider_token"]');
+  });
+
+  // onCreateWorkspace reacts to the create chain's terminal workspace
+  // event ({op, state}): success swaps a fresh empty wizard (the TUI
+  // resets the form too); failure wakes the form for a retry while the
+  // pane stays readable.
+  function onCreateWorkspace(data) {
+    if (!data.op) return; // plain card re-render (Open screen ticket)
+    var pane = document.querySelector('[data-role="create-log"][data-op-id="' + data.op + '"]');
+    if (!pane) return;
+    if (data.state === "done") {
+      // success: a fresh empty wizard (the TUI resets the form too)
+      htmx.ajax("GET", base + "workspaces/new", { target: "#new-workspace", swap: "outerHTML" });
+    } else {
+      // failure: the pane stays readable, the form wakes for a retry
+      var fs = document.querySelector('[data-role="wizard-fields"]');
+      if (fs) fs.disabled = false;
+    }
+  }
+
+
+  // Stub screen (#152 foundation): per-screen tickets replace it —
+  // catalogs (#155) and the New Workspace wizard (#156) already do.
+  // --- screens (#158): containers + images load as HTML fragments; the
+  // log pane's streamed lines live in JS memory, so the reactive
+  // workspace re-renders never lose build output ---
+  var screenPaths = { "set-containers": "containers", "set-images": "images" };
+  var currentScreen = null;
+  var logLines = {};   // op id → array of streamed lines
+  var lastLineId = 0;  // SSE id dedupe across reconnect replay
+
+  function loadScreen(name) {
+    fetch(base + name, { referrerPolicy: "no-referrer" })
+      .then(function (r) { return r.text(); })
+      .then(function (html) {
+        currentScreen = name;
+        screenEl.innerHTML = html;
+        restoreLog();
+      })
+      .catch(function () { /* server may be gone; SSE shutdown covers it */ });
+  }
+
+  // restoreLog re-fills the current log pane from streamed memory.
+  function restoreLog() {
+    var pane = screenEl.querySelector('[data-role="log"]');
+    if (!pane) return;
+    var op = parseInt(pane.getAttribute("data-op"), 10) || 0;
+    if (!op) return;
+    var lines = logLines[op] || [];
+    pane.textContent = lines.join("\n");
+    if (lines.length) pane.scrollTop = pane.scrollHeight;
+  }
+
+  // --- shared confirm popup (ADR-0021 set): per-action copy, Cancel-safe ---
+  var confirmEl = document.querySelector('[data-role="confirm"]');
+  var confirmState = null;
+  function showConfirm(title, body, okLabel, onOk) {
+    confirmState = onOk;
+    confirmEl.querySelector('[data-role="confirm-title"]').textContent = title;
+    confirmEl.querySelector('[data-role="confirm-body"]').textContent = body;
+    confirmEl.querySelector('[data-role="confirm-ok"]').textContent = okLabel;
+    confirmEl.hidden = false;
+    confirmEl.querySelector('[data-role="confirm-cancel"]').focus();
+  }
+  confirmEl.addEventListener("click", function (ev) {
+    if (confirmState && ev.target.closest('[data-role="confirm-ok"]')) {
+      var ok = confirmState;
+      confirmState = null;
+      confirmEl.hidden = true;
+      ok();
+    } else if (ev.target.closest('[data-role="confirm-cancel"]') || ev.target === confirmEl) {
+      confirmState = null;
+      confirmEl.hidden = true;
+    }
+  });
+
+  // --- toasts ---
+  var toastsEl = document.querySelector('[data-role="toasts"]');
+  function toast(text, kind) {
+    var el = document.createElement("div");
+    el.className = "toast" + (kind ? " " + kind : "");
+    el.textContent = text;
+    toastsEl.appendChild(el);
+    setTimeout(function () { el.remove(); }, 6000);
+  }
+
+  // --- container/image actions (#158): buttons carry data-action +
+  // data-href (+ optional data-confirm / data-danger / data-tag).
+  // Confirmed actions fire the POST only on confirm — the popup set
+  // carried 1:1 (stop/delete container, build, delete image; the
+  // deletes the danger ones). Confirms refuse while an op is
+  // queued/running: the busy fragment comes back from the server and
+  // swaps in like any other response.
+  screenEl.addEventListener("click", function (ev) {
+    var btn = ev.target.closest("button[data-action]");
+    if (!btn || btn.disabled) return;
+    ev.preventDefault();
+    var href = btn.dataset.href;
+    function go(form) {
+      fetch(base + href, {
+        method: "POST",
+        body: form || null,
+        headers: form ? { "Content-Type": "application/x-www-form-urlencoded" } : undefined,
+        referrerPolicy: "no-referrer"
+      })
+        .then(function (r) { return r.text(); })
+        .then(function (html) {
+          screenEl.innerHTML = html;
+          restoreLog();
+          var refused = screenEl.querySelector('[data-toast]');
+          if (refused) toast(refused.textContent, "warn");
+        })
+        .catch(function () { /* SSE shutdown covers a dead server */ });
+    }
+    if (btn.dataset.confirm) {
+      showConfirm(
+        btn.dataset.confirm,
+        "",
+        btn.dataset.danger !== undefined ? "Delete" : "Confirm",
+        function () {
+          go(btn.dataset.action === "img-delete"
+            ? "tag=" + encodeURIComponent(btn.dataset.tag)
+            : null);
+        }
+      );
+      return;
+    }
+    go(null);
+  });
+
+  // --- §12 update phases: footer banner + Update card render purely
+  //     from the one SSE `update` event; the run streams its log into
+  //     the pane under the card; there is no in-WebUI restart.
+  var bannerEl = document.querySelector('[data-role="update-banner"]');
+  var updateOp = null; // the running/last update op — the log pane's filter
+  function onUpdate(ev) {
+    var st;
+    try { st = JSON.parse(ev.data); } catch (e) { return; }
+    if (st.op) updateOp = st.op;
+    renderBanner(st);
+    renderUpdateCard(st);
+    if (st.phase === "applied") {
+      toast("Update installed — restart oc-sandbox to apply.", "ok");
+    } else if (st.phase === "failed") {
+      toast("Update failed: " + (st.error || "see the log"), "warn");
+    }
+  }
+  function renderBanner(st) {
+    if (st.phase === "available") {
+      bannerEl.textContent = "Update available: " + (st.latest || "");
+      bannerEl.className = "banner";
+      bannerEl.hidden = false;
+    } else if (st.phase === "installing") {
+      bannerEl.textContent = "Updating oc-sandbox…";
+      bannerEl.className = "banner";
+      bannerEl.hidden = false;
+    } else if (st.phase === "failed") {
+      bannerEl.textContent = "Update failed — see Settings → Update.";
+      bannerEl.className = "banner danger";
+      bannerEl.hidden = false;
+    } else { // up-to-date / applied: the banner clears (§12)
+      bannerEl.hidden = true;
+    }
+  }
+  function renderUpdateCard(st) {
+    var card = document.querySelector('[data-role="update-card"]');
+    if (!card) return;
+    var rowVerdict = card.querySelector('[data-role="update-verdict"]');
+    var rowInstalled = card.querySelector('[data-role="update-installed"]');
+    var rowLatest = card.querySelector('[data-role="update-latest"]');
+    var rowError = card.querySelector('[data-role="update-error"]');
+    var rowNote = card.querySelector('[data-role="update-note"]');
+    var runBtn = card.querySelector('[data-role="update-run"]');
+    if (st.installed && rowInstalled) rowInstalled.textContent = "Installed version: " + st.installed;
+    if (st.latest && rowLatest && st.phase !== "installing") rowLatest.textContent = "Latest version: " + st.latest;
+    var verdict = { "available": "Update available!", "up-to-date": "You are up to date.", "installing": "Updating…" }[st.phase] || "";
+    if (rowVerdict) {
+      rowVerdict.textContent = verdict;
+      rowVerdict.dataset.phase = st.phase;
+    }
+    if (rowError) { // the failure stays visible until the next attempt
+      if (st.phase === "failed") {
+        rowError.textContent = "Update failed: " + (st.error || "");
+        rowError.hidden = false;
+      } else if (st.phase === "installing" || st.phase === "applied") {
+        rowError.hidden = true; // the next attempt started / succeeded
+      }
+    }
+    if (rowNote) rowNote.hidden = st.phase !== "applied";
+    if (runBtn) {
+      if (st.phase === "installing") runBtn.setAttribute("disabled", "");
+      else runBtn.removeAttribute("disabled");
+    }
+  }
+
+  // --- the update run behind the shared confirm popup (§12): the popup
+  //     copy carries the keep-note; the POST answers at once, phases
+  //     stream via /events ---
+  document.addEventListener("click", function (ev) {
+    var runBtn = ev.target.closest('[data-role="update-run"]');
+    if (!runBtn || runBtn.hasAttribute("disabled")) return;
+    ev.preventDefault();
+    showConfirm(
+      runBtn.dataset.confirmTitle || "Update oc-sandbox?",
+      runBtn.dataset.confirmBody || "",
+      "Update",
+      function () {
+        htmx.ajax("POST", base + "update/run", { target: '[data-role="update-card"]', swap: "outerHTML" });
+      }
+    );
+  });
+
+    es.addEventListener("update", function (ev) { onUpdate(ev); });
+
+  // Stub screen (#152 foundation): one Standard row, one advanced-only
+  // row (stored value survives the Standard view — presets, not
+  // pinning), and the presets hint. Per-screen tickets (#153,
+  // #155–#157) replace this with real rows driven by the Go matrix.
+  function renderStub(nav) {
+    screenEl.innerHTML =
+      '<div class="stub">Screen "' + nav + '" arrives with its ticket.</div>' +
+      '<div class="row"><span class="label">AI-Provider</span>(none)</div>' +
+      '<div class="row" data-advanced-only><span class="label">Search mode</span>searxng</div>' +
+      '<div class="row hint">presets, see Advanced</div>';
+  }
+
+  // --- SSE hub: one stream per tab, reconnect replay via line serial ---
   function connect() {
     var es = new EventSource(base + "events");
     es.addEventListener("open", function () { /* stub: clear reconnect exhaustion UI */ });
-    es.addEventListener("line", function (ev) { appendLine(ev); });
-    es.addEventListener("workspace", function (ev) { renderWorkspaces(); });
-    es.addEventListener("update", function (ev) { stubEvent("update", ev); });
+    es.addEventListener("line", function (ev) { onLine(ev); });
+    es.addEventListener("workspace", function (ev) {
+      // reactive re-render (#158, spec §9): fresh rows/markers after
+      // every op state change — the log pane re-fills from memory
+      var d = null;
+      try { d = JSON.parse(ev.data); } catch (e) {}
+      if (d && d.state) onCreateWorkspace(d); // the create chain's terminal event (#156)
+      else if (currentNav === "ws-open") renderWorkspaces(); // #153: reactive cards
+      else if (currentScreen) loadScreen(currentScreen);
+    });
+    es.addEventListener("update", function (ev) { onUpdate(ev); });
     es.addEventListener("shutdown", function () {
       es.close();
       screenEl.innerHTML =
@@ -287,36 +660,54 @@
     return es;
   }
 
-  // Line events stream into the busy card's log (matched by op id, §9);
-  // lines are kept per op so re-renders never lose the stream.
-  var opLogs = {};
-  function appendLine(ev) {
-    var data;
-    try { data = JSON.parse(ev.data); } catch (e) { return; }
-    opLogs[data.op] = (opLogs[data.op] || "") + data.text + "\n";
-    forEachCard(function (card) { applyLogs(card); });
+  // Line events stream into the embedded log pane under the Update card
+  // while the update op runs (spec §12) — keyed by the op ID the update
+  // event carries. #158: build lines stream the same way into the image
+  // screen's log pane, buffered in JS memory across re-renders.
+  function onLine(ev) {
+    var id = parseInt(ev.lastEventId, 10) || 0;
+    var replayed = lastLineId > 0 && id > 0 && id <= lastLineId;
+    if (id > lastLineId) lastLineId = id;
+    var line;
+    try { line = JSON.parse(ev.data); } catch (e) { return; }
+    // buffered copy for the container/image log panes (#158); replayed
+    // lines are already in memory, so they are not appended twice
+    if (line.op && !replayed) {
+      if (!logLines[line.op]) logLines[line.op] = [];
+      logLines[line.op].push(line.text);
+      var pane = screenEl.querySelector('[data-role="log"]');
+      if (pane && (parseInt(pane.getAttribute("data-op"), 10) || 0) === line.op) {
+        pane.textContent = logLines[line.op].join("\n");
+        pane.scrollTop = pane.scrollHeight;
+      }
+      // the create chain streams into the log pane under the wizard (#156)
+      // #153: the busy card's log streams by the same op id
+      var opcard = document.querySelector('.card[data-op-id="' + line.op + '"]');
+      if (opcard) {
+        var oplog = opcard.querySelector("[data-oplog]");
+        if (oplog) {
+          oplog.hidden = false;
+          oplog.textContent += line.text + "\n";
+          oplog.scrollTop = oplog.scrollHeight;
+        }
+      }
+      var cpane = document.querySelector('[data-role="create-log"][data-op-id="' + line.op + '"]');
+      if (cpane) {
+        var div = document.createElement("div");
+        div.className = "logline";
+        div.textContent = line.text;
+        cpane.appendChild(div);
+        cpane.scrollTop = cpane.scrollHeight;
+      }
+    }
+    var card = document.querySelector('[data-role="update-card"]');
+    var upane = card && card.querySelector('[data-role="update-log"]');
+    if (upane && updateOp !== null && line.op === updateOp) {
+      upane.hidden = false;
+      upane.textContent += (upane.textContent ? "\n" : "") + line.text;
+      upane.scrollTop = upane.scrollHeight;
+    }
   }
-
-  function forEachCard(fn) {
-    document.querySelectorAll(".card[data-op-id]").forEach(fn);
-  }
-
-  // applyLogs re-fills a card's log from the kept per-op lines.
-  function applyLogs(card) {
-    var op = card.getAttribute("data-op-id");
-    var text = opLogs[op];
-    if (!text) return;
-    var log = card.querySelector("[data-oplog]");
-    if (!log) return;
-    log.hidden = false;
-    log.textContent = text;
-    log.scrollTop = log.scrollHeight;
-  }
-
-  // The grid re-render from a workspace event keeps busy logs visible.
-  screenEl.addEventListener("htmx:afterSwap", function () {
-    forEachCard(function (card) { applyLogs(card); });
-  });
 
   function stubEvent(kind, ev) {
     // The per-screen tickets consume these; the shell only holds the door.
@@ -324,7 +715,6 @@
   }
 
   // Open Workspace is the primary screen — load it at start (#153).
-  currentNav = "ws-open";
   var openBtn = document.querySelector('[data-nav="ws-open"]');
   if (openBtn) openBtn.classList.add("active");
   renderWorkspaces();

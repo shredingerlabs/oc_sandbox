@@ -3,6 +3,7 @@ package webserver
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/shredingerlabs/oc-sandbox/internal/cmdrun"
 )
@@ -54,10 +55,10 @@ func TestFrontendCardStyles(t *testing.T) {
 	}
 }
 
-// The card fragment carries the op id on the busy card so the streamed
-// line events land in the right card's log — across re-renders too
-// (GET re-renders the op id from the queue), and confirms refuse while
-// an op is queued/running (§9).
+// The busy card carries the op id so the streamed line events land in
+// the right card's log — across re-renders too (GET re-renders the op
+// id from the queue), and confirms refuse while an op is
+// queued/running (§9).
 func TestCardFragmentCarriesOpID(t *testing.T) {
 	home := t.TempDir()
 	seedWorkspace(t, home, "alpha", "swdev", nil)
@@ -70,19 +71,31 @@ func TestCardFragmentCarriesOpID(t *testing.T) {
 	}}
 	s := startServerWith(t, home, fake)
 
-	resp := post(t, s.URL()+"workspaces/alpha/start", nil)
-	if frag := body(t, resp); !strings.Contains(frag, `data-op-id="`) {
-		t.Fatalf("busy card missing data-op-id, got:\n%s", frag)
-	}
+	postMap(t, s.URL()+"workspaces/alpha/start", nil)
+	waitForBusyCard(t, s, "alpha")
 
-	// A GET re-render (SSE workspace event path) still carries the op
-	// id, and the confirm buttons refuse while the op runs.
+	// A GET render (SSE workspace event path) carries the op id, and
+	// the confirm buttons refuse while the op runs.
 	doc := body(t, get(t, s.URL()+"workspaces"))
 	if !strings.Contains(doc, `data-op-id="`) {
-		t.Fatal("GET re-render lost the busy card's op id")
+		t.Fatal("busy card lost its op id")
 	}
 	if !strings.Contains(doc, `data-confirm="stop" disabled`) {
 		t.Fatal("confirms must refuse while an op is queued/running")
 	}
 	close(release)
+}
+
+// waitForBusyCard polls (bounded) until the workspace renders busy —
+// the op runs on a server goroutine.
+func waitForBusyCard(t *testing.T, s *Server, name string) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if strings.Contains(body(t, get(t, s.URL()+"workspaces")), `data-busy`) {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatal("card never rendered busy")
 }

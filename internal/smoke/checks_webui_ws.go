@@ -26,11 +26,11 @@ import (
 // workspaces), the fresh-per-request pair link and the headless access
 // fallback. The runner is faked; nothing external is touched.
 func checkWebUIWorkspaces(home, root string) Item {
-	p := newPhase("A10", "Open Workspace screen: cards, ?q= filter, start chain with Container-center reuse, taskmgr queue semantics (one-at-a-time per workspace), fresh pair link, access variants + headless fallback (#153)")
+	p := newPhase("A11", "Open Workspace screen: cards, ?q= filter, start chain with Container-center reuse, taskmgr queue semantics (one-at-a-time per workspace), fresh pair link, access variants + headless fallback (#153)")
 
 	// Fixture install: two workspaces with distinct sandbox configs.
-	rootA := seedWSFixture(home, "alpha", "swdev", []string{}, "web")
-	rootB := seedWSFixture(home, "beta", "web", []string{"hil_mode"}, "console")
+	rootA := seedWSFixture(home, "mural", "swdev", []string{}, "web")
+	rootB := seedWSFixture(home, "lab", "web", []string{"hil_mode"}, "console")
 
 	var mu sync.Mutex
 	bashArgs := [][]string{} // full start.sh invocation vectors
@@ -73,7 +73,12 @@ func checkWebUIWorkspaces(home, root string) Item {
 	spawned := ""
 	headless := struct{ on bool }{}
 	s := webserver.New(webserver.Options{
-		BasePort: 0, Home: home, Runner: fake,
+		BasePort: 0, Home: home,
+		Deps: &webserver.Deps{
+			Run:         fake,
+			Registry:    &registry.Registry{Home: home},
+			StartScript: filepath.Join(home, ".oc-sandbox", "scripts", "start.sh"),
+		},
 		TerminalSpawn: func(command string) error {
 			if headless.on {
 				return &spawnErr{}
@@ -116,7 +121,7 @@ func checkWebUIWorkspaces(home, root string) Item {
 	// — unsafe verbs included.
 	base := strings.Replace(s.URL(), "/t/"+s.Token()+"/", "/", 1)
 	for _, route := range []string{
-		"workspaces/alpha/start", "workspaces/alpha/access", "workspaces/alpha/pair-link",
+		"workspaces/mural/start", "workspaces/mural/access", "workspaces/mural/pair-link",
 	} {
 		for _, prefix := range []string{base, base + "t/00000000000000000000000000000000/"} {
 			resp, _ := post(prefix+route, map[string]string{"variant": "console"})
@@ -133,7 +138,7 @@ func checkWebUIWorkspaces(home, root string) Item {
 		p.reasonf("GET /workspaces: want 200, got %v", respStatusCT(resp))
 	} else {
 		for _, want := range []string{
-			`data-ws="alpha"`, `data-ws="beta"`,
+			`data-ws="mural"`, `data-ws="lab"`,
 			`img/editions/swdev.svg`, `img/editions/web.svg`,
 			`data-chip="hil"`,
 			`data-act="open" data-variant="web"`,
@@ -150,24 +155,24 @@ func checkWebUIWorkspaces(home, root string) Item {
 	}
 
 	// Server-side ?q= filtering.
-	_, qbody := get(s.URL() + "workspaces?q=alp")
-	if !strings.Contains(qbody, `data-ws="alpha"`) || strings.Contains(qbody, `data-ws="beta"`) {
+	_, qbody := get(s.URL() + "workspaces?q=mur")
+	if !strings.Contains(qbody, `data-ws="mural"`) || strings.Contains(qbody, `data-ws="lab"`) {
 		p.reasonf("?q=alp must filter server-side")
 	}
 
 	// Queue semantics (mirror taskmgr): the first alpha start runs; the
 	// second is queued-not-refused (200 while alpha runs); the beta
 	// start runs IN PARALLEL with the still-running alpha op.
-	r1, frag1 := post(s.URL()+"workspaces/alpha/start", nil)
-	if r1 == nil || r1.StatusCode != http.StatusOK || !strings.Contains(frag1, `data-ws="alpha"`) {
-		p.reasonf("start: want 200 + card fragment, got %v", respStatusCT(r1))
+	r1, _ := post(s.URL()+"workspaces/mural/start", nil)
+	if r1 == nil || r1.StatusCode != http.StatusOK {
+		p.reasonf("start: want 200, got %v", respStatusCT(r1))
 	}
 	waitForBashRoot(p, &mu, &bashArgs, rootA, "first alpha start")
-	r2, _ := post(s.URL()+"workspaces/alpha/start", nil)
+	r2, _ := post(s.URL()+"workspaces/mural/start", nil)
 	if r2 == nil || r2.StatusCode != http.StatusOK {
 		p.reasonf("queued start must be 200 (queued-not-refused), got %v", respStatusCT(r2))
 	}
-	if _, bfrag := post(s.URL()+"workspaces/beta/start", nil); bfrag == "" {
+	if _, bfrag := post(s.URL()+"workspaces/lab/start", nil); bfrag == "" {
 		p.reasonf("beta start: want 200")
 	} else {
 		waitForBashRoot(p, &mu, &bashArgs, rootB, "beta start while alpha still runs")
@@ -188,8 +193,8 @@ func checkWebUIWorkspaces(home, root string) Item {
 
 	// Verified start flips the registry; a further start reuses the
 	// running container — no new script run.
-	waitRegistry(p, home, "alpha", "running")
-	r3, _ := post(s.URL()+"workspaces/alpha/start", nil)
+	waitRegistry(p, home, "mural", "running")
+	r3, _ := post(s.URL()+"workspaces/mural/start", nil)
 	if r3 == nil || r3.StatusCode != http.StatusOK {
 		p.reasonf("reuse start: want 200, got %v", respStatusCT(r3))
 	}
@@ -198,8 +203,8 @@ func checkWebUIWorkspaces(home, root string) Item {
 	}
 
 	// Pair link: fresh per request, both fields in the sidecar (§10).
-	first := postSidecar(p, s.URL()+"workspaces/beta/pair-link")
-	second := postSidecar(p, s.URL()+"workspaces/beta/pair-link")
+	first := postSidecar(p, s.URL()+"workspaces/lab/pair-link")
+	second := postSidecar(p, s.URL()+"workspaces/lab/pair-link")
 	if first["pair_link"] == "" || first["pair_link"] == second["pair_link"] {
 		p.reasonf("pair link must be fresh per request: %v vs %v", first["pair_link"], second["pair_link"])
 	}
@@ -208,7 +213,7 @@ func checkWebUIWorkspaces(home, root string) Item {
 	}
 
 	// Access console: spawns the host terminal with the exact command.
-	_, abody := post(s.URL()+"workspaces/beta/access", map[string]string{"variant": "console"})
+	_, abody := post(s.URL()+"workspaces/lab/access", map[string]string{"variant": "console"})
 	if !strings.Contains(abody, `"opened":true`) ||
 		!strings.Contains(abody, `"command":"podman exec -it --user dev opencode-sandbox-`) {
 		p.reasonf("console access sidecar = %s", abody)
@@ -220,7 +225,7 @@ func checkWebUIWorkspaces(home, root string) Item {
 	// Headless fallback: spawn failure renders the exact copyable
 	// command, the session stays pending (§3).
 	headless.on = true
-	_, hbody := post(s.URL()+"workspaces/beta/access", map[string]string{"variant": "console"})
+	_, hbody := post(s.URL()+"workspaces/lab/access", map[string]string{"variant": "console"})
 	if !strings.Contains(hbody, `"opened":false`) || !strings.Contains(hbody, `"command":"podman exec -it --user dev opencode-sandbox-`) {
 		p.reasonf("headless fallback sidecar = %s", hbody)
 	}

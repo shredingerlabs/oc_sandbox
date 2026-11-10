@@ -7,7 +7,6 @@ import (
 	"runtime"
 	"strings"
 	"testing"
-	"time"
 )
 
 // terminalArgv mirrors the per-terminal -e conventions (§3).
@@ -31,19 +30,6 @@ func TestTerminalArgvConventions(t *testing.T) {
 			t.Fatalf("%s argv %v loses the command", c.term, got)
 		}
 	}
-}
-
-// waitFor polls (bounded) until poll() succeeds.
-func waitFor(t *testing.T, what string, poll func() bool) {
-	t.Helper()
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		if poll() {
-			return
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
-	t.Fatalf("%s never happened", what)
 }
 
 // spawnLinux probes the §3 list via LookPath and launches the first hit

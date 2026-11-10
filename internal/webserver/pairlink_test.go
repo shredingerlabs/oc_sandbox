@@ -103,7 +103,7 @@ func TestPairLinkNoPublishedPort(t *testing.T) {
 // Unknown workspace refuses.
 func TestPairLinkUnknownWorkspace(t *testing.T) {
 	s := startFixtureServer(t, t.TempDir())
-	if resp := post(t, s.URL()+"workspaces/nope/pair-link", nil); resp.StatusCode != http.StatusNotFound {
+	if resp := postMap(t, s.URL()+"workspaces/nope/pair-link", nil); resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("status = %d, want 404", resp.StatusCode)
 	}
 }
@@ -117,7 +117,7 @@ func (e *staticErr) Error() string { return e.msg }
 // postJSON posts and decodes the JSON sidecar.
 func postJSON(t *testing.T, url string) pairLinkView {
 	t.Helper()
-	resp := post(t, url, nil)
+	resp := postMap(t, url, nil)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("POST %s: status = %d, want 200", url, resp.StatusCode)
 	}

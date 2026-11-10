@@ -192,10 +192,10 @@ func (s *Server) cardFor(e registry.Workspace, mode string) cardView {
 		LastUsed:    relativeLastUsed(e.LastUsed, s.now()),
 		OpenVariant: "web", // Standard: always web, never a terminal concept (§6)
 		Advanced:    mode == config.DisplayAdvanced,
-		Busy:        s.queue.Busy(registry.ContainerIdentity(e.Path)),
+		Busy:        s.queue.BusyKey(registry.ContainerName(e.ContainerID)),
 	}
 	if c.Busy {
-		c.OpID = s.queue.CurrentOp(registry.ContainerIdentity(e.Path))
+		c.OpID = s.queue.CurrentOpID(registry.ContainerName(e.ContainerID))
 	}
 	cfg, err := sandboxcfg.Read(sandboxcfg.Path(e.Path))
 	if err != nil {
