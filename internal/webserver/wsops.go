@@ -145,7 +145,7 @@ func (s *Server) handleWorkspaceAdopt(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	variant := r.PostFormValue("variant")
-	if variant != "console" && variant != "opencode" && variant != "web" {
+	if !validVariant(variant) {
 		http.Error(w, "invalid variant", http.StatusBadRequest)
 		return
 	}

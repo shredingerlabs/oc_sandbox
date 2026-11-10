@@ -86,6 +86,13 @@ func (s *Server) handlePairLink(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write([]byte(jsonMarshal(v)))
 }
 
+// validVariant is the shared console/opencode/web triad check — the
+// one validation the access verbs, the adopt confirm, the variant
+// start POST and the workspace-settings start_option row enforce.
+func validVariant(v string) bool {
+	return v == "console" || v == "opencode" || v == "web"
+}
+
 // handleAccess serves POST /workspaces/{name}/access (§9) with
 // variant=console|opencode|web: console/OpenCode spawn a host terminal
 // window (§3 machinery) — or the headless fallback renders the exact
@@ -102,7 +109,7 @@ func (s *Server) handleAccess(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	variant := r.PostFormValue("variant")
-	if variant != "console" && variant != "opencode" && variant != "web" {
+	if !validVariant(variant) {
 		http.Error(w, "invalid variant", http.StatusBadRequest)
 		return
 	}
