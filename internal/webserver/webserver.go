@@ -108,12 +108,17 @@ func (s *Server) Start() error {
 	s.ln = ln
 	s.url = fmt.Sprintf("http://127.0.0.1:%d/t/%s/", ln.Addr().(*net.TCPAddr).Port, s.token)
 
+	// Two-layer routing: the outer mux answers the token-less healthz
+	// probe and hands everything else to the token-validating inner
+	// mux, which routes on the stripped paths (/events, /, /css/…).
+	inner := http.NewServeMux()
+	inner.Handle("/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.FileServerFS(assetsFS).ServeHTTP(w, r)
+	}))
+	inner.HandleFunc("GET /events", s.hub.serveEvents)
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", s.handleHealthz)
-	mux.Handle("/", s.auth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		http.FileServerFS(assetsFS).ServeHTTP(w, r)
-	})))
-	mux.Handle("GET /events", s.auth(http.HandlerFunc(s.hub.serveEvents)))
+	mux.Handle("/", s.auth(inner))
 	s.srv = &http.Server{
 		Handler:  mux,
 		ErrorLog: log.New(s.errSink, "", 0), // token never reaches logs
@@ -169,6 +174,8 @@ func (s *Server) auth(next http.Handler) http.Handler {
 		}
 		if remainder == "" {
 			remainder = "/" // /t/<token>/ is the shell root
+		} else if remainder[0] != '/' {
+			remainder = "/" + remainder
 		}
 		r.URL.Path = remainder
 		next.ServeHTTP(w, r)
