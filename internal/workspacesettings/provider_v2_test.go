@@ -21,21 +21,21 @@ func TestReadEntriesV2AndLegacyShapes(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "opencode.json"), []byte(doc), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	entries := readEntries(root)
+	entries := ReadProviderEntries(root)
 	if len(entries) != 2 {
 		t.Fatalf("entries = %d (%v), want 2", len(entries), entries)
 	}
-	byID := map[string]entry{}
+	byID := map[string]Entry{}
 	for _, e := range entries {
-		byID[e.id] = e
+		byID[e.ID] = e
 	}
-	if byID["v2-api"].endpoint != "https://v2.example.com/v1" || byID["v2-api"].name != "V2 API" {
+	if byID["v2-api"].Endpoint != "https://v2.example.com/v1" || byID["v2-api"].Name != "V2 API" {
 		t.Fatalf("v2 entry wrong: %+v", byID["v2-api"])
 	}
-	if byID["old-api"].endpoint != "https://old.example.com/v1" {
+	if byID["old-api"].Endpoint != "https://old.example.com/v1" {
 		t.Fatalf("legacy entry endpoint wrong: %+v", byID["old-api"])
 	}
-	if !byID["v2-api"].orphan || !byID["old-api"].orphan {
+	if !byID["v2-api"].Orphan || !byID["old-api"].Orphan {
 		t.Fatalf("entries without stored credentials must be orphaned: %+v", entries)
 	}
 }
@@ -57,8 +57,8 @@ func TestReadEntriesCredentialSources(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "opencode.json"), []byte(doc), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	entries := readEntries(root)
-	if len(entries) != 1 || entries[0].endpoint != "https://v2.example.com/v1" {
+	entries := ReadProviderEntries(root)
+	if len(entries) != 1 || entries[0].Endpoint != "https://v2.example.com/v1" {
 		t.Fatalf("v2 section must outrank the legacy shape: %+v", entries)
 	}
 
@@ -71,8 +71,8 @@ func TestReadEntriesCredentialSources(t *testing.T) {
 		[]byte(`{"dual": {"type": "api", "key": "legacy-tok"}}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	entries = readEntries(root)
-	if entries[0].token != "legacy-tok" || entries[0].orphan {
+	entries = ReadProviderEntries(root)
+	if entries[0].Token != "legacy-tok" || entries[0].Orphan {
 		t.Fatalf("legacy auth.json fallback broken: %+v", entries[0])
 	}
 	if !HasCredential(root, "dual") {
@@ -87,8 +87,8 @@ func TestReadEntriesCredentialSources(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(credDir, "dual"), []byte("file-tok\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	entries = readEntries(root)
-	if entries[0].token != "file-tok" {
+	entries = ReadProviderEntries(root)
+	if entries[0].Token != "file-tok" {
 		t.Fatalf("credential file must outrank legacy auth.json: %+v", entries[0])
 	}
 	if !HasCredential(root, "dual") {
