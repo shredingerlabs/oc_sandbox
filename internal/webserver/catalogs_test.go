@@ -118,7 +118,7 @@ func TestTrackersAddWritesCatalogFile(t *testing.T) {
 		`"git_email": "ada@example.com"`,
 		`"kind": "gitlab_self"`,
 		`"host": "gitlab.example.com"`,
-		`"version": "1.0"`,
+		`"version": "2.0"`,
 	} {
 		if !strings.Contains(file, want) {
 			t.Fatalf("catalogs.json missing %q — file:\n%s", want, file)
@@ -224,7 +224,7 @@ func TestProvidersAdd(t *testing.T) {
 	for _, want := range []string{
 		`"name": "OpenRouter"`,
 		`"endpoint": "https://openrouter.ai/api/v1"`,
-		`"version": "1.0"`,
+		`"version": "2.0"`,
 	} {
 		if !strings.Contains(file, want) {
 			t.Fatalf("catalogs.json missing %q — file:\n%s", want, file)

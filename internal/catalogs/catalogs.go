@@ -93,14 +93,14 @@ func Read(home string) Data {
 }
 
 // WriteFile persists data atomically with backup rotation; an existing
-// version key is preserved, a fresh file starts at 1.0 (the migration's
-// stage 6 owns the 2.0 completion marker — written after seeding).
+// version key is preserved, a fresh file starts at the 2.0 marker (§2
+// guard: a fresh install never re-enters the migration).
 func WriteFile(home string, d Data) error {
 	doc := &jsonfmt.Doc{Entries: []jsonfmt.Entry{
 		{Key: "trackers", Val: trackerDocs(d.Trackers)},
 		{Key: "providers", Val: providerDocs(d.Providers)},
 	}}
-	version := "1.0"
+	version := "2.0" // the migration-complete marker (§2 guard: fresh installs never re-enter the migration)
 	if old, err := docFile(home); err == nil {
 		if v := old.GetString("version", ""); v != "" {
 			version = v
@@ -141,7 +141,8 @@ func providerDocs(ps []Provider) []any {
 }
 
 // EnsureFile creates an empty catalogs.json when absent (fresh installs;
-// the migration seeds the file itself and leaves existing entries alone).
+// the migration seeds the file itself and leaves existing entries alone)
+// at the 2.0 marker so the §2 guard never re-runs on a fresh install.
 func EnsureFile(home string) error {
 	path := config.Paths{Home: home}.CatalogsPath()
 	if _, err := os.Stat(path); err == nil {
@@ -151,7 +152,7 @@ func EnsureFile(home string) error {
 	doc := &jsonfmt.Doc{Entries: []jsonfmt.Entry{
 		{Key: "trackers", Val: trackerDocs(empty.Trackers)},
 		{Key: "providers", Val: providerDocs(empty.Providers)},
-		{Key: "version", Val: "1.0"},
+		{Key: "version", Val: "2.0"},
 	}}
 	return config.AtomicWrite(home, path, jsonfmt.Marshal(doc))
 }

@@ -46,6 +46,40 @@ func TestProbeInstanceNothingListeningFalse(t *testing.T) {
 	}
 }
 
+// A displaced instance (§4/story 10): a foreign app holds the base
+// port and the running oc-sandbox sits a few ports up — FindInstance
+// probes the whole scan window, so a second launch still points at the
+// running instance and exits 0 instead of scanning past it and starting
+// a duplicate WebUI.
+func TestFindInstanceFindsDisplacedInstance(t *testing.T) {
+	foreign := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		fmt.Fprintln(w, "hello")
+	}))
+	defer foreign.Close()
+	base := portOf(t, foreign.URL)
+	inner := New(Options{BasePort: base + 1})
+	if err := inner.Start(); err != nil {
+		t.Fatalf("start displaced instance: %v", err)
+	}
+	defer func() { _ = inner.Close() }()
+	if got := FindInstance(base); got != base+1 {
+		t.Fatalf("FindInstance = %d, want %d (the displaced instance)", got, base+1)
+	}
+}
+
+// Nothing answers in the scan window → 0, the launch proceeds to bind.
+func TestFindInstanceNoneAnswers(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	base := ln.Addr().(*net.TCPAddr).Port
+	_ = ln.Close()
+	if got := FindInstance(base); got != 0 {
+		t.Fatalf("FindInstance = %d, want 0 with nothing listening", got)
+	}
+}
+
 // portOf extracts the loopback port from a scheme://host:port/ URL.
 func portOf(t *testing.T, url string) int {
 	t.Helper()

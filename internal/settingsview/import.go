@@ -236,7 +236,7 @@ func isLegacyLayout(root string) bool { return importcheck.IsLegacyLayout(root) 
 // convertLegacyLayout runs the same per-root converter the first-start
 // migration uses (rename stages 1–2) and then imports normally.
 func (v *View) convertLegacyLayout() tea.Cmd {
-	if err := migration.ConvertRoot(migration.Root{Name: v.impName, Path: v.impRoot}); err != nil {
+	if err := migration.ConvertRoot(v.home, migration.Root{Name: v.impName, Path: v.impRoot}); err != nil {
 		v.toast = fmt.Sprintf("Converting the legacy layout failed: %v", err)
 		return nil
 	}

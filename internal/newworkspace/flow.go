@@ -33,14 +33,14 @@ func imageExistsLive(run cmdrun.Runner, edition string) bool {
 
 // --- name/path/URL derivation -------------------------------------------
 
-// nameRe validates the display name exactly like the bash registry
+// NameRe validates the display name exactly like the bash registry
 // (registry only accepts /^[a-zA-Z0-9_-]+$/).
-var nameRe = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
+var NameRe = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
 
-// pathSlug squeezes a display name into a directory tail: lowercase,
+// PathSlug squeezes a display name into a directory tail: lowercase,
 // alphanumerics kept, separator-ish characters become '-' (prototype feel;
 // the path auto-fills from the name until hand-edited).
-func pathSlug(name string) string {
+func PathSlug(name string) string {
 	lower := strings.ToLower(name)
 	var b []rune
 	for _, r := range lower {
@@ -175,7 +175,7 @@ func (m *Model) recordedProviderID() string {
 }
 
 func (m *Model) validateInputs() string {
-	if !nameRe.MatchString(m.name) {
+	if !NameRe.MatchString(m.name) {
 		return "Invalid workspace name — use [a-zA-Z0-9_-]+."
 	}
 	if m.source == srcURL && strings.TrimSpace(m.url) == "" {
@@ -435,3 +435,4 @@ func (m *Model) needsConfirm(st credStep) bool {
 	}
 	return false
 }
+

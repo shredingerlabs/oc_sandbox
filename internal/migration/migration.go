@@ -191,7 +191,7 @@ func backup(home, path string) error {
 // renameKey rewrites keys in-place in an ordered jsonfmt doc (positions
 // preserved) and returns the marshaled file; missing key entries pass
 // through untouched (idempotent).
-func renameKeys(path string, renames map[string]string, version string) error {
+func renameKeys(home, path string, renames map[string]string, version string) error {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return err
@@ -208,18 +208,12 @@ func renameKeys(path string, renames map[string]string, version string) error {
 			doc.Entries[i].Val = version
 		}
 	}
-	return config.AtomicWrite(workingHome(path), path, jsonfmt.Marshal(doc))
-}
-
-// workingHome derives the home dir from a file path (config.AtomicWrite
-// keys its backups to home).
-func workingHome(path string) string {
-	return filepath.Clean(filepath.Dir(filepath.Dir(filepath.Dir(path))))
+	return config.AtomicWrite(home, path, jsonfmt.Marshal(doc))
 }
 
 // Run bridges the registry-independent stages: only this package's
 // migration writes are behind the Error sentinel.
-func ConvertRoot(root Root) error {
+func ConvertRoot(home string, root Root) error {
 	// Stage 1 (per root): content dir project/ → workspace/ — one atomic
 	// rename; never repoints the registry's path field.
 	src := filepath.Join(root.Path, "project")
@@ -235,7 +229,7 @@ func ConvertRoot(root Root) error {
 	// Stage 2 (per root): sandbox_config.json key rewrite
 	// project_kind→workspace_kind, project_source→workspace_source.
 	if _, err := os.Stat(filepath.Join(root.Path, ".opencode_config")); err == nil {
-		if err := renameKeys(filepath.Join(root.Path, ".opencode_config", "sandbox_config.json"), map[string]string{
+		if err := renameKeys(home, filepath.Join(root.Path, ".opencode_config", "sandbox_config.json"), map[string]string{
 			"project_kind":   "workspace_kind",
 			"project_source": "workspace_source",
 		}, ""); err != nil && !errors.Is(err, os.ErrNotExist) {
@@ -260,7 +254,7 @@ func Run(home string) (State, error) {
 		if _, err := os.Stat(root.Path); err != nil {
 			continue // missing roots on disk contribute nothing
 		}
-		if err := ConvertRoot(root); err != nil {
+		if err := ConvertRoot(home, root); err != nil {
 			return Migrate, err
 		}
 	}
@@ -296,7 +290,7 @@ func Run(home string) (State, error) {
 
 	// Stage 4: global_config.json default key rename.
 	if _, err := os.Stat(p.global()); err == nil {
-		if err := renameKeys(p.global(), map[string]string{
+		if err := renameKeys(home, p.global(), map[string]string{
 			"default_project_path": "default_workspace_path",
 		}, ""); err != nil {
 			return Migrate, fmt.Errorf("global_config.json key rewrite: %w", err)
@@ -314,7 +308,7 @@ func Run(home string) (State, error) {
 		if _, err := os.Stat(file); err != nil {
 			continue
 		}
-		if err := renameKeys(file, nil, TargetVersion); err != nil {
+		if err := renameKeys(home, file, nil, TargetVersion); err != nil {
 			return Migrate, fmt.Errorf("writing %s version %s: %w", filepath.Base(file), TargetVersion, err)
 		}
 	}

@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/shredingerlabs/oc-sandbox/internal/catalogs"
 	"github.com/shredingerlabs/oc-sandbox/internal/config"
 	"github.com/shredingerlabs/oc-sandbox/internal/registry"
 )
@@ -76,6 +77,53 @@ func TestDetectFresh(t *testing.T) {
 	}
 }
 
+// A fresh install never re-enters the migration on its second start
+// (§2 guard): every fresh-create path writes its general config file at
+// the 2.0 marker, so once the registry exists Detect reads Nothing.
+func TestDetectFreshInstallNoRerun(t *testing.T) {
+	home := t.TempDir()
+	if err := (&registry.Registry{Home: home}).CreateWorkspacesFile(); err != nil {
+		t.Fatal(err)
+	}
+	if err := config.CreateGlobalConfig(home, ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := catalogs.EnsureFile(home); err != nil {
+		t.Fatal(err)
+	}
+	if got := Detect(home); got != Nothing {
+		t.Fatalf("Detect = %v, want Nothing on a fresh install (fresh creates start at 2.0)", got)
+	}
+}
+
+// A catalogs.json still at 1.0 (mid-migration leftover) reruns the
+// migration, and stage 6 bumps it to the 2.0 completion marker.
+func TestRunBumpsLegacyCatalogVersion(t *testing.T) {
+	home := t.TempDir()
+	if err := (&registry.Registry{Home: home}).CreateWorkspacesFile(); err != nil {
+		t.Fatal(err)
+	}
+	cat := config.Paths{Home: home}.CatalogsPath()
+	if err := os.MkdirAll(filepath.Dir(cat), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(cat, []byte("{\n  \"trackers\": [],\n  \"providers\": [],\n  \"version\": \"1.0\"\n}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := Detect(home); got != Migrate {
+		t.Fatalf("Detect = %v, want Migrate (catalogs < 2.0 reruns)", got)
+	}
+	if _, err := Run(home); err != nil {
+		t.Fatal(err)
+	}
+	if v := ReadVersion(cat); v != "2.0" {
+		t.Fatalf("catalogs.json version = %q, want 2.0 after the rerun", v)
+	}
+	if got := Detect(home); got != Nothing {
+		t.Fatalf("Detect after rerun = %v, want Nothing", got)
+	}
+}
+
 func TestDetectRerunOnStaleVersion(t *testing.T) {
 	home := t.TempDir()
 	reg := &registry.Registry{Home: home}
@@ -90,6 +138,59 @@ func TestDetectRerunOnStaleVersion(t *testing.T) {
 	if got := Detect(home); got != Migrate {
 		t.Fatalf("Detect = %v, want Migrate (version < 2.0 reruns)", got)
 	}
+}
+
+// Stage-2's sandbox_config.json writes rotate into the REAL home's
+// backups/ (§2: "through the existing backups/ rotation") — on the
+// committed fixture layout the roots sit under <home>/ws/, and the old
+// workingHome guess rotated their backups into <home>/ws/.config/….
+func TestRunSandboxConfigBackupsLandInRealHome(t *testing.T) {
+	home := copyFixtureLegacyHome(t)
+	if _, err := Run(home); err != nil {
+		t.Fatal(err)
+	}
+	bd, err := os.ReadDir(config.Paths{Home: home}.BackupsDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	sbx := 0
+	for _, e := range bd {
+		if strings.HasPrefix(e.Name(), "sandbox_config.json.") {
+			sbx++
+		}
+	}
+	if sbx < 2 { // at least one per registered root (pkm-a, code-b)
+		t.Fatalf("sandbox_config.json backups in the real home backups/ = %d, want ≥ 2 (%v)", sbx, bd)
+	}
+	if _, err := os.Stat(filepath.Join(home, "ws", ".config")); !os.IsNotExist(err) {
+		t.Fatalf("stage-2 backups rotated into the roots parent dir: %v", err)
+	}
+}
+
+// copyFixtureLegacyHome materializes the committed pre-rename fixture
+// layout (testdata/legacy-home) with @HOME@ placeholders substituted.
+func copyFixtureLegacyHome(t *testing.T) string {
+	t.Helper()
+	home := t.TempDir()
+	if err := os.CopyFS(home, os.DirFS("testdata/legacy-home")); err != nil {
+		t.Fatal(err)
+	}
+	rep := func(rel string) {
+		p := filepath.Join(home, rel)
+		data, err := os.ReadFile(p)
+		if os.IsNotExist(err) {
+			return
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(strings.ReplaceAll(string(data), "@HOME@", home)), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rep(".config/oc-sandbox/projects.json")
+	rep(".config/oc-sandbox/global_config.json")
+	return home
 }
 
 func TestRunMigrates(t *testing.T) {

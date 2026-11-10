@@ -36,6 +36,10 @@ var tokenRe = regexp.MustCompile(`/t/[0-9a-f]{32}/`)
 // upward on conflict, never persisted — re-derived per launch.
 const BasePort = 8090
 
+// scanWindow is the upward port-scan range shared by the bind loop and
+// the single-instance FindInstance probe.
+const scanWindow = 100
+
 // Options carries the launch-time knobs. The zero value is production:
 // base port 8090 (scans upward on conflict, never persisted).
 type Options struct {
@@ -139,7 +143,7 @@ func (s *Server) Start() error {
 	}
 	var ln net.Listener
 	var err error
-	for port := base; port < base+100; port++ {
+	for port := base; port < base+scanWindow; port++ {
 		ln, err = net.Listen("tcp", net.JoinHostPort("127.0.0.1", fmt.Sprint(port)))
 		if err == nil {
 			break

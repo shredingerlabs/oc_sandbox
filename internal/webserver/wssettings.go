@@ -410,7 +410,7 @@ func (s *Server) handleWsSettingsPost(w http.ResponseWriter, r *http.Request) {
 		merged.Edition = v
 	}
 	if v := r.PostFormValue("start_option"); v != "" {
-		if v != "console" && v != "opencode" && v != "web" {
+		if !validVariant(v) {
 			s.renderWsSettingsScreen(w, name, "invalid start option — console, OpenCode TUI or web", nil)
 			return
 		}

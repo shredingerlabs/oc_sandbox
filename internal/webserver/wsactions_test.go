@@ -181,3 +181,19 @@ func postMap(t *testing.T, target string, form map[string]string) *http.Response
 	}
 	return post(t, target, vals.Encode())
 }
+
+// validVariant is the shared console/opencode/web triad check — the
+// same validation the access verbs, the adopt confirm, the variant
+// start POST and the workspace-settings start_option row enforce.
+func TestValidVariant(t *testing.T) {
+	for _, v := range []string{"console", "opencode", "web"} {
+		if !validVariant(v) {
+			t.Fatalf("validVariant(%q) = false, want true", v)
+		}
+	}
+	for _, v := range []string{"", "shell", "Web", "opencode ", "web\n"} {
+		if validVariant(v) {
+			t.Fatalf("validVariant(%q) = true, want false", v)
+		}
+	}
+}

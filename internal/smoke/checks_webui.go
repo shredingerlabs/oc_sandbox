@@ -203,7 +203,7 @@ func checkWebUI(home, root string) Item {
 		p.reasonf("catalogs.json missing after add: %v", err)
 	} else {
 		file := string(catData)
-		for _, want := range []string{`"name": "Company GitLab"`, `"kind": "gitlab_self"`, `"host": "gitlab.example.com"`, `"name": "GitHub"`, `"version": "1.0"`} {
+		for _, want := range []string{`"name": "Company GitLab"`, `"kind": "gitlab_self"`, `"host": "gitlab.example.com"`, `"name": "GitHub"`, `"version": "2.0"`} {
 			if !strings.Contains(file, want) {
 				p.reasonf("catalogs.json missing %q", want)
 			}

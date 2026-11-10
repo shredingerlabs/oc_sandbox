@@ -771,7 +771,7 @@ func (m *Model) autofillPath() {
 	if m.pathManual {
 		return
 	}
-	m.path = m.cfg.workspaceBase() + "/" + pathSlug(m.name)
+	m.path = m.cfg.workspaceBase() + "/" + PathSlug(m.name)
 }
 
 // prefillFromURL mirrors the bash wizard: a From-URL workspace prefills

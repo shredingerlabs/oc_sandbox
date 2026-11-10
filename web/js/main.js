@@ -884,7 +884,22 @@
   // --- SSE hub: one stream per tab, reconnect replay via line serial ---
   function connect() {
     var es = new EventSource(base + "events");
-    es.addEventListener("open", function () { /* stub: clear reconnect exhaustion UI */ });
+    // Crash path (§12): a hard crash pushes no shutdown — EventSource
+    // reconnects on its own; a bounded watch swaps to the same
+    // server-stopped screen the quit push renders once the stream
+    // stays down, and a successful open clears the watch.
+    var downWatch = null;
+    function showServerStopped() {
+      es.close();
+      screenEl.innerHTML =
+        '<div class="stub">Server stopped — relaunch oc-sandbox.</div>'; // §12 screen stub
+    }
+    es.addEventListener("open", function () {
+      if (downWatch) { clearTimeout(downWatch); downWatch = null; }
+    });
+    es.addEventListener("error", function () {
+      if (!downWatch) downWatch = setTimeout(showServerStopped, 15000);
+    });
     es.addEventListener("line", function (ev) { onLine(ev); });
     es.addEventListener("workspace", function (ev) {
       // reactive re-render (#158, spec §9): fresh rows/markers after
@@ -897,9 +912,8 @@
     });
     es.addEventListener("update", function (ev) { onUpdate(ev); });
     es.addEventListener("shutdown", function () {
-      es.close();
-      screenEl.innerHTML =
-        '<div class="stub">Server stopped — relaunch oc-sandbox.</div>'; // §12 screen stub
+      if (downWatch) clearTimeout(downWatch);
+      showServerStopped();
     });
     return es;
   }
