@@ -11,7 +11,7 @@ import (
 // through emit as they appear; Done reports the outcome on the server's
 // own goroutine (never with a lock held).
 type webOp struct {
-	ID        int  // caller-owned handle; 0 = queue-assigned serial. The SSE `line` events key on it
+	ID        int // caller-owned handle; 0 = queue-assigned serial. The SSE `line` events key on it
 	Key       string
 	Exclusive bool // §12: the update run — while queued or running, nothing else starts
 	Run       func(emit func(string)) error

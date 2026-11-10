@@ -219,7 +219,19 @@ func (u *Updater) publishLocked() {
 	u.hub.PublishUpdate(ev)
 }
 
-// snapshot returns a copy of the state for fragment rendering.
+// cardState returns the render state with the installed version resolved
+// lazily — the card renders before the first check fills the cache.
+func (u *Updater) cardState() updateState {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	st := u.state
+	if st.Installed == "" {
+		st.Installed = u.readVersionLocked()
+	}
+	return st
+}
+
+// snapshot returns a copy of the state for tests.
 func (u *Updater) snapshot() updateState {
 	u.mu.Lock()
 	defer u.mu.Unlock()
