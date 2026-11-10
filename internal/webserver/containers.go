@@ -256,13 +256,19 @@ func (s *Server) stopFirstHint(name string) string {
 // from the saved one refuses the silent reuse with a {mismatch} sidecar
 // — the registry flips truthful first (the container IS running,
 // verified live) and last_used bumps (the Open action is a use); the
-// replacement itself is the adopt confirm's move.
+// replacement itself is the adopt confirm's move. A first-run setup
+// session holds the workspace under the one-at-a-time rule (#161) —
+// both paths refuse while it holds.
 func (s *Server) handleWorkspaceStart(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	ws, err := s.deps.Registry.ByName(name)
 	if err != nil {
 		_, _ = w.Write([]byte(s.renderContainers("workspace " + name + " is not registered")))
+		return
+	}
+	if s.setupHolds(name) {
+		http.Error(w, "refused — first-run setup session pending for "+name, http.StatusConflict)
 		return
 	}
 	if variant := r.PostFormValue("variant"); variant != "" {

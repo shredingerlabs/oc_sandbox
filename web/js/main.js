@@ -230,6 +230,20 @@
       pairInto(rcard, tabFor(rcard));
       return;
     }
+    // First-run setup (#161, spec §11): Copy manual command copies the
+    // exact wrapper; Cancel setup marks the pending session abandoned.
+    // The SSE workspace push re-renders the card after each POST.
+    if (btn.dataset.act === "setup-copy") {
+      var cmd = btn.getAttribute("data-command");
+      if (navigator.clipboard) navigator.clipboard.writeText(cmd);
+      btn.textContent = "copied";
+      return;
+    }
+    if (btn.dataset.act === "setup-cancel") {
+      fetch(post(card, "setup/cancel"), { method: "POST", referrerPolicy: "no-referrer" })
+        .catch(function () { renderWorkspaces(); });
+      return;
+    }
     if (btn.dataset.act !== "open" && btn.dataset.act !== "web" &&
         btn.dataset.act !== "console" && btn.dataset.act !== "opencode") return;
 
@@ -248,13 +262,24 @@
     }
   });
 
-  // First-run setup retry (#157): #161 owns POST …/setup/retry — the
-  // link is the stub until then.
+  // First-run setup retry (#161 owns POST …/setup/retry — #157's stub
+  // replaced): works from the card's Run setup row and the workspace
+  // settings screen alike — the nearest [data-ws] names the workspace;
+  // the machine (re-)runs from the stored flags and the SSE workspace
+  // push re-renders. Refusals (an op or session holds the workspace)
+  // surface as a warning toast.
   screenEl.addEventListener("click", function (ev) {
     var btn = ev.target.closest('[data-act="setup-retry"]');
-    if (!btn) return;
+    if (!btn || btn.disabled) return;
     ev.preventDefault();
-    toast("First-run setup recovery arrives with the setup-recovery ticket (#161).", "warn");
+    var holder = btn.closest('[data-ws]');
+    if (!holder || !holder.dataset.ws) return;
+    fetch(base + "workspaces/" + encodeURIComponent(holder.dataset.ws) + "/setup/retry", {
+      method: "POST",
+      referrerPolicy: "no-referrer"
+    }).catch(function () {
+      toast("setup refused — an op or session holds this workspace", "warn");
+    });
   });
 
   // chainStart runs the start op (queued-not-refused on the shared

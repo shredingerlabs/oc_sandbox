@@ -66,14 +66,19 @@ type Server struct {
 	errSink *redactingLog   // the http.Server ErrorLog sink — redaction seam
 
 	lastUninstallOp int // the last uninstall run's op id — the log pane's data-op
+
+	setups *setupState   // first-run setup sessions per workspace (#161)
+	closed chan struct{} // closed by Close — the setup relay pollers stop
 }
 
 // New creates an unstarted server with a fresh per-launch token.
 func New(opts Options) *Server {
 	s := &Server{
-		opts:  opts,
-		token: newToken(),
-		hub:   newHub(),
+		opts:   opts,
+		token:  newToken(),
+		hub:    newHub(),
+		setups: &setupState{setups: map[string]*setupSession{}},
+		closed: make(chan struct{}),
 	}
 	s.deps = opts.Deps
 	s.errSink = &redactingLog{next: &s.errLog}
@@ -164,6 +169,8 @@ func (s *Server) Start() error {
 	// Workspaces screen (#153): the card grid + access verbs. The start
 	// verb is #158's Container-center route (wireRoutes) — the same URL
 	// this screen's Open action posts to.
+	inner.HandleFunc("POST /workspaces/{name}/setup/retry", s.handleSetupRetry)
+	inner.HandleFunc("POST /workspaces/{name}/setup/cancel", s.handleSetupCancel)
 	inner.HandleFunc("GET /workspaces", s.handleWorkspacesGET)
 	inner.HandleFunc("POST /workspaces/{name}/access", s.handleAccess)
 	inner.HandleFunc("POST /workspaces/{name}/pair-link", s.handlePairLink)
@@ -191,8 +198,14 @@ func (s *Server) Start() error {
 }
 
 // Close stops the listener and closes open connections (quit flow #151
-// pushes SSE shutdown before calling this).
+// pushes SSE shutdown before calling this). The setup relay pollers
+// stop with the server.
 func (s *Server) Close() error {
+	select {
+	case <-s.closed:
+	default:
+		close(s.closed)
+	}
 	if s.srv == nil {
 		return nil
 	}

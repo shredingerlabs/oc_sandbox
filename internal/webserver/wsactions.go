@@ -106,6 +106,12 @@ func (s *Server) handleAccess(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid variant", http.StatusBadRequest)
 		return
 	}
+	if variant != "web" && s.setupHolds(ws.Name) {
+		// A pending first-run setup session holds the workspace under
+		// the one-at-a-time rule (§11).
+		http.Error(w, "refused — first-run setup session pending for "+ws.Name, http.StatusConflict)
+		return
+	}
 	ctr := registry.ContainerName(ws.ContainerID)
 	arg := "bash"
 	if variant == "opencode" {

@@ -76,6 +76,10 @@ func (s *Server) handleWorkspaceStop(w http.ResponseWriter, r *http.Request) {
 		refuseSidecar(w, busyRefusal(cname))
 		return
 	}
+	if s.setupHolds(ws.Name) { // the pending skills session holds the container (#161)
+		refuseSidecar(w, "refused — first-run setup session pending for "+ws.Name)
+		return
+	}
 	s.queue.Launch(webOp{Key: cname, Run: s.stopOp(cname)})
 	okSidecar(w, s.queue.CurrentOpID(cname))
 }
@@ -94,6 +98,10 @@ func (s *Server) handleWorkspaceDelete(w http.ResponseWriter, r *http.Request) {
 	cname := registry.ContainerName(ws.ContainerID)
 	if s.queue.BusyKey(cname) {
 		refuseSidecar(w, busyRefusal(cname))
+		return
+	}
+	if s.setupHolds(ws.Name) { // the pending skills session holds the container (#161)
+		refuseSidecar(w, "refused — first-run setup session pending for "+ws.Name)
 		return
 	}
 	if s.runningUnit(cname) {
@@ -144,6 +152,10 @@ func (s *Server) handleWorkspaceAdopt(w http.ResponseWriter, r *http.Request) {
 	cname := registry.ContainerName(ws.ContainerID)
 	if s.queue.BusyKey(cname) {
 		refuseSidecar(w, busyRefusal(cname))
+		return
+	}
+	if s.setupHolds(ws.Name) { // the pending skills session holds the container (#161)
+		refuseSidecar(w, "refused — first-run setup session pending for "+ws.Name)
 		return
 	}
 	cfg, err := readSandboxCfg(ws.Path)
