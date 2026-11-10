@@ -29,6 +29,14 @@ func (p Paths) GlobalConfigPath() string {
 }
 func (p Paths) WorkspacesPath() string { return filepath.Join(p.Dir(), "workspaces.json") }
 
+// LegacyProjectsPath is the pre-rename registry file (used by the first-start
+// migration; the registry itself only reads workspaces.json).
+func (p Paths) LegacyProjectsPath() string {
+	return filepath.Join(p.Dir(), "projects.json")
+}
+
+func (p Paths) CatalogsPath() string { return filepath.Join(p.Dir(), "catalogs.json") }
+
 // AtomicWrite writes content to path atomically (same-filesystem temp file
 // + rename). If the target already exists it is backed up under
 // home's backups directory first — unless it is a secret, in which case the
@@ -240,7 +248,8 @@ var secretPatterns = []string{
 }
 
 // IsGeneralConfigFile reports whether path is whitelisted for backups:
-// global_config.json, workspaces.json, or anything under */.opencode_config/*.
+// global_config.json, workspaces.json, catalogs.json, the legacy
+// projects.json (migration backups), or anything under */.opencode_config/*.
 func IsGeneralConfigFile(home, path string) bool {
 	p := filepath.Clean(path)
 	for _, pat := range secretPatterns {
@@ -249,7 +258,8 @@ func IsGeneralConfigFile(home, path string) bool {
 		}
 	}
 	p2 := Paths{Home: filepath.Clean(home)}
-	if p == p2.GlobalConfigPath() || p == p2.WorkspacesPath() {
+	if p == p2.GlobalConfigPath() || p == p2.WorkspacesPath() ||
+		p == p2.CatalogsPath() || p == p2.LegacyProjectsPath() {
 		return true
 	}
 	return strings.Contains(p, "/.opencode_config/")

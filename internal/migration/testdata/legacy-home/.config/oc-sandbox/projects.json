@@ -1,0 +1,23 @@
+{
+  "projects": [
+    {
+      "name": "pkm-a",
+      "path": "@HOME@/ws/pkm-a",
+      "container_id": "4b7b1e0f9c31",
+      "last_used": "2026-10-20T12:18:15Z",
+      "container_status": "stopped",
+      "git_tracking": "github.com",
+      "repo_url": ""
+    },
+    {
+      "name": "code-b",
+      "path": "@HOME@/ws/code-b",
+      "container_id": "8f3ac02d77e5",
+      "last_used": "2026-10-18T09:00:00Z",
+      "container_status": "running",
+      "git_tracking": "gitlab.com",
+      "repo_url": "https://gitlab.com/example/code-b.git"
+    }
+  ],
+  "version": "1.0"
+}

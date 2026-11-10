@@ -404,7 +404,10 @@ func (v *View) focusCount() int {
 		case 1:
 			return 3 // name field, register, back
 		default:
-			return 2 // new-workspace wizard, back
+			if v.impBrokenCfg {
+				return 1 // Back only
+			}
+			return 3 // wizard, convert-to-workspace-layout, back
 		}
 	case subExport:
 		if v.expStage == 0 {

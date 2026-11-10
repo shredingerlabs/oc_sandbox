@@ -32,12 +32,14 @@ func backupPath(home, name string) string {
 	return filepath.Join(config.Paths{Home: home}.BackupsDir(), name)
 }
 
-// activeConfigs are the active config files offered for export, in bash
-// backup_config_manually order: workspaces.json first, global_config.json.
+// activeConfigs are the active config files offered for export, in
+// backup_config_manually order: workspaces.json first, global_config.json,
+// then the third general config file catalogs.json.
 func (v *View) activeConfigs() []string {
 	paths := []string{
 		config.Paths{Home: v.home}.WorkspacesPath(),
 		config.Paths{Home: v.home}.GlobalConfigPath(),
+		config.Paths{Home: v.home}.CatalogsPath(),
 	}
 	var out []string
 	for _, p := range paths {

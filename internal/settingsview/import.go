@@ -12,6 +12,7 @@ import (
 
 	"github.com/shredingerlabs/oc-sandbox/internal/config"
 	"github.com/shredingerlabs/oc-sandbox/internal/jsonfmt"
+	"github.com/shredingerlabs/oc-sandbox/internal/migration"
 	"github.com/shredingerlabs/oc-sandbox/internal/registry"
 	"github.com/shredingerlabs/oc-sandbox/internal/sandboxcfg"
 	"github.com/shredingerlabs/oc-sandbox/internal/shell"
@@ -204,7 +205,9 @@ func (v *View) importSummaryPane() ([]string, []hitRow, int) {
 
 // importPromptPane renders the non-matching/broken-config informational
 // prompt: refer, don't migrate — the New Workspace wizard is one action
-// row away (ADR 0017).
+// row away (ADR 0017); a legacy project/-layout folder additionally
+// offers the explicit "Convert to workspace layout" action (rename
+// migration per-root converter, spec §2 — never silent).
 func (v *View) importPromptPane() ([]string, []hitRow, int) {
 	var rows []string
 	if v.impBrokenCfg {
@@ -215,32 +218,66 @@ func (v *View) importPromptPane() ([]string, []hitRow, int) {
 			muted("Repair it before importing."),
 			"",
 		)
-	} else {
+		rows, back := buttonBlock(rows, "Back", v.impFocus == 0, v.importBack)
+		return rows, []hitRow{back}, back.row
+	}
+	legacy := isLegacyLayout(v.impRoot)
+	rows = append(rows,
+		focusLabel("Import isn't possible here"),
+		"",
+		muted("This folder does not match the opencode-sandbox"),
+		muted("workspace structure: a sandbox_config.json in"),
+		muted(".opencode_config/ and a workspace/ git worktree."),
+		"",
+	)
+	if legacy {
 		rows = append(rows,
-			focusLabel("Import isn't possible here"),
+			muted("This is a pre-rename project/ layout. Converting renames"),
+			muted("project/ to workspace/ and rewrites the sandbox_config"),
+			muted("keys — files and your content are kept."),
 			"",
-			muted("This folder does not match the opencode-sandbox"),
-			muted("workspace structure: a sandbox_config.json in"),
-			muted(".opencode_config/ and a workspace/ git worktree."),
-			"",
+		)
+	}
+	if !legacy {
+		rows = append(rows,
 			muted("Use the New Workspace workflow instead and clone"),
 			muted("the repo there via URL (in-container clone)."),
 			"",
 		)
 	}
-	focusRow := 0
-	if !v.impBrokenCfg {
-		rows, wizard, back := buttonPair(rows, "Open New Workspace wizard", v.impFocus == 0, v.newProjectWizard,
-			"Back", v.impFocus == 1, v.importBack)
-		if v.impFocus == 0 {
-			focusRow = wizard.row
-		} else {
-			focusRow = back.row
-		}
-		return rows, []hitRow{wizard, back}, focusRow
+	rows, wizard, convert, back := buttonTriple(rows,
+		"Open New Workspace wizard", v.impFocus == 0, v.newProjectWizard,
+		"Convert to workspace layout", v.impFocus == 1, v.convertLegacyLayout,
+		"Back", v.impFocus == 2, v.importBack)
+	if v.impFocus <= 2 {
+		focusRow := []int{wizard.row, convert.row, back.row}[v.impFocus]
+		return rows, []hitRow{wizard, convert, back}, focusRow
 	}
-	rows, back := buttonBlock(rows, "Back", v.impFocus == 0, v.importBack)
-	return rows, []hitRow{back}, back.row
+	return rows, []hitRow{wizard, convert, back}, wizard.row
+}
+
+// isLegacyLayout reports a pre-rename project/ layout: sandbox_config.json
+// present but a project/ git worktree instead of workspace/ (post-migration
+// checks accept only workspace/).
+func isLegacyLayout(root string) bool {
+	if fi, err := os.Stat(sandboxcfg.Path(root)); err != nil || fi.IsDir() {
+		return false
+	}
+	if _, err := os.Stat(filepath.Join(root, "workspace", ".git")); err == nil {
+		return false
+	}
+	_, err := os.Stat(filepath.Join(root, "project", ".git"))
+	return err == nil
+}
+
+// convertLegacyLayout runs the same per-root converter the first-start
+// migration uses (rename stages 1–2) and then imports normally.
+func (v *View) convertLegacyLayout() tea.Cmd {
+	if err := migration.ConvertRoot(migration.Root{Name: v.impName, Path: v.impRoot}); err != nil {
+		v.toast = fmt.Sprintf("Converting the legacy layout failed: %v", err)
+		return nil
+	}
+	return v.doImport()
 }
 
 func (v *View) importBack() tea.Cmd {
@@ -282,10 +319,14 @@ func (v *View) importActivate() tea.Cmd {
 		if v.impBrokenCfg {
 			return v.importBack()
 		}
-		if v.impFocus == 0 {
+		switch v.impFocus {
+		case 0:
 			return v.newProjectWizard()
+		case 1:
+			return v.convertLegacyLayout()
+		default:
+			return v.importBack()
 		}
-		return v.importBack()
 	}
 }
 

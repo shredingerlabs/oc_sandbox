@@ -99,14 +99,14 @@ func (ops DefaultOps) RestoreConfig(home, backupPath string) (string, error) {
 }
 
 // restoreTarget maps a backup basename to the active file it restores:
-// workspaces.json.* → workspaces.json, global_config.json.* likewise.
+// workspaces.json.* → workspaces.json, global_config.json.*/catalogs.json.*
+// likewise.
 func restoreTarget(backupPath string) string {
 	base := filepath.Base(backupPath)
-	if base == "workspaces.json" || strings.HasPrefix(base, "workspaces.json.") {
-		return "workspaces.json"
-	}
-	if base == "global_config.json" || strings.HasPrefix(base, "global_config.json.") {
-		return "global_config.json"
+	for _, name := range []string{"workspaces.json", "global_config.json", "catalogs.json"} {
+		if base == name || strings.HasPrefix(base, name+".") {
+			return name
+		}
 	}
 	return base
 }

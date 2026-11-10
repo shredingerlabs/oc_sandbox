@@ -94,6 +94,27 @@ func buttonPair(rows []string, label1 string, focus1 bool, act1 func() tea.Cmd, 
 		hitRow{row: mid, x: cardX + w1 + 2, w: lipgloss.Width("  " + b2[1]), act: act2}
 }
 
+// buttonTriple appends three bordered buttons side by side below a blank
+// spacer row and returns all three mid-line hit rows.
+func buttonTriple(rows []string, label1 string, focus1 bool, act1 func() tea.Cmd,
+	label2 string, focus2 bool, act2 func() tea.Cmd,
+	label3 string, focus3 bool, act3 func() tea.Cmd) ([]string, hitRow, hitRow, hitRow) {
+	b1 := shell.ButtonLines(label1, focus1)
+	b2 := shell.ButtonLines(label2, focus2)
+	b3 := shell.ButtonLines(label3, focus3)
+	rows = append(rows, "")
+	mid := len(rows) + 1
+	for i := range b1 {
+		rows = append(rows, "  "+b1[i]+"  "+b2[i]+"  "+b3[i])
+	}
+	w1 := lipgloss.Width("  " + b1[1])
+	w2 := lipgloss.Width("  " + b2[1])
+	return rows,
+		hitRow{row: mid, x: cardX, w: w1, act: act1},
+		hitRow{row: mid, x: cardX + w1 + 2, w: w2, act: act2},
+		hitRow{row: mid, x: cardX + w1 + 2 + w2 + 2, w: lipgloss.Width("  " + b3[1]), act: act3}
+}
+
 // plainWidth is the ANSI-stripped width of a pane row.
 func plainWidth(row string) int { return shell.Width(shell.StripANSI(row)) }
 
