@@ -373,3 +373,242 @@ func TestAdoptRefusesWhileBusy(t *testing.T) {
 		t.Fatalf("the replacement ran while the workspace was busy")
 	}
 }
+
+// Never destroy without a replacement (#117): the mismatch switch
+// refuses while the saved edition's image is missing — before anything
+// stops. The container keeps running, the registry stays truthful.
+func TestAdoptRefusesMissingImageBeforeAnythingStops(t *testing.T) {
+	reg, roots := fixtureRegistry(t, "alpha")
+	sandboxConfigFixture(t, roots["alpha"]) // saved swdev
+	if err := reg.UpdateStatus(roots["alpha"], "running"); err != nil {
+		t.Fatal(err)
+	}
+	cname := "opencode-sandbox-" + registry.ContainerIdentity(roots["alpha"])
+	stopCalls := &syncList{}
+	run := fakePodman([]string{cname}, nil,
+		[]string{containerState(cname, "running")},
+		[]string{"opencode-sandbox-web"}, nil) // only the web image is built
+	base := run.Script
+	run.Script = func(name string, args []string) (string, error) {
+		rest := ""
+		if name == "podman" {
+			rest = strings.Join(args, " ")
+		}
+		switch {
+		case name == "podman" && strings.HasPrefix(rest, "stop "):
+			stopCalls.add(args[1])
+			return "stopped", nil
+		case name == "podman" && strings.HasPrefix(rest, "ps --format {{.Names}}\t{{.Image}}"):
+			return cname + "\topencode-sandbox-web:latest", nil
+		}
+		return base(name, args)
+	}
+	s := depsServer(t, run, reg)
+
+	v := postSidecar(t, s.URL()+"workspaces/alpha/adopt", "variant=web")
+	if v["ok"] != false || !strings.Contains(v["error"].(string), "not built yet") {
+		t.Fatalf("adopt sidecar = %v, want the missing-image refusal", v)
+	}
+	if calls := stopCalls.snapshot(); len(calls) != 0 {
+		t.Fatalf("podman stop ran despite the missing image: %v", calls)
+	}
+	ws, err := reg.ByName("alpha")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ws.ContainerStatus != "running" {
+		t.Fatalf("registry status = %q, want untouched running", ws.ContainerStatus)
+	}
+}
+
+// Adopt replaces a RUNNING container — a stopped one is refused.
+func TestAdoptRefusesWhenNotRunning(t *testing.T) {
+	reg, roots := fixtureRegistry(t, "alpha")
+	sandboxConfigFixture(t, roots["alpha"])
+	run := fakePodman(nil, nil, nil, []string{"opencode-sandbox-swdev"}, nil)
+	s := depsServer(t, run, reg)
+
+	v := postSidecar(t, s.URL()+"workspaces/alpha/adopt", "variant=web")
+	if v["ok"] != false || !strings.Contains(v["error"].(string), "is not running") {
+		t.Fatalf("adopt sidecar = %v, want the not-running refusal", v)
+	}
+}
+
+// The web re-adopt replaces the running container with a --start_web
+// start only when the 4096 port is NOT published (a published web is
+// not adopted away); a console/opencode variant with agreeing editions
+// has nothing to adopt.
+func TestAdoptWebAdoptGuards(t *testing.T) {
+	reg, roots := fixtureRegistry(t, "alpha")
+	sandboxConfigFixture(t, roots["alpha"])
+	cname := "opencode-sandbox-" + registry.ContainerIdentity(roots["alpha"])
+	published := newSyncSet()
+	run := fakePodman([]string{cname}, nil,
+		[]string{containerState(cname, "running")}, []string{"opencode-sandbox-swdev"}, nil)
+	base := run.Script
+	run.Script = func(name string, args []string) (string, error) {
+		rest := ""
+		if name == "podman" {
+			rest = strings.Join(args, " ")
+		}
+		switch {
+		case name == "podman" && strings.HasPrefix(rest, "port "):
+			if published.has("4096") {
+				return "127.0.0.1:4123\n", nil
+			}
+			return "", nil
+		case name == "podman" && strings.HasPrefix(rest, "ps --format {{.Names}}\t{{.Image}}"):
+			return cname + "\topencode-sandbox-swdev:latest", nil // editions agree
+		}
+		return base(name, args)
+	}
+	s := depsServer(t, run, reg)
+
+	// console variant with agreeing editions: nothing to adopt
+	v := postSidecar(t, s.URL()+"workspaces/alpha/adopt", "variant=console")
+	if v["ok"] != false || !strings.Contains(v["error"].(string), "nothing to adopt") {
+		t.Fatalf("console adopt sidecar = %v, want the nothing-to-adopt refusal", v)
+	}
+	// web variant but the port is already published: not adopted away
+	published.set("4096", true)
+	v = postSidecar(t, s.URL()+"workspaces/alpha/adopt", "variant=web")
+	if v["ok"] != false || !strings.Contains(v["error"].(string), "already published") {
+		t.Fatalf("published web adopt sidecar = %v, want the published refusal", v)
+	}
+}
+
+// The web re-adopt happy path (#154): the live container without a
+// published 4096 port (started as console/TUI) is replaced with a
+// --start_web start — the same verified stop → start chain as the
+// mismatch switch.
+func TestAdoptWebAdoptReplacesUnpublishedContainer(t *testing.T) {
+	reg, roots := fixtureRegistry(t, "alpha")
+	root := roots["alpha"]
+	sandboxConfigFixture(t, root)
+	if err := reg.UpdateStatus(root, "running"); err != nil {
+		t.Fatal(err)
+	}
+	id := registry.ContainerIdentity(root)
+	cname := "opencode-sandbox-" + id
+	release := make(chan struct{})
+	running := newSyncSet(cname)
+	startArgs := &syncList{}
+	run := fakePodman(nil, nil, nil, []string{"opencode-sandbox-swdev"}, nil)
+	base := run.Script
+	run.Script = func(name string, args []string) (string, error) {
+		rest := ""
+		if name == "podman" {
+			rest = strings.Join(args, " ")
+		}
+		switch {
+		case name == "podman" && strings.HasPrefix(rest, "stop "):
+			running.set(cname, false)
+			return "stopped", nil
+		case name == "bash" && len(args) > 0 && args[0] == "/opt/oc-sandbox/scripts/start.sh":
+			startArgs.add(strings.Join(args[1:], "\x1f"))
+			<-release
+			running.set(cname, true)
+			return "started", nil
+		case name == "podman" && strings.HasPrefix(rest, "port "):
+			return "", nil // never published — that is why the chain adopts
+		case name == "podman" && strings.HasPrefix(rest, "ps -a --format {{.Names}}"):
+			var rows []string
+			for _, n := range running.keys() {
+				rows = append(rows, containerState(n, "running"))
+			}
+			return strings.Join(rows, "\n"), nil
+		case name == "podman" && strings.HasPrefix(rest, "ps --format {{.Names}}"):
+			return strings.Join(running.keys(), "\n"), nil
+		case name == "podman" && strings.HasPrefix(rest, "ps --format {{.Names}}\t{{.Image}}"):
+			return cname + "\topencode-sandbox-swdev:latest", nil
+		}
+		return base(name, args)
+	}
+	s := depsServer(t, run, reg)
+
+	v := postSidecar(t, s.URL()+"workspaces/alpha/adopt", "variant=web")
+	if v["ok"] != true {
+		t.Fatalf("adopt sidecar = %v, want ok:true", v)
+	}
+	want := strings.Join([]string{root, "--edition", "swdev", "--container-id", id,
+		"--hil_mode", "--search_mode", "websearch", "--start_web", "--detach"}, "\x1f")
+	waitFor(t, "start.sh with the web args", func() bool {
+		calls := startArgs.snapshot()
+		return len(calls) == 1 && calls[0] == want
+	})
+	close(release)
+	waitFor(t, "registry running after the verified start", func() bool {
+		ws, err := reg.ByName("alpha")
+		return err == nil && ws.ContainerStatus == "running" && ws.LastUsed != ""
+	})
+	waitFor(t, "adopt op to drain", func() bool { return !s.Busy() })
+}
+
+// A switch whose start fails leaves the workspace stopped with the
+// error surfaced (the op log streams "Switch failed — …"); the registry
+// keeps the post-stop truth — no rollback (the previous edition's image
+// still exists, the user can switch back).
+func TestAdoptFailedSwitchLeavesStoppedWithError(t *testing.T) {
+	reg, roots := fixtureRegistry(t, "alpha")
+	sandboxConfigFixture(t, roots["alpha"])
+	if err := reg.UpdateStatus(roots["alpha"], "running"); err != nil {
+		t.Fatal(err)
+	}
+	cname := "opencode-sandbox-" + registry.ContainerIdentity(roots["alpha"])
+	running := newSyncSet(cname)
+	run := fakePodman(nil, nil, nil, []string{"opencode-sandbox-swdev"}, nil)
+	base := run.Script
+	run.Script = func(name string, args []string) (string, error) {
+		rest := ""
+		if name == "podman" {
+			rest = strings.Join(args, " ")
+		}
+		switch {
+		case name == "bash" && len(args) > 0 && args[0] == "/opt/oc-sandbox/scripts/start.sh":
+			return "image pull boom", fmt.Errorf("boom")
+		case name == "podman" && strings.HasPrefix(rest, "stop "):
+			running.set(cname, false)
+			return "stopped", nil
+		case name == "podman" && strings.HasPrefix(rest, "ps -a --format {{.Names}}"):
+			var rows []string
+			for _, n := range running.keys() {
+				rows = append(rows, containerState(n, "running"))
+			}
+			return strings.Join(rows, "\n"), nil
+		case name == "podman" && strings.HasPrefix(rest, "ps --format {{.Names}}"):
+			return strings.Join(running.keys(), "\n"), nil
+		case name == "podman" && strings.HasPrefix(rest, "ps --format {{.Names}}\t{{.Image}}"):
+			return cname + "\topencode-sandbox-web:latest", nil
+		}
+		return base(name, args)
+	}
+	s := depsServer(t, run, reg)
+
+	// the log stream is live before the op launches (§9 line events)
+	sse := connect(t, s.URL()+"events")
+
+	v := postSidecar(t, s.URL()+"workspaces/alpha/adopt", "variant=web")
+	if v["ok"] != true {
+		t.Fatalf("adopt sidecar = %v, want ok:true (the failure surfaces in the log, not the POST)", v)
+	}
+	waitFor(t, "registry stopped (post-stop truth kept)", func() bool {
+		ws, err := reg.ByName("alpha")
+		return err == nil && ws.ContainerStatus == "stopped"
+	})
+	waitFor(t, "adopt op to drain", func() bool { return !s.Busy() })
+	ws, err := reg.ByName("alpha")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ws.ContainerStatus != "stopped" {
+		t.Fatalf("registry status = %q, want stopped (no rollback)", ws.ContainerStatus)
+	}
+	// the error is surfaced in the streamed log
+	for {
+		ev := readEvent(t, sse)
+		if ev["event"] == "line" && strings.Contains(ev["data"], "Switch failed") &&
+			strings.Contains(ev["data"], "boom") {
+			break
+		}
+	}
+}
