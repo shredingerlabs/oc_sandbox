@@ -42,14 +42,22 @@ func newOpRunner(hub *Hub) *opRunner {
 // stream to the hub as `line` events keyed by the op ID; Done(err) fires
 // after the op's bookkeeping, so completion handlers may enqueue again.
 func (r *opRunner) Launch(op webOp) {
-	r.mu.Lock()
 	if op.ID == 0 {
-		r.nextID++
-		op.ID = r.nextID
+		op.ID = r.reserve()
 	}
+	r.mu.Lock()
 	r.pending = append(r.pending, &op)
 	r.mu.Unlock()
 	r.pump()
+}
+
+// reserve returns a globally unique op ID — callers that must publish
+// op-keyed events before enqueuing (the update phase push) pre-assign it.
+func (r *opRunner) reserve() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.nextID++
+	return r.nextID
 }
 
 // pump starts every op the queue rules allow, oldest first, until none

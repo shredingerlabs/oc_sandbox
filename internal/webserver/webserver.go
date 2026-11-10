@@ -32,8 +32,9 @@ var tokenRe = regexp.MustCompile(`/t/[0-9a-f]{32}/`)
 // Options carries the launch-time knobs. The zero value is production:
 // base port 8090 (scans upward on conflict, never persisted).
 type Options struct {
-	BasePort int    // first port tried; 0 means "pick a free port" (tests)
-	Version  string // reported nowhere until a screen needs it
+	BasePort    int    // first port tried; 0 means "pick a free port" (tests)
+	Version     string // compiled-in version — the update card's fallback when the VERSION file is absent
+	InstallRoot string // the install layout root (app.LayoutFor): the VERSION file lives here
 }
 
 // Server is one WebUI instance: a loopback listener with a per-launch
@@ -43,6 +44,8 @@ type Server struct {
 	opts    Options
 	token   string // hex, ≥128 bit of CSPRNG entropy
 	hub     *Hub
+	queue   *opRunner
+	updater *Updater
 	srv     *http.Server
 	ln      net.Listener
 	url     string
@@ -58,6 +61,8 @@ func New(opts Options) *Server {
 		hub:   newHub(),
 	}
 	s.errSink = &redactingLog{next: &s.errLog}
+	s.queue = newOpRunner(s.hub)
+	s.updater = newUpdater(s.hub, s.queue, opts.InstallRoot, opts.Version)
 	return s
 }
 
