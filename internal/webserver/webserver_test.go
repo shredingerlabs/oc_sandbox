@@ -163,7 +163,8 @@ func TestAuthGrammar(t *testing.T) {
 		"update",
 		"update/check",
 		"update/run",
-		"catalogs",
+		"catalogs/trackers",
+		"catalogs/providers",
 	}
 	for _, c := range []struct{ name, prefix string }{
 		{"missing token", base},

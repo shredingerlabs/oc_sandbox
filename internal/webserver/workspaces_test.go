@@ -9,7 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/shredingerlabs/oc-sandbox/internal/config"
 	"github.com/shredingerlabs/oc-sandbox/internal/registry"
 	"github.com/shredingerlabs/oc-sandbox/internal/sandboxcfg"
 )
@@ -180,48 +179,44 @@ func TestWorkspacesRunningDot(t *testing.T) {
 	}
 }
 
-// Open action variants (§6): Standard always leads into web — no
-// terminal buttons; Advanced honors the configured start option and
-// reveals the console/OpenCode access rows (hidden in Standard via
-// data-advanced-only).
-func TestWorkspacesOpenVariants(t *testing.T) {
+// Card start options (ADR-0033 cards): all three accesses render on
+// every card in the Web · OpenCode · Console order — the stop/delete
+// confirms left the cards (Container center owns them), and the Restart
+// confirm gates the running-container replacement.
+func TestWorkspacesCardActions(t *testing.T) {
 	home := t.TempDir()
 	root := seedWorkspace(t, home, "alpha", "swdev", nil)
-	if err := sandboxcfg.PatchString(home, sandboxcfg.Path(root), "start_option", "console"); err != nil {
-		t.Fatalf("patch start_option: %v", err)
-	}
+	_ = root
 
-	// Standard (default): the Open button always carries the web variant.
 	s := startFixtureServer(t, home)
 	doc := body(t, get(t, s.URL()+"workspaces"))
-	if !strings.Contains(doc, `data-act="open" data-variant="web"`) {
-		t.Fatalf("Standard card missing the always-web Open variant, got:\n%s", doc)
+	iWeb := strings.Index(doc, `data-act="web"`)
+	iOC := strings.Index(doc, `data-act="opencode"`)
+	iCs := strings.Index(doc, `data-act="console"`)
+	if iWeb < 0 || iOC < 0 || iCs < 0 || !(iWeb < iOC && iOC < iCs) {
+		t.Fatalf("card start options must render in Web · OpenCode · Console order, got:\n%s", doc)
 	}
-	if strings.Contains(doc, `data-act="console"`) || strings.Contains(doc, `data-act="opencode"`) {
-		t.Fatal("Standard must show no terminal buttons (§6)")
-	}
-	_ = s.Close()
-
-	// Advanced: the Open button honors the configured start option; the
-	// terminal access rows exist and carry the advanced-only marker.
-	if err := config.SetDisplayMode(home, config.DisplayAdvanced); err != nil {
-		t.Fatalf("SetDisplayMode: %v", err)
-	}
-	s2 := startFixtureServer(t, home)
-	doc2 := body(t, get(t, s2.URL()+"workspaces"))
 	for _, want := range []string{
-		`data-act="open" data-variant="console"`, // configured start option
-		`data-act="console"`,
+		`data-act="web"`,
 		`data-act="opencode"`,
+		`data-act="console"`,
+		`data-confirm="restart"`,
 	} {
-		if !strings.Contains(doc2, want) {
-			t.Fatalf("Advanced card missing %q, got:\n%s", want, doc2)
+		if !wantB(doc, want) {
+			t.Fatalf("card missing %q, got:\n%s", want, doc)
 		}
 	}
-	if !strings.Contains(doc2, `data-act="console" data-advanced-only`) {
-		t.Fatal("terminal rows must carry data-advanced-only")
+	if strings.Contains(doc, `data-act="open"`) ||
+		strings.Contains(doc, `data-confirm="stop"`) ||
+		strings.Contains(doc, `data-confirm="delete"`) {
+		t.Fatal("Open and stop/delete confirm rows left the cards")
+	}
+	if strings.Contains(doc, `data-act="console" data-advanced-only`) {
+		t.Fatal("start options are no longer advanced-gated")
 	}
 }
+
+func wantB(doc, want string) bool { return strings.Contains(doc, want) }
 
 // Server-side ?q= filtering (§9): only matching names render.
 func TestWorkspacesQueryFilter(t *testing.T) {

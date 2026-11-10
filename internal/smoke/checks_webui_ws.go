@@ -131,8 +131,8 @@ func checkWebUIWorkspaces(home, root string) Item {
 		}
 	}
 
-	// Cards: Standard (default) renders both workspaces with tiles,
-	// HIL chip and the always-web Open — no terminal buttons.
+	// Cards: all three accesses render on every card (Web · OpenCode ·
+	// Console, ADR-0033 cards — no Open button, no card stop/delete).
 	resp, body := get(s.URL() + "workspaces")
 	if resp == nil || resp.StatusCode != http.StatusOK {
 		p.reasonf("GET /workspaces: want 200, got %v", respStatusCT(resp))
@@ -141,15 +141,16 @@ func checkWebUIWorkspaces(home, root string) Item {
 			`data-ws="mural"`, `data-ws="lab"`,
 			`img/editions/swdev.svg`, `img/editions/web.svg`,
 			`data-chip="hil"`,
-			`data-act="open" data-variant="web"`,
+			`data-act="web"`, `data-act="opencode"`, `data-act="console"`,
+			`data-confirm="restart"`,
 		} {
 			if !strings.Contains(body, want) {
-				p.reasonf("Standard cards missing %q", want)
+				p.reasonf("cards missing %q", want)
 			}
 		}
-		for _, banned := range []string{`data-act="console"`, `data-act="opencode"`} {
+		for _, banned := range []string{`data-act="open"`, `data-confirm="stop"`, `data-confirm="delete"`} {
 			if strings.Contains(body, banned) {
-				p.reasonf("Standard must show no terminal buttons (%s)", banned)
+				p.reasonf("cards must not carry the retired action (%s)", banned)
 			}
 		}
 	}
@@ -259,11 +260,10 @@ func checkWebUIWorkspaces(home, root string) Item {
 	}
 	_ = s2.Close()
 
-	// Advanced display mode: the Open button honors the configured
-	// start option and the terminal rows appear (matrix, §6).
+	// Advanced display mode: the chips carry the stored values
+	// (presets, not pinning — matrix, §6).
 	_, advBody := get(s.URL() + "workspaces")
 	for _, wantAdv := range []string{
-		`data-act="open" data-variant="console"`, // beta's stored start option
 		`data-act="console"`, `data-act="opencode"`,
 	} {
 		if !strings.Contains(advBody, wantAdv) {

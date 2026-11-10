@@ -28,6 +28,14 @@ type Workspace struct {
 	ContainerStatus string
 	GitTracking     string
 	RepoURL         string
+
+	// Started-config evidence (web restart semantics): the fingerprint
+	// of the start-relevant sandbox_config.json fields and the image ID
+	// at the moment the container last (re)started. Absent reads as ""
+	// — running containers started before the feature carry no evidence,
+	// which the UI reads as "stale, restart possible".
+	StartedConfigHash string
+	StartedImageID    string
 }
 
 // Registry operates on workspaces.json under Home. Now is injectable for
@@ -162,13 +170,15 @@ func toWorkspace(v any) (Workspace, bool) {
 		return Workspace{}, false
 	}
 	return Workspace{
-		Name:            d.GetString("name", ""),
-		Path:            d.GetString("path", ""),
-		ContainerID:     d.GetString("container_id", ""),
-		LastUsed:        d.GetString("last_used", ""),
-		ContainerStatus: d.GetString("container_status", ""),
-		GitTracking:     d.GetString("git_tracking", "none"),
-		RepoURL:         d.GetString("repo_url", ""),
+		Name:              d.GetString("name", ""),
+		Path:              d.GetString("path", ""),
+		ContainerID:       d.GetString("container_id", ""),
+		LastUsed:          d.GetString("last_used", ""),
+		ContainerStatus:   d.GetString("container_status", ""),
+		GitTracking:       d.GetString("git_tracking", "none"),
+		RepoURL:           d.GetString("repo_url", ""),
+		StartedConfigHash: d.GetString("started_config_hash", ""),
+		StartedImageID:    d.GetString("started_image_id", ""),
 	}, true
 }
 
@@ -240,6 +250,15 @@ func (r *Registry) UpdateLastUsed(path string) error {
 // callers).
 func (r *Registry) UpdateRepoURL(path, repoURL string) error {
 	return r.updateWorkspace(path, func(d *jsonfmt.Doc) { d.Set("repo_url", repoURL) })
+}
+
+// SetStartedEvidence writes the started-config evidence keys (callers
+// write only after a verified container start).
+func (r *Registry) SetStartedEvidence(path, cfgHash, imageID string) error {
+	return r.updateWorkspace(path, func(d *jsonfmt.Doc) {
+		d.Set("started_config_hash", cfgHash)
+		d.Set("started_image_id", imageID)
+	})
 }
 
 // RemoveWorkspace deletes one workspace entry (by container identity of the

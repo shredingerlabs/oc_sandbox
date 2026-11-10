@@ -22,6 +22,25 @@ import (
 // wherever the user is in the shell.
 var catalogsTemplate = template.Must(template.New("catalogs").Parse(`
 {{define "trackers"}}
+{{template "trackers-body" .}}
+{{end}}
+{{define "providers"}}
+{{template "providers-page-body" .}}
+{{end}}
+
+{{define "trackers-page"}}
+<div class="pagehead"><div><h2>VCS Tracker</h2>
+<p class="desc">Reusable tracker entries — starting points picked at workspace creation. Entries hold no tokens and never cascade into existing workspaces.</p></div></div>
+{{template "trackers-body" .}}
+{{end}}
+
+{{define "providers-page"}}
+<div class="pagehead"><div><h2>AI-Provider</h2>
+<p class="desc">Reusable provider entries — OpenAI-compatible endpoints picked at workspace creation. Entries hold no tokens and never cascade into existing workspaces.</p></div></div>
+{{template "providers-page-body" .}}
+{{end}}
+
+{{define "trackers-body"}}
 <section class="catalog" id="catalogs-trackers" data-catalog="trackers">
   <h2>VCS Tracker</h2>
   <p class="catalog-hint">Reusable starting points for New Workspace — entries hold no tokens and never cascade into existing workspaces.</p>
@@ -81,7 +100,7 @@ var catalogsTemplate = template.Must(template.New("catalogs").Parse(`
 </section>
 {{end}}
 
-{{define "providers"}}
+{{define "providers-page-body"}}
 <section class="catalog" id="catalogs-providers" data-catalog="providers">
   <h2>AI-Provider</h2>
   <p class="catalog-hint">Reusable starting points for New Workspace — entries hold no tokens and never cascade into existing workspaces.</p>
@@ -142,18 +161,26 @@ type providersView struct {
 	Entries []catalogs.Provider
 }
 
-// handleCatalogsGET renders the whole catalogs screen fragment: both
-// sections, each with its cards (or the explicit empty default) and
-// its add form.
-func (s *Server) handleCatalogsGET(w http.ResponseWriter, r *http.Request) {
+// handleTrackersPage serves GET /catalogs/trackers — the split
+// Settings page the sidebar menu shows: the trackers section alone,
+// wrapped in a pagehead. The provider page lives at /catalogs/providers
+// (the former combined screen's routes and rendering split the same
+// way; nothing else moved).
+func (s *Server) handleTrackersPage(w http.ResponseWriter, r *http.Request) {
 	d := catalogs.Read(s.opts.Home)
 	tv := trackersView{P: s.pathPrefix(), Entries: d.Trackers, Kinds: catalogs.TrackerKinds, Sel: catalogs.Tracker{Kind: catalogs.KindGitHub}}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := catalogsTemplate.ExecuteTemplate(w, "trackers", tv); err != nil {
+	if err := catalogsTemplate.ExecuteTemplate(w, "trackers-page", tv); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
 	}
-	if err := catalogsTemplate.ExecuteTemplate(w, "providers", providersView{P: s.pathPrefix(), Entries: d.Providers}); err != nil {
+}
+
+// handleProvidersPage serves GET /catalogs/providers — the Settings →
+// AI-Provider page the sidebar menu shows.
+func (s *Server) handleProvidersPage(w http.ResponseWriter, r *http.Request) {
+	d := catalogs.Read(s.opts.Home)
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := catalogsTemplate.ExecuteTemplate(w, "providers-page", providersView{P: s.pathPrefix(), Entries: d.Providers}); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
 }

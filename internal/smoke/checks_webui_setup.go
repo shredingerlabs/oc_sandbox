@@ -225,7 +225,7 @@ func checkWebUISetup(home, root string) Item {
 
 	// Pending session blocks the workspace's other actions: disabled
 	// with a reason on the card, refused server-side.
-	for _, marker := range []string{`data-act="open"`, `data-act="web"`, `data-confirm="stop"`, `data-confirm="delete"`} {
+	for _, marker := range []string{`data-act="web"`, `data-act="opencode"`, `data-act="console"`, `data-confirm="restart"`} {
 		i := strings.Index(card, marker)
 		if i < 0 {
 			p.reasonf("alpha card missing %s", marker)
@@ -235,8 +235,14 @@ func checkWebUISetup(home, root string) Item {
 		if len(tail) > 300 {
 			tail = tail[:300]
 		}
-		if !strings.Contains(tail, "disabled") || !strings.Contains(tail, "first-run setup") {
-			p.reasonf("%s must be disabled with the setup reason while pending", marker)
+		// the restart confirm carries the setup refusal in its title;
+		// the access buttons disable without a title
+		if marker == `data-confirm="restart"` {
+			if !strings.Contains(tail, "disabled") || !strings.Contains(tail, "first-run setup") {
+				p.reasonf("%s must be disabled with the setup reason while pending", marker)
+			}
+		} else if !strings.Contains(tail, "disabled") {
+			p.reasonf("%s must be disabled while pending", marker)
 		}
 	}
 	if r, b := post(s.URL()+"workspaces/setup-alpha/start", nil); r == nil || r.StatusCode != http.StatusConflict || !strings.Contains(b, "first-run setup") {
@@ -244,6 +250,9 @@ func checkWebUISetup(home, root string) Item {
 	}
 	if r, b := post(s.URL()+"workspaces/setup-alpha/access", map[string]string{"variant": "console"}); r == nil || r.StatusCode != http.StatusConflict {
 		p.reasonf("access during pending setup = %v %q, want 409", respStatusCT(r), b)
+	}
+	if r, b := post(s.URL()+"workspaces/setup-alpha/restart", nil); r == nil || r.StatusCode != http.StatusOK || !strings.Contains(b, "first-run setup") {
+		p.reasonf("restart during pending setup = %v %q, want the sidecar refusal", respStatusCT(r), b)
 	}
 
 	// Relay exit 0 → flag patch, setup_complete written, slot cleared.

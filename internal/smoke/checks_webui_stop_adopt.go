@@ -31,7 +31,7 @@ import (
 // and the confirms refusing while an op is queued/running. The runner
 // is faked; nothing external is touched.
 func checkWebUIStopAdopt(home, root string) Item {
-	p := newPhase("A14", "Workspace stop/delete/adopt: card Stop/Delete rows run the real ops (pod-as-unit stop verified-gone → registry flip, danger delete with stop-first refusal), the variant start POST carries the #115 mismatch verdict, both replacements ride the adopt confirm through the verified stop → start chain with current settings + requested access, missing-image refusal before anything stops, failed switch leaves the workspace stopped with the error in the log, confirms refuse while an op is queued/running (#154)")
+	p := newPhase("A14", "Workspace stop/delete/adopt + restart: the Container-center routes run the real ops (pod-as-unit stop verified-gone → registry flip, danger delete with stop-first refusal), the variant start POST carries the #115 mismatch verdict, both replacements ride the adopt confirm through the verified stop → start chain with current settings + requested access, missing-image refusal before anything stops, failed switch leaves the workspace stopped with the error in the log, the card restart runs the verified stop → fresh-start chain from the saved settings (ADR-0033), confirms refuse while an op is queued/running (#154)")
 
 	// Fixture: one workspace, saved edition swdev with hil_mode, console
 	// start option (the §6 Standard presets hidden, stored truth intact)
@@ -213,6 +213,7 @@ func checkWebUIStopAdopt(home, root string) Item {
 	base := strings.Replace(s.URL(), "/t/"+s.Token()+"/", "/", 1)
 	for _, route := range []string{
 		"workspaces/atlas/stop", "workspaces/atlas/delete", "workspaces/atlas/adopt",
+		"workspaces/atlas/restart",
 	} {
 		for _, prefix := range []string{base, base + "t/00000000000000000000000000000000/"} {
 			resp, _ := post(prefix+route, map[string]string{"variant": "web"})
@@ -287,8 +288,9 @@ func checkWebUIStopAdopt(home, root string) Item {
 		p.reasonf("switch start.sh args = %v, want tail %v", got, want)
 	}
 	// Confirms refuse while an op is queued or running (per-key): the
-	// second adopt, a stop and a delete all refuse on the busy key.
-	for _, refuse := range []string{"adopt", "stop", "delete"} {
+	// second adopt, a stop, a delete and a restart all refuse on the
+	// busy key.
+	for _, refuse := range []string{"adopt", "stop", "delete", "restart"} {
 		form := map[string]string{}
 		if refuse == "adopt" {
 			form["variant"] = "web"
@@ -361,8 +363,58 @@ func checkWebUIStopAdopt(home, root string) Item {
 	startFail = false
 	mu.Unlock()
 
+	// The restart route (ADR-0033): a running container is replaced by
+	// the verified stop → fresh-start chain with the saved settings —
+	// the stop-first full sequence is the pod stop + one start.sh,
+	// registry flips truthful along the way, started-config evidence
+	// refreshes.
+	liveWith("opencode-sandbox-swdev:latest")
+	mu.Lock()
+	podExists = true
+	running = true
+	if err := (&registry.Registry{Home: home}).UpdateStatus(rootA, "running"); err != nil {
+		p.reasonf("seed status: %v", err)
+	}
+	stopCount := len(stopCalls) + len(podStopCalls)
+	startCount := len(startArgs)
+	mu.Unlock()
+	v = sidecar(s.URL()+"workspaces/atlas/restart", nil)
+	if !scOK(v) || scNum(v, "op") < 1 {
+		p.reasonf("restart sidecar = %v, want ok with the op id", v)
+	}
+	release <- struct{}{} // the fresh start verifies
+	waitRegistry(p, home, "atlas", "running")
+	waitQueueIdle("restart")
+	mu.Lock()
+	restartOK := len(stopCalls)+len(podStopCalls) == stopCount+1 &&
+		len(startArgs) == startCount+1
+	mu.Unlock()
+	if !restartOK {
+		p.reasonf("restart must stop once and start once (stop=%v pod-stop=%v start=%v)", stopCalls, podStopCalls, startArgs)
+	}
+
+	// Restart on a stopped container is refused (the start options are
+	// the recovery): the fresh-state guard reads not-running and no
+	// stop/start runs.
+	mu.Lock()
+	running = false
+	stopCount, startCount = len(stopCalls)+len(podStopCalls), len(startArgs)
+	mu.Unlock()
+	v = sidecar(s.URL()+"workspaces/atlas/restart", nil)
+	if scOK(v) || !strings.Contains(scStr(v, "error"), "is not running") {
+		p.reasonf("stopped restart sidecar = %v, want the not-running refusal", v)
+	}
+	mu.Lock()
+	if len(stopCalls)+len(podStopCalls) != stopCount || len(startArgs) != startCount {
+		p.reasonf("refused restart must not touch the container")
+	}
+	mu.Unlock()
+
 	// The stop route (#154): the pod-as-unit graceful stop through the
 	// op runner — pod stop, verified gone before the registry flip.
+	mu.Lock()
+	podStops := len(podStopCalls)
+	mu.Unlock()
 	liveWith("opencode-sandbox-swdev:latest")
 	mu.Lock()
 	podExists = true
@@ -374,7 +426,8 @@ func checkWebUIStopAdopt(home, root string) Item {
 	waitRegistry(p, home, "atlas", "stopped")
 	waitQueueIdle("stop route")
 	mu.Lock()
-	podStopped := len(podStopCalls) == 1 && podStopCalls[0] == pod
+	podStopped := len(podStopCalls) == podStops+1 &&
+		podStopCalls[podStops] == pod
 	mu.Unlock()
 	if !podStopped {
 		p.reasonf("pod stop calls = %v, want [%s] (pod-as-unit)", podStopCalls, pod)

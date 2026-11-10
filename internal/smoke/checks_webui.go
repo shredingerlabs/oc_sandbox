@@ -229,9 +229,12 @@ func checkWebUI(home, root string) Item {
 	}); !strings.Contains(pbody, `data-name="OpenRouter"`) {
 		p.reasonf("provider add: want entry fragment")
 	}
-	resp, cbody = get("GET", s.URL()+"catalogs")
-	if resp == nil || resp.StatusCode != http.StatusOK || !strings.Contains(cbody, `data-name="Company GitLab"`) || !strings.Contains(cbody, `data-name="OpenRouter"`) {
-		p.reasonf("GET /catalogs must render the persisted entries, got %v", respStatusCT(resp))
+	// The split catalog pages each render their persisted section.
+	_, tbody := get("GET", s.URL()+"catalogs/trackers")
+	_, pbody := get("GET", s.URL()+"catalogs/providers")
+	if !strings.Contains(tbody, `data-name="Company GitLab"`) ||
+		!strings.Contains(pbody, `data-name="OpenRouter"`) {
+		p.reasonf("GET /catalogs/{trackers,providers} must render the persisted entries")
 	}
 
 	// The tokenized URL never reaches log output.

@@ -43,16 +43,16 @@ const scanWindow = 100
 // Options carries the launch-time knobs. The zero value is production:
 // base port 8090 (scans upward on conflict, never persisted).
 type Options struct {
-	BasePort      int                        // first port tried; 0 means "pick a free port" (tests)
-	Version       string                     // compiled-in version — the update card's fallback when the VERSION file is absent
-	InstallRoot   string                     // the install layout root (app.LayoutFor): the VERSION file lives here
-	Home          string                     // the oc-sandbox home: ~/.config/oc-sandbox holds catalogs.json etc. and global_config.json (GET/POST /settings)
-	Deps          *Deps                      // screen seams (#156/#158/#159); nil = shell + update/settings/catalogs only
-	Runner        cmdrun.Runner              // podman/script runner for the workspace access verbs (#153); nil → deps.Run, then real execution
-	Now           func() time.Time           // clock for relative last-used dates; nil → time.Now
-	TerminalSpawn func(command string) error // host terminal window opener (§3); nil → per-platform spawn
-	UpdateCheck   func() (string, error)     // §12 version-check seam (mocked GitHub); nil → real API
-	UpdateFetch   func() (string, error)     // install-script fetch seam; nil → real download
+	BasePort      int                                                         // first port tried; 0 means "pick a free port" (tests)
+	Version       string                                                      // compiled-in version — the update card's fallback when the VERSION file is absent
+	InstallRoot   string                                                      // the install layout root (app.LayoutFor): the VERSION file lives here
+	Home          string                                                      // the oc-sandbox home: ~/.config/oc-sandbox holds catalogs.json etc. and global_config.json (GET/POST /settings)
+	Deps          *Deps                                                       // screen seams (#156/#158/#159); nil = shell + update/settings/catalogs only
+	Runner        cmdrun.Runner                                               // podman/script runner for the workspace access verbs (#153); nil → deps.Run, then real execution
+	Now           func() time.Time                                            // clock for relative last-used dates; nil → time.Now
+	TerminalSpawn func(command string) error                                  // host terminal window opener (§3); nil → per-platform spawn
+	UpdateCheck   func() (string, error)                                      // §12 version-check seam (mocked GitHub); nil → real API
+	UpdateFetch   func() (string, error)                                      // install-script fetch seam; nil → real download
 	UpdateRun     func(script string, args []string, emit func(string)) error // install-script run seam; nil → real bash run
 }
 
@@ -177,7 +177,8 @@ func (s *Server) Start() error {
 	inner.HandleFunc("GET /update", s.handleUpdateCard)
 	inner.HandleFunc("POST /update/check", s.handleUpdateCheck)
 	inner.HandleFunc("POST /update/run", s.handleUpdateRun)
-	inner.HandleFunc("GET /catalogs", s.handleCatalogsGET)
+	inner.HandleFunc("GET /catalogs/trackers", s.handleTrackersPage)
+	inner.HandleFunc("GET /catalogs/providers", s.handleProvidersPage)
 	inner.HandleFunc("POST /catalogs/trackers", s.handleTrackersPOST)
 	inner.HandleFunc("POST /catalogs/providers", s.handleProvidersPOST)
 	inner.HandleFunc("GET /settings", s.handleSettingsGet)

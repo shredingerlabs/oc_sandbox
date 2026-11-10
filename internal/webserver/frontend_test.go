@@ -42,12 +42,12 @@ func TestFrontendCardStyles(t *testing.T) {
 		`.grid`,
 		`.card`,
 		`.tile`,
-		`--ed`,     // edition hue tinting
-		`.chip`,    // HIL + advanced chips
-		`.dot`,     // running marker
-		`.oplog`,   // streamed op log
-		`.busy`,    // busy row
-		`.confirm`, // stop/delete confirm row
+		`--ed`,                      // edition hue tinting
+		`.chip`,                     // HIL + advanced chips
+		`.dot`,                      // running marker
+		`.oplog`,                    // streamed op log
+		`.busy`,                     // busy row
+		`.confirm`,                  // stop/delete confirm row
 		`.confirm-backdrop[hidden]`, // display:flex must not beat the hidden attribute
 	} {
 		if !strings.Contains(css, want) {
@@ -56,21 +56,20 @@ func TestFrontendCardStyles(t *testing.T) {
 	}
 }
 
-// The frontend wiring of the workspace ops (#154): the confirm rows
-// post the real stop/delete ops, the Open chain carries the variant and
-// handles the mismatch verdict, and the web-native adopt confirm gates
-// both running-container replacements.
+// The frontend wiring of the workspace ops (ADR-0033 cards): the
+// restart confirm row posts the real restart op, the start chain
+// carries the variant and handles the mismatch verdict, and the
+// web-native adopt confirm gates both running-container replacements.
 func TestFrontendWorkspaceOpsWiring(t *testing.T) {
 	s := startTestServer(t)
 	js := body(t, get(t, s.URL()+"js/main.js"))
 	for _, want := range []string{
-		`runWorkspaceOp(card, "stop")`,   // the Stop confirm row's op
-		`runWorkspaceOp(card, "delete")`, // the Delete confirm row's op (danger confirm stays)
-		`post(card, "adopt")`,            // the adopt confirm's action
-		`mismatch`,                       // the #115 verdict handling in the Open chain
-		`running_edition`,                // the mismatch prompt names what runs
-		`an agent may be mid-task`,       // the adopt confirm copy
-		`variant=`,                       // the requested access rides the start POST
+		`runWorkspaceOp(card, "restart")`, // the Restart confirm row's op (ADR-0033)
+		`post(card, "adopt")`,             // the adopt confirm's action
+		`mismatch`,                        // the #115 verdict handling in the start chain
+		`running_edition`,                 // the mismatch prompt names what runs
+		`an agent may be mid-task`,        // the adopt confirm copy
+		`variant=`,                        // the requested access rides the start POST
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("main.js missing %q", want)
@@ -145,12 +144,12 @@ func TestCardFragmentCarriesOpID(t *testing.T) {
 	waitForBusyCard(t, s, "alpha")
 
 	// A GET render (SSE workspace event path) carries the op id, and
-	// the confirm buttons refuse while the op runs.
+	// the restart confirm refuses while the op is queued/running.
 	doc := body(t, get(t, s.URL()+"workspaces"))
 	if !strings.Contains(doc, `data-op-id="`) {
 		t.Fatal("busy card lost its op id")
 	}
-	if !strings.Contains(doc, `data-confirm="stop" disabled`) {
+	if !strings.Contains(doc, `data-confirm="restart" disabled`) {
 		t.Fatal("confirms must refuse while an op is queued/running")
 	}
 	close(release)

@@ -28,7 +28,6 @@ const PresetsHint = "presets, see Advanced"
 // (#153, #155–#157) append their rows here.
 var matrix = []Row{
 	{Screen: "ws-settings", Key: "edition", Label: "Edition", AdvancedOnly: true},
-	{Screen: "ws-settings", Key: "start_option", Label: "Start option", AdvancedOnly: true},
 	{Screen: "ws-settings", Key: "proxy", Label: "Proxy", AdvancedOnly: true},
 	{Screen: "ws-settings", Key: "search_mode", Label: "Search mode", AdvancedOnly: true},
 	{Screen: "ws-settings", Key: "offline", Label: "Offline", AdvancedOnly: true},
@@ -37,8 +36,8 @@ var matrix = []Row{
 	// New Workspace wizard (#156, §6): Standard shows name, source pair,
 	// agent, edition, VCS-credential + AI-provider selects — the §6
 	// presets (start web, proxy off, searxng, offline/CBM-UI off, HIL on
-	// for embedded) are recorded without their rows.
-	{Screen: "ws-new", Key: "start_option", Label: "Start option", AdvancedOnly: true},
+	// for embedded) are recorded without their rows. The start_option
+	// row is retired (ADR-0033: the card buttons own the variant access).
 	{Screen: "ws-new", Key: "proxy", Label: "Proxy", AdvancedOnly: true},
 	{Screen: "ws-new", Key: "search_mode", Label: "Search mode", AdvancedOnly: true},
 	{Screen: "ws-new", Key: "offline", Label: "Offline", AdvancedOnly: true},

@@ -83,16 +83,26 @@
         renderWsSettings(null);
         return;
       }
-      // Catalogs screen (#155): Settings → VCS Tracker / AI-Provider
-      // both load GET /catalogs (one fragment, both sections).
-      if ((nav === "set-vcs" || nav === "set-ai") && window.htmx) {
-        htmx.ajax("GET", base + "catalogs", { target: '[data-role="screen"]', swap: "innerHTML" });
+      // Workspace → New (#156): the wizard loads as a fragment.
+      if (nav === "ws-new" && window.htmx) {
+        htmx.ajax("GET", base + "workspaces/new", { target: '[data-role="screen"]', swap: "innerHTML" });
+        return;
+      }
+      // Catalog screens (#155, split per the menu): Settings → VCS
+      // Tracker and AI-Provider each load their own fragment now.
+      if (nav === "set-vcs" && window.htmx) {
+        htmx.ajax("GET", base + "catalogs/trackers", { target: '[data-role="screen"]', swap: "innerHTML" });
+        return;
+      }
+      if (nav === "set-ai" && window.htmx) {
+        htmx.ajax("GET", base + "catalogs/providers", { target: '[data-role="screen"]', swap: "innerHTML" });
         return;
       }
       // Container center + images (#158): fragment screens with the
-      // reactive workspace re-render.
+      // reactive workspace re-render; both show the spinner while the
+      // (blocking) discovery fragment loads.
       if (screenPaths[nav]) {
-        loadScreen(screenPaths[nav]);
+        loadScreen(screenPaths[nav], screenPaths[nav] === "containers" || screenPaths[nav] === "images");
         return;
       }
       renderStub(nav);
@@ -182,20 +192,14 @@
       return;
     }
 
-    if (btn.dataset.confirm === "stop" || btn.dataset.confirm === "delete") {
-      showConfirmRow(card, btn.dataset.confirm);
+    if (btn.dataset.confirm === "restart") {
+      showConfirmRow(card, "restart");
       return;
     }
-    if (btn.dataset.act === "confirm-stop") {
-      // #154: the confirm rows run the real ops — stop through the
-      // graceful stop flow; delete keeps its danger confirm (§9). The
-      // per-key busy refusal comes back as a sidecar; an accepted op
-      // re-renders the card busy via the SSE workspace event.
-      runWorkspaceOp(card, "stop");
-      return;
-    }
-    if (btn.dataset.act === "confirm-delete") {
-      runWorkspaceOp(card, "delete");
+    if (btn.dataset.act === "confirm-restart") {
+      // ADR-0033: the restart confirm runs the verified stop →
+      // fresh-start replacement; the sidecar surfaces refusals.
+      runWorkspaceOp(card, "restart");
       return;
     }
     if (btn.dataset.act === "mismatch-use") {
@@ -244,11 +248,11 @@
         .catch(function () { renderWorkspaces(); });
       return;
     }
-    if (btn.dataset.act !== "open" && btn.dataset.act !== "web" &&
+    if (btn.dataset.act !== "web" &&
         btn.dataset.act !== "console" && btn.dataset.act !== "opencode") return;
 
     var act = btn.dataset.act;
-    var variant = act === "open" ? (btn.dataset.variant || "web") : act;
+    var variant = act;
 
     if (variant === "web") {
       // The new tab opens synchronously under the click gesture (§10),
@@ -504,12 +508,13 @@
     log.innerHTML = '<div class="row note-row">' + html + '</div>' + log.innerHTML;
   }
 
-  // Confirm rows (§9 confirm set): Stop/Delete ask before acting —
-  // Confirm posts the workspace op, Cancel restores the plain card.
+  // Confirm rows (§9 confirm set): the Restart confirm-gate ask before
+  // acting — Confirm posts the workspace op, Cancel restores the plain
+  // card (stop/delete left the cards; Container center owns them).
   function showConfirmRow(card, kind) {
     var box = card.querySelector(".confirms");
     if (!box) return;
-    var label = kind === "stop" ? "Stop this workspace?" : "Delete this workspace?";
+    var label = kind === "restart" ? "Restart this workspace?" : kind;
     box.innerHTML =
       '<span class="card-confirm" data-confirm-row="' + kind + '">' +
       '<span class="card-confirm-label">' + label + '</span>' +
@@ -593,14 +598,38 @@
     var row = q(form, '[data-row="edition"]');
     if (agentSel.value === "pkm") { // pkm pins the edition — the row hides
       row.setAttribute("data-pkm-pin", "1");
-      q(form, '[data-role="wizard-edition"]').value = "pkm";
+      setEdition(q(form, '[data-role="wizard-edition"]'), "pkm");
     } else {
       if (row.getAttribute("data-pkm-pin") !== null) {
         row.removeAttribute("data-pkm-pin");
-        q(form, '[data-role="wizard-edition"]').value = "swdev"; // §6 preselect
+        setEdition(q(form, '[data-role="wizard-edition"]'), "swdev"); // §6 preselect
       }
     }
+    if (row.getAttribute("data-pkm-pin") === null) applyEditionPreset(form);
   }
+
+  // setEdition drives the .edotsel chip group: the hidden payload input
+  // value + the chips' pressed state move together.
+  function setEdition(holder, value) {
+    if (!holder) return;
+    holder.querySelector('input[name="edition"]').value = value;
+    holder.querySelectorAll(".edopt").forEach(function (b) {
+      b.setAttribute("aria-pressed", String(b.dataset.ed === value));
+    });
+  }
+
+  // Edition chips (#156, prototype ws-new .edotsel): one chip per
+  // edition; the click sets the hidden input (the confirm round-trip
+  // unaffected) and fires the HIL preset rule like the old select did.
+  document.addEventListener("click", function (ev) {
+    var chip = ev.target.closest(".edopt");
+    if (!chip || chip.disabled) return;
+    var holder = chip.closest('[data-role="wizard-edition"]');
+    if (!holder) return;
+    setEdition(holder, chip.dataset.ed);
+    var form = holder.closest('[data-role="new-workspace-form"]');
+    if (form) applyEditionPreset(form);
+  });
 
   function applyEditionPreset(form) {
     // §6: HIL presets on for embedded creations — a preset, not a pin:
@@ -659,7 +688,12 @@
   var logLines = {};   // op id → array of streamed lines
   var lastLineId = 0;  // SSE id dedupe across reconnect replay
 
-  function loadScreen(name) {
+  function loadScreen(name, spin) {
+    if (spin) { // slow discovery screens answer the wait visibly
+      currentScreen = name;
+      screenEl.innerHTML =
+        '<div class="loading"><span class="spinner" aria-hidden="true"></span>Loading…</div>';
+    }
     fetch(base + name, { referrerPolicy: "no-referrer" })
       .then(function (r) { return r.text(); })
       .then(function (html) {
@@ -777,12 +811,14 @@
         function () {
           go(btn.dataset.action === "img-delete"
             ? "tag=" + encodeURIComponent(btn.dataset.tag)
-            : null);
+            : btn.dataset.tag
+              ? "tag=" + encodeURIComponent(btn.dataset.tag)
+              : null);
         }
       );
       return;
     }
-    go(null);
+    go(btn.dataset.tag ? "tag=" + encodeURIComponent(btn.dataset.tag) : null);
   });
 
   // --- §12 update phases: footer banner + Update card render purely

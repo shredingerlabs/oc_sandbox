@@ -40,6 +40,8 @@ func TestImagesScreen(t *testing.T) {
 		`<span class="marker st-off">○ missing</span>`,        // missing marker (the other stages)
 		`<span class="marker st-running">● in use</span>`,     // in-use marker (web container ref)
 		`data-confirm="Build all images?`,                     // build confirm (non-danger)
+		`data-confirm="Rebuild image opencode-sandbox-swdev?`, // per-image rebuild
+		`data-confirm="Build image`,                           // per-image build on a missing row
 		`data-confirm="Delete image opencode-sandbox-swdev?"`, // delete confirm on the free built image
 		`data-danger`,     // delete is the danger confirm
 		`data-role="log"`, // embedded log pane slot
@@ -48,21 +50,27 @@ func TestImagesScreen(t *testing.T) {
 			t.Fatalf("images screen missing %q\n---\n%s", want, doc)
 		}
 	}
-	// the in-use image carries no delete button (refusal at confirm time)
-	webRow := strings.SplitN(strings.SplitN(doc, `data-tag="opencode-sandbox-web"`, 2)[1], `data-tag="`, 2)[0]
-	if strings.Contains(webRow, `data-action="img-delete"`) {
-		t.Fatalf("in-use image must not offer delete: %s", webRow)
+	// the in-use image's delete button renders disabled with the hint
+	// (the refusal explains itself at render time; the server keeps its
+	// fresh-state refusal regardless)
+	if !strings.Contains(doc, `disabled title="in use, remove its containers first: opencode-sandbox-web"`) {
+		t.Fatalf("in-use image must offer delete disabled:\n%s", doc)
 	}
 }
 
-// A missing image offers no delete action at all.
-func TestImagesMissingHasNoDelete(t *testing.T) {
+// A missing image renders its delete button disabled (always rendered,
+// unclickable when there is nothing to delete — DOM-less rows that
+// appear/disappear would jumpy-layout the list).
+func TestImagesMissingHasDeleteDisabled(t *testing.T) {
 	reg, _ := fixtureRegistry(t)
 	run := fakePodman(nil, nil, nil, nil, nil)
 	s := depsServer(t, run, reg)
 	doc := body(t, get(t, s.URL()+"images"))
-	if strings.Contains(doc, `data-action="img-delete"`) {
-		t.Fatalf("missing images must not offer delete:\n%s", doc)
+	if strings.Contains(doc, `data-action="img-delete" data-confirm`) {
+		t.Fatalf("missing images must render delete disabled:\n%s", doc)
+	}
+	if !strings.Contains(doc, `data-danger disabled title="not built — nothing to delete"`) {
+		t.Fatalf("missing images missing the disabled delete button:\n%s", doc)
 	}
 }
 

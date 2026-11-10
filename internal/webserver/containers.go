@@ -9,6 +9,7 @@ import (
 	"github.com/shredingerlabs/oc-sandbox/internal/cmdrun"
 	"github.com/shredingerlabs/oc-sandbox/internal/discovery"
 	"github.com/shredingerlabs/oc-sandbox/internal/registry"
+	"github.com/shredingerlabs/oc-sandbox/internal/sandboxcfg"
 )
 
 // containers.go serves the Container center (spec §7/#158): one
@@ -25,6 +26,7 @@ func (s *Server) wireRoutes(inner *http.ServeMux) {
 	inner.HandleFunc("POST /containers/{name}/stop", s.handleContainerStop)
 	inner.HandleFunc("POST /containers/{name}/delete", s.handleContainerDelete)
 	inner.HandleFunc("POST /workspaces/{name}/start", s.handleWorkspaceStart)
+	inner.HandleFunc("POST /workspaces/{name}/restart", s.handleWorkspaceRestart)
 	inner.HandleFunc("POST /workspaces/{name}/stop", s.handleWorkspaceStop)
 	inner.HandleFunc("POST /workspaces/{name}/delete", s.handleWorkspaceDelete)
 	inner.HandleFunc("POST /workspaces/{name}/adopt", s.handleWorkspaceAdopt)
@@ -157,14 +159,17 @@ func (s *Server) renderContainers(msg string) string {
 			b.WriteString(`<button data-action="start" data-href="workspaces/` +
 				html.EscapeString(row.Workspace) + `/start">Start</button>`)
 		}
-		if !row.Busy {
+		if row.Busy {
+			b.WriteString(`<button disabled title="an operation is queued or running">Stop</button>`)
+			b.WriteString(`<button disabled title="an operation is queued or running" data-danger>Delete</button>`)
+		} else {
 			b.WriteString(`<button data-action="stop" data-href="containers/` +
 				html.EscapeString(row.Unit) + `/stop" data-confirm="Stop ` +
-				html.EscapeString(row.Unit) + `?"` + disabledAttr(row.State, row.Workspace) + `>Stop</button>`)
+				html.EscapeString(row.Unit) + `?"` + stopDisabledAttr(row) + `>Stop</button>`)
 			b.WriteString(`<button data-action="delete" data-href="containers/` +
 				html.EscapeString(row.Unit) + `/delete" data-confirm="Delete ` +
 				html.EscapeString(row.Unit) + `?" data-danger` +
-				disabledAttr(row.State, row.Workspace) + `>Delete</button>`)
+				deleteDisabledAttr(row) + `>Delete</button>`)
 		}
 		b.WriteString(`</div></div>`)
 	}
@@ -175,11 +180,21 @@ func (s *Server) renderContainers(msg string) string {
 	return b.String()
 }
 
-// disabledAttr greys the stop button of a unit that is not running
-// (stop acts on live units only; delete acts on any stopped one).
-func disabledAttr(state, workspace string) string {
-	if workspace != "" && state != "running" {
-		return ` disabled`
+// stopDisabledAttr greys the stop button of a unit that is not running
+// (stop acts on live units only).
+func stopDisabledAttr(row unitRow) string {
+	if row.Workspace == "" || row.State == "running" {
+		return ""
+	}
+	return ` disabled title="not running — nothing to stop"`
+}
+
+// deleteDisabledAttr greys the delete button of a running unit (stop
+// first — deleting a running container would be an ungraceful kill);
+// stopped/created/missing leftovers delete freely.
+func deleteDisabledAttr(row unitRow) string {
+	if row.State == "running" {
+		return ` disabled title="running — stop it first (deleting a running unit is never a force-kill)"`
 	}
 	return ""
 }
@@ -311,7 +326,8 @@ func (s *Server) handleWorkspaceStart(w http.ResponseWriter, r *http.Request) {
 // the rest run start.sh with the values from the workspace's
 // sandbox_config.json (openworkspace.StartArgs, --detach); the registry
 // receives "running" only after the container is verified live against
-// a fresh podman ps.
+// a fresh podman ps, and the started-config evidence refreshes so the
+// restart staleness reads current (ADR-0033).
 func (s *Server) startOp(name string) func(emit func(string)) error {
 	d := s.deps
 	return func(emit func(string)) error {
@@ -323,36 +339,61 @@ func (s *Server) startOp(name string) func(emit func(string)) error {
 		if slices.Contains(discovery.RunningContainers(d.Run), cname) {
 			emit("already running — reusing " + cname)
 		} else {
-			cfg, err := readSandboxCfg(ws.Path)
-			if err != nil {
-				return err
-			}
-			if err := validateStartCfg(cfg); err != nil {
-				return err
-			}
-			if !discovery.ImageExists(d.Run, cfg.ContainerEdition) {
-				return errImageMissing(cfg.ContainerEdition)
-			}
-			emit("==> " + cname)
-			args := startScriptArgs(ws.Path, ws.ContainerID, cfg)
-			out, err := d.Run.Output("bash", append([]string{d.StartScript}, args...)...)
-			for _, l := range cmdrun.Lines(out) {
-				emit(l)
-			}
-			if err != nil {
+			if _, err := s.freshStart(ws, emit); err != nil {
 				return err
 			}
 		}
-		// verified live before any write (data map §3).
-		if !slices.Contains(discovery.RunningContainers(d.Run), cname) {
-			return errNotRunning(cname)
-		}
-		if err := d.Registry.UpdateStatus(ws.Path, "running"); err != nil {
-			return err
-		}
-		// The Open action is a use: the registry's last_used updates (#153).
-		return d.Registry.UpdateLastUsed(ws.Path)
+		return s.finishVerifiedStart(ws, emit)
 	}
+}
+
+// finishVerifiedStart closes any started container flow: verified live
+// before any write (data map §3), registry → running, started-config
+// evidence refresh (ADR-0033), last_used bump (the start is a use).
+func (s *Server) finishVerifiedStart(ws registry.Workspace, emit func(string)) error {
+	d := s.deps
+	cname := registry.ContainerName(ws.ContainerID)
+	if !slices.Contains(discovery.RunningContainers(d.Run), cname) {
+		return errNotRunning(cname)
+	}
+	if err := d.Registry.UpdateStatus(ws.Path, "running"); err != nil {
+		return err
+	}
+	// The Open action is a use: the registry's last_used updates (#153).
+	if err := d.Registry.UpdateLastUsed(ws.Path); err != nil {
+		return err
+	}
+	if cfg, err := readSandboxCfg(ws.Path); err == nil {
+		if err := s.recordStartedEvidence(ws, cfg); err != nil {
+			emit("started-config evidence not written: " + err.Error())
+		}
+	}
+	return nil
+}
+
+// freshStart runs the non-reuse start branch: the current stored config,
+// pre-start validations, the edition image check, then start.sh with
+// fully rebuilt args. Returns the config the start consumed (the restart
+// and start flows record started-config evidence off it).
+func (s *Server) freshStart(ws registry.Workspace, emit func(string)) (sandboxcfg.Config, error) {
+	cfg, err := readSandboxCfg(ws.Path)
+	if err != nil {
+		return cfg, err
+	}
+	if err := validateStartCfg(cfg); err != nil {
+		return cfg, err
+	}
+	if !discovery.ImageExists(s.deps.Run, cfg.ContainerEdition) {
+		return cfg, errImageMissing(cfg.ContainerEdition)
+	}
+	cname := registry.ContainerName(ws.ContainerID)
+	emit("==> " + cname)
+	args := startScriptArgs(ws.Path, ws.ContainerID, cfg)
+	out, err := s.deps.Run.Output("bash", append([]string{s.deps.StartScript}, args...)...)
+	for _, l := range cmdrun.Lines(out) {
+		emit(l)
+	}
+	return cfg, err
 }
 
 // stopOp mirrors the TUI Container-center stop (containerview
@@ -362,32 +403,38 @@ func (s *Server) startOp(name string) func(emit func(string)) error {
 // containers without a pod); container_status="stopped" only after the
 // container is verified gone.
 func (s *Server) stopOp(name string) func(emit func(string)) error {
-	d := s.deps
 	return func(emit func(string)) error {
-		pod := registry.PodName(registry.ContainerID(name))
-		if discovery.PodExists(d.Run, pod) {
-			out, err := d.Run.Output("podman", "pod", "stop", pod)
-			for _, l := range cmdrun.Lines(out) {
-				emit(l)
-			}
-			if err != nil {
-				return err
-			}
-		} else {
-			out, err := d.Run.Output("podman", "stop", name)
-			for _, l := range cmdrun.Lines(out) {
-				emit(l)
-			}
-			if err != nil {
-				return err
-			}
-		}
-		// verified gone before any write (data map §3).
-		if slices.Contains(discovery.RunningContainers(d.Run), name) {
-			return errStillRunning(name)
+		if err := s.stopUnitOnce(name, emit); err != nil {
+			return err
 		}
 		return s.mirrorStopped(name)
 	}
+}
+
+// stopUnitOnce stops one unit pod-aware (the pod as the unit took its
+// companions down; pod-less legacy containers stop alone) and verifies
+// it gone against a fresh ps.
+func (s *Server) stopUnitOnce(name string, emit func(string)) error {
+	d := s.deps
+	pod := registry.PodName(registry.ContainerID(name))
+	var out string
+	var err error
+	if discovery.PodExists(d.Run, pod) {
+		out, err = d.Run.Output("podman", "pod", "stop", pod)
+	} else {
+		out, err = d.Run.Output("podman", "stop", name)
+	}
+	for _, l := range cmdrun.Lines(out) {
+		emit(l)
+	}
+	if err != nil {
+		return err
+	}
+	// verified gone before any write (data map §3).
+	if slices.Contains(discovery.RunningContainers(d.Run), name) {
+		return errStillRunning(name)
+	}
+	return nil
 }
 
 // deleteContainerOp mirrors the TUI Container-center delete

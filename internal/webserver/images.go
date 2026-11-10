@@ -96,16 +96,21 @@ func (s *Server) imageRows() []imageRow {
 	return rows
 }
 
-// renderImages renders the image screen: the Build (all) confirm
-// button, the edition rows with markers and sizes, and the embedded
-// log pane the build op streams into (Op.ID in data-op; streamed lines
-// ride the SSE `line` events). Toast (a refused confirm) rides at the
-// top when msg is non-empty.
+// renderImages renders the image screen: the Build all confirm button,
+// the edition rows each with their own Build/Rebuild button, and the
+// embedded log pane the build op streams into (Op.ID in data-op;
+// streamed lines ride the SSE `line` events). Buttons render always —
+// their disabled state carries the refusal (busy queue, delete on a
+// missing/in-use image). Toast (a refused confirm) rides at the top
+// when msg is non-empty.
 func (s *Server) renderImages(msg string, opID int) string {
+	busy := s.queue.BusyKey(imagesKey)
 	var b strings.Builder
 	b.WriteString(`<section class="card" data-screen="images">`)
 	b.WriteString(`<div class="card-head"><h2>Images</h2>`)
-	if !s.queue.BusyKey(imagesKey) {
+	if busy {
+		b.WriteString(`<button disabled title="an image operation is queued or running">Build all</button>`)
+	} else {
 		b.WriteString(`<button data-action="build" data-href="images/build" data-confirm="Build all images? This can take a while.">Build all</button>`)
 	}
 	b.WriteString(`</div>`)
@@ -137,11 +142,36 @@ func (s *Server) renderImages(msg string, opID int) string {
 			b.WriteString(busyMarker())
 		}
 		b.WriteString(`</div><div class="actions">`)
-		if row.Built && !row.Busy && !row.InUse {
-			b.WriteString(`<button data-action="img-delete" data-href="images/delete" data-tag="` +
-				html.EscapeString(row.Tag) + `" data-confirm="Delete image ` +
-				html.EscapeString(row.Tag) + `?" data-danger>Delete</button>`)
+		// Per-image build/rebuild: one op per row on the shared images
+		// queue key (in-use images may rebuild — running containers keep
+		// the old image until they are replaced).
+		if busy {
+			b.WriteString(`<button disabled title="an image operation is queued or running">Build</button>`)
+		} else {
+			if row.Built {
+				b.WriteString(`<button data-action="build" data-href="images/build" data-tag="` +
+					html.EscapeString(row.Tag) + `" data-confirm="Rebuild image ` +
+					html.EscapeString(row.Tag) + `? Running containers keep the old image until they are replaced.">Rebuild</button>`)
+			} else {
+				b.WriteString(`<button data-action="build" data-href="images/build" data-tag="` +
+					html.EscapeString(row.Tag) + `" data-confirm="Build image ` +
+					html.EscapeString(row.Tag) + `? This can take a while.">Build</button>`)
+			}
 		}
+		// Delete renders always; disabled when there is nothing to
+		// delete (not built) or when in use (remove its containers
+		// first) — the server keeps its fresh-state refusal regardless.
+		disabled := ""
+		if row.Busy {
+			disabled = ` disabled title="an image operation is queued or running"`
+		} else if !row.Built {
+			disabled = ` disabled title="not built — nothing to delete"`
+		} else if row.InUse {
+			disabled = ` disabled title="` + errInUseHint(row.Tag).Error() + `"`
+		}
+		b.WriteString(`<button data-action="img-delete" data-href="images/delete" data-tag="` +
+			html.EscapeString(row.Tag) + `" data-confirm="Delete image ` +
+			html.EscapeString(row.Tag) + `?" data-danger` + disabled + `>Delete</button>`)
 		b.WriteString(`</div></div>`)
 	}
 	b.WriteString(`</div>`)
@@ -167,14 +197,34 @@ func (s *Server) handleImages(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleImagesBuild serves POST /images/build — the confirm's action
-// ("Build all images?"): the confirm refuses while an image op is
-// queued or running; otherwise one sequential build op launches, all
-// editions scaled to `all` via build-container.sh (script contract:
-// no-argument run builds every discovered edition).
+// ("Build all images?" / per-image "Build image <tag>"). With a tag
+// form field one image builds (the edition name, or the infra tag for
+// oc-searxng); without it all editions scale to `all` via
+// build-container.sh. The confirm refuses while an image op is queued
+// or running; otherwise one sequential build op launches.
 func (s *Server) handleImagesBuild(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if s.queue.BusyKey(imagesKey) {
 		_, _ = w.Write([]byte(s.renderImages("an image operation is already queued or running", 0)))
+		return
+	}
+	tag := strings.TrimSpace(r.FormValue("tag"))
+	if tag != "" {
+		// One row's build: the arg must resolve — an edition (build all
+		// implicitly builds parents first) or an infra tag. Unknown
+		// args re-render with the refusal.
+		var arg string
+		if tag == discovery.ProxyImageTag || tag == discovery.SearxngImageTag {
+			arg = tag
+		} else if ed := discovery.EditionFromImage(tag); ed != "" {
+			arg = ed
+		} else {
+			_, _ = w.Write([]byte(s.renderImages("unknown image: "+tag, 0)))
+			return
+		}
+		id := s.queue.reserve()
+		s.queue.Launch(webOp{ID: id, Key: imagesKey, Run: s.buildOneOp(arg)})
+		_, _ = w.Write([]byte(s.renderImages("", id)))
 		return
 	}
 	id := s.queue.reserve()
@@ -215,6 +265,25 @@ func (s *Server) buildAllOp() func(emit func(string)) error {
 	return func(emit func(string)) error {
 		emit("==> build all editions")
 		out, err := d.Run.Output("bash", d.BuildScript, "all")
+		for _, l := range cmdrun.Lines(out) {
+			emit(l)
+		}
+		if err != nil {
+			return err
+		}
+		return nil
+	}
+}
+
+// buildOneOp builds one image (`bash <script> <arg>`): the edition's
+// arg builds its stage (missing parent stages join automatically, the
+// script's own build order); the infra tags build alone. Exactly as
+// the TUI invokes scripts (ADR-0007).
+func (s *Server) buildOneOp(arg string) func(emit func(string)) error {
+	d := s.deps
+	return func(emit func(string)) error {
+		emit("==> build " + arg)
+		out, err := d.Run.Output("bash", d.BuildScript, arg)
 		for _, l := range cmdrun.Lines(out) {
 			emit(l)
 		}

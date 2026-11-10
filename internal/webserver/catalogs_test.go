@@ -28,38 +28,59 @@ func startCatalogServer(t *testing.T) *Server {
 // never a catalog entry.
 func TestCatalogsEmptyDefault(t *testing.T) {
 	s := startCatalogServer(t)
-	resp := get(t, s.URL()+"catalogs")
+	// The split pages (the menu is the truth): GET /catalogs/trackers
+	// and GET /catalogs/providers each render their section alone.
+	resp := get(t, s.URL()+"catalogs/trackers")
 	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("status = %d, want 200", resp.StatusCode)
+		t.Fatalf("trackers status = %d, want 200", resp.StatusCode)
 	}
 	if ct := resp.Header.Get("Content-Type"); !strings.HasPrefix(ct, "text/html") {
 		t.Fatalf("content-type = %q, want text/html", ct)
 	}
 	doc := body(t, resp)
+	resp2 := get(t, s.URL()+"catalogs/providers")
+	if resp2.StatusCode != http.StatusOK {
+		t.Fatalf("providers status = %d, want 200", resp2.StatusCode)
+	}
+	docp := body(t, resp2)
 	for _, want := range []string{
-		`id="catalogs-trackers"`,  // HTMX swap target for tracker actions
-		`id="catalogs-providers"`, // HTMX swap target for provider actions
-		"No tracker entries yet",  // the "no tracker" default, stated
-		"No provider entries yet", // the "no provider" default, stated
-		`name="name"`,             // add form: display name
-		`name="git_name"`,         // add form: git identity
+		`id="catalogs-trackers"`, // HTMX swap target for tracker actions
+		"No tracker entries yet", // the "no tracker" default, stated
+		`name="name"`,            // add form: display name
+		`name="git_name"`,        // add form: git identity
 		`name="git_email"`,
 		`name="kind"`, // add form: tracker kind
 		`name="host"`, // bare Host field — never labeled URL (ADR-0031)
 		"gitlab_self", // seeded tracker kinds (script-level slugs)
 		"other",
-		`name="endpoint"`, // provider form: OpenAI-compatible endpoint
-		`hx-post=`,        // HTMX-first: forms post for the swap
+		`hx-post=`, // HTMX-first: forms post for the swap
 	} {
 		if !strings.Contains(doc, want) {
-			t.Fatalf("GET /catalogs missing %q", want)
+			t.Fatalf("GET /catalogs/trackers missing %q", want)
 		}
 	}
-	if strings.Contains(doc, `class="entry"`) {
-		t.Fatalf("empty default must render without catalog entries")
+	for _, want := range []string{
+		`id="catalogs-providers"`, // HTMX swap target for provider actions
+		"No provider entries yet", // the "no provider" default, stated
+		`name="name"`,             // add form: display name
+		`name="endpoint"`,         // provider form: OpenAI-compatible endpoint
+		`hx-post=`,                // HTMX-first: forms post for the swap
+	} {
+		if !strings.Contains(docp, want) {
+			t.Fatalf("GET /catalogs/providers missing %q", want)
+		}
 	}
-	if strings.Contains(doc, ">None<") {
-		t.Fatalf(`"none" must never appear as a catalog entry`)
+	// the trackers page renders its section only (menu-true split)
+	if strings.Contains(doc, `id="catalogs-providers"`) {
+		t.Fatal("the trackers page must not render the providers section")
+	}
+	for _, docAny := range []string{doc, docp} {
+		if strings.Contains(docAny, `class="entry"`) {
+			t.Fatalf("empty default must render without catalog entries")
+		}
+		if strings.Contains(docAny, ">None<") {
+			t.Fatalf(`"none" must never appear as a catalog entry`)
+		}
 	}
 }
 

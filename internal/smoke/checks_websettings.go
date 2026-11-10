@@ -162,15 +162,16 @@ func checkWebSettings(home, root string) Item {
 		p.reasonf("seed catalogs: %v", err)
 		return p.finish()
 	}
-	doc = post("export-config", url.Values{"label": {"pre-release"}})
+	dest := filepath.Join(confDir, "backups", "export-pre-release")
+	doc = post("export-config", url.Values{"dest": {dest}})
 	if !strings.Contains(doc, "Exported") || !strings.Contains(doc, "workspaces.json") || !strings.Contains(doc, "catalogs.json") {
 		p.reasonf("export: fixed list missing the new filenames: %s", doc)
 	}
-	if _, err := os.Stat(filepath.Join(confDir, "backups", "export-pre-release", "workspaces.json")); err != nil {
+	if _, err := os.Stat(filepath.Join(dest, "workspaces.json")); err != nil {
 		p.reasonf("export snapshot missing workspaces.json: %v", err)
 	}
 	// Overwrite confirm: second export without confirm asks first.
-	doc = post("export-config", url.Values{"label": {"pre-release"}})
+	doc = post("export-config", url.Values{"dest": {dest}})
 	if !strings.Contains(doc, "Overwrite") {
 		p.reasonf("overwrite confirm missing")
 	}

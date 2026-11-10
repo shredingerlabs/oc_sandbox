@@ -412,7 +412,7 @@ func TestSetupPendingBlocksWorkspaceActions(t *testing.T) {
 	f.waitSpawn(t)
 
 	card := cardOf(t, f.s, "alpha")
-	for _, marker := range []string{`data-act="open"`, `data-act="web"`, `data-confirm="stop"`, `data-confirm="delete"`} {
+	for _, marker := range []string{`data-act="web"`, `data-act="opencode"`, `data-act="console"`, `data-confirm="restart"`} {
 		i := strings.Index(card, marker)
 		if i < 0 {
 			t.Fatalf("card missing %s:\n%s", marker, card)
@@ -421,24 +421,37 @@ func TestSetupPendingBlocksWorkspaceActions(t *testing.T) {
 		if len(btn) > 300 {
 			btn = btn[:300]
 		}
-		if !strings.Contains(btn, "disabled") || !strings.Contains(btn, "first-run setup") {
-			t.Fatalf("%s must be disabled with a setup reason:\n%s", marker, btn)
+		// the access buttons disable without a title; the restart
+		// confirm carries the setup refusal in its title
+		if marker == `data-confirm="restart"` {
+			if !strings.Contains(btn, "disabled") || !strings.Contains(btn, "first-run setup") {
+				t.Fatalf("%s must be disabled with a setup reason:\n%s", marker, btn)
+			}
+		} else if !strings.Contains(btn, "disabled") {
+			t.Fatalf("%s must be disabled during pending setup:\n%s", marker, btn)
 		}
 	}
 
-	// server-side: start and access refuse while the session holds.
-	for _, route := range []string{"start", "access"} {
+	// server-side: start, restart and access refuse while the session
+	// holds.
+	for _, route := range []string{"start", "access", "restart"} {
 		var form url.Values
 		if route == "access" {
 			form = url.Values{"variant": {"console"}}
+		}
+		var wantStatus int
+		if route == "restart" { // the sidecar refusals answer 200 (§9)
+			wantStatus = http.StatusOK
+		} else {
+			wantStatus = http.StatusConflict
 		}
 		resp, err := http.PostForm(f.s.URL()+"workspaces/alpha/"+route, form)
 		if err != nil {
 			t.Fatal(err)
 		}
 		b := body(t, resp)
-		if resp.StatusCode != http.StatusConflict || !strings.Contains(b, "first-run setup") {
-			t.Fatalf("POST %s during pending setup = %d %q, want 409 with the setup reason", route, resp.StatusCode, b)
+		if resp.StatusCode != wantStatus || !strings.Contains(b, "first-run setup") {
+			t.Fatalf("POST %s during pending setup = %d %q, want %d with the setup reason", route, resp.StatusCode, b, wantStatus)
 		}
 	}
 }

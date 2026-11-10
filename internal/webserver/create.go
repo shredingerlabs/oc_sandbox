@@ -40,10 +40,24 @@ const wizardEditionDefault = "swdev"
 
 // wizardTemplate renders the New Workspace fragments (form, confirm).
 // P carries the tokenized path prefix so hx-* targets stay absolute.
-var wizardTemplate = template.Must(template.New("wizard").Parse(`
+// Styling per the signed-off prototype (ws-new): a pagehead with the
+// Blank/From-Repo segment, .flabel/.sub rows, .edotsel chips for the
+// edition and Advanced toggles, "Add provider…" as the select's
+// inline-new option. The functional payload (field names, defaults,
+// hidden round-trip) is byte-for-byte the previous contract.
+var wizardTemplate = template.Must(template.New("wizard").
+	Funcs(template.FuncMap{"hueFor": editionHue}).
+	Parse(`
 {{define "wizard"}}
 <section class="wizard" id="new-workspace" data-screen="ws-new">
-  <h2>New Workspace</h2>
+  <div class="pagehead"><div>
+  <h2>Create a workspace</h2>
+  <div class="desc">Name, source, edition and provider are recorded once; later changes apply on next start.</div>
+  </div>
+  <span class="seg" role="group" aria-label="creation path">
+    <label>Blank Workspace<input type="radio" name="source" value="blank" {{if not .FromRepo}}checked{{end}}></label>
+    <label>From Repo<input type="radio" name="source" value="repo" {{if .FromRepo}}checked{{end}}></label>
+  </span></div>
   {{if .Error}}<p class="form-error" role="alert">{{.Error}}</p>{{end}}
   {{if or .LogLines (gt .OpID 0)}}
   <div class="logpane" data-role="create-log" data-op-id="{{.OpID}}">{{range .LogLines}}<div class="logline">{{.}}</div>{{end}}</div>
@@ -51,20 +65,15 @@ var wizardTemplate = template.Must(template.New("wizard").Parse(`
   <form data-role="new-workspace-form" hx-post="{{.P}}workspaces" hx-target="#new-workspace" hx-swap="outerHTML">
     <fieldset class="rows" data-role="wizard-fields"{{if .Inert}} disabled{{end}}>
 
-    <div class="row" data-row="source">
-      <span class="label">Source</span>
-      <span class="opts">
-        <label><input type="radio" name="source" value="blank" {{if not .FromRepo}}checked{{end}}> Blank Workspace</label>
-        <label><input type="radio" name="source" value="repo" {{if .FromRepo}}checked{{end}}> From Repo</label>
-      </span>
+    <div class="row" data-row="name">
+      <label class="flabel" for="wiz-name">Workspace name</label>
+      <input id="wiz-name" name="name" value="{{.Name}}" data-role="wizard-name" placeholder="my-workspace">
+      <div class="sub">Under your workspaces root — derived from the repo URL on From Repo, still editable.</div>
     </div>
     <div class="row" data-row="repo_url" data-repo-only="{{if not .FromRepo}}1{{end}}">
-      <span class="label">Repo URL</span>
-      <input name="repo_url" value="{{.RepoURL}}" placeholder="https://github.com/user/repo.git">
-    </div>
-    <div class="row" data-row="name">
-      <span class="label">Workspace name</span>
-      <input name="name" value="{{.Name}}" data-role="wizard-name">
+      <label class="flabel" for="wiz-url">Repo URL</label>
+      <input id="wiz-url" name="repo_url" value="{{.RepoURL}}" placeholder="https://github.com/user/repo.git">
+      <div class="sub">Cloned at create (in-container clone during first-run setup).</div>
     </div>
     <div class="row" data-row="agent">
       <span class="label">Agent</span>
@@ -73,20 +82,24 @@ var wizardTemplate = template.Must(template.New("wizard").Parse(`
         <option value="chat" {{if eq .Agent "chat"}}selected{{end}}>Chat Agent (NO_CODE)</option>
         <option value="pkm" {{if eq .Agent "pkm"}}selected{{end}}>PKM (Personal Knowledge Wiki)</option>
       </select>
+      <span class="sub">PKM pins the edition to pkm (ADR-0027).</span>
     </div>
     <div class="row" data-row="edition" {{if eq .Agent "pkm"}}data-pkm-pin{{end}}>
       <span class="label">Edition</span>
-      <select name="edition" data-role="wizard-edition">
-        {{range .Editions}}<option value="{{.}}" {{if eq . $.Edition}}selected{{end}}>{{.}}</option>{{end}}
-      </select>
+      <span class="edotsel" data-role="wizard-edition" data-edition="{{.Edition}}">
+        <input type="hidden" name="edition" value="{{.Edition}}">
+        {{range .Editions}}<button type="button" class="edopt" data-ed="{{.}}" aria-pressed="{{if eq . $.Edition}}true{{else}}false{{end}}"><i style="--ed:{{hueFor .}}"></i>{{.}}</button>{{end}}
+      </span>
+      <div class="sub">Container image for this workspace.</div>
     </div>
     {{if .ImageMissing}}
     <div class="row" data-row="image_build">
       <span class="label">Image build</span>
-      <span class="opts">
-        <label><input type="radio" name="build" value="now" {{if not .BuildLater}}checked{{end}}> Build now</label>
-        <label><input type="radio" name="build" value="later" {{if .BuildLater}}checked{{end}}> Build later</label>
+      <span class="seg">
+        <label>Build now<input type="radio" name="build" value="now" {{if not .BuildLater}}checked{{end}}></label>
+        <label>Build later<input type="radio" name="build" value="later" {{if .BuildLater}}checked{{end}}></label>
       </span>
+      <span class="sub">the {{.Edition}} image is missing — Create runs the build, or the workspace registers deferred</span>
     </div>
     {{end}}
 
@@ -94,9 +107,10 @@ var wizardTemplate = template.Must(template.New("wizard").Parse(`
       <span class="label">VCS credentials</span>
       <select name="vcs" data-role="wizard-vcs">
         <option value="none" {{if eq .VCS "none"}}selected{{end}}>none</option>
-        {{range .Trackers}}<option value="{{.Name}}" {{if eq $.VCS .Name}}selected{{end}}>{{.Name}}</option>{{end}}
+        {{range .Trackers}}<option value="{{.Name}}" {{if eq $.VCS .Name}}selected{{end}}>{{.Name}} — {{.Kind}}</option>{{end}}
         <option value="new">New…</option>
       </select>
+      <span class="sub">From the global tracker list (Settings › VCS Tracker); the typed token is per-workspace, never an entry of the catalog.</span>
     </div>
     <div class="row" data-row="vcs_token" data-hidden="{{if eq .VCS "none"}}1{{end}}">
       <span class="label">VCS token</span>
@@ -120,53 +134,31 @@ var wizardTemplate = template.Must(template.New("wizard").Parse(`
       <select name="provider" data-role="wizard-provider">
         <option value="none" {{if eq .Provider "none"}}selected{{end}}>none</option>
         {{range .Providers}}<option value="{{.Name}}" {{if eq $.Provider .Name}}selected{{end}}>{{.Name}}</option>{{end}}
-        <option value="new">New…</option>
+        <option value="new">Add provider…</option>
       </select>
+      <input type="password" name="provider_token" value="" autocomplete="off" placeholder="API token" data-provider-token>
+      <span class="sub">Tokens live with the workspace; "Add provider…" records the endpoint in the global catalog first.</span>
     </div>
     <div class="row" data-row="provider_new" data-role="provider-new" data-hidden="{{if not (eq .Provider "new")}}1{{end}}">
       <span class="label">Add provider… (saved to the catalog, no token)</span>
       <label>Display name <input name="provider_name" value="{{.ProviderName}}"></label>
       <label>Endpoint <input name="provider_endpoint" value="{{.ProviderEndpoint}}" placeholder="https://api.example.com/v1"></label>
     </div>
-    <div class="row" data-row="provider_token">
-      <span class="label">Provider token</span>
-      <input type="password" name="provider_token" value="" autocomplete="off">
-    </div>
 
-    <div class="row" data-row="start_option" data-advanced-only>
-      <span class="label">Start option</span>
-      <span class="opts">
-        <label><input type="radio" name="start_option" value="console" {{if eq .StartOption "console"}}checked{{end}}> console</label>
-        <label><input type="radio" name="start_option" value="opencode" {{if eq .StartOption "opencode"}}checked{{end}}> opencode</label>
-        <label><input type="radio" name="start_option" value="web" {{if eq .StartOption "web"}}checked{{end}}> web</label>
+    <div class="row" data-row="modes" data-advanced-only>
+      <span class="label">Modes</span>
+      <span class="edotsel">
+        <label>use_proxy<input type="checkbox" name="proxy" value="yes" {{if .Proxy}}checked{{end}}></label>
+        <label>offline<input type="checkbox" name="offline" value="on" {{if .Offline}}checked{{end}}></label>
+        <label>CBM-UI<input type="checkbox" name="cbm_ui" value="on" {{if .CBMUI}}checked{{end}}></label>
+        <label>HIL<input type="checkbox" name="hil" value="on" {{if .HIL}}checked{{end}}></label>
       </span>
-    </div>
-    <div class="row" data-row="proxy" data-advanced-only>
-      <span class="label">Proxy</span>
-      <span class="opts">
-        <label><input type="radio" name="proxy" value="no" {{if not .Proxy}}checked{{end}}> off</label>
-        <label><input type="radio" name="proxy" value="yes" {{if .Proxy}}checked{{end}}> on</label>
+      <span class="edotsel">
+        <label>none<input type="radio" name="search_mode" value="none" {{if eq .SearchMode "none"}}checked{{end}}></label>
+        <label>websearch<input type="radio" name="search_mode" value="websearch" {{if eq .SearchMode "websearch"}}checked{{end}}></label>
+        <label>searxng<input type="radio" name="search_mode" value="searxng" {{if eq .SearchMode "searxng"}}checked{{end}}></label>
       </span>
-    </div>
-    <div class="row" data-row="search_mode" data-advanced-only>
-      <span class="label">Search mode</span>
-      <span class="opts">
-        <label><input type="radio" name="search_mode" value="none" {{if eq .SearchMode "none"}}checked{{end}}> none</label>
-        <label><input type="radio" name="search_mode" value="websearch" {{if eq .SearchMode "websearch"}}checked{{end}}> websearch</label>
-        <label><input type="radio" name="search_mode" value="searxng" {{if eq .SearchMode "searxng"}}checked{{end}}> searxng</label>
-      </span>
-    </div>
-    <div class="row" data-row="offline" data-advanced-only>
-      <span class="label">Offline</span>
-      <label><input type="checkbox" name="offline" value="on" {{if .Offline}}checked{{end}}> on</label>
-    </div>
-    <div class="row" data-row="cbm_ui" data-advanced-only>
-      <span class="label">CBM-UI</span>
-      <label><input type="checkbox" name="cbm_ui" value="on" {{if .CBMUI}}checked{{end}}> on</label>
-    </div>
-    <div class="row" data-row="hil" data-advanced-only>
-      <span class="label">HIL</span>
-      <label><input type="checkbox" name="hil" value="on" {{if .HIL}}checked{{end}}> on</label>
+      <div class="sub">start.sh flags — apply on next start (presets, not pinning: the stored config stays the truth).</div>
     </div>
     <div class="row hint" data-row="presets">{{.PresetsHint}}</div>
 
@@ -464,7 +456,6 @@ func (s *Server) renderConfirm(w http.ResponseWriter, r *http.Request, f wizardF
 		lines = append(lines, "agent: chat")
 	}
 	lines = append(lines,
-		"start: "+f.StartOption,
 		"search: "+f.SearchMode,
 		"VCS tracking: "+s.wizardVCSTracking(f),
 	)
@@ -614,6 +605,12 @@ func (s *Server) wizardRoot(name string) string {
 }
 
 // --- the create chain (ONE task: image build → init → configure) ------------
+
+// editionHue is the template's handle on the Signal hue map (the
+// edition chip dots tint like the Open screen's cards).
+func editionHue(name string) string {
+	return editionFor(name).Hue
+}
 
 // createChain is the captured payload of one confirmed create — every
 // request-scoped value (tokens included) is read before the chain goes

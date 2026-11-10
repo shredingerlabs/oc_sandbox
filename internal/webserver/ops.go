@@ -179,10 +179,16 @@ func validateStartCfg(cfg sandboxcfg.Config) error {
 }
 
 // startScriptArgs rebuilds the start.sh argument vector exactly as the
-// TUI does (openworkspace.StartArgs; always detached).
+// TUI does (openworkspace.StartArgs; always detached). The retired
+// start_option reads as web for legacy/empty values (ADR-0033): the
+// field stays in legacy config files, only web ever adds --start_web.
 func startScriptArgs(root, containerID string, cfg sandboxcfg.Config) []string {
+	variant := cfg.StartOption
+	if variant != "console" && variant != "opencode" && variant != "web" {
+		variant = "web"
+	}
 	return openworkspace.StartArgs(root, cfg.ContainerEdition, containerID,
-		cfg.ContainerModes, cfg.StartOption, cfg.UseProxy, cfg.SearchMode)
+		cfg.ContainerModes, variant, cfg.UseProxy, cfg.SearchMode)
 }
 
 func errImageMissing(edition string) error {

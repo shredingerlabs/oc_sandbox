@@ -91,6 +91,76 @@ func (s *Server) guardWorkspaceOp(w http.ResponseWriter, r *http.Request) (regis
 	return ws, cname, false
 }
 
+// handleWorkspaceRestart serves POST /workspaces/{name}/restart — the
+// card's Restart confirm (ADR-0033): an explicit, confirmed stop →
+// fresh-start replacement of a running container with the saved
+// settings applied. Active only for a running container whose started
+// evidence is stale (config drift, rebuilt image, or no evidence from
+// pre-feature runs); always re-checked fresh at click time: an already
+// stopped container refuses (the start options are the recovery), a
+// busy key or a pending setup session holds it, and an edition-diverged
+// restart refuses before stopping anything when the saved edition's
+// image is missing (#117: never destroy without a replacement).
+func (s *Server) handleWorkspaceRestart(w http.ResponseWriter, r *http.Request) {
+	ws, cname, refused := s.guardWorkspaceOp(w, r)
+	if refused {
+		return
+	}
+	if !slices.Contains(discovery.RunningContainers(s.runnerSeam()), cname) {
+		refuseSidecar(w, errNotRunning(cname).Error())
+		return
+	}
+	cfg, err := readSandboxCfg(ws.Path)
+	if err != nil {
+		refuseSidecar(w, err.Error())
+		return
+	}
+	if err := validateStartCfg(cfg); err != nil {
+		refuseSidecar(w, err.Error())
+		return
+	}
+	if running := s.runningEdition(cname); running != "" && running != cfg.ContainerEdition {
+		if !discovery.ImageExists(s.runnerSeam(), cfg.ContainerEdition) {
+			refuseSidecar(w, errImageMissing(cfg.ContainerEdition).Error()+" — build it first (Settings → Images); nothing was stopped")
+			return
+		}
+	}
+	s.queue.Launch(webOp{Key: cname, Run: s.restartOp(ws)})
+	okSidecar(w, s.queue.CurrentOpID(cname))
+}
+
+// restartOp is the verified replacement chain (ADR-0033): the pod-aware
+// stop with the registry flipping truthful after the verified-gone
+// check, then the fresh start from the CURRENT stored settings (the
+// image check re-runs inside the op — build-container work may have
+// landed since the confirm), the registry flipping to "running" only
+// after a fresh-ps verification, and the started-config evidence
+// refresh. A failed start leaves the workspace stopped with the failure
+// streamed into the op log (no rollback — start options are the
+// recovery).
+func (s *Server) restartOp(ws registry.Workspace) func(emit func(string)) error {
+	return func(emit func(string)) error {
+		cname := registry.ContainerName(ws.ContainerID)
+		emit("==> restart " + cname)
+		if err := s.stopUnitOnce(cname, emit); err != nil {
+			return err
+		}
+		if err := s.deps.Registry.UpdateStatus(ws.Path, "stopped"); err != nil {
+			return err
+		}
+		emit("Registry status: stopped")
+		if _, err := s.freshStart(ws, emit); err != nil {
+			emit("Restart failed — " + err.Error())
+			return err
+		}
+		if err := s.finishVerifiedStart(ws, emit); err != nil {
+			emit("Restart failed — " + err.Error())
+			return err
+		}
+		return nil
+	}
+}
+
 // handleWorkspaceStop serves POST /workspaces/{name}/stop (#154) — the
 // existing graceful stop flow through the op runner (the pod-as-unit
 // stop, verified gone before the registry flip): the same op the
@@ -244,9 +314,13 @@ func (s *Server) adoptOp(ws registry.Workspace, cfg sandboxcfg.Config, variant s
 			emit("Switch failed — " + err.Error())
 			return err
 		}
-		// 3. Registry → running on the verified success (opDone parity).
+		// 3. Registry → running on the verified success (opDone parity),
+		// started-config evidence refresh (ADR-0033).
 		if err := d.Registry.UpdateStatus(ws.Path, "running"); err != nil {
 			return err
+		}
+		if err := s.recordStartedEvidence(ws, cfg); err != nil {
+			emit("started-config evidence not written: " + err.Error())
 		}
 		return d.Registry.UpdateLastUsed(ws.Path)
 	}

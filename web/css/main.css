@@ -352,3 +352,33 @@ body { background:var(--bg); color:var(--ink);
 .wssettings .confirm-block .warn { color:var(--warn); font-weight:700; margin:0 0 4px; }
 .wssettings .confirm-block .actions { display:flex; gap:8px; margin-top:8px; }
 .wssettings .danger-row { border-top:2px solid var(--hairline); margin-top:8px; }
+
+/* prototype elements (spec §5): .edotsel chip group + radio .seg pills
+   + switch labels — driven from prototype-webui-design.html (.v-c). */
+.sub { color:var(--ink2); font-size:12px; margin-left:8px; }
+.row .sub { display:block; margin:2px 0 0; }
+.edotsel { display:flex; flex-wrap:wrap; gap:8px; }
+.edotsel button, .edotsel label { padding:6px 13px; border-radius:9px; font-size:12px; font-weight:700;
+  border:1px solid var(--hairline); background:var(--surface2); cursor:pointer; position:relative; }
+.edotsel button i { display:inline-block; width:8px; height:8px; border-radius:50%;
+  background:var(--ed, var(--ink2)); margin-right:7px; vertical-align:middle; }
+.edotsel button[aria-pressed="true"] { box-shadow:0 0 0 2px var(--accent); }
+.edotsel button[disabled], .edotsel label[disabled] { opacity:.35; cursor:not-allowed; }
+.edotsel label input { position:absolute; opacity:0; pointer-events:none; }
+.edotsel label:has(input:checked), .seg label:has(input:checked) {
+  background:var(--accent); color:var(--accent-ink); border-color:var(--accent); }
+.wizard .seg, .settings-form .edotsel { display:inline-flex; }
+.seg { display:inline-flex; background:var(--surface2); border:1px solid var(--hairline); border-radius:9px; padding:2px; gap:2px; }
+.seg label { display:block; padding:5px 11px; border-radius:7px; font-size:12px; font-weight:700;
+  color:var(--ink2); cursor:pointer; position:relative; }
+.seg label input { position:absolute; opacity:0; pointer-events:none; }
+.seg label:has(input:checked) { background:var(--surface); color:var(--ink); box-shadow:var(--shadow); }
+
+/* async screen load — the slow discovery screens (Images, Containers)
+   answer the fetch wait visibly (#spinner) */
+.loading { display:flex; align-items:center; gap:10px; color:var(--ink2);
+  font-size:13px; padding:48px 12px; }
+.spinner { width:16px; height:16px; flex:none; border:2px solid var(--hairline);
+  border-top-color:var(--accent); border-radius:50%;
+  animation:spin .9s linear infinite; }
+@keyframes spin { to { transform:rotate(360deg); } }

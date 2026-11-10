@@ -464,7 +464,6 @@ func TestCreateConfirmSummary(t *testing.T) {
 		"name: demo",
 		"path: " + f.home + "/ws/demo",
 		"edition: swdev",
-		"start: web",
 		"search: searxng",
 		"VCS tracking: none",
 		"AI provider: none",
@@ -564,7 +563,7 @@ func TestNewWorkspaceSelectsFeedFromCatalogs(t *testing.T) {
 	resp2, _ := http.Get(f.s.URL() + "workspaces/new")
 	fed := readAll(t, resp2)
 	resp2.Body.Close()
-	for _, want := range []string{`value="GitHub Work"`, `>GitHub Work</option>`, `value="ACME AI"`, `>ACME AI</option>`} {
+	for _, want := range []string{`value="GitHub Work"`, `>GitHub Work`, `value="ACME AI"`, `>ACME AI`} {
 		if !strings.Contains(fed, want) {
 			t.Errorf("seeded catalog: fragment misses %q", want)
 		}

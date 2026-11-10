@@ -123,7 +123,7 @@ func visRow(mode, key string) bool {
 func visRowFor(mode, key string) bool { return visRow(mode, key) }
 
 var wsSettingsTemplate = template.Must(template.New("wssettings").
-	Funcs(template.FuncMap{"vis": visRowFor}).
+	Funcs(template.FuncMap{"vis": visRowFor, "hueFor": editionHue}).
 	Parse(`
 {{define "ws-settings-empty"}}
 <section class="wssettings" id="ws-settings" data-screen="ws-settings">
@@ -255,62 +255,57 @@ var wsSettingsTemplate = template.Must(template.New("wssettings").
 
     {{if .SettingsForm}}
     <form class="settings-form" hx-post="{{.P}}workspaces/{{.Name}}/settings" hx-target="#ws-settings" hx-swap="outerHTML">
+      {{if or (vis .Mode "proxy") (vis .Mode "search_mode") (vis .Mode "offline") (vis .Mode "cbm_ui") (vis .Mode "hil")}}
+      <input type="hidden" name="modes_present" value="1">
+      {{end}}
       {{if vis .Mode "edition"}}
       <div class="row" data-row="edition">
         <span class="label">Edition</span>
-        <select name="edition">
-          {{range .Editions}}<option value="{{.}}" {{if eq . $.Edition}}selected{{end}}>{{.}}</option>{{end}}
-        </select>
+        <span class="edotsel" data-role="settings-edition">
+          <input type="hidden" name="edition" value="{{.Edition}}">
+          {{range .Editions}}<button type="button" class="edopt" data-ed="{{.}}" aria-pressed="{{if eq . $.Edition}}true{{else}}false{{end}}"><i style="--ed:{{hueFor .}}"></i>{{.}}</button>{{end}}
+        </span>
         {{if .ImageMissing}}<span class="field-hint warn">image missing — build it under Settings › Images</span>{{end}}
         <span class="field-hint">switchable — applies on next start</span>
-      </div>
-      {{end}}
-      {{if vis .Mode "start_option"}}
-      <div class="row" data-row="start_option">
-        <span class="label">Start option</span>
-        <span class="opts">
-          <label><input type="radio" name="start_option" value="console" {{if eq .StartOption "console"}}checked{{end}}> console</label>
-          <label><input type="radio" name="start_option" value="opencode" {{if eq .StartOption "opencode"}}checked{{end}}> OpenCode TUI</label>
-          <label><input type="radio" name="start_option" value="web" {{if or (eq .StartOption "web") (eq .StartOption "")}}checked{{end}}> Web</label>
-        </span>
       </div>
       {{end}}
       {{if vis .Mode "proxy"}}
       <div class="row" data-row="proxy">
         <span class="label">Proxy</span>
-        <span class="opts">
-          <label><input type="radio" name="proxy" value="no" {{if not .Proxy}}checked{{end}}> off</label>
-          <label><input type="radio" name="proxy" value="yes" {{if .Proxy}}checked{{end}}> on</label>
-        </span>
+        <span class="field-hint">use_proxy — route container traffic through the squid allowlist proxy</span>
+        <span class="edotsel"><label>use_proxy<input type="checkbox" name="proxy" value="yes" {{if .Proxy}}checked{{end}}></label></span>
       </div>
       {{end}}
       {{if vis .Mode "search_mode"}}
       <div class="row" data-row="search_mode">
         <span class="label">Search mode</span>
-        <span class="opts">
-          <label><input type="radio" name="search_mode" value="none" {{if eq .SearchMode "none"}}checked{{end}}> none</label>
-          <label><input type="radio" name="search_mode" value="websearch" {{if eq .SearchMode "websearch"}}checked{{end}}> websearch</label>
-          <label><input type="radio" name="search_mode" value="searxng" {{if eq .SearchMode "searxng"}}checked{{end}}> searxng</label>
+        <span class="edotsel">
+          <label>none<input type="radio" name="search_mode" value="none" {{if eq .SearchMode "none"}}checked{{end}}></label>
+          <label>websearch<input type="radio" name="search_mode" value="websearch" {{if eq .SearchMode "websearch"}}checked{{end}}></label>
+          <label>searxng<input type="radio" name="search_mode" value="searxng" {{if eq .SearchMode "searxng"}}checked{{end}}></label>
         </span>
+        <span class="field-hint">SearXNG runs as a companion service</span>
       </div>
       {{end}}
       {{if vis .Mode "offline"}}
       <div class="row" data-row="offline">
         <span class="label">Offline</span>
-        <label><input type="checkbox" name="offline" value="on" {{if .Offline}}checked{{end}}> on</label>
+        <span class="field-hint">--network=none: no web access, no provider APIs</span>
+        <span class="edotsel"><label>offline<input type="checkbox" name="offline" value="on" {{if .Offline}}checked{{end}}></label></span>
       </div>
       {{end}}
       {{if vis .Mode "cbm_ui"}}
       <div class="row" data-row="cbm_ui">
         <span class="label">CBM-UI</span>
-        <label><input type="checkbox" name="cbm_ui" value="on" {{if .CBMUI}}checked{{end}}> on</label>
+        <span class="field-hint">codebase-memory graph UI alongside the workspace (needs network)</span>
+        <span class="edotsel"><label>CBM-UI<input type="checkbox" name="cbm_ui" value="on" {{if .CBMUI}}checked{{end}}></label></span>
       </div>
       {{end}}
       {{if vis .Mode "hil"}}
       <div class="row" data-row="hil">
         <span class="label">HIL</span>
-        <label><input type="checkbox" name="hil" value="on" {{if .HIL}}checked{{end}}> on</label>
-        <span class="field-hint">human-in-the-loop — every edition, free toggle</span>
+        <span class="field-hint">human-in-the-loop — every agent action gates (every edition, free toggle)</span>
+        <span class="edotsel"><label>HIL<input type="checkbox" name="hil" value="on" {{if .HIL}}checked{{end}}></label></span>
       </div>
       {{end}}
       <div class="actions"><button type="submit">Save settings</button></div>

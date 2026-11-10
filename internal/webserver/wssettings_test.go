@@ -111,22 +111,25 @@ func TestWsSettingsScreenAdvanced(t *testing.T) {
 
 	doc := body(t, get(t, fx.s.URL()+"workspaces/alpha/settings"))
 	for _, want := range []string{
-		`data-row="edition"`,      // switchable, next-start apply
-		`data-row="start_option"`, // the console/OpenCode-TUI/Web triad
-		`data-row="proxy"`,        // stored on
-		`data-row="search_mode"`,  // the triad with searxng preselected
+		`data-row="edition"`,     // switchable, next-start apply (chips)
+		`data-row="proxy"`,       // stored on
+		`data-row="search_mode"`, // the triad with searxng preselected
 		`data-row="offline"`,
 		`data-row="cbm_ui"`,
-		`data-row="hil"`,           // HIL row for every edition
-		`value="swdev" selected`,   // stored edition selected
-		`value="opencode" checked`, // stored start option checked
-		`name="proxy" value="yes" checked`,
-		`value="searxng" checked`,       // §6 preselected
-		`name="hil" value="on" checked`, // hil_mode recorded in modes
+		`data-row="hil"`,                      // HIL row for every edition
+		`name="edition" value="swdev"`,        // stored edition (chip payload)
+		`data-ed="swdev" aria-pressed="true"`, // the chip's pressed state
+		`name="proxy" value="yes" checked`,    // stored proxy checked
+		`value="searxng" checked`,             // §6 preselected
+		`name="hil" value="on" checked`,       // hil_mode recorded in modes
 	} {
 		if !strings.Contains(doc, want) {
 			t.Fatalf("Advanced settings screen missing %q:\n%s", want, doc)
 		}
+	}
+	// Q4a: the start_option row is retired (no radio anywhere).
+	if strings.Contains(doc, `data-row="start_option"`) || strings.Contains(doc, `name="start_option"`) {
+		t.Fatal("the start_option radio is retired — cards own the variant access now")
 	}
 }
 
