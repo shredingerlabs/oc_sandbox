@@ -117,9 +117,11 @@ func runLauncher() {
 		os.Exit(1)
 	}
 	// Single instance (spec §4): before binding, the unauthenticated
-	// reveals-nothing healthz probe on the base port detects a running
-	// WebUI — point at it and exit 0; a foreign app is scanned past.
-	if webserver.ProbeInstance(webserver.BasePort) {
+	// reveals-nothing healthz probe runs over the whole scan window —
+	// a foreign app on the base port must not hide a displaced
+	// instance one port up (story 10). A responder: point at it and
+	// exit 0; a foreign app is scanned past.
+	if webserver.FindInstance(webserver.BasePort) != 0 {
 		fmt.Println("WebUI already running — copy the full tokenized URL from that session's window")
 		return
 	}

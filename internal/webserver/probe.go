@@ -10,6 +10,24 @@ import (
 // must not stall the launch.
 const probeTimeout = 1500 * time.Millisecond
 
+// FindInstance probes the whole port-scan window (BasePort..+scanWindow,
+// the same range Start binds in) for a running oc-sandbox WebUI and
+// returns its port — 0 when none answers. A foreign app on the base
+// port alone would hide a displaced instance one port up; the second
+// launch must point at the running instance, not scan past it (§4,
+// story 10).
+func FindInstance(base int) int {
+	if base == 0 {
+		base = BasePort
+	}
+	for port := base; port < base+scanWindow; port++ {
+		if ProbeInstance(port) {
+			return port
+		}
+	}
+	return 0
+}
+
 // ProbeInstance is the single-instance check (spec §4): does the
 // token-less /healthz on 127.0.0.1:port answer like our WebUI? Only an
 // exact "ok" body counts — a foreign app on the port (or nothing at
