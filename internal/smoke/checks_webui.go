@@ -62,7 +62,7 @@ func checkWebUI(home, root string) Item {
 	// Auth grammar: missing and wrong tokens refuse every route —
 	// pages, assets, SSE, unsafe verbs — with 404.
 	base := strings.Replace(s.URL(), "/t/"+s.Token()+"/", "/", 1)
-	routes := []string{"", "css/main.css", "img/editions/swdev.svg", "events", "workspaces"}
+	routes := []string{"", "css/main.css", "img/editions/swdev.svg", "events", "settings", "workspaces"}
 	for _, prefix := range []string{base, base + "t/00000000000000000000000000000000/"} {
 		for _, route := range routes {
 			for _, method := range []string{"GET", "POST"} {
