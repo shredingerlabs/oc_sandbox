@@ -105,11 +105,25 @@ func (p *PipelineStager) containerName() (string, error) {
 	return containerPrefix + proj.ContainerID, nil
 }
 
+// skillsPrompt is the exact interactive skills-setup prompt (ADR 0014):
+// the setup skill asks the user questions in a real terminal — no
+// non-interactive variant exists.
+const skillsPrompt = "run the skill /setup-matt-pocock-skills using the skill tool"
+
 func (p *PipelineStager) skillsArgv(container string, _ string) []string {
 	// v2 regular TUI supports --prompt (root flag), so no `mini` drop-in and
 	// no -m: the model comes from the config default (ADR 0014/0024).
 	return []string{"podman", "exec", "-it", "--user", "dev", container,
-		"opencode", "--prompt", "run the skill /setup-matt-pocock-skills using the skill tool"}
+		"opencode", "--prompt", skillsPrompt}
+}
+
+// SkillsShellCommand renders the skills stage as ONE shell command line
+// — the exact podman-exec prompt (ADR 0014). The WebUI appends the
+// status-file exit relay to it (#161) and hands the whole line to a
+// host terminal window (or shows it copyable on the headless fallback).
+func SkillsShellCommand(container string) string {
+	return "podman exec -it --user dev " + container +
+		` opencode --prompt "` + skillsPrompt + `"`
 }
 
 // startContainer implements build-or-reuse (data-map §3, the start
