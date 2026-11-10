@@ -88,6 +88,8 @@
 
 **server-stopped screen** — The browser screen an open WebUI tab ends on when the WebUI server is gone: pushed best-effort via SSE on quit, and rendered by the client itself when reconnect attempts exhaust (hard crash, no push possible). It reads "server stopped — relaunch oc-sandbox" and never auto-redirects or reconnects — the per-launch token dies with the process, and the relaunched instance opens its own fresh tab. One screen for both causes. _Avoid_: dead tab, stale tab, reconnect prompt.
 
+**display mode** — The WebUI's Standard/Advanced presentation switch: a segmented control in the header of every screen, persisted as `display_mode` (`standard` / `advanced`, default `standard`) in global_config.json, applied immediately by reactive re-render with no reload. Standard preselects at creation and hides preset rows everywhere; Advanced always reveals the stored values — presets, not pinning: the stored sandbox_config.json is the single truth, and Advanced edits of Standard-hidden options are sticky. _Avoid_: theme (dark/bright colors are a separate toggle), fixed mode (nothing is fixed; rows are preset and hidden).
+
 **github API fallback** — Uses GitHub releases API to detect latest release; falls back to HTML scraping if API fails.
 
 **git clone method** — Uses `git clone --depth 1 --branch <tag>` for clean repository handling.
