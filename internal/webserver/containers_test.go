@@ -604,9 +604,9 @@ func TestQueueConflictSemantics(t *testing.T) {
 	}
 	release := map[string]chan struct{}{"alpha": make(chan struct{}), "beta": make(chan struct{})}
 	var mu sync.Mutex
-	running := map[string]int{"alpha": 0, "beta": 0}          // concurrent start.sh invocations per workspace
-	total := map[string]int{"alpha": 0, "beta": 0}            // total invocations
-	maxSeen := map[string]int{"alpha": 0, "beta": 0}          // peak concurrency
+	running := map[string]int{"alpha": 0, "beta": 0} // concurrent start.sh invocations per workspace
+	total := map[string]int{"alpha": 0, "beta": 0}   // total invocations
+	maxSeen := map[string]int{"alpha": 0, "beta": 0} // peak concurrency
 	run := fakePodman(nil, nil, nil, []string{"opencode-sandbox-swdev"}, nil)
 	base := run.Script
 	run.Script = func(name string, args []string) (string, error) {

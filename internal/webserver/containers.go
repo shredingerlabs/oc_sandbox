@@ -129,22 +129,22 @@ func (s *Server) renderContainers(msg string) string {
 	b.WriteString(`<section class="card" data-screen="containers">`)
 	b.WriteString(`<div class="card-head"><h2>Containers</h2></div>`)
 	if msg != "" {
-		b.WriteString(`<div class="toast" data-toast>` + html.EscapeString(msg) + `</div>`)
+		b.WriteString(`<div class="inline-toast" data-toast>` + html.EscapeString(msg) + `</div>`)
 	}
-	b.WriteString(`<div class="rows">`)
+	b.WriteString(`<div class="units">`)
 	for _, row := range s.containerRows() {
-		b.WriteString(`<div class="row" data-unit="` + html.EscapeString(row.Unit) + `"`)
+		b.WriteString(`<div class="unit" data-unit="` + html.EscapeString(row.Unit) + `"`)
 		if row.Busy {
 			b.WriteString(` data-busy`)
 		}
 		b.WriteString(`>`)
-		b.WriteString(`<div class="row-main">`)
+		b.WriteString(`<div class="unit-main">`)
 		if row.Workspace != "" {
-			b.WriteString(`<span class="row-name">` + html.EscapeString(row.Workspace) + `</span>`)
+			b.WriteString(`<span class="unit-name">` + html.EscapeString(row.Workspace) + `</span>`)
 		} else {
-			b.WriteString(`<span class="row-name muted">leftover</span>`)
+			b.WriteString(`<span class="unit-name muted">leftover</span>`)
 		}
-		b.WriteString(`<span class="row-sub">` + html.EscapeString(row.Unit) + `</span>`)
+		b.WriteString(`<span class="unit-sub">` + html.EscapeString(row.Unit) + `</span>`)
 		b.WriteString(stateMarker(row.State))
 		if row.Busy {
 			b.WriteString(busyMarker())
@@ -196,7 +196,7 @@ func (s *Server) handleContainerStop(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(s.renderContainers("an operation is already queued or running for " + name)))
 		return
 	}
-	s.queue.Launch(name, s.stopOp(name))
+	s.queue.Launch(webOp{Key: name, Run: s.stopOp(name)})
 	_, _ = w.Write([]byte(s.renderContainers("")))
 }
 
@@ -216,7 +216,7 @@ func (s *Server) handleContainerDelete(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(s.renderContainers(s.stopFirstHint(name))))
 		return
 	}
-	s.queue.Launch(name, s.deleteContainerOp(name))
+	s.queue.Launch(webOp{Key: name, Run: s.deleteContainerOp(name)})
 	_, _ = w.Write([]byte(s.renderContainers("")))
 }
 
@@ -255,7 +255,7 @@ func (s *Server) handleWorkspaceStart(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(s.renderContainers("workspace " + name + " is not registered")))
 		return
 	}
-	s.queue.Launch(registry.ContainerName(ws.ContainerID), s.startOp(name))
+	s.queue.Launch(webOp{Key: registry.ContainerName(ws.ContainerID), Run: s.startOp(name)})
 	_, _ = w.Write([]byte(s.renderContainers("")))
 }
 

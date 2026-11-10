@@ -110,20 +110,20 @@ func (s *Server) renderImages(msg string, opID int) string {
 	}
 	b.WriteString(`</div>`)
 	if msg != "" {
-		b.WriteString(`<div class="toast" data-toast>` + html.EscapeString(msg) + `</div>`)
+		b.WriteString(`<div class="inline-toast" data-toast>` + html.EscapeString(msg) + `</div>`)
 	}
-	b.WriteString(`<div class="rows">`)
+	b.WriteString(`<div class="units">`)
 	for _, row := range s.imageRows() {
-		b.WriteString(`<div class="row" data-tag="` + html.EscapeString(row.Tag) + `"`)
+		b.WriteString(`<div class="unit" data-tag="` + html.EscapeString(row.Tag) + `"`)
 		if row.Busy {
 			b.WriteString(` data-busy`)
 		}
-		b.WriteString(`><div class="row-main">`)
-		b.WriteString(`<span class="row-name">` + html.EscapeString(row.Edition) + `</span>`)
+		b.WriteString(`><div class="unit-main">`)
+		b.WriteString(`<span class="unit-name">` + html.EscapeString(row.Edition) + `</span>`)
 		if row.Built {
 			b.WriteString(`<span class="marker st-running">● built</span>`)
 			if row.Size != "" {
-				b.WriteString(`<span class="row-sub">` + html.EscapeString(row.Size) + `</span>`)
+				b.WriteString(`<span class="unit-sub">` + html.EscapeString(row.Size) + `</span>`)
 			}
 			if row.InUse {
 				b.WriteString(`<span class="marker st-running">● in use</span>`)
@@ -177,7 +177,8 @@ func (s *Server) handleImagesBuild(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(s.renderImages("an image operation is already queued or running", 0)))
 		return
 	}
-	id := s.queue.Launch(imagesKey, s.buildAllOp())
+	id := s.queue.reserve()
+	s.queue.Launch(webOp{ID: id, Key: imagesKey, Run: s.buildAllOp()})
 	_, _ = w.Write([]byte(s.renderImages("", id)))
 }
 
@@ -201,7 +202,7 @@ func (s *Server) handleImagesDelete(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(s.renderImages(errInUseHint(tag).Error(), 0)))
 		return
 	}
-	s.queue.Launch(imagesKey, s.deleteImageOp(tag))
+	s.queue.Launch(webOp{Key: imagesKey, Run: s.deleteImageOp(tag)})
 	_, _ = w.Write([]byte(s.renderImages("", 0)))
 }
 

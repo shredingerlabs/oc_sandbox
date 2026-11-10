@@ -70,8 +70,8 @@ func (h *Hub) PublishWorkspace() uint64 {
 
 // PublishUpdate pushes one §12 update phase (up-to-date / available /
 // installing / applied / failed) for the footer banner and Update card.
-func (h *Hub) PublishUpdate(phase string) uint64 {
-	return h.publish("update", fmt.Sprintf(`{"phase":%s}`, mustJSON(phase)))
+func (h *Hub) PublishUpdate(ev UpdateEvent) uint64 {
+	return h.publish("update", mustJSON(ev))
 }
 
 // PublishShutdown is the quit flow's best-effort push (§4): open tabs

@@ -10,7 +10,7 @@ import (
 // The WebUI server starts at launch (#150): a tokenized loopback URL,
 // healthz token-less — wired into runTUI alongside the TUI.
 func TestStartWebserver(t *testing.T) {
-	s := startWebserver("test", t.TempDir())
+	s := startWebserver(t.TempDir(), "test")
 	if s == nil {
 		t.Fatal("startWebserver returned nil")
 	}

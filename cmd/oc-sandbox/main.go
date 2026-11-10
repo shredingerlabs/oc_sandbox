@@ -1,14 +1,17 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/term"
 
 	"github.com/shredingerlabs/oc-sandbox/internal/app"
 	"github.com/shredingerlabs/oc-sandbox/internal/cmdrun"
+	"github.com/shredingerlabs/oc-sandbox/internal/launcher"
 	"github.com/shredingerlabs/oc-sandbox/internal/migration"
 	"github.com/shredingerlabs/oc-sandbox/internal/registry"
 	"github.com/shredingerlabs/oc-sandbox/internal/shell"
@@ -34,11 +37,14 @@ func main() {
 			fmt.Fprintf(os.Stdout, "oc-sandbox %s\n", Version)
 			return
 		case "--help":
-			fmt.Fprintf(os.Stdout, "usage: oc-sandbox [--version|--smoke]  (no flags runs the TUI)\n")
+			fmt.Fprintf(os.Stdout, "usage: oc-sandbox [--version|--smoke|--full-tui]  (no flags runs the minimal launcher)\n")
+			return
+		case "--full-tui": // transitional parity gate (spec §14): the full TUI stays reachable until the flip
+			runTUI()
 			return
 		}
 	}
-	runTUI()
+	runLauncher()
 }
 
 // requestMinTermSize asks the terminal to grow to the shell minimum when
@@ -76,7 +82,7 @@ func runTUI() {
 	}
 	a := app.Compose(home, Version, cmdrun.ExecRunner{}, nil)
 	a.Model.AddInitCmd(a.StartupCheck)  // silent background update check
-	ui := startWebserver(Version, home) // webserver runs launch→quit (spec §4); #151 owns the launcher face
+	ui := startWebserver(home, Version) // webserver runs launch→quit (spec §4); #151 owns the launcher face
 	if ui != nil {
 		defer ui.Close()
 	}
@@ -94,16 +100,69 @@ func runTUI() {
 	}
 }
 
-// startWebserver starts the embedded WebUI (spec §3/#150) with the
-// container/image screens wired onto the install layout and the
-// workspace registry (#158), and prints the full tokenized URL as the
-// status line the launcher face (#151) will take over. A failed start
-// never kills the TUI — it prints a warning and returns nil.
-func startWebserver(version, home string) *webserver.Server {
+// runLauncher is the default launch (spec §4, #151): the minimal TUI
+// face. Migration runs first (blocking, before anything reads config),
+// then the single-instance probe, then the webserver starts and the
+// browser tab auto-opens; the face runs until quit, which stops the
+// server — the token dies with the process.
+func runLauncher() {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "oc-sandbox: resolve home: %v\n", err)
+		os.Exit(1)
+	}
+	if err := runMigration(home); err != nil {
+		os.Exit(1)
+	}
+	// Single instance (spec §4): before binding, the unauthenticated
+	// reveals-nothing healthz probe on the base port detects a running
+	// WebUI — point at it and exit 0; a foreign app is scanned past.
+	if webserver.ProbeInstance(webserver.BasePort) {
+		fmt.Println("WebUI already running — copy the full tokenized URL from that session's window")
+		return
+	}
+	ui := startWebserver(home, Version)
+	url := ""
+	if ui != nil {
+		url = ui.URL()
+		launcher.OpenBrowser(url) // auto-open at launch; on failure the URL stays on the face
+	}
+	m := launcher.New(launcher.Options{
+		URL:      url,
+		Runner:   cmdrun.ExecRunner{},
+		Registry: &registry.Registry{Home: home, Now: time.Now},
+	})
+	p := tea.NewProgram(&m) // inline face: migration output and the URL line stay in scrollback
+	final, err := p.Run()
+	if ui != nil {
+		ui.Hub().PublishShutdown() // best-effort push; tabs stop reconnecting (§4/§12)
+		_ = ui.Close()
+	}
+	lm := final.(*launcher.Model)
+	if err == nil {
+		if code := lm.ExitStatus(); code != 0 { // 130 = ctrl+c (story 28 parity)
+			os.Exit(code)
+		}
+		return
+	}
+	if errors.Is(err, tea.ErrInterrupted) || errors.Is(err, tea.ErrProgramKilled) {
+		os.Exit(130)
+	}
+	fmt.Fprintf(os.Stderr, "oc-sandbox: %v\n", err)
+	os.Exit(1)
+}
+
+// will take over. Home wires GET/POST /settings to global_config.json
+// (#152). A failed start never kills the TUI — it prints a warning and
+// returns nil. The §12 update check rides the server start: one silent
+// GitHub request, badge pushed via /events.
+func startWebserver(home, version string) *webserver.Server {
 	layout := app.LayoutFor(home)
 	ui := webserver.New(webserver.Options{
-		Version: version,
-		Deps: &webserver.Deps{
+		Version:     version,
+		Home:        home,
+		InstallRoot: layout.InstallRoot,
+		Deps: &webserver.Deps{ // container/image screens (#158)
 			Run:              cmdrun.ExecRunner{},
 			Registry:         &registry.Registry{Home: home},
 			BuildScript:      layout.BuildScript,
@@ -116,6 +175,7 @@ func startWebserver(version, home string) *webserver.Server {
 		fmt.Fprintf(os.Stderr, "oc-sandbox: WebUI could not start: %v (the TUI keeps running)\n", err)
 		return nil
 	}
+	ui.StartupCheck()
 	fmt.Printf("WebUI: %s\n", ui.URL())
 	return ui
 }
