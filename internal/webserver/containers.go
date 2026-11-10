@@ -25,6 +25,9 @@ func (s *Server) wireRoutes(inner *http.ServeMux) {
 	inner.HandleFunc("POST /containers/{name}/stop", s.handleContainerStop)
 	inner.HandleFunc("POST /containers/{name}/delete", s.handleContainerDelete)
 	inner.HandleFunc("POST /workspaces/{name}/start", s.handleWorkspaceStart)
+	inner.HandleFunc("POST /workspaces/{name}/stop", s.handleWorkspaceStop)
+	inner.HandleFunc("POST /workspaces/{name}/delete", s.handleWorkspaceDelete)
+	inner.HandleFunc("POST /workspaces/{name}/adopt", s.handleWorkspaceAdopt)
 	inner.HandleFunc("GET /images", s.handleImages)
 	inner.HandleFunc("POST /images/build", s.handleImagesBuild)
 	inner.HandleFunc("POST /images/delete", s.handleImagesDelete)
@@ -247,12 +250,50 @@ func (s *Server) stopFirstHint(name string) string {
 // Container-center reuse semantics: no confirm, queued per workspace
 // key (the workspace's container name — the key the stop/delete ops
 // share, so confirms refuse across all of a workspace's actions).
+// With a variant form field (#154, the Open chain's card start) the
+// route answers a JSON sidecar and runs the mismatch detection the TUI
+// reconcile does (#115): a live container whose image edition diverges
+// from the saved one refuses the silent reuse with a {mismatch} sidecar
+// — the registry flips truthful first (the container IS running,
+// verified live) and last_used bumps (the Open action is a use); the
+// replacement itself is the adopt confirm's move.
 func (s *Server) handleWorkspaceStart(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	ws, err := s.deps.Registry.ByName(name)
 	if err != nil {
 		_, _ = w.Write([]byte(s.renderContainers("workspace " + name + " is not registered")))
+		return
+	}
+	if variant := r.PostFormValue("variant"); variant != "" {
+		if variant != "console" && variant != "opencode" && variant != "web" {
+			http.Error(w, "invalid variant", http.StatusBadRequest)
+			return
+		}
+		cname := registry.ContainerName(ws.ContainerID)
+		if slices.Contains(discovery.RunningContainers(s.deps.Run), cname) {
+			// Truthfulness first (#115 reconcile parity): the live
+			// status rides the fresh ps before any verdict, and the
+			// Open action is a use.
+			_ = s.deps.Registry.UpdateStatus(ws.Path, "running")
+			_ = s.deps.Registry.UpdateLastUsed(ws.Path)
+			if cfg, cfgErr := readSandboxCfg(ws.Path); cfgErr == nil {
+				if running := s.runningEdition(cname); running != "" &&
+					running != cfg.ContainerEdition {
+					w.Header().Set("Content-Type", "application/json")
+					_, _ = w.Write([]byte(jsonMarshal(mismatchSidecar{
+						Mismatch:       true,
+						RunningEdition: running,
+						SavedEdition:   cfg.ContainerEdition,
+					})))
+					return
+				}
+			}
+			// Agreeing editions (or an unreadable config): the queued
+			// reuse op re-verifies the live container.
+		}
+		s.queue.Launch(webOp{Key: cname, Run: s.startOp(name)})
+		okSidecar(w, s.queue.CurrentOpID(cname))
 		return
 	}
 	s.queue.Launch(webOp{Key: registry.ContainerName(ws.ContainerID), Run: s.startOp(name)})

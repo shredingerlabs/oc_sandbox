@@ -166,8 +166,10 @@ func (s *syncSet) keys() []string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	out := make([]string, 0, len(s.v))
-	for k := range s.v {
-		out = append(out, k)
+	for k, on := range s.v { // only the keys currently set true —
+		if on { // a "stopped" container must leave the fake ps list
+			out = append(out, k)
+		}
 	}
 	return out
 }

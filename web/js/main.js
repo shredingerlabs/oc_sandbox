@@ -110,7 +110,7 @@
   // Card actions: Open (Standard always web; Advanced honors the
   // configured start option), Web access (fresh pair link → new tab
   // under the click gesture), console/OpenCode host-terminal access,
-  // and the Stop/Delete confirm rows (#154 owns the ops themselves).
+  // and the Stop/Delete confirm rows running the real ops (#154).
   screenEl.addEventListener("click", function (ev) {
     var btn = ev.target.closest("button");
     if (!btn || btn.closest("[data-action]") || btn.disabled) return;
@@ -121,10 +121,32 @@
       showConfirmRow(card, btn.dataset.confirm);
       return;
     }
-    if (btn.dataset.act === "confirm-stop" || btn.dataset.act === "confirm-delete") {
-      // The stop/delete ops themselves arrive with the workspace-ops
-      // ticket (#154) — the confirm rows are the UI this ticket owns.
-      showNote(card, "arrives with #154");
+    if (btn.dataset.act === "confirm-stop") {
+      // #154: the confirm rows run the real ops — stop through the
+      // graceful stop flow; delete keeps its danger confirm (§9). The
+      // per-key busy refusal comes back as a sidecar; an accepted op
+      // re-renders the card busy via the SSE workspace event.
+      runWorkspaceOp(card, "stop");
+      return;
+    }
+    if (btn.dataset.act === "confirm-delete") {
+      runWorkspaceOp(card, "delete");
+      return;
+    }
+    if (btn.dataset.act === "mismatch-use") {
+      // Use current (#115): route into the requested access — the
+      // running container is untouched.
+      renderWorkspaces();
+      continueAccess(cardByWs(card.dataset.ws) || card, btn.dataset.variant);
+      return;
+    }
+    if (btn.dataset.act === "mismatch-switch") {
+      // Switch to <saved> (#116): the running-container replacement —
+      // the adopt confirm gates it (§9).
+      adoptConfirm(card, btn.dataset.variant,
+        "Switch to " + btn.dataset.saved + "?",
+        "The running container is stopped and restarted with the new edition — an agent may be mid-task.",
+        "Switch");
       return;
     }
     if (btn.dataset.act === "cancel-confirm") {
@@ -163,11 +185,95 @@
 
   // chainStart runs the start op (queued-not-refused on the shared
   // opRunner) and continues the access chain once the workspace drains.
+  // The requested access rides the POST (#154): a running container
+  // whose image edition diverges from the saved one answers the #115
+  // mismatch verdict instead of silently reusing — the card prompts.
   function chainStart(card, variant, then) {
-    fetch(post(card, "start"), { method: "POST", referrerPolicy: "no-referrer" })
-      .then(function () { return waitForIdle(card); })
-      .then(then)
+    fetch(post(card, "start"), {
+      method: "POST",
+      body: "variant=" + encodeURIComponent(variant),
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      referrerPolicy: "no-referrer"
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (v) {
+        if (v.mismatch) {
+          showMismatchRow(card, variant, v);
+          return;
+        }
+        if (v.ok === false) {
+          showNote(card, v.error || "start refused");
+          return;
+        }
+        return waitForIdle(card).then(then);
+      })
       .catch(function () { showNote(card, "start failed — retry"); });
+  }
+
+  // showMismatchRow renders the mismatch prompt (#115): Use current /
+  // Switch to <saved> / Cancel. The switch is the replacement the adopt
+  // confirm gates; the saved edition's image is checked server-side
+  // before anything stops (#117).
+  function showMismatchRow(card, variant, v) {
+    showRow(card,
+      '<span class="note">Edition mismatch — the container runs "' + v.running_edition +
+      '", the workspace is set to "' + v.saved_edition + '"</span>' +
+      '<button class="btn" data-act="mismatch-use" data-variant="' + variant + '">Use current</button>' +
+      '<button class="btn danger" data-act="mismatch-switch" data-variant="' + variant +
+      '" data-saved="' + v.saved_edition + '">Switch to ' + v.saved_edition + '</button>' +
+      '<button class="btn" data-act="cancel-confirm">Cancel</button>');
+  }
+
+  // The web-native adopt confirm (§9): both running-container
+  // replacements — the edition-mismatch switch and the web re-adopt —
+  // confirm first, because an agent may be mid-task inside the
+  // container being replaced.
+  function adoptConfirm(card, variant, title, body, okLabel) {
+    showConfirm(title, body, okLabel, function () { runAdopt(card, variant); });
+  }
+
+  // runAdopt POSTs the adopt route and continues into the originally
+  // requested access once the verified stop → start chain drains.
+  function runAdopt(card, variant) {
+    if (variant === "web" && !tabFor(card)) openPairTab(card);
+    fetch(post(card, "adopt"), {
+      method: "POST",
+      body: "variant=" + encodeURIComponent(variant),
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      referrerPolicy: "no-referrer"
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (v) {
+        if (v.ok === false) {
+          showNote(card, v.error || "adopt refused");
+          return;
+        }
+        waitForIdle(card).then(function (fresh) { continueAccess(fresh, variant); });
+      })
+      .catch(function () { showNote(card, "adopt failed — retry"); });
+  }
+
+  // continueAccess resolves the requested access on the (now running)
+  // workspace: web as the fresh pair link in the tab opened under the
+  // click gesture, console/OpenCode as the host-terminal handoff.
+  function continueAccess(card, variant) {
+    if (variant === "web") {
+      if (!tabFor(card)) openPairTab(card);
+      pairInto(card, tabFor(card));
+    } else {
+      accessVariant(card, variant);
+    }
+  }
+
+  // runWorkspaceOp fires the confirm row's op; the refusal sidecar
+  // surfaces as a note, an accepted op re-renders the card busy.
+  function runWorkspaceOp(card, action) {
+    fetch(post(card, action), { method: "POST", referrerPolicy: "no-referrer" })
+      .then(function (r) { return r.json(); })
+      .then(function (v) {
+        if (v.ok === false) showNote(card, v.error || "refused");
+      })
+      .catch(function () { showNote(card, action + " failed — retry"); });
   }
 
   // waitForIdle polls (bounded) until the workspace's op drains — the
@@ -252,8 +358,18 @@
         if (v.plain_url && tab) {
           tab.document.body.innerHTML = '<p style="font:14px system-ui;padding:2em">OpenCode web: <a href="' +
             v.plain_url + '">' + v.plain_url + '</a></p>';
+          showRetry(card);
+          return;
         }
+        // No published web port at all: the live container runs without
+        // one (started as console/TUI) — offer the web re-adopt, the
+        // replacement behind the adopt confirm (§9). The Retry row
+        // stays as the non-adopting path.
         showRetry(card);
+        adoptConfirm(card, "web",
+          "Start OpenCode Web?",
+          "The running container has no published web port. Adopting web stops and restarts it — an agent may be mid-task.",
+          "Start web");
       })
       .catch(function () {
         if (tab) tab.document.body.innerHTML =
@@ -289,8 +405,8 @@
     log.innerHTML = '<div class="row note-row">' + html + '</div>' + log.innerHTML;
   }
 
-  // Confirm rows (§9 confirm set): Stop/Delete ask before acting; the
-  // ops themselves land with #154.
+  // Confirm rows (§9 confirm set): Stop/Delete ask before acting —
+  // Confirm posts the workspace op, Cancel restores the plain card.
   function showConfirmRow(card, kind) {
     var box = card.querySelector(".confirms");
     if (!box) return;
