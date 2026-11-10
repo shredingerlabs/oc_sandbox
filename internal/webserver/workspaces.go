@@ -126,10 +126,10 @@ var wsTemplate = template.Must(template.New("ws").Parse(`
   {{if .SetupRetry}}<div class="setup-retry"><button class="btn" data-act="setup-retry">Run setup</button></div>{{end}}
   <div class="acts">
     <button class="btn open" data-act="open" data-variant="{{.OpenVariant}}"{{if .SetupPending}} disabled title="refused — first-run setup session pending"{{end}}>Open</button>
-    <button class="btn" data-act="web" title="OpenCode web — fresh pair link in a new tab"{{if .SetupPending}} disabled data-disabled-reason="refused — first-run setup session pending"{{end}}>Web</button>
+    <button class="btn" data-act="web" title="OpenCode web — fresh pair link in a new tab"{{if .SetupPending}} disabled title="refused — first-run setup session pending"{{end}}>Web</button>
     {{if .Advanced}}
-    <button class="btn" data-act="console" data-advanced-only title="console session in a host terminal window"{{if .SetupPending}} disabled data-disabled-reason="refused — first-run setup session pending"{{end}}>Console</button>
-    <button class="btn" data-act="opencode" data-advanced-only title="OpenCode TUI in a host terminal window"{{if .SetupPending}} disabled data-disabled-reason="refused — first-run setup session pending"{{end}}>OpenCode</button>
+    <button class="btn" data-act="console" data-advanced-only title="console session in a host terminal window"{{if .SetupPending}} disabled title="refused — first-run setup session pending"{{end}}>Console</button>
+    <button class="btn" data-act="opencode" data-advanced-only title="OpenCode TUI in a host terminal window"{{if .SetupPending}} disabled title="refused — first-run setup session pending"{{end}}>OpenCode</button>
     {{end}}
   </div>
   <div class="confirms">
