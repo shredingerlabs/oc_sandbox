@@ -162,7 +162,9 @@ dist/scripts/start.sh ~/projects/customer-x --edition swdev     # C/C++, Java, R
 
 Further single flags (not in the table): `--start_opencode` opens an OpenCode
 TUI session in the container directly; `--detach` starts the container in the
-background (without `--start_web` with `sleep infinity` as main process);
+background — every detached start runs the OpenCode v2 background service as
+main process (`opencode service start && exec sleep infinity`) and publishes
+port 4096 (except `--offline`);
 `--container-id <id>` sets the persisted container identity from the project
 registry (otherwise: basename of the project root).
 
@@ -202,8 +204,9 @@ dist/scripts/start.sh ~/projects/customer-x --start_web --detach
 
 > **`--start_web`:** starts the OpenCode web service (v2 background service,
 > pinned to container port 4096) and publishes it on `127.0.0.1` (port scan
-> 4096–4196 if 4096 is taken). With `--detach` the service runs as the
-> container's main process; the URL or a one-time pair link is printed on
+> 4096–4196 if 4096 is taken). Every detached start publishes port 4096 and
+> runs the service as the container's main process (`--start_web` only
+> matters in the foreground); the URL or a one-time pair link is printed on
 > access. Without `--detach`, `opencode serve` runs foreground; Ctrl+C stops
 > and removes the container.
 

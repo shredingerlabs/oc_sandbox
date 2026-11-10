@@ -428,16 +428,31 @@ if $CBM_UI; then
 fi
 
 # --- OpenCode-Web-Optionen ------------------------------------------------------
+# Always-on web access (spec §10): EVERY detached start publishes container
+# port 4096 (auto-scan upward, unchanged range) and runs the v2 background
+# service — independent of --start_web, which the detached path ignores.
+# --offline is exempt: --network=none has structurally nothing to publish
+# through. The foreground path keeps the --start_web-only contract
+# (ADR 0024, Ctrl+C stops and removes).
 WEB_PORT_ARGS=()
-if $START_WEB; then
+WEB_HOST_PORT=""
+PUBLISH_WEB=false
+if $DETACH && ! $OFFLINE; then
+  PUBLISH_WEB=true
+fi
+if $START_WEB && ! $DETACH; then
+  PUBLISH_WEB=true
+fi
+if $PUBLISH_WEB; then
   WEB_HOST_PORT=$(select_free_host_port 4096 "the OpenCode web UI")
   if [[ "$WEB_HOST_PORT" != "4096" ]]; then
     echo "Note: host port 4096 is in use; OpenCode web is published at http://127.0.0.1:${WEB_HOST_PORT}." >&2
   fi
   WEB_PORT_ARGS=(-p "127.0.0.1:${WEB_HOST_PORT}:4096")
 fi
-# In detached mode the container command starts the webserver itself;
-# START_WEB=true would start the server twice through the login shell.
+# The foreground login shell only starts the webserver itself on
+# --start_web; the detached container command starts the service
+# unconditionally (below).
 START_WEB_ENV=false
 if $START_WEB && ! $DETACH; then
   START_WEB_ENV=true
@@ -587,15 +602,17 @@ fi
 # running service (ServiceConfig.set -> Service.stop) and can break the
 # boot chain ("Server process ... is still running") as soon as a
 # container with a live service restarts.
-if $START_WEB && $DETACH; then
-  SERVICE_FILE="${CONFIG_DIR}/service.json"
-  if [[ ! -f "$SERVICE_FILE" ]]; then
-    printf '{"hostname": "0.0.0.0", "port": 4096}\n' > "$SERVICE_FILE"
-  elif ! jq -e '.hostname == "0.0.0.0" and .port == 4096' "$SERVICE_FILE" >/dev/null 2>&1; then
-    tmp_service_json="$(mktemp)"
-    jq '."hostname" = "0.0.0.0" | ."port" = 4096' "$SERVICE_FILE" > "$tmp_service_json" \
-      && mv "$tmp_service_json" "$SERVICE_FILE"
-  fi
+# The pin is unconditional (always-on web access, spec §10): the service
+# config is provisioned on every start, detached or foreground — the
+# published 4096 port must hit a service listening on container port 4096
+# regardless of the configured start option.
+SERVICE_FILE="${CONFIG_DIR}/service.json"
+if [[ ! -f "$SERVICE_FILE" ]]; then
+  printf '{"hostname": "0.0.0.0", "port": 4096}\n' > "$SERVICE_FILE"
+elif ! jq -e '.hostname == "0.0.0.0" and .port == 4096' "$SERVICE_FILE" >/dev/null 2>&1; then
+  tmp_service_json="$(mktemp)"
+  jq '."hostname" = "0.0.0.0" | ."port" = 4096' "$SERVICE_FILE" > "$tmp_service_json" \
+    && mv "$tmp_service_json" "$SERVICE_FILE"
 fi
 
 IMAGE="opencode-sandbox-${EDITION}"
@@ -603,15 +620,13 @@ RUN_MODE=(-it)
 CONTAINER_COMMAND=()
 if $DETACH; then
   RUN_MODE=(-d)
-  if $START_WEB; then
-    # v2: shared background service pinned to container port 4096, then
-    # keep-alive (ADR 0024). Published host port comes from the 4096 scan.
-    # Hostname/Port already sit in service.json (above) — the start itself
-    # is a single idempotent ensure.
-    CONTAINER_COMMAND=(-c 'opencode service start && exec sleep infinity')
-  else
-    CONTAINER_COMMAND=(-c 'sleep infinity')
-  fi
+  # v2: shared background service pinned to container port 4096, then
+  # keep-alive (ADR 0024) — in EVERY detached mode (always-on web access,
+  # spec §10). --start_web is a foreground-only contract and is ignored
+  # here; the published host port comes from the 4096 scan. Hostname/Port
+  # already sit in service.json (above) — the start itself is a single
+  # idempotent ensure.
+  CONTAINER_COMMAND=(-c 'opencode service start && exec sleep infinity')
 fi
 
 if $START_WEB && ! $DETACH; then
@@ -647,7 +662,11 @@ podman run --rm "${RUN_MODE[@]}" \
   -v "${BASH_DIR}/bash_profile:/home/dev/.bash_profile:Z" \
   "$IMAGE" "${CONTAINER_COMMAND[@]}"
 
-if $START_WEB && $DETACH; then
+if $DETACH && ! $OFFLINE; then
+  # Always-on web echo (spec §10): every detached start announces the live
+  # published URL + the pair hint — the scanned host port is never
+  # persisted, so this echo is informational; live `podman port
+  # <ctr> 4096/tcp` (discovery.WebPort) stays the truth.
   echo "OpenCode web: http://127.0.0.1:${WEB_HOST_PORT}"
   echo "Sign-in (one-time pair link): podman exec -it $CONTAINER_NAME opencode pair"
 fi

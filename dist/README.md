@@ -66,10 +66,11 @@ non-`none` VCS choice. A failed start offers `Retry`, `Go back`, or `Exit`; retr
 reopens the settings with current values.
 
 Project setup also selects a start option: `console` (shell), `opencode`
-(OpenCode TUI), or `web` (OpenCode web surface). With `web`, the container runs
+(OpenCode TUI), or `web` (OpenCode web surface). Every detached start runs
 the OpenCode background service (v2) permanently on port 4096, published on
-`127.0.0.1` (port scan 4096-4196); the TUI prints a one-time sign-in link
-(`opencode pair`) after start and when accessing the running project.
+`127.0.0.1` (port scan 4096-4196, except `--offline`); the TUI prints a
+one-time sign-in link (`opencode pair`) after start and when accessing the
+running project.
 
 When a project is opened while its container is already running, the chosen
 variant is entered directly: `opencode`/`console` attach via `podman exec`; `web`
@@ -260,8 +261,8 @@ später aus `<url>` geklont.
 - `--hil_mode` – HIL-Tests mit USB-Geräten (Oszilloskop, MCU)
 - `--cbm_ui` – CBM Knowledge-Graph-UI (Port 9749)
 - `--start_opencode` – OpenCode direkt nach Container-Start starten
-- `--start_web` – OpenCode-Weboberfläche starten (v2-Hintergrunddienst auf Container-Port 4096, veröffentlicht auf 127.0.0.1, Port-Scan 4096-4196; mit `--detach` läuft der Dienst als Container-Hauptprozess, Zugriff über einmaligen Pair-Link; ohne `--detach` läuft `opencode serve` im Vordergrund)
-- `--detach` – Container im Hintergrund starten (Hauptprozess: OpenCode-Web-Service mit `--start_web`, sonst `sleep infinity`)
+- `--start_web` – OpenCode-Weboberfläche im Vordergrund starten (v2-Hintergrunddienst auf Container-Port 4096, veröffentlicht auf 127.0.0.1, Port-Scan 4096-4196; ohne `--detach` läuft `opencode serve` im Vordergrund, Ctrl+C stoppt und entfernt den Container; im Detached-Modus läuft der Dienst unabhängig von diesem Flag)
+- `--detach` – Container im Hintergrund starten (Hauptprozess immer: OpenCode-v2-Hintergrunddienst + Keep-alive, `opencode service start && exec sleep infinity`; Port 4096 wird bei jedem Detached-Start veröffentlicht — außer mit `--offline`)
 - `--container-id <id>` – Persistierte Container-Identität aus der Projekt-Registry setzen (sonst: Basisname des Projekt-Roots)
 
 ## Deinstallation
