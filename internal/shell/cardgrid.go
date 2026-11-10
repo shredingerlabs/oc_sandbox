@@ -1,6 +1,6 @@
 package shell
 
-// Card-grid geometry shared by the project/edition card views
+// Card-grid geometry shared by the workspace/edition card views
 // (approved layout record #72): 30×6 cards with a one gutter cell
 // between horizontal neighbors.
 const (

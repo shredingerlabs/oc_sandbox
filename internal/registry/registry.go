@@ -1,4 +1,4 @@
-// Package registry implements projects.json operations with bash TUI
+// Package registry implements workspaces.json operations with bash TUI
 // parity: exact file shapes, container identity, last-used ordering and
 // update semantics.
 package registry
@@ -18,9 +18,9 @@ import (
 	"github.com/shredingerlabs/oc-sandbox/internal/jsonfmt"
 )
 
-// Project is one registry entry; reads fall back like bash jq (`// "none"`,
+// Workspace is one registry entry; reads fall back like bash jq (`// "none"`,
 // `// ""`) for absent optional fields.
-type Project struct {
+type Workspace struct {
 	Name            string
 	Path            string
 	ContainerID     string
@@ -30,7 +30,7 @@ type Project struct {
 	RepoURL         string
 }
 
-// Registry operates on projects.json under Home. Now is injectable for
+// Registry operates on workspaces.json under Home. Now is injectable for
 // deterministic timestamps.
 type Registry struct {
 	Home string
@@ -49,10 +49,10 @@ func (r *Registry) stamp() string {
 }
 
 func (r *Registry) path() string {
-	return config.Paths{Home: r.Home}.ProjectsPath()
+	return config.Paths{Home: r.Home}.WorkspacesPath()
 }
 
-// AddRequest is the input to AddProject.
+// AddRequest is the input to AddWorkspace.
 type AddRequest struct {
 	Name        string
 	Path        string
@@ -82,11 +82,11 @@ func ContainerName(containerID string) string {
 	return "opencode-sandbox-" + containerID
 }
 
-// PodNamePrefix is the naming-convention prefix of the per-project pods
+// PodNamePrefix is the naming-convention prefix of the per-workspace pods
 // (#125): opencode-sandbox-pod-<container-id>.
 const PodNamePrefix = "opencode-sandbox-pod-"
 
-// IsPodName reports whether a name follows the per-project pod naming
+// IsPodName reports whether a name follows the per-workspace pod naming
 // convention (pod rows and, on pod-based runs, podman's infra
 // container `<pod-name>-infra`).
 func IsPodName(name string) bool {
@@ -105,33 +105,34 @@ func ContainerID(name string) string {
 	return strings.TrimPrefix(strings.TrimPrefix(name, PodNamePrefix), ContainerName(""))
 }
 
-// ErrNotFound reports a missing projects.json.
-var ErrNotFound = errors.New("projects.json not found")
+// ErrNotFound reports a missing workspaces.json.
+var ErrNotFound = errors.New("workspaces.json not found")
 
-// ErrProjectNotFound reports a lookup/removal that hits no registry entry.
-var ErrProjectNotFound = errors.New("project not found")
+// ErrWorkspaceNotFound reports a lookup/removal that hits no registry entry.
+var ErrWorkspaceNotFound = errors.New("workspace not found")
 
 // ErrNameExists / ErrPathExists mirror the bash registry refusals.
 var (
-	ErrNameExists = errors.New("project already exists in registry")
-	ErrPathExists = errors.New("project path already exists in registry")
-	ErrBadName    = errors.New("invalid project name")
+	ErrNameExists = errors.New("workspace already exists in registry")
+	ErrPathExists = errors.New("workspace path already exists in registry")
+	ErrBadName    = errors.New("invalid workspace name")
 )
 
-// projectsLiteral is the exact initial file the bash create_projects_json
-// writes (heredoc literal, non-jq indent).
-const projectsLiteral = "{\n    \"projects\": [],\n    \"version\": \"1.0\"\n  }\n"
+// workspacesLiteral is the exact initial registry file: empty list, the
+// 2.0 version marker (the migration-complete level; fresh installs create
+// the new-name files directly and never run the migration).
+const workspacesLiteral = "{\n    \"workspaces\": [],\n    \"version\": \"2.0\"\n  }\n"
 
-// CreateProjectsFile writes the initial empty registry (only when absent —
+// CreateWorkspacesFile writes the initial empty registry (only when absent —
 // callers decide; this never overwrites, mirroring first-run semantics).
-func (r *Registry) CreateProjectsFile() error {
+func (r *Registry) CreateWorkspacesFile() error {
 	if _, err := os.Stat(r.path()); err == nil {
-		return errors.New("projects.json already exists")
+		return errors.New("workspaces.json already exists")
 	}
-	return config.AtomicWrite(r.Home, r.path(), projectsLiteral)
+	return config.AtomicWrite(r.Home, r.path(), workspacesLiteral)
 }
 
-// readDoc loads and parses projects.json.
+// readDoc loads and parses workspaces.json.
 func (r *Registry) readDoc() (*jsonfmt.Doc, error) {
 	data, err := os.ReadFile(r.path())
 	if err != nil {
@@ -145,22 +146,22 @@ func (r *Registry) writeDoc(doc *jsonfmt.Doc) error {
 	return config.AtomicWrite(r.Home, r.path(), jsonfmt.Marshal(doc))
 }
 
-// projectsArray returns the "projects" array, creating the entry if absent.
-func projectsArray(doc *jsonfmt.Doc) []any {
-	if arr, ok := doc.GetArray("projects"); ok {
+// workspacesArray returns the "workspaces" array, creating the entry if absent.
+func workspacesArray(doc *jsonfmt.Doc) []any {
+	if arr, ok := doc.GetArray("workspaces"); ok {
 		return arr
 	}
 	arr := []any{}
-	doc.Set("projects", arr)
+	doc.Set("workspaces", arr)
 	return arr
 }
 
-func toProject(v any) (Project, bool) {
+func toWorkspace(v any) (Workspace, bool) {
 	d, ok := v.(*jsonfmt.Doc)
 	if !ok {
-		return Project{}, false
+		return Workspace{}, false
 	}
-	return Project{
+	return Workspace{
 		Name:            d.GetString("name", ""),
 		Path:            d.GetString("path", ""),
 		ContainerID:     d.GetString("container_id", ""),
@@ -171,9 +172,9 @@ func toProject(v any) (Project, bool) {
 	}, true
 }
 
-// AddProject validates and appends a project entry, matching the bash
+// AddWorkspace validates and appends a workspace entry, matching the bash
 // add_project_to_registry write exactly.
-func (r *Registry) AddProject(req AddRequest) error {
+func (r *Registry) AddWorkspace(req AddRequest) error {
 	if !slugRe.MatchString(req.Name) {
 		return ErrBadName
 	}
@@ -182,8 +183,8 @@ func (r *Registry) AddProject(req AddRequest) error {
 		return err
 	}
 	id := ContainerIdentity(req.Path)
-	for _, v := range projectsArray(doc) {
-		p, ok := toProject(v)
+	for _, v := range workspacesArray(doc) {
+		p, ok := toWorkspace(v)
 		if !ok {
 			continue
 		}
@@ -203,49 +204,49 @@ func (r *Registry) AddProject(req AddRequest) error {
 		{Key: "git_tracking", Val: req.GitTracking},
 		{Key: "repo_url", Val: req.RepoURL},
 	}}
-	doc.Set("projects", append(projectsArray(doc), entry))
+	doc.Set("workspaces", append(workspacesArray(doc), entry))
 	return r.writeDoc(doc)
 }
 
-// updateProject finds the entry by container id and mutates it via fn.
-func (r *Registry) updateProject(path string, fn func(*jsonfmt.Doc)) error {
+// updateWorkspace finds the entry by container id and mutates it via fn.
+func (r *Registry) updateWorkspace(path string, fn func(*jsonfmt.Doc)) error {
 	doc, err := r.readDoc()
 	if err != nil {
 		return err
 	}
 	id := ContainerIdentity(path)
-	arr := projectsArray(doc)
+	arr := workspacesArray(doc)
 	for _, v := range arr {
 		if d, ok := v.(*jsonfmt.Doc); ok && d.GetString("container_id", "") == id {
 			fn(d)
 		}
 	}
-	doc.Set("projects", arr)
+	doc.Set("workspaces", arr)
 	return r.writeDoc(doc)
 }
 
 // UpdateStatus writes container_status (callers write only after verified
 // podman state).
 func (r *Registry) UpdateStatus(path, status string) error {
-	return r.updateProject(path, func(d *jsonfmt.Doc) { d.Set("container_status", status) })
+	return r.updateWorkspace(path, func(d *jsonfmt.Doc) { d.Set("container_status", status) })
 }
 
 // UpdateLastUsed bumps last_used to now.
 func (r *Registry) UpdateLastUsed(path string) error {
-	return r.updateProject(path, func(d *jsonfmt.Doc) { d.Set("last_used", r.stamp()) })
+	return r.updateWorkspace(path, func(d *jsonfmt.Doc) { d.Set("last_used", r.stamp()) })
 }
 
 // UpdateRepoURL writes repo_url (kept mirrored with sandbox_config.json by
 // callers).
 func (r *Registry) UpdateRepoURL(path, repoURL string) error {
-	return r.updateProject(path, func(d *jsonfmt.Doc) { d.Set("repo_url", repoURL) })
+	return r.updateWorkspace(path, func(d *jsonfmt.Doc) { d.Set("repo_url", repoURL) })
 }
 
-// RemoveProject deletes one project entry (by container identity of the
+// RemoveWorkspace deletes one workspace entry (by container identity of the
 // canonical path): registry metadata only — files, configs and the
 // container are out of scope. Unknown paths fail loudly; unknown top-level
 // fields and the nested formatting of surviving entries are preserved.
-func (r *Registry) RemoveProject(path string) error {
+func (r *Registry) RemoveWorkspace(path string) error {
 	doc, err := r.readDoc()
 	if err != nil {
 		return err
@@ -253,7 +254,7 @@ func (r *Registry) RemoveProject(path string) error {
 	id := ContainerIdentity(path)
 	found := false
 	kept := []any{}
-	for _, v := range projectsArray(doc) {
+	for _, v := range workspacesArray(doc) {
 		if d, ok := v.(*jsonfmt.Doc); ok && d.GetString("container_id", "") == id {
 			found = true
 			continue
@@ -261,24 +262,24 @@ func (r *Registry) RemoveProject(path string) error {
 		kept = append(kept, v)
 	}
 	if !found {
-		return ErrProjectNotFound
+		return ErrWorkspaceNotFound
 	}
-	doc.Set("projects", kept)
+	doc.Set("workspaces", kept)
 	return r.writeDoc(doc)
 }
 
-// AllOrdered lists projects most-recently-used first, reproducing jq's
+// AllOrdered lists workspaces most-recently-used first, reproducing jq's
 // `sort_by(.last_used) | reverse` (stable sort, whole-array reverse —
 // same-second ties come in reversed insertion order).
-func (r *Registry) AllOrdered() ([]Project, error) {
+func (r *Registry) AllOrdered() ([]Workspace, error) {
 	doc, err := r.readDoc()
 	if err != nil {
 		return nil, err
 	}
-	arr := projectsArray(doc)
-	projs := make([]Project, 0, len(arr))
+	arr := workspacesArray(doc)
+	projs := make([]Workspace, 0, len(arr))
 	for _, v := range arr {
-		if p, ok := toProject(v); ok {
+		if p, ok := toWorkspace(v); ok {
 			projs = append(projs, p)
 		}
 	}
@@ -289,40 +290,40 @@ func (r *Registry) AllOrdered() ([]Project, error) {
 	return projs, nil
 }
 
-// LastUsedProject returns the most recently used project.
-func (r *Registry) LastUsedProject() (Project, error) {
+// LastUsedWorkspace returns the most recently used workspace.
+func (r *Registry) LastUsedWorkspace() (Workspace, error) {
 	projs, err := r.AllOrdered()
 	if err != nil {
-		return Project{}, err
+		return Workspace{}, err
 	}
 	if len(projs) == 0 {
-		return Project{}, errors.New("registry is empty")
+		return Workspace{}, errors.New("registry is empty")
 	}
 	return projs[0], nil
 }
 
-func (r *Registry) find(pred func(Project) bool) (Project, error) {
+func (r *Registry) find(pred func(Workspace) bool) (Workspace, error) {
 	projs, err := r.AllOrdered()
 	if err != nil {
-		return Project{}, err
+		return Workspace{}, err
 	}
 	for _, p := range projs {
 		if pred(p) {
 			return p, nil
 		}
 	}
-	return Project{}, ErrProjectNotFound
+	return Workspace{}, ErrWorkspaceNotFound
 }
 
-func (r *Registry) ByName(name string) (Project, error) {
-	return r.find(func(p Project) bool { return p.Name == name })
+func (r *Registry) ByName(name string) (Workspace, error) {
+	return r.find(func(p Workspace) bool { return p.Name == name })
 }
 
-func (r *Registry) ByPath(path string) (Project, error) {
+func (r *Registry) ByPath(path string) (Workspace, error) {
 	cp := CanonicalPath(path)
-	return r.find(func(p Project) bool { return p.Path == cp })
+	return r.find(func(p Workspace) bool { return p.Path == cp })
 }
 
-func (r *Registry) ByID(containerID string) (Project, error) {
-	return r.find(func(p Project) bool { return p.ContainerID == containerID })
+func (r *Registry) ByID(containerID string) (Workspace, error) {
+	return r.find(func(p Workspace) bool { return p.ContainerID == containerID })
 }

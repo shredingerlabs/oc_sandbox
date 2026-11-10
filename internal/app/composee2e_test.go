@@ -1,7 +1,7 @@
 package app_test
 
 // Composed-TUI regression tests for the reported bugs (single click on
-// Create Project did nothing, init failure toast was opaque, and
+// Create Workspace did nothing, init failure toast was opaque, and
 // podman-ps stalls froze the whole TUI). They drive the real composed
 // shell headlessly through teatest with a scriptable podman and the
 // real dist/ scripts of an installed-layout home.
@@ -247,8 +247,8 @@ func mousePress(x, y int) tea.MouseMsg {
 	return tea.MouseMsg{X: x, Y: y, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft}
 }
 
-// seedProject registers a project with its sandbox config without the
-// create flow (a "project exists after restart" starting point).
+// seedProject registers a workspace with its sandbox config without the
+// create flow (a "workspace exists after restart" starting point).
 func seedProject(t *testing.T, home, name string) string {
 	t.Helper()
 	root := filepath.Join(home, "oc-sandbox", name)
@@ -256,10 +256,10 @@ func seedProject(t *testing.T, home, name string) string {
 		t.Fatal(err)
 	}
 	reg := &registry.Registry{Home: home, Now: time.Now}
-	if err := reg.CreateProjectsFile(); err != nil {
+	if err := reg.CreateWorkspacesFile(); err != nil {
 		t.Fatal(err)
 	}
-	if err := reg.AddProject(registry.AddRequest{Name: name, Path: root, GitTracking: "none"}); err != nil {
+	if err := reg.AddWorkspace(registry.AddRequest{Name: name, Path: root, GitTracking: "none"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := sandboxcfg.Create(home, sandboxcfg.Path(root), "base", nil, "console", "none", sandboxcfg.SearchWebsearch); err != nil {
@@ -272,8 +272,8 @@ func seedProject(t *testing.T, home, name string) string {
 func openNewProjectView(t *testing.T, tm *teatest.TestModel, rec *recorder) {
 	t.Helper()
 	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("2")})
-	if !waitScreen(t, rec, false, "Project name") {
-		t.Fatal("view 2 did not open the New Project wizard")
+	if !waitScreen(t, rec, false, "Workspace name") {
+		t.Fatal("view 2 did not open the New Workspace wizard")
 	}
 }
 
@@ -284,7 +284,7 @@ func press(t *testing.T, tm *teatest.TestModel, r rune) tea.KeyMsg {
 	return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}}
 }
 
-// E2E: a single left click on the Create Project button activates the
+// E2E: a single left click on the Create Workspace button activates the
 // create flow (typed earlier only the focus moved and the flow required
 // a double click).
 func TestE2ECreateSingleClickActivates(t *testing.T) {
@@ -304,11 +304,11 @@ func TestE2ECreateSingleClickActivates(t *testing.T) {
 		t.Fatal("name did not reach the form")
 	}
 	g := renderScreen(120, 41, string(rec.contents()))
-	_, _, ok := g.find("│  Create Project  │")
+	_, _, ok := g.find("│  Create Workspace  │")
 	if !ok {
-		t.Fatal("Create Project button not rendered:\n" + g.String())
+		t.Fatal("Create Workspace button not rendered:\n" + g.String())
 	}
-	btnR, btnC, _ := g.find("Create Project")
+	btnR, btnC, _ := g.find("Create Workspace")
 	tm.Send(mousePress(btnC+2, btnR)) // single click: focus + popup (ADR-0021)
 	// Create confirmation popup: tab to Create, enter runs.
 	tm.Send(tea.KeyMsg{Type: tea.KeyTab})
@@ -316,11 +316,11 @@ func TestE2ECreateSingleClickActivates(t *testing.T) {
 	// The create chain runs real scripts. Either the registry entry
 	// appears (success), or the chain reaches a settled failure screen —
 	// both prove the click ran the flow.
-	if !waitScreenAny(t, rec, "Creating project", "Retry", "Go back", "Project initialization failed") {
+	if !waitScreenAny(t, rec, "Creating workspace", "Retry", "Go back", "Workspace initialization failed") {
 		t.Fatalf("single click did not run the create flow; screen:\n%s", screenOf(t, rec))
 	}
 	reg := &registry.Registry{Home: home, Now: time.Now}
-	// The create-flow log pane announces "Creating project" the moment
+	// The create-flow log pane announces "Creating workspace" the moment
 	// the chain is queued — poll until the registry write lands.
 	deadline := time.Now().Add(15 * time.Second)
 	for {
@@ -349,7 +349,7 @@ func TestE2EStartFlowKeepsUILiveWhenPodmanStalls(t *testing.T) {
 	defer tm.Quit()
 
 	if !waitScreen(t, rec, false, "frozenproj") {
-		t.Fatalf("project card never rendered:\n%s", screenOf(t, rec))
+		t.Fatalf("workspace card never rendered:\n%s", screenOf(t, rec))
 	}
 	g := renderScreen(120, 41, string(rec.contents()))
 	_, c, ok := g.find("│ ○ frozenproj")
@@ -364,7 +364,7 @@ func TestE2EStartFlowKeepsUILiveWhenPodmanStalls(t *testing.T) {
 	// UI must still be alive: switching the view repaints.
 	before := len(rec.contents())
 	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("2")})
-	if !waitScreen(t, rec, false, "Project name") {
+	if !waitScreen(t, rec, false, "Workspace name") {
 		t.Fatalf("TUI froze while podman ps stalled (bytes %d → %d):\n%s",
 			before, len(rec.contents()), renderScreen(120, 41, string(rec.contents())).String())
 	}

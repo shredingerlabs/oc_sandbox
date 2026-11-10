@@ -9,7 +9,7 @@ import (
 	"github.com/shredingerlabs/oc-sandbox/internal/shell"
 )
 
-// listBackups returns restorable backups (projects.json.* and
+// listBackups returns restorable backups (workspaces.json.* and
 // global_config.json.* files in the backups directory), newest first —
 // the embedded timestamp makes lexicographic order chronological.
 func listBackups(home string) []string {
@@ -33,10 +33,10 @@ func backupPath(home, name string) string {
 }
 
 // activeConfigs are the active config files offered for export, in bash
-// backup_config_manually order: projects.json first, global_config.json.
+// backup_config_manually order: workspaces.json first, global_config.json.
 func (v *View) activeConfigs() []string {
 	paths := []string{
-		config.Paths{Home: v.home}.ProjectsPath(),
+		config.Paths{Home: v.home}.WorkspacesPath(),
 		config.Paths{Home: v.home}.GlobalConfigPath(),
 	}
 	var out []string
@@ -48,7 +48,7 @@ func (v *View) activeConfigs() []string {
 	return out
 }
 
-// configBaseName is projects.json / global_config.json for display rows.
+// configBaseName is workspaces.json / global_config.json for display rows.
 func configBaseName(path string) string { return filepath.Base(path) }
 
 // wideChoice is the click width of a chooser row (label + generous

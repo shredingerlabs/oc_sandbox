@@ -12,13 +12,13 @@ import (
 // container Dirname conventions (start-tui.sh container_name_for_project).
 const containerPrefix = "opencode-sandbox-"
 
-// RunnerFactory builds a per-project PipelineStager; main wiring passes
+// RunnerFactory builds a per-workspace PipelineStager; main wiring passes
 // the app's cmdrun.Runner and script paths here. It is the thin ops seam
 // this flow launches its stages through (#82's task-manager retrofit
 // sweeps this factory).
 type RunnerFactory func(root string) Stager
 
-// NewStagerFor returns the production stage runner for a project root.
+// NewStagerFor returns the production stage runner for a workspace root.
 // The script paths are constructor args so the wiring decides the
 // install layout (app.LayoutFor), not this package.
 func NewStagerFor(run cmdrun.Runner, home string, reg *registry.Registry, startScript, configureScript string) RunnerFactory {
@@ -93,12 +93,12 @@ func (p *PipelineStager) config() (sandboxcfg.Config, error) {
 	return sandboxcfg.Read(sandboxcfg.Path(p.Root))
 }
 
-func (p *PipelineStager) project() (registry.Project, error) {
+func (p *PipelineStager) workspace() (registry.Workspace, error) {
 	return p.Reg.ByPath(p.Root)
 }
 
 func (p *PipelineStager) containerName() (string, error) {
-	proj, err := p.project()
+	proj, err := p.workspace()
 	if err != nil {
 		return "", err
 	}
@@ -113,7 +113,7 @@ func (p *PipelineStager) skillsArgv(container string, _ string) []string {
 }
 
 // startContainer implements build-or-reuse (data-map §3, the start
-// path): a container already running for this project is reused (no
+// path): a container already running for this workspace is reused (no
 // restart); a missing image is an error the retry menu surfaces (the
 // Build Images flow is the separate deferred-build path).
 func (p *PipelineStager) startContainer(emit func(string)) error {
@@ -134,7 +134,7 @@ func (p *PipelineStager) startContainer(emit func(string)) error {
 	if err != nil {
 		return err
 	}
-	proj, err := p.project()
+	proj, err := p.workspace()
 	if err != nil {
 		return err
 	}
@@ -171,7 +171,7 @@ func containerModeFlags(modes []string) []string {
 	return out
 }
 
-// runningSet reconciles the live podman ps set against a project
+// runningSet reconciles the live podman ps set against a workspace
 // container (discovery.RunningContainers with a distinguishable error).
 func runningSet(run cmdrun.Runner) (map[string]bool, error) {
 	out, err := run.Output("podman", "ps", "--format", "{{.Names}}", "--filter", "name=opencode-sandbox-")
@@ -196,9 +196,9 @@ func lastLines(out string, n int) string {
 // probeScript / cloneScript mirror the in-container bash of
 // run_first_run_clone (start-tui.sh:1452): URL match marks the flag
 // without re-cloning; the clone cleans the target first.
-const probeScript = `[[ "$(git -C /home/dev/project config --get remote.origin.url 2>/dev/null)" == "$1" ]] && git -C /home/dev/project rev-parse --verify -q HEAD >/dev/null 2>&1`
+const probeScript = `[[ "$(git -C /home/dev/workspace config --get remote.origin.url 2>/dev/null)" == "$1" ]] && git -C /home/dev/workspace rev-parse --verify -q HEAD >/dev/null 2>&1`
 
-const cloneScript = `rm -rf /home/dev/project/* /home/dev/project/.[!.]* 2>/dev/null || true; git clone -- "$1" /home/dev/project`
+const cloneScript = `rm -rf /home/dev/workspace/* /home/dev/workspace/.[!.]* 2>/dev/null || true; git clone -- "$1" /home/dev/workspace`
 
 // cbmScript is the hardcoded CBM configuration (start-tui.sh:1543):
 // auto_index / auto_index_limit / auto_watch.
@@ -214,7 +214,7 @@ func (p *PipelineStager) cloneStage(emit func(string)) error {
 	}
 	repoURL := config.RepoURL
 	if strings.TrimSpace(repoURL) == "" {
-		return fmt.Errorf("no repo URL recorded for this project")
+		return fmt.Errorf("no repo URL recorded for this workspace")
 	}
 	name, err := p.containerName()
 	if err != nil {

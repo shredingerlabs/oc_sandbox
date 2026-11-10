@@ -16,14 +16,14 @@ import (
 	"github.com/shredingerlabs/oc-sandbox/internal/config"
 
 	"github.com/shredingerlabs/oc-sandbox/internal/containerview"
-	"github.com/shredingerlabs/oc-sandbox/internal/newproject"
-	"github.com/shredingerlabs/oc-sandbox/internal/openproject"
-	"github.com/shredingerlabs/oc-sandbox/internal/projectsettings"
+	"github.com/shredingerlabs/oc-sandbox/internal/newworkspace"
+	"github.com/shredingerlabs/oc-sandbox/internal/openworkspace"
 	"github.com/shredingerlabs/oc-sandbox/internal/registry"
 	"github.com/shredingerlabs/oc-sandbox/internal/settingsview"
 	"github.com/shredingerlabs/oc-sandbox/internal/setupflow"
 	"github.com/shredingerlabs/oc-sandbox/internal/shell"
 	"github.com/shredingerlabs/oc-sandbox/internal/taskmgr"
+	"github.com/shredingerlabs/oc-sandbox/internal/workspacesettings"
 )
 
 // Layout is the resolved install-layout location set for one home.
@@ -31,8 +31,8 @@ type Layout struct {
 	InstallRoot      string // $HOME/.oc-sandbox
 	StartScript      string // scripts/start.sh
 	BuildScript      string // scripts/build-container.sh
-	InitScript       string // scripts/init-project.sh
-	ConfigureScript  string // scripts/configure-project.sh
+	InitScript       string // scripts/init-workspace.sh
+	ConfigureScript  string // scripts/configure-workspace.sh
 	UninstallScript  string // scripts/uninstall.sh
 	Dockerfile       string // Dockerfile (edition registry, ADR 0019)
 	DockerfileCustom string // Dockerfile.custom ("" when missing?)
@@ -46,8 +46,8 @@ func LayoutFor(home string) Layout {
 		InstallRoot:      root,
 		StartScript:      filepath.Join(scripts, "start.sh"),
 		BuildScript:      filepath.Join(scripts, "build-container.sh"),
-		InitScript:       filepath.Join(scripts, "init-project.sh"),
-		ConfigureScript:  filepath.Join(scripts, "configure-project.sh"),
+		InitScript:       filepath.Join(scripts, "init-workspace.sh"),
+		ConfigureScript:  filepath.Join(scripts, "configure-workspace.sh"),
 		UninstallScript:  filepath.Join(scripts, "uninstall.sh"),
 		Dockerfile:       filepath.Join(root, "Dockerfile"),
 		DockerfileCustom: filepath.Join(root, "Dockerfile.custom"),
@@ -65,7 +65,7 @@ type App struct {
 }
 
 // Compose builds the real app for one home: shell.NewWithQueue over
-// Open Project / New Project / Container / Settings plus the appended
+// Open Workspace / New Workspace / Container / Settings plus the appended
 // setup-flow view (reachable only via CreatedMsg / RecoverMsg handoff),
 // all sharing one taskmgr.Manager (ops run in the background; legacy
 // sync paths stay dormant). Version is the compiled-in oc-sandbox
@@ -79,7 +79,7 @@ func Compose(home string, version string, run cmdrun.Runner, now func() time.Tim
 	reg := &registry.Registry{Home: home, Now: now}
 	mgr := taskmgr.New()
 
-	open := openproject.New(openproject.Deps{
+	open := openworkspace.New(openworkspace.Deps{
 		Home:             home,
 		Runner:           run,
 		StartScript:      layout.StartScript,
@@ -92,16 +92,16 @@ func Compose(home string, version string, run cmdrun.Runner, now func() time.Tim
 		Now:              now,
 	})
 
-	np := newproject.New(newproject.Config{
-		Home:               home,
-		DefaultProjectPath: defaultProjectPath(home),
-		Dockerfile:         layout.Dockerfile,
-		DockerfileCustom:   layout.DockerfileCustom,
-		StartScript:        layout.StartScript,
-		InitScript:         layout.InitScript,
-		ConfigureScript:    layout.ConfigureScript,
-		BuildScript:        layout.BuildScript,
-	}, run, newproject.ScriptOps{Runner: run}, reg)
+	np := newworkspace.New(newworkspace.Config{
+		Home:                 home,
+		DefaultWorkspacePath: defaultProjectPath(home),
+		Dockerfile:           layout.Dockerfile,
+		DockerfileCustom:     layout.DockerfileCustom,
+		StartScript:          layout.StartScript,
+		InitScript:           layout.InitScript,
+		ConfigureScript:      layout.ConfigureScript,
+		BuildScript:          layout.BuildScript,
+	}, run, newworkspace.ScriptOps{Runner: run}, reg)
 	np.Tasks = mgr
 
 	cv := containerview.New(run, reg, layout.Dockerfile, layout.DockerfileCustom, layout.BuildScript, layout.StartScript, containerview.SyncLauncher)
@@ -110,7 +110,7 @@ func Compose(home string, version string, run cmdrun.Runner, now func() time.Tim
 	settings := settingsview.New(home)
 	settings.Version = version
 	settings.Tasks = mgr
-	settings.WireProjectSettingsDeps(projectsettings.Deps{
+	settings.WireWorkspaceSettingsDeps(workspacesettings.Deps{
 		Runner:          run,
 		ConfigureScript: layout.ConfigureScript,
 		Ops:             mgr,
@@ -130,12 +130,12 @@ func Compose(home string, version string, run cmdrun.Runner, now func() time.Tim
 	}
 }
 
-// defaultProjectPath mirrors the bash TUI: default_project_path from
+// defaultProjectPath mirrors the bash TUI: default_workspace_path from
 // global_config.json, "" (→ home/oc-sandbox) when unreadable.
 func defaultProjectPath(home string) string {
 	gc, err := config.ReadGlobalConfig(home)
 	if err != nil {
 		return ""
 	}
-	return gc.DefaultProjectPath
+	return gc.DefaultWorkspacePath
 }

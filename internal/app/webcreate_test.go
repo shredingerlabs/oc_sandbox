@@ -1,9 +1,9 @@
 package app_test
 
-// Repro for the production report: creating a project with edition "web"
+// Repro for the production report: creating a workspace with edition "web"
 // whose image is not built. Flow under test: click the web edition token
 // (the inline "Image build" radio appears under the editions, default
-// Build now), click Create Project, confirm the popup — the build tail
+// Build now), click Create Workspace, confirm the popup — the build tail
 // must hand over to the create tail: registry entry written,
 // sandbox_config.json present, and the first-run setup handoff must NOT
 // report a missing sandbox_config.json.
@@ -52,18 +52,18 @@ func TestE2EWebEditionBuildNowCreatesProject(t *testing.T) {
 		t.Fatal("Image build radio row not rendered after web click:\n" + screenOf(t, rec))
 	}
 
-	// Click Create Project, then confirm the popup (ADR-0021): tab to
+	// Click Create Workspace, then confirm the popup (ADR-0021): tab to
 	// Create, enter runs — Build now is the recorded plan.
-	btnR, btnC, ok2 := g.find("Create Project")
+	btnR, btnC, ok2 := g.find("Create Workspace")
 	if !ok2 {
-		t.Fatal("Create Project button not rendered:\n" + g.String())
+		t.Fatal("Create Workspace button not rendered:\n" + g.String())
 	}
 	tm.Send(mousePress(btnC+2, btnR))
 	tm.Send(tea.KeyMsg{Type: tea.KeyTab})
 	tm.Send(tea.KeyMsg{Type: tea.KeyEnter})
 
 	// Build runs through the fake podman; afterwards the create tail must
-	// run and register the project.
+	// run and register the workspace.
 	deadline := time.Now().Add(30 * time.Second)
 	registered := false
 	for time.Now().Before(deadline) {
@@ -75,7 +75,7 @@ func TestE2EWebEditionBuildNowCreatesProject(t *testing.T) {
 		time.Sleep(100 * time.Millisecond)
 	}
 	if !registered {
-		t.Fatalf("project never registered; screen:\n%s", screenOf(t, rec))
+		t.Fatalf("workspace never registered; screen:\n%s", screenOf(t, rec))
 	}
 	root := filepath.Join(home, "oc-sandbox", "webproj")
 	if _, err := sandboxcfg.Read(sandboxcfg.Path(root)); err != nil {

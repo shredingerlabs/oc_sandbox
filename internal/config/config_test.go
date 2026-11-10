@@ -31,12 +31,12 @@ func read(t *testing.T, path string) string {
 
 // Golden captured from bash `create_global_config` (jq pipeline).
 const goldenGlobalConfig = `{
-  "default_project_path": "/home/user/oc-sandbox",
-  "version": "1.0"
+  "default_workspace_path": "/home/user/oc-sandbox",
+  "version": "2.0"
 }
 `
 
-func TestCreateGlobalConfigMatchesBashGolden(t *testing.T) {
+func TestCreateGlobalConfigMatchesGolden(t *testing.T) {
 	home := t.TempDir()
 	if err := CreateGlobalConfig(home, "/home/user/oc-sandbox"); err != nil {
 		t.Fatal(err)
@@ -54,7 +54,7 @@ func TestReadGlobalConfigRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if gc.DefaultProjectPath != "/home/user/oc-sandbox" || gc.Version != "1.0" {
+	if gc.DefaultWorkspacePath != "/home/user/oc-sandbox" || gc.Version != "2.0" {
 		t.Fatalf("unexpected config: %+v", gc)
 	}
 }
@@ -123,7 +123,7 @@ func TestIsGeneralConfigFileWhitelist(t *testing.T) {
 		want bool
 	}{
 		{p.GlobalConfigPath(), true},
-		{p.ProjectsPath(), true},
+		{p.WorkspacesPath(), true},
 		{"/x/proj/.opencode_config/sandbox_config.json", true},
 		{"/x/proj/.opencode_config/opencode.json", true},
 		{"/x/proj/.git_local/gh-cli/hosts.yml", false},
@@ -146,7 +146,7 @@ func TestRotateBackupsRemovesOldestWithTieBreak(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("BACKUP_HISTORY_LIMIT", "2")
 	// Same mtime for all: tie must break lexicographically (oldest name removed).
-	names := []string{"projects.json.20260101T00000000000000000.aaaaaa", "projects.json.20260101T00000000000000001.bbbbbb", "projects.json.20260101T00000000000000002.cccccc"}
+	names := []string{"workspaces.json.20260101T00000000000000000.aaaaaa", "workspaces.json.20260101T00000000000000001.bbbbbb", "workspaces.json.20260101T00000000000000002.cccccc"}
 	sort.Strings(names)
 	for _, n := range names {
 		writeFile(t, filepath.Join(dir, n), "x")
@@ -157,7 +157,7 @@ func TestRotateBackupsRemovesOldestWithTieBreak(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := RotateBackups(dir, "projects.json"); err != nil {
+	if err := RotateBackups(dir, "workspaces.json"); err != nil {
 		t.Fatal(err)
 	}
 	var left []string
@@ -175,9 +175,9 @@ func TestRotateBackupsLimitFallback(t *testing.T) {
 	for _, lim := range []string{"0", "-2", "abc", ""} {
 		t.Setenv("BACKUP_HISTORY_LIMIT", lim)
 		for i := 0; i < 7; i++ {
-			writeFile(t, filepath.Join(dir, "projects.json.2026010"+string(rune('1'+i))+"T00000000000000000.xxxxxx"), "x")
+			writeFile(t, filepath.Join(dir, "workspaces.json.2026010"+string(rune('1'+i))+"T00000000000000000.xxxxxx"), "x")
 		}
-		if err := RotateBackups(dir, "projects.json"); err != nil {
+		if err := RotateBackups(dir, "workspaces.json"); err != nil {
 			t.Fatal(err)
 		}
 		entries, _ := os.ReadDir(dir)

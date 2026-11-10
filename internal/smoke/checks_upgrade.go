@@ -25,17 +25,17 @@ func checkUpgradeInPlace(home, root string) Item {
 	sc := sandboxcfg.Path(proj)
 
 	if err := os.MkdirAll(filepath.Join(proj, ".git_local", "gh-cli"), 0o700); err != nil {
-		p.reasonf("prepare project tree: %v", err)
+		p.reasonf("prepare workspace tree: %v", err)
 		return p.finish()
 	}
 	if err := config.CreateGlobalConfig(sub, filepath.Join(sub, "ws")); err != nil {
 		p.reasonf("global config: %v", err)
 	}
 	reg := &registry.Registry{Home: sub}
-	if err := reg.CreateProjectsFile(); err != nil {
+	if err := reg.CreateWorkspacesFile(); err != nil {
 		p.reasonf("registry create: %v", err)
 	}
-	if err := reg.AddProject(registry.AddRequest{
+	if err := reg.AddWorkspace(registry.AddRequest{
 		Name: "my-project", Path: proj, GitTracking: "github.com", RepoURL: "https://github.com/u/my-project",
 	}); err != nil {
 		p.reasonf("registry add: %v", err)
@@ -123,7 +123,7 @@ func checkUpgradeInPlace(home, root string) Item {
 			p.reasonf("file lost during upgrade: %s", rel)
 			continue
 		}
-		if rel == ".config/oc-sandbox/projects.json" || rel == relPath(sub, sc) {
+		if rel == ".config/oc-sandbox/workspaces.json" || rel == relPath(sub, sc) {
 			continue
 		}
 		if beforeContent != afterContent {
@@ -141,7 +141,7 @@ func checkUpgradeInPlace(home, root string) Item {
 	}
 	for _, n := range listBackups(config.Paths{Home: sub}.BackupsDir()) {
 		switch {
-		case hasAnyPrefix(n, "projects.json.", "global_config.json.", "sandbox_config.json."):
+		case hasAnyPrefix(n, "workspaces.json.", "global_config.json.", "sandbox_config.json."):
 		default:
 			p.reasonf("non-whitelisted backup appeared: %s", n)
 		}

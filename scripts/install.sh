@@ -442,7 +442,17 @@ install_files() {
 
   # Erstelle Zielverzeichnis
   mkdir -p "$target_dir"
-  
+
+  # Stale old-name scripts der vor-rename Releases entfernen (Workspace-Rename,
+  # #148): init-project.sh / configure-project.sh existieren nach dem Update
+  # nur noch unter den neuen Namen.
+  for stale in init-project.sh configure-project.sh; do
+    if [[ -f "$target_dir/scripts/$stale" ]]; then
+      rm -f "$target_dir/scripts/$stale"
+      log_verbose "Alter Script $stale entfernt (Workspace-Rename)"
+    fi
+  done
+
   # Kopiere alle Dateien
   cp -r "$source_dir"/* "$target_dir/"
   
@@ -939,8 +949,8 @@ validate_installation() {
   local required_files=(
     "scripts/start.sh"
     "scripts/build-container.sh"
-    "scripts/init-project.sh"
-    "scripts/configure-project.sh"
+    "scripts/init-workspace.sh"
+    "scripts/configure-workspace.sh"
     "scripts/uninstall.sh"
     "Dockerfile"
   )

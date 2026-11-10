@@ -24,16 +24,16 @@ func (v *View) exportPane() ([]string, []hitRow, int) {
 		if len(files) == 0 {
 			rows, back := buttonBlock([]string{
 				muted("Nothing to export yet — global_config.json and"),
-				muted("projects.json appear once setup has run."),
+				muted("workspaces.json appear once setup has run."),
 			}, "Back", v.expFocus == 0, v.exportCancel)
 			hits = append(hits, back)
 			return rows, hits, back.row
 		}
-	rows := append([]string{},
-		muted("Copies an active config file, byte-exact, to a"),
-		muted("destination you pick (save-as). An existing destination"),
-		muted("file is overwritten after a confirmation prompt."),
-		"",
+		rows := append([]string{},
+			muted("Copies an active config file, byte-exact, to a"),
+			muted("destination you pick (save-as). An existing destination"),
+			muted("file is overwritten after a confirmation prompt."),
+			"",
 			focusLabel("Config files"),
 		)
 		for j, path := range files {
@@ -82,7 +82,7 @@ func (v *View) openSaveAs() tea.Cmd {
 	if v.expSel >= len(files) {
 		v.expSel = 0
 	}
-	base := "projects.json"
+	base := "workspaces.json"
 	if v.expSel < len(files) {
 		base = configBaseName(files[v.expSel])
 	}
@@ -132,7 +132,7 @@ func (v *View) doExport() tea.Cmd {
 	files := v.activeConfigs()
 	if files == nil {
 		v.expStage, v.expFocus, v.scroll = 0, 0, 0
-		v.toast = "Nothing to export yet — global_config.json and projects.json appear once setup has run."
+		v.toast = "Nothing to export yet — global_config.json and workspaces.json appear once setup has run."
 		return nil
 	}
 	if v.expSel >= len(files) {
@@ -165,7 +165,7 @@ func (v *View) runExport(src, dest string) tea.Cmd {
 				v.toast = "Export failed: " + err.Error()
 				return nil
 			}
-			v.toast = fmt.Sprintf("Exported %s to %s.", srcName, dest)
+			v.toast = fmt.Sprintf("Exported %s to %s.", srcName, filepath.Base(dest))
 			return nil
 		})
 }

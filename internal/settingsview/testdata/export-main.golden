@@ -4,7 +4,7 @@
   │ file is overwritten after a confirmation prompt.        │
   │                                                         │
   │ Config files                                            │
-  │  ▶ projects.json                                        │
+  │  ▶ workspaces.json                                      │
   │                                                         │
   │   ╭──────────────────╮                                  │
   │   │  Export Config…  │                                  │

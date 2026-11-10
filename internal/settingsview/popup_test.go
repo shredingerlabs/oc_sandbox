@@ -14,11 +14,11 @@ import (
 
 func TestRestorePopupContentAndCancel(t *testing.T) {
 	home := homeFixture(t)
-	pp := config.Paths{Home: home}.ProjectsPath()
-	const before = "{\n    \"projects\": []\n  }"
+	pp := config.Paths{Home: home}.WorkspacesPath()
+	const before = "{\n    \"workspaces\": []\n  }"
 	writeFile(t, pp, before)
-	const backup1 = "{\n  \"projects\": [\n    { \"restored\": true }\n  ]\n}"
-	writeBackup(t, home, "projects.json.20260101T000000000.aaa111", backup1)
+	const backup1 = "{\n  \"workspaces\": [\n    { \"restored\": true }\n  ]\n}"
+	writeBackup(t, home, "workspaces.json.20260101T000000000.aaa111", backup1)
 
 	v := newSettings(t, home, nil)
 	v.Update(shell.SubTabMsg{Index: subRestore})
@@ -29,7 +29,7 @@ func TestRestorePopupContentAndCancel(t *testing.T) {
 		t.Fatal("Restore button did not open the popup")
 	}
 	b := body(v)
-	for _, want := range []string{"Restore this config backup?", "projects.json.20260101T000000000.aaa111", "→ projects.json", "safety backup"} {
+	for _, want := range []string{"Restore this config backup?", "workspaces.json.20260101T000000000.aaa111", "→ workspaces.json", "safety backup"} {
 		if !strings.Contains(b, want) {
 			t.Errorf("popup missing %q:\n%s", want, b)
 		}
@@ -87,10 +87,10 @@ func TestUninstallPopupContentCancelAndConfirm(t *testing.T) {
 
 func TestRestorePopupConfirmRunsRestore(t *testing.T) {
 	home := homeFixture(t)
-	pp := config.Paths{Home: home}.ProjectsPath()
-	const before = "{\n    \"projects\": []\n  }"
+	pp := config.Paths{Home: home}.WorkspacesPath()
+	const before = "{\n    \"workspaces\": []\n  }"
 	writeFile(t, pp, before)
-	writeBackup(t, home, "projects.json.20260101T000000000.aaa111", "{\n  \"projects\": []\n}")
+	writeBackup(t, home, "workspaces.json.20260101T000000000.aaa111", "{\n  \"workspaces\": []\n}")
 	v := newSettings(t, home, nil)
 	v.Update(shell.SubTabMsg{Index: subRestore})
 	key(v, "down") // Restore button → popup

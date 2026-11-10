@@ -11,10 +11,10 @@ import (
 	"github.com/shredingerlabs/oc-sandbox/internal/config"
 )
 
-// Golden captured from bash `add_project_to_registry` with a stubbed `date`
+// Golden: one entry as written by AddWorkspace with a stubbed clock
 // (path /tmp/opencode/fakehome/proj hashes to 497a1b01df3b via sha256sum).
-const goldenProjectsOne = `{
-  "projects": [
+const goldenWorkspacesOne = `{
+  "workspaces": [
     {
       "name": "my-project",
       "path": "/tmp/opencode/fakehome/proj",
@@ -25,14 +25,14 @@ const goldenProjectsOne = `{
       "repo_url": ""
     }
   ],
-  "version": "1.0"
+  "version": "2.0"
 }
 `
 
-// Golden: bash create_projects_json writes this literal verbatim.
-const goldenProjectsEmpty = `{
-    "projects": [],
-    "version": "1.0"
+// Golden: the seed literal written by CreateWorkspacesFile verbatim.
+const goldenWorkspacesEmpty = `{
+    "workspaces": [],
+    "version": "2.0"
   }
 `
 
@@ -46,26 +46,26 @@ func newTestRegistry(t *testing.T) *Registry {
 	}
 }
 
-func TestCreateProjectsFileMatchesBashLiteral(t *testing.T) {
+func TestCreateWorkspacesFileLiteral(t *testing.T) {
 	r := newTestRegistry(t)
-	if err := r.CreateProjectsFile(); err != nil {
+	if err := r.CreateWorkspacesFile(); err != nil {
 		t.Fatal(err)
 	}
-	b, err := os.ReadFile(config.Paths{Home: r.Home}.ProjectsPath())
+	b, err := os.ReadFile(config.Paths{Home: r.Home}.WorkspacesPath())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(b) != goldenProjectsEmpty {
-		t.Fatalf("projects.json mismatch:\ngot:\n%q\nwant:\n%q", string(b), goldenProjectsEmpty)
+	if string(b) != goldenWorkspacesEmpty {
+		t.Fatalf("workspaces.json mismatch:\ngot:\n%q\nwant:\n%q", string(b), goldenWorkspacesEmpty)
 	}
 }
 
 func TestAddProjectWritesBashGolden(t *testing.T) {
 	r := newTestRegistry(t)
-	if err := r.CreateProjectsFile(); err != nil {
+	if err := r.CreateWorkspacesFile(); err != nil {
 		t.Fatal(err)
 	}
-	err := r.AddProject(AddRequest{
+	err := r.AddWorkspace(AddRequest{
 		Name:        "my-project",
 		Path:        "/tmp/opencode/fakehome/proj",
 		GitTracking: "github.com",
@@ -73,30 +73,30 @@ func TestAddProjectWritesBashGolden(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, err := os.ReadFile(config.Paths{Home: r.Home}.ProjectsPath())
+	b, err := os.ReadFile(config.Paths{Home: r.Home}.WorkspacesPath())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(b) != goldenProjectsOne {
-		t.Fatalf("projects.json mismatch:\ngot:\n%s\nwant:\n%s", string(b), goldenProjectsOne)
+	if string(b) != goldenWorkspacesOne {
+		t.Fatalf("workspaces.json mismatch:\ngot:\n%s\nwant:\n%s", string(b), goldenWorkspacesOne)
 	}
 }
 
 func TestAddProjectRejectsInvalidNamesAndDuplicates(t *testing.T) {
 	r := newTestRegistry(t)
-	if err := r.CreateProjectsFile(); err != nil {
+	if err := r.CreateWorkspacesFile(); err != nil {
 		t.Fatal(err)
 	}
-	if err := r.AddProject(AddRequest{Name: "bad name!", Path: "/x/p1"}); err == nil {
+	if err := r.AddWorkspace(AddRequest{Name: "bad name!", Path: "/x/p1"}); err == nil {
 		t.Fatal("invalid slug accepted")
 	}
-	if err := r.AddProject(AddRequest{Name: "ok", Path: "/x/p1"}); err != nil {
+	if err := r.AddWorkspace(AddRequest{Name: "ok", Path: "/x/p1"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := r.AddProject(AddRequest{Name: "ok", Path: "/x/other"}); err == nil {
+	if err := r.AddWorkspace(AddRequest{Name: "ok", Path: "/x/other"}); err == nil {
 		t.Fatal("duplicate name accepted")
 	}
-	if err := r.AddProject(AddRequest{Name: "other", Path: "/x/p1/../p1"}); err == nil {
+	if err := r.AddWorkspace(AddRequest{Name: "other", Path: "/x/p1/../p1"}); err == nil {
 		t.Fatal("duplicate canonical path accepted")
 	}
 }
@@ -113,10 +113,10 @@ func TestContainerIdentityMatchesBashSha256(t *testing.T) {
 
 func TestUpdateStatusLastUsedAndRepoURL(t *testing.T) {
 	r := newTestRegistry(t)
-	if err := r.CreateProjectsFile(); err != nil {
+	if err := r.CreateWorkspacesFile(); err != nil {
 		t.Fatal(err)
 	}
-	if err := r.AddProject(AddRequest{Name: "p", Path: "/x/proj"}); err != nil {
+	if err := r.AddWorkspace(AddRequest{Name: "p", Path: "/x/proj"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := r.UpdateStatus("/x/proj/../proj", "running"); err != nil {
@@ -130,7 +130,7 @@ func TestUpdateStatusLastUsedAndRepoURL(t *testing.T) {
 		t.Fatal(err)
 	}
 	if projs[0].ContainerStatus != "running" || projs[0].RepoURL != "https://github.com/u/p" {
-		t.Fatalf("unexpected project: %+v", projs[0])
+		t.Fatalf("unexpected workspace: %+v", projs[0])
 	}
 	if projs[0].LastUsed != fixedStamp {
 		t.Fatalf("last_used changed unexpectedly: %q", projs[0].LastUsed)
@@ -148,7 +148,7 @@ func TestUpdateStatusLastUsedAndRepoURL(t *testing.T) {
 
 func TestOrderingMatchesJqSortByReverse(t *testing.T) {
 	r := newTestRegistry(t)
-	if err := r.CreateProjectsFile(); err != nil {
+	if err := r.CreateWorkspacesFile(); err != nil {
 		t.Fatal(err)
 	}
 	stamp := func(s string) time.Time { t, _ := time.Parse(time.RFC3339, s); return t.UTC() }
@@ -157,12 +157,12 @@ func TestOrderingMatchesJqSortByReverse(t *testing.T) {
 	// Three adds in the same second: ties must reverse array order (jq
 	// sort_by is stable, then `reverse` flips the whole array).
 	for _, name := range []string{"a", "b", "c"} {
-		if err := r.AddProject(AddRequest{Name: name, Path: "/x/" + name}); err != nil {
+		if err := r.AddWorkspace(AddRequest{Name: name, Path: "/x/" + name}); err != nil {
 			t.Fatal(err)
 		}
 	}
 	r.Now = func() time.Time { return stamp("2019-01-01T00:00:00Z") }
-	if err := r.AddProject(AddRequest{Name: "old", Path: "/x/old"}); err != nil {
+	if err := r.AddWorkspace(AddRequest{Name: "old", Path: "/x/old"}); err != nil {
 		t.Fatal(err)
 	}
 	projs, err := r.AllOrdered()
@@ -179,7 +179,7 @@ func TestOrderingMatchesJqSortByReverse(t *testing.T) {
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("order = %v, want %v", got, want)
 	}
-	lu, err := r.LastUsedProject()
+	lu, err := r.LastUsedWorkspace()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -191,15 +191,15 @@ func TestOrderingMatchesJqSortByReverse(t *testing.T) {
 func TestLookupsAndMissingFile(t *testing.T) {
 	r := newTestRegistry(t)
 	if _, err := r.AllOrdered(); err == nil {
-		t.Fatal("missing projects.json must error, never auto-create")
+		t.Fatal("missing workspaces.json must error, never auto-create")
 	}
-	if err := r.CreateProjectsFile(); err != nil {
+	if err := r.CreateWorkspacesFile(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := r.LastUsedProject(); err == nil {
-		t.Fatal("empty registry has no last-used project")
+	if _, err := r.LastUsedWorkspace(); err == nil {
+		t.Fatal("empty registry has no last-used workspace")
 	}
-	if err := r.AddProject(AddRequest{Name: "n", Path: "/x/proj", RepoURL: "u"}); err != nil {
+	if err := r.AddWorkspace(AddRequest{Name: "n", Path: "/x/proj", RepoURL: "u"}); err != nil {
 		t.Fatal(err)
 	}
 	p, err := r.ByName("n")
@@ -224,11 +224,11 @@ func TestAbsentRepoURLAndGitTrackingFallbacks(t *testing.T) {
 	// A hand-written registry without repo_url/git_tracking (bash jq `// ""`
 	// style reads) must still load.
 	r := newTestRegistry(t)
-	path := config.Paths{Home: r.Home}.ProjectsPath()
+	path := config.Paths{Home: r.Home}.WorkspacesPath()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	content := `{"projects":[{"name":"x","path":"/x/proj","container_id":"abc","last_used":"2020-01-02T03:04:05Z","container_status":"stopped"}],"version":"1.0"}`
+	content := `{"workspaces":[{"name":"x","path":"/x/proj","container_id":"abc","last_used":"2020-01-02T03:04:05Z","container_status":"stopped"}],"version":"2.0"}`
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -241,24 +241,24 @@ func TestAbsentRepoURLAndGitTrackingFallbacks(t *testing.T) {
 	}
 }
 
-// RemoveProject deletes one project entry (by canonical path); the other
+// RemoveWorkspace deletes one workspace entry (by canonical path); the other
 // entries' metadata and unknown top-level fields survive.
 func TestRemoveProjectDeletesOnlyTargetEntry(t *testing.T) {
 	r := newTestRegistry(t)
-	path := config.Paths{Home: r.Home}.ProjectsPath()
+	path := config.Paths{Home: r.Home}.WorkspacesPath()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path, []byte(`{"projects":[],"version":"1.0","extra":"keep"}`), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte(`{"workspaces":[],"version":"2.0","extra":"keep"}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := r.AddProject(AddRequest{Name: "p1", Path: "/x/proj1"}); err != nil {
+	if err := r.AddWorkspace(AddRequest{Name: "p1", Path: "/x/proj1"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := r.AddProject(AddRequest{Name: "p2", Path: "/x/proj2", GitTracking: "gitlab.com"}); err != nil {
+	if err := r.AddWorkspace(AddRequest{Name: "p2", Path: "/x/proj2", GitTracking: "gitlab.com"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := r.RemoveProject("/x/proj1/../proj1"); err != nil {
+	if err := r.RemoveWorkspace("/x/proj1/../proj1"); err != nil {
 		t.Fatalf("remove: %v", err)
 	}
 	b, err := os.ReadFile(path)
@@ -279,16 +279,16 @@ func TestRemoveProjectDeletesOnlyTargetEntry(t *testing.T) {
 		t.Fatalf("unexpected survivors: %+v", projs)
 	}
 	// Removing again (or an unknown path) is an error, not a silent ok.
-	if err := r.RemoveProject("/x/proj1"); err == nil {
-		t.Fatal("removal of a missing project succeeded")
+	if err := r.RemoveWorkspace("/x/proj1"); err == nil {
+		t.Fatal("removal of a missing workspace succeeded")
 	}
 	// The removed entry's files may still exist: out of the registry's scope.
 }
 
-// RemoveProject on a missing projects.json surfaces the registry error.
+// RemoveWorkspace on a missing workspaces.json surfaces the registry error.
 func TestRemoveProjectMissingFile(t *testing.T) {
 	r := newTestRegistry(t)
-	if err := r.RemoveProject("/x/proj"); err != ErrNotFound {
+	if err := r.RemoveWorkspace("/x/proj"); err != ErrNotFound {
 		t.Fatalf("err = %v, want ErrNotFound", err)
 	}
 }
@@ -297,14 +297,14 @@ func TestAddProjectPreservesUnknownFieldsSemantically(t *testing.T) {
 	// Round-trip: bash reads/writes through jq which preserves unknown
 	// fields; Go must not drop them.
 	r := newTestRegistry(t)
-	path := config.Paths{Home: r.Home}.ProjectsPath()
+	path := config.Paths{Home: r.Home}.WorkspacesPath()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path, []byte(`{"projects":[],"version":"1.0","extra":"keep"}`), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte(`{"workspaces":[],"version":"2.0","extra":"keep"}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := r.AddProject(AddRequest{Name: "n", Path: "/x/proj"}); err != nil {
+	if err := r.AddWorkspace(AddRequest{Name: "n", Path: "/x/proj"}); err != nil {
 		t.Fatal(err)
 	}
 	b, _ := os.ReadFile(path)

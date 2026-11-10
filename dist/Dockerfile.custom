@@ -42,6 +42,6 @@
 #
 # # --- Non-root user (Pflicht, wie in jeder Edition) ----------------------------
 # USER dev
-# WORKDIR /home/dev/project
+# WORKDIR /home/dev/workspace
 #
 # ENTRYPOINT ["/bin/bash", "-l"]

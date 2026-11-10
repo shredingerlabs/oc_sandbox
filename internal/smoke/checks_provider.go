@@ -9,18 +9,18 @@ import (
 )
 
 // A7 — provider-neutral AI configuration backend (issue #100/#101): the
-// configure-project.sh subcommands ai-provider (credential file, ADR
+// configure-workspace.sh subcommands ai-provider (credential file, ADR
 // 0025) and opencode-config (generated providers.<id> block in
 // opencode.json, v2 schema) run at the real file level, including
 // permissions, multi-key survival, the --replace gate, validation exits,
 // the {file:...} apiKey reference, the migrate-opencode-config rewrite
 // of v1-shaped configs and the removed GWDG preset.
 func checkAIProviderBackend(home, root string) Item {
-	p := newPhase("A7", "configure-project.sh ai-provider credential file and opencode-config v2 provider block, v1 config migration, GWDG preset gone")
+	p := newPhase("A7", "configure-workspace.sh ai-provider credential file and opencode-config v2 provider block, v1 config migration, GWDG preset gone")
 	sub := filepath.Join(home, "A7")
-	configure := filepath.Join(root, "dist", "scripts", "configure-project.sh")
+	configure := filepath.Join(root, "dist", "scripts", "configure-workspace.sh")
 	if _, err := os.Stat(configure); err != nil {
-		p.reasonf("configure-project.sh missing: %v", err)
+		p.reasonf("configure-workspace.sh missing: %v", err)
 		return p.finish()
 	}
 	if err := os.MkdirAll(sub, 0o755); err != nil {
@@ -94,7 +94,7 @@ printf "%%s\n" "$dup:$rep:$badname:$badend:$badtok"
 		p.reasonf("other-api credential file missing/wrong: %v", err)
 	}
 
-	// opencode-config: fresh project (no opencode.json, no credential)
+	// opencode-config: fresh workspace (no opencode.json, no credential)
 	// builds from the basic template plus plugin plus the generated
 	// provider block — no apiKey reference without a credential file.
 	fresh := filepath.Join(sub, "ws", "fresh")

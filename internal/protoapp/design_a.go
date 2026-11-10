@@ -1,4 +1,4 @@
-// Design A ("A spec"): the ticket, literal. New Project = left menu
+// Design A ("A spec"): the ticket, literal. New Workspace = left menu
 // (Blank / From URL) + right matching field rows, prefilled standard
 // values, path auto-updates, Create button at the bottom. Container =
 // left menu (Build Container / Stop Container); build lists all
@@ -120,7 +120,7 @@ func (d *designA) ViewNP(width, height int, h help.Model, k keyMap) string {
 	// left menu: source items, then a hint
 	menuLines := []string{
 		styleFieldLabel.Render("Source"),
-		menuItem("Blank project", s.source == 0),
+		menuItem("Blank workspace", s.source == 0),
 		menuItem("From URL", s.source == 1),
 		styleMutedAlt.Render("(URL field when From URL)"),
 	}
@@ -150,11 +150,11 @@ func (d *designA) ViewNP(width, height int, h help.Model, k keyMap) string {
 		rows = append(rows, styleWarn.Render(s.toast))
 		btnY++
 	}
-	btn := button("Create Project", s.fields[s.focus] == fCreate)
+	btn := button("Create Workspace", s.fields[s.focus] == fCreate)
 	rows = append(rows, btn)
 	d.npBtn = rect{x: menuW + 1, y: 1 + btnY, w: lipgloss.Width(btn), h: 3}
 
-	pane := lipgloss.NewStyle().Width(width-menuW-2).Height(bodyH).MaxHeight(bodyH).PaddingLeft(1).
+	pane := lipgloss.NewStyle().Width(width - menuW - 2).Height(bodyH).MaxHeight(bodyH).PaddingLeft(1).
 		Render(strings.Join(rows, "\n"))
 	menu := lipgloss.NewStyle().Width(menuW).Height(bodyH).MaxHeight(bodyH).Render(strings.Join(menuLines, "\n"))
 	body := lipgloss.JoinHorizontal(lipgloss.Top, menu, pane)
@@ -189,7 +189,7 @@ func (d *designA) fieldRow(id int) string {
 		alt := alternatives(id, cur)
 		line += styleCurrentVal.Render("● " + cur)
 		if alt != "" {
-			line += "  " + styleMutedAlt.Render("○ " + alt)
+			line += "  " + styleMutedAlt.Render("○ "+alt)
 		}
 		if focused {
 			return styleSelectedRow.Render(line)
@@ -357,7 +357,7 @@ func (d *designA) ViewCT(width, height int, h help.Model, k keyMap) string {
 		rows = append(rows, btn)
 		d.stopBtn = rect{x: menuW + 1, y: 1 + len(rows) - 1, w: lipgloss.Width(btn), h: 3}
 	}
-	pane := lipgloss.NewStyle().Width(width-menuW-2).Height(bodyH).MaxHeight(bodyH).PaddingLeft(1).
+	pane := lipgloss.NewStyle().Width(width - menuW - 2).Height(bodyH).MaxHeight(bodyH).PaddingLeft(1).
 		Render(strings.Join(rows, "\n"))
 	menu := lipgloss.NewStyle().Width(menuW).Height(bodyH).MaxHeight(bodyH).Render(strings.Join(menuLines, "\n"))
 	body := lipgloss.JoinHorizontal(lipgloss.Top, menu, pane)

@@ -25,7 +25,7 @@ func checkConfigCompat(home, root string) Item {
 	proj := filepath.Join(bh, "ws", "prj")
 	fixtures := map[string]string{
 		".config/oc-sandbox/global_config.json":       "global_config.json",
-		".config/oc-sandbox/projects.json":            "projects.json",
+		".config/oc-sandbox/workspaces.json":          "workspaces.json",
 		"ws/prj/.opencode_config/sandbox_config.json": "sandbox_config.json",
 		"ws/prj/.git_local/gh-cli/hosts.yml":          "hosts.yml",
 		"ws/prj/.git_local/credentials":               "credentials",
@@ -59,7 +59,7 @@ func checkConfigCompat(home, root string) Item {
 	gc, err := config.ReadGlobalConfig(bh)
 	if err != nil {
 		p.reasonf("ReadGlobalConfig: %v", err)
-	} else if gc.DefaultProjectPath != bh || gc.Version != "1.0" {
+	} else if gc.DefaultWorkspacePath != bh || gc.Version != "2.0" {
 		p.reasonf("global_config read mismatch: %+v", gc)
 	}
 	reg := &registry.Registry{Home: bh}
@@ -67,7 +67,7 @@ func checkConfigCompat(home, root string) Item {
 	if err != nil {
 		p.reasonf("registry read: %v", err)
 	} else if len(projs) != 1 {
-		p.reasonf("registry read: got %d projects, want 1", len(projs))
+		p.reasonf("registry read: got %d workspaces, want 1", len(projs))
 	} else {
 		got := projs[0]
 		if got.Name != "my-project" || got.Path != registry.CanonicalPath(proj) ||
@@ -84,7 +84,7 @@ func checkConfigCompat(home, root string) Item {
 	cfg, err := sandboxcfg.Read(sandboxcfg.Path(proj))
 	if err != nil {
 		p.reasonf("sandbox_config read: %v", err)
-	} else if cfg.ContainerEdition != "swdev" || !reflect.DeepEqual(cfg.ContainerModes, []string{"offline", "hil_mode"}) || cfg.StartOption != "console" || cfg.AIProvider != "gwdg-saia" || cfg.ProjectSource != "empty" || cfg.Version != "1.0" {
+	} else if cfg.ContainerEdition != "swdev" || !reflect.DeepEqual(cfg.ContainerModes, []string{"offline", "hil_mode"}) || cfg.StartOption != "console" || cfg.AIProvider != "gwdg-saia" || cfg.WorkspaceSource != "empty" || cfg.Version != "2.0" {
 		p.reasonf("sandbox_config read mismatch: got %+v", cfg)
 	}
 	after, err := snapshot(bh)
@@ -105,13 +105,13 @@ func checkConfigCompat(home, root string) Item {
 		p.reasonf("CreateGlobalConfig: %v", err)
 	}
 	greg := &registry.Registry{Home: goHome}
-	if err := greg.CreateProjectsFile(); err != nil {
-		p.reasonf("CreateProjectsFile: %v", err)
+	if err := greg.CreateWorkspacesFile(); err != nil {
+		p.reasonf("CreateWorkspacesFile: %v", err)
 	}
-	if err := greg.AddProject(registry.AddRequest{
+	if err := greg.AddWorkspace(registry.AddRequest{
 		Name: "go-proj", Path: gproj, GitTracking: "gitlab.com", RepoURL: "https://gitlab.com/u/g",
 	}); err != nil {
-		p.reasonf("AddProject: %v", err)
+		p.reasonf("AddWorkspace: %v", err)
 	}
 	if err := greg.UpdateStatus(gproj, "running"); err != nil {
 		p.reasonf("UpdateStatus: %v", err)
@@ -127,10 +127,10 @@ func checkConfigCompat(home, root string) Item {
 	if err != nil {
 		p.reasonf("registry round-trip read: %v", err)
 	} else if len(gprojs) != 1 {
-		p.reasonf("registry round-trip: got %d projects, want 1", len(gprojs))
+		p.reasonf("registry round-trip: got %d workspaces, want 1", len(gprojs))
 	} else {
 		got := gprojs[0]
-		want := registry.Project{
+		want := registry.Workspace{
 			Name:            "go-proj",
 			Path:            registry.CanonicalPath(gproj),
 			ContainerID:     registry.ContainerIdentity(gproj),
@@ -152,11 +152,11 @@ func checkConfigCompat(home, root string) Item {
 	return p.finish()
 }
 
-// A4 — new-project write shapes (issue #73 A4): sandbox_config.json bytes
-// match the bash-era fixture shape, projects.json append shape, no web
+// A4 — new-workspace write shapes (issue #73 A4): sandbox_config.json bytes
+// match the bash-era fixture shape, workspaces.json append shape, no web
 // port anywhere.
 func checkNewProjectWrites(home, root string) Item {
-	p := newPhase("A4", "New-project writes: sandbox_config.json key set, projects.json append shape, no web port stored")
+	p := newPhase("A4", "New-workspace writes: sandbox_config.json key set, workspaces.json append shape, no web port stored")
 	sub := filepath.Join(home, "A4")
 	goproj := filepath.Join(sub, "g")
 	gproj := filepath.Join(goproj, "ws", "prj")
@@ -185,11 +185,11 @@ func checkNewProjectWrites(home, root string) Item {
 	}
 
 	greg := &registry.Registry{Home: goproj}
-	if err := greg.CreateProjectsFile(); err != nil {
-		p.reasonf("Go CreateProjectsFile: %v", err)
+	if err := greg.CreateWorkspacesFile(); err != nil {
+		p.reasonf("Go CreateWorkspacesFile: %v", err)
 	}
-	if err := greg.AddProject(registry.AddRequest{Name: "my-project", Path: gproj, GitTracking: "github.com"}); err != nil {
-		p.reasonf("Go AddProject: %v", err)
+	if err := greg.AddWorkspace(registry.AddRequest{Name: "my-project", Path: gproj, GitTracking: "github.com"}); err != nil {
+		p.reasonf("Go AddWorkspace: %v", err)
 	}
 	gprojs, err := greg.AllOrdered()
 	if err != nil {
@@ -197,7 +197,7 @@ func checkNewProjectWrites(home, root string) Item {
 	} else {
 		got := gprojs[0]
 		got.LastUsed = ""
-		want := registry.Project{
+		want := registry.Workspace{
 			Name:            "my-project",
 			Path:            registry.CanonicalPath(gproj),
 			ContainerID:     registry.ContainerIdentity(gproj),
@@ -205,7 +205,7 @@ func checkNewProjectWrites(home, root string) Item {
 			GitTracking:     "github.com",
 		}
 		if got != want {
-			p.reasonf("projects.json append shape mismatch: got %+v want %+v", got, want)
+			p.reasonf("workspaces.json append shape mismatch: got %+v want %+v", got, want)
 		}
 	}
 	for _, f := range []string{sandboxcfg.Path(gproj), registryPath(goproj)} {
@@ -217,5 +217,5 @@ func checkNewProjectWrites(home, root string) Item {
 }
 
 func registryPath(home string) string {
-	return config.Paths{Home: home}.ProjectsPath()
+	return config.Paths{Home: home}.WorkspacesPath()
 }

@@ -7,7 +7,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/shredingerlabs/oc-sandbox/internal/newproject"
+	"github.com/shredingerlabs/oc-sandbox/internal/newworkspace"
 	"github.com/shredingerlabs/oc-sandbox/internal/registry"
 	"github.com/shredingerlabs/oc-sandbox/internal/shell"
 )
@@ -52,7 +52,7 @@ func (e stageErr) Error() string { return e.msg }
 // View is the first-run setup center view: an embedded log pane streams
 // stage output while the state machine walks the pipeline; failures show
 // the ADR 0011 retry menu. It implements shell.CenterView plus
-// shell.Hook so the post-create handoff (newproject.CreatedMsg) and the
+// shell.Hook so the post-create handoff (newworkspace.CreatedMsg) and the
 // recovery handoff (shell.RecoverMsg) route here even while another view
 // is active. The view stays unbound until such a handoff arrives.
 type View struct {
@@ -95,7 +95,7 @@ func NewView(deps ViewDeps) *View {
 func (v *View) HookMsg(msg tea.Msg) (bool, tea.Cmd) {
 	var root string
 	switch m := msg.(type) {
-	case newproject.CreatedMsg:
+	case newworkspace.CreatedMsg:
 		root = m.Path
 	case shell.RecoverMsg:
 		root = m.Path
@@ -112,7 +112,7 @@ func terminalPhase(p Phase) bool {
 	return p == PhaseDone || p == PhaseAborted
 }
 
-// begin builds the machine and the per-project stage runner, then starts
+// begin builds the machine and the per-workspace stage runner, then starts
 // the first pending stage.
 func (v *View) begin(root string) tea.Cmd {
 	st := v.deps.StagerFor(root)

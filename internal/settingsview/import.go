@@ -17,52 +17,52 @@ import (
 	"github.com/shredingerlabs/oc-sandbox/internal/shell"
 )
 
-// newProjectViewIndex is the header-menu index of the New Project wizard
+// newProjectViewIndex is the header-menu index of the New Workspace wizard
 // (shell.MenuItems order) — the import prompt refers into it (ADR 0017).
 const newProjectViewIndex = 1
 
-// importDirs are the sandbox directories a NEW project gets from
-// init-project.sh. They are not required for import: start.sh
+// importDirs are the sandbox directories a NEW workspace gets from
+// init-workspace.sh. They are not required for import: start.sh
 // re-creates missing ones at every container start (mkdir -p), so
 // older or partially-cleaned roots stay importable.
-var importDirs = []string{"project", ".opencode_config", ".opencode_data", ".ssh_local", ".git_local", ".cbm_cache"}
+var importDirs = []string{"workspace", ".opencode_config", ".opencode_data", ".ssh_local", ".git_local", ".cbm_cache"}
 
 // selectFolderRow is the chooser's action row label: the required step
 // that copies the browsed folder into the path entry before Import.
 const selectFolderRow = "Select this folder"
 
 // matchesStructure is the import structure check: a sandbox_config.json
-// file and a project/.git worktree (ADR 0017, relaxed — the infra
+// file and a workspace/.git worktree (ADR 0017, relaxed — the infra
 // directories are self-healing at container start; v1 checks .git
 // existence only).
 func matchesStructure(root string) bool {
 	if fi, err := os.Stat(sandboxcfg.Path(root)); err != nil || fi.IsDir() {
 		return false
 	}
-	_, err := os.Stat(filepath.Join(root, "project", ".git"))
+	_, err := os.Stat(filepath.Join(root, "workspace", ".git"))
 	return err == nil
 }
 
 var importSlugRe = regexp.MustCompile(`[^a-zA-Z0-9_-]`)
 
-// deriveImportName prefills the project name from the folder basename
+// deriveImportName prefills the workspace name from the folder basename
 // (spaces become underscores, invalid characters drop, fallback
-// "imported_project" — bash derive_import_project_name).
+// "imported_workspace" — bash derive_import_project_name).
 func deriveImportName(base string) string {
 	slug := importSlugRe.ReplaceAllString(strings.ReplaceAll(base, " ", "_"), "")
 	if slug == "" {
-		return "imported_project"
+		return "imported_workspace"
 	}
 	return slug
 }
 
 // importInit seeds the folder chooser: start at the configured default
-// project path when it exists on disk, else $HOME (ADR 0017).
+// workspace path when it exists on disk, else $HOME (ADR 0017).
 func (v *View) importInit() {
 	dir := v.home
-	if gc, err := config.ReadGlobalConfig(v.home); err == nil && gc.DefaultProjectPath != "" {
-		if fi, err := os.Stat(gc.DefaultProjectPath); err == nil && fi.IsDir() {
-			dir = gc.DefaultProjectPath
+	if gc, err := config.ReadGlobalConfig(v.home); err == nil && gc.DefaultWorkspacePath != "" {
+		if fi, err := os.Stat(gc.DefaultWorkspacePath); err == nil && fi.IsDir() {
+			dir = gc.DefaultWorkspacePath
 		}
 	}
 	v.impDir = registry.CanonicalPath(dir)
@@ -103,10 +103,10 @@ func (v *View) importPane() ([]string, []hitRow, int) {
 	var hits []hitRow
 	focusRow := 4
 	rows := []string{
-		muted("Registers an existing sandbox project root"),
+		muted("Registers an existing sandbox workspace root"),
 		muted("(strict structure check, nothing is moved)."),
 		"",
-		focusLabel("Project folder path"),
+		focusLabel("Workspace folder path"),
 	}
 	rows = appendInput(rows, textField(&field{&v.impPath, &v.impCur}, v.impFocus == 0))
 	pathRow := inputRow(rows)
@@ -129,7 +129,7 @@ func (v *View) importPane() ([]string, []hitRow, int) {
 		hits = append(hits, hitRow{row: len(rows) - 1, x: cardX, w: plainWidth(label) + 8,
 			act: v.impChooserAct(j)})
 	}
-	rows, h := buttonBlock(rows, "Import Project", v.impFocus == importBtn, v.doImport)
+	rows, h := buttonBlock(rows, "Import Workspace", v.impFocus == importBtn, v.doImport)
 	if v.impFocus == importBtn {
 		focusRow = h.row
 	}
@@ -175,7 +175,7 @@ func (v *View) importSummaryPane() ([]string, []hitRow, int) {
 	rows := []string{
 		focusLabel("Import summary"),
 		"",
-		focusLabel("Project name"),
+		focusLabel("Workspace name"),
 	}
 	focusRow := len(rows)
 	rows = appendInput(rows, textField(&field{&v.impName, &v.impNameCur}, v.impFocus == 0))
@@ -190,7 +190,7 @@ func (v *View) importSummaryPane() ([]string, []hitRow, int) {
 		kv("Edition", v.impCfg.ContainerEdition),
 		kv("Modes", truncJoin(v.impCfg.ContainerModes)),
 		kv("Start option", v.impCfg.StartOption),
-		kv("Status", "stopped (starts on demand via Open Project)"),
+		kv("Status", "stopped (starts on demand via Open Workspace)"),
 	)
 	rows, register, back := buttonPair(rows, "Register", v.impFocus == 1, v.doRegister,
 		"Back", v.impFocus == 2, v.importBack)
@@ -203,7 +203,7 @@ func (v *View) importSummaryPane() ([]string, []hitRow, int) {
 }
 
 // importPromptPane renders the non-matching/broken-config informational
-// prompt: refer, don't migrate — the New Project wizard is one action
+// prompt: refer, don't migrate — the New Workspace wizard is one action
 // row away (ADR 0017).
 func (v *View) importPromptPane() ([]string, []hitRow, int) {
 	var rows []string
@@ -220,17 +220,17 @@ func (v *View) importPromptPane() ([]string, []hitRow, int) {
 			focusLabel("Import isn't possible here"),
 			"",
 			muted("This folder does not match the opencode-sandbox"),
-			muted("project structure: a sandbox_config.json in"),
-			muted(".opencode_config/ and a project/ git worktree."),
+			muted("workspace structure: a sandbox_config.json in"),
+			muted(".opencode_config/ and a workspace/ git worktree."),
 			"",
-			muted("Use the New Project workflow instead and clone"),
+			muted("Use the New Workspace workflow instead and clone"),
 			muted("the repo there via URL (in-container clone)."),
 			"",
 		)
 	}
 	focusRow := 0
 	if !v.impBrokenCfg {
-		rows, wizard, back := buttonPair(rows, "Open New Project wizard", v.impFocus == 0, v.newProjectWizard,
+		rows, wizard, back := buttonPair(rows, "Open New Workspace wizard", v.impFocus == 0, v.newProjectWizard,
 			"Back", v.impFocus == 1, v.importBack)
 		if v.impFocus == 0 {
 			focusRow = wizard.row
@@ -249,7 +249,7 @@ func (v *View) importBack() tea.Cmd {
 }
 
 // newProjectWizard emits the navigation request the shell root acts on:
-// jump into the New Project wizard.
+// jump into the New Workspace wizard.
 func (v *View) newProjectWizard() tea.Cmd {
 	return func() tea.Msg { return shell.NavRequestMsg{Index: newProjectViewIndex} }
 }
@@ -299,7 +299,7 @@ func (v *View) doImport() tea.Cmd {
 	// (ADR 0017: a registered path gets the info guard, never the
 	// referrer prompt — even when its folder is incomplete).
 	if _, err := v.registryView().ByPath(root); err == nil {
-		v.toast = "Already registered — this path is a registered project."
+		v.toast = "Already registered — this path is a registered workspace."
 		return nil
 	}
 	cfgPath := sandboxcfg.Path(root)
@@ -325,10 +325,10 @@ func (v *View) doImport() tea.Cmd {
 	return nil
 }
 
-// doRegister performs the registry-only change: the project is added as
+// doRegister performs the registry-only change: the workspace is added as
 // stopped; no folder content is touched.
 func (v *View) doRegister() tea.Cmd {
-	err := v.registryView().AddProject(registry.AddRequest{
+	err := v.registryView().AddWorkspace(registry.AddRequest{
 		Name:        v.impName,
 		Path:        v.impRoot,
 		GitTracking: v.impCfg.VCSTracking,
@@ -346,13 +346,13 @@ func (v *View) doRegister() tea.Cmd {
 func importErrMsg(err error) string {
 	switch {
 	case errors.Is(err, registry.ErrNameExists):
-		return "Duplicate project name — choose a unique display name."
+		return "Duplicate workspace name — choose a unique display name."
 	case errors.Is(err, registry.ErrPathExists):
-		return "Already registered — this path is a registered project."
+		return "Already registered — this path is a registered workspace."
 	case errors.Is(err, registry.ErrBadName):
-		return "Invalid project name (letters, digits, _, -)."
+		return "Invalid workspace name (letters, digits, _, -)."
 	case errors.Is(err, registry.ErrNotFound):
-		return "projects.json not found — run first-run setup first."
+		return "workspaces.json not found — run first-run setup first."
 	default:
 		return fmt.Sprintf("Import failed: %v", err)
 	}

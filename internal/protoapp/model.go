@@ -1,18 +1,18 @@
 // Package protoapp is a THROWAWAY prototype (issue #70, wayfinder map #56).
-// It answers: what should the New Project + Container center-views look like?
+// It answers: what should the New Workspace + Container center-views look like?
 // Do not promote to production without a rewrite (see prototype skill).
 //
-// Three structurally different designs of the New Project + Container center-views,
+// Three structurally different designs of the New Workspace + Container center-views,
 // switchable with the V key (tab/arrow cycles in the floating switcher row).
-// Open Project stays the #69 winner; the reaction target is layout + interaction feel.
+// Open Workspace stays the #69 winner; the reaction target is layout + interaction feel.
 package protoapp
 
 import "time"
 
-// Project mirrors the fields the real TUI will read from projects.json +
+// Workspace mirrors the fields the real TUI will read from workspaces.json +
 // sandbox_config.json (see docs/research/tui-data-map.md on branch
 // research/tui-data-map). Fake data only.
-type Project struct {
+type Workspace struct {
 	Name          string
 	Path          string
 	Status        string // "running" | "stopped"
@@ -26,8 +26,8 @@ type Project struct {
 	LastUsed      time.Time
 }
 
-func fakeProjects() []Project {
-	return []Project{
+func fakeProjects() []Workspace {
+	return []Workspace{
 		{
 			Name: "swdev-core", Path: "/home/dev/oc-sandbox/swdev-core",
 			Status: "running", Edition: "swdev", Modes: []string{"offline", "hil_mode"},

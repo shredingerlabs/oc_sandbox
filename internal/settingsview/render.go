@@ -46,7 +46,7 @@ func chooserActionRow(label string, selected bool) string {
 	if selected {
 		mark = " ▶ "
 	}
-	return mark + shell.StyleFieldLabel.Foreground(shell.ColAccent).Render("→ " + label)
+	return mark + shell.StyleFieldLabel.Foreground(shell.ColAccent).Render("→ "+label)
 }
 
 // optionRow renders a toggleable option row ([x]/[ ] never rides on color).

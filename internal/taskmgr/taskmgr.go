@@ -2,7 +2,7 @@
 // container operation (build, start, stop, first-run stage,
 // script-delegating config flow) runs as a goroutine-owned tea.Cmd in
 // ONE manager instance shared by the shell and all center views. One op
-// at a time per project (others queue on the op's Key — the container
+// at a time per workspace (others queue on the op's Key — the container
 // identity); navigation stays free; states surface on the reserved
 // status/toast rows via StatusMsg/DoneMsg and the shared streaming log
 // transport via LineEvent (views filter by the op ID and feed
@@ -29,8 +29,8 @@ const (
 )
 
 // Op is the canonical descriptor of one long operation. It reconciles
-// openproject.Op (ID/Title/Run), containerview's func-typed Op, and the
-// newproject.Ops / settingsview.Ops seams — views adapt onto this one
+// openworkspace.Op (ID/Title/Run), containerview's func-typed Op, and the
+// newworkspace.Ops / settingsview.Ops seams — views adapt onto this one
 // shape. Run blocks until the operation finishes, reporting output
 // lines through emit as they appear.
 //
@@ -78,7 +78,7 @@ type LineEvent struct {
 }
 
 // Launcher is the single seam long operations leave the views through
-// (openproject.Launcher's shape, reconciled).
+// (openworkspace.Launcher's shape, reconciled).
 type Launcher interface {
 	Launch(op Op) tea.Cmd
 }
@@ -123,7 +123,7 @@ func (m *Manager) Busy() bool {
 }
 
 // BusyKey reports whether the key has a running or queued op (the
-// still-running indicator on the owning project's cards/checklists).
+// still-running indicator on the owning workspace's cards/checklists).
 func (m *Manager) BusyKey(key string) bool { return len(m.perKey[key]) > 0 }
 
 // RunningTitle returns the title of the key's running op, ok=false when

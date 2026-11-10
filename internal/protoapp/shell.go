@@ -12,17 +12,17 @@ import (
 
 // headerMenuItems holds the spec state after ticket 63; footerReserve is the
 // width Root reserves for the floating variant pill on the footer's last row.
-var headerMenuItems = []string{"Open Project", "New Project", "Container", "Settings", "Exit"}
+var headerMenuItems = []string{"Open Workspace", "New Workspace", "Container", "Settings", "Exit"}
 
 var footerReserve int
 
 type keyMap struct {
-	NextProject   key.Binding
-	PrevProject   key.Binding
-	Start         key.Binding
-	Menu          key.Binding
-	Help          key.Binding
-	Quit          key.Binding
+	NextProject key.Binding
+	PrevProject key.Binding
+	Start       key.Binding
+	Menu        key.Binding
+	Help        key.Binding
+	Quit        key.Binding
 }
 
 func newKeys() keyMap {
@@ -126,7 +126,7 @@ func shell(width, height int, menuFocus int, body string, h help.Model, k keyMap
 	// Footer: mouse/legend hint on the left (moved here from the header per
 	// user feedback), keyboard help right-aligned just before the variant
 	// pill (root.View reserves its width in footerReserve before rendering).
-	hint := styleFooter.Render("1 open · 2 new project · 3 container · 4 settings · m menu")
+	hint := styleFooter.Render("1 open · 2 new workspace · 3 container · 4 settings · m menu")
 	helpView := h.View(k)
 	avail := width - footerReserve
 	lead := avail - lipgloss.Width(hint) - lipgloss.Width(helpView)

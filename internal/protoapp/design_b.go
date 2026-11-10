@@ -1,5 +1,5 @@
 // Design B ("B flow"): no left menus anywhere — both center-views are
-// single columns. New Project: segmented source control on top, field
+// single columns. New Workspace: segmented source control on top, field
 // rows below, Create button right-aligned at the bottom. Container:
 // segmented Build/Stop control; build = wrapping edition chips; stop =
 // checklist + Stop. THROWAWAY prototype (issue #70).
@@ -122,7 +122,7 @@ const flowW = 64
 func (d *designB) ViewNP(width, height int, h help.Model, k keyMap) string {
 	s := d.np
 	bodyH := height - 2
-	rows := []string{segment("Source", "Blank project", "From URL", s.source), ""}
+	rows := []string{segment("Source", "Blank workspace", "From URL", s.source), ""}
 	for _, id := range s.fields {
 		if id == fCreate {
 			continue
@@ -133,7 +133,7 @@ func (d *designB) ViewNP(width, height int, h help.Model, k keyMap) string {
 	if s.toast != "" {
 		rows = append(rows, styleWarn.Render(s.toast))
 	}
-	btn := button("Create Project", s.fields[s.focus] == fCreate)
+	btn := button("Create Workspace", s.fields[s.focus] == fCreate)
 	// right-align the button within the flow column
 	rows = append(rows, alignRight(flowW-4, btn))
 	d.npBtn = rect{x: flowW - 4 - lipgloss.Width(btn), y: 1 + len(rows) - 1, w: lipgloss.Width(btn), h: 3}
@@ -190,7 +190,7 @@ func (d *designB) fieldRow(id int) string {
 	default:
 		line := label + " " + styleCurrentVal.Render("● "+val)
 		if alt := alternatives(id, val); alt != "" {
-			line += "  " + styleMutedAlt.Render("○ " + alt)
+			line += "  " + styleMutedAlt.Render("○ "+alt)
 		}
 		if focused {
 			return styleSelectedRow.Render(line)

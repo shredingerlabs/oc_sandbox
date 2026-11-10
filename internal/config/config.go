@@ -22,12 +22,12 @@ import (
 // Paths resolves the config layout under a home directory.
 type Paths struct{ Home string }
 
-func (p Paths) Dir() string         { return filepath.Join(p.Home, ".config", "oc-sandbox") }
-func (p Paths) BackupsDir() string  { return filepath.Join(p.Dir(), "backups") }
+func (p Paths) Dir() string        { return filepath.Join(p.Home, ".config", "oc-sandbox") }
+func (p Paths) BackupsDir() string { return filepath.Join(p.Dir(), "backups") }
 func (p Paths) GlobalConfigPath() string {
 	return filepath.Join(p.Dir(), "global_config.json")
 }
-func (p Paths) ProjectsPath() string { return filepath.Join(p.Dir(), "projects.json") }
+func (p Paths) WorkspacesPath() string { return filepath.Join(p.Dir(), "workspaces.json") }
 
 // AtomicWrite writes content to path atomically (same-filesystem temp file
 // + rename). If the target already exists it is backed up under
@@ -240,7 +240,7 @@ var secretPatterns = []string{
 }
 
 // IsGeneralConfigFile reports whether path is whitelisted for backups:
-// global_config.json, projects.json, or anything under */.opencode_config/*.
+// global_config.json, workspaces.json, or anything under */.opencode_config/*.
 func IsGeneralConfigFile(home, path string) bool {
 	p := filepath.Clean(path)
 	for _, pat := range secretPatterns {
@@ -249,7 +249,7 @@ func IsGeneralConfigFile(home, path string) bool {
 		}
 	}
 	p2 := Paths{Home: filepath.Clean(home)}
-	if p == p2.GlobalConfigPath() || p == p2.ProjectsPath() {
+	if p == p2.GlobalConfigPath() || p == p2.WorkspacesPath() {
 		return true
 	}
 	return strings.Contains(p, "/.opencode_config/")
@@ -257,14 +257,14 @@ func IsGeneralConfigFile(home, path string) bool {
 
 // GlobalConfig models global_config.json.
 type GlobalConfig struct {
-	DefaultProjectPath string `json:"default_project_path"`
-	Version            string `json:"version"`
+	DefaultWorkspacePath string `json:"default_workspace_path"`
+	Version              string `json:"version"`
 }
 
 // CreateGlobalConfig writes the initial global_config.json for first-run setup.
 func CreateGlobalConfig(home, projectPath string) error {
 	return AtomicWrite(home, Paths{Home: home}.GlobalConfigPath(),
-		jsonfmt.Marshal(GlobalConfig{DefaultProjectPath: projectPath, Version: "1.0"}))
+		jsonfmt.Marshal(GlobalConfig{DefaultWorkspacePath: projectPath, Version: "2.0"}))
 }
 
 // ReadGlobalConfig reads global_config.json.

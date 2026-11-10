@@ -1,6 +1,6 @@
   ╭────────────────────────────────────────────────────────────────────────╮
   │ This removes the oc-sandbox installation.                              │
-  │ Project roots are never touched.                                       │
+  │ Workspace roots are never touched.                                     │
   │                                                                        │
   │ Running containers:                                                    │
   │  ● opencode-sandbox-alpha — stop it first: podman stop opencode-sandb… │

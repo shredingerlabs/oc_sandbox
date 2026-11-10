@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/charmbracelet/lipgloss"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 func stripANSI(s string) string {
@@ -44,7 +44,7 @@ func TestAllRects(t *testing.T) {
 		}
 	}
 
-	// Open Project
+	// Open Workspace
 	r.view = viewOpen
 	r.View()
 	// shell separators everywhere: row 1 all "─"
@@ -60,13 +60,13 @@ func TestAllRects(t *testing.T) {
 		}
 	}
 
-	// New Project
+	// New Workspace
 	r.view = viewNew
 	r.npct.np.source = 0
 	r.View()
 	dc := r.npct
 	lines := strings.Split(stripANSI(r.View()), "\n")
-	expect("np tab blank", lines, dc.tabsRects[0], "Blank Project")
+	expect("np tab blank", lines, dc.tabsRects[0], "Blank Workspace")
 	expect("np tab url", lines, dc.tabsRects[1], "From URL")
 	// switch to From URL and re-check field rects
 	dc.np.source = 1
@@ -76,7 +76,7 @@ func TestAllRects(t *testing.T) {
 	lines = strings.Split(stripANSI(r.View()), "\n")
 	expect("np url field", lines, rect{x: dc.fieldRects[2].x, y: dc.fieldRects[2].y + 1}, "https://")
 	btnRow := stripANSI(lines[dc.npBtn.y])
-	if !strings.Contains(btnRow, "Create Project") {
+	if !strings.Contains(btnRow, "Create Workspace") {
 		t.Errorf("np create button rect y=%d on %q", dc.npBtn.y, btnRow)
 	}
 
@@ -112,7 +112,7 @@ func TestAllRects(t *testing.T) {
 	// import
 	expect("imp path", lines, s.impRects[0], "/home/dev/work/")
 	midY := s.impRects[1].y
-	if !strings.Contains(stripANSI(lines[midY]), "Import Project") {
+	if !strings.Contains(stripANSI(lines[midY]), "Import Workspace") {
 		t.Errorf("import btn midline y=%d on %q", midY, stripANSI(lines[midY]))
 	}
 	for i, fr := range s.foldRects {

@@ -22,7 +22,7 @@ Act like an AI chat, not a coding agent: converse first, touch files only when n
 ## Project Context
 - Check ./USER_CONTEXT.md and GLOSSARY.md for terminology, names, people, preferences.
 - Check ./README.md for project structure/conventions. Update it if you change structure or conventions.
-- Searching project files: use codebase-memory-mcp (project=home-dev-project). Fall back to Grep/Glob.
+- Searching project files: use codebase-memory-mcp (workspace=home-dev-workspace). Fall back to Grep/Glob.
 - Learned a durable fact about me (preference, decision)? Propose adding to USER_CONTEXT.md. Don't write without asking.
 - Learned a new terminology about the project? Use domain-modeling.
 - Create a subfolder for every new session and work only inside it. Touch other subfolders only when I explicitly reference them.
@@ -47,5 +47,5 @@ Never overwrite originals blindly: keep user-provided files intact, work on copy
 
 ## Environment
 Rootless Podman container.
-Only persistent directory: /home/dev/project.
+Only persistent directory: /home/dev/workspace.
 Anything outside is lost on restart. Save deliverables inside it.

@@ -51,25 +51,25 @@ func TestBuildOpLeavesHomeConfigTreeUntouched(t *testing.T) {
 		return "STEP 1/2\n", nil
 	}
 
-	projectsFile := filepath.Join(home, ".config", "oc-sandbox", "projects.json")
+	workspacesFile := filepath.Join(home, ".config", "oc-sandbox", "workspaces.json")
 	globalFile := filepath.Join(home, ".config", "oc-sandbox", "global_config.json")
-	if err := os.MkdirAll(filepath.Dir(projectsFile), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(workspacesFile), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := reg.CreateProjectsFile(); err != nil {
+	if err := reg.CreateWorkspacesFile(); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(globalFile, []byte(`{"default_project_path":""}`), 0o644); err != nil {
+	if err := os.WriteFile(globalFile, []byte(`{"default_workspace_path":""}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	root := filepath.Join(home, "projects", "demo")
+	root := filepath.Join(home, "workspaces", "demo")
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if err := sandboxcfg.Create(home, sandboxcfg.Path(root), "base", []string{"skills"}, "console", "gwdg-saia", sandboxcfg.SearchWebsearch); err != nil {
 		t.Fatal(err)
 	}
-	if err := reg.AddProject(registry.AddRequest{Name: "demo", Path: root, GitTracking: "none"}); err != nil {
+	if err := reg.AddWorkspace(registry.AddRequest{Name: "demo", Path: root, GitTracking: "none"}); err != nil {
 		t.Fatal(err)
 	}
 

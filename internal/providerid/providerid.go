@@ -2,16 +2,16 @@
 // display name (spec #100/#102): the id is the slugified name —
 // lowercase, every run of non-[a-z0-9] becomes '-', leading/trailing
 // '-' trimmed — and doubles as the JSON key in auth.json and
-// opencode.json's provider map. Shared by the New Project wizard and
+// opencode.json's provider map. Shared by the New Workspace wizard and
 // the settings pane so both TUIs derive ids identically to
-// configure-project.sh.
+// configure-workspace.sh.
 package providerid
 
 import "strings"
 
 // Slug derives the provider id from the display name: lowercase, every
 // run of characters outside [a-z0-9] becomes a single '-', leading and
-// trailing '-' trimmed (configure-project.sh slugify_provider_id parity).
+// trailing '-' trimmed (configure-workspace.sh slugify_provider_id parity).
 func Slug(name string) string {
 	lower := strings.ToLower(name)
 	var b strings.Builder

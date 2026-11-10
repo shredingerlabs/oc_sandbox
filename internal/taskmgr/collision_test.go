@@ -20,7 +20,7 @@ func TestCrossViewIDCollisionDoesNotWedgeKeys(t *testing.T) {
 	viewAran := make(chan struct{}, 1)
 	viewBran := make(chan struct{}, 1)
 
-	// View A (e.g. openproject build): long op, caller ID 1.
+	// View A (e.g. openworkspace build): long op, caller ID 1.
 	cmdA := m.Launch(Op{
 		ID: 1, Key: "container-x", Title: "A build",
 		Run: func(emit func(string)) error { <-release; return nil },
@@ -28,9 +28,9 @@ func TestCrossViewIDCollisionDoesNotWedgeKeys(t *testing.T) {
 	// Give A's goroutine time to reach its blocking point.
 	time.Sleep(50 * time.Millisecond)
 
-	// View B (e.g. newproject create): ALSO caller ID 1, own key.
+	// View B (e.g. newworkspace create): ALSO caller ID 1, own key.
 	cmdB := m.Launch(Op{
-		ID: 1, Key: "newproject", Title: "B init",
+		ID: 1, Key: "newworkspace", Title: "B init",
 		Run: func(emit func(string)) error { viewBran <- struct{}{}; return nil },
 	})
 	msgsB := drainAll(t, m, cmdB)
@@ -59,13 +59,13 @@ func TestCrossViewIDCollisionDoesNotWedgeKeys(t *testing.T) {
 	if m.Busy() {
 		t.Fatal("manager wedged busy after both ops completed (cross-view ID collision)")
 	}
-	if m.BusyKey("container-x") || m.BusyKey("newproject") {
+	if m.BusyKey("container-x") || m.BusyKey("newworkspace") {
 		t.Fatal("key bucket still busy after its op completed")
 	}
 
 	// A follow-up op on each key must start immediately (not queue).
 	var _ = viewBran
-	late := m.Launch(Op{ID: 1, Key: "newproject", Run: func(emit func(string)) error { return nil }})
+	late := m.Launch(Op{ID: 1, Key: "newworkspace", Run: func(emit func(string)) error { return nil }})
 	msgs := drainAll(t, m, late)
 	if !containsDone(msgs, 1) {
 		t.Fatalf("follow-up op on the freed key did not run: %+v", msgs)

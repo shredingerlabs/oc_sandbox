@@ -68,7 +68,7 @@ func TestDesignCMouse(t *testing.T) {
 	root.view = viewNew
 	root.View()
 	// click the "From URL" sub-menu tab (body row 0 -> screen y=2)
-	root.Update(tea.MouseMsg{X: 28, Y: 2, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft})
+	root.Update(tea.MouseMsg{X: 31, Y: 2, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft})
 	if d := root.npct; d.np.source != 1 {
 		t.Fatalf("C source=%d", d.np.source)
 	}

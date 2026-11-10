@@ -562,7 +562,7 @@ test_update_replaces_running_binary() {
   local fixture="$test_dir/fixture"
   mkdir -p "$fixture/scripts" "$fixture/bin"
   local f
-  for f in start build-container init-project configure-project uninstall; do
+  for f in start build-container init-workspace configure-workspace uninstall; do
     printf '#!/usr/bin/env bash\necho stub\n' > "$fixture/scripts/$f.sh"
   done
   printf 'FROM scratch\n' > "$fixture/Dockerfile"

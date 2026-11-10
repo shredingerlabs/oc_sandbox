@@ -17,7 +17,7 @@ func stageFixture(t *testing.T) (*PipelineStager, *cmdrun.Fake, string) {
 	p := &PipelineStager{
 		Home: home, Root: root, Reg: reg, Runner: fake,
 		StartScript:     "dist/scripts/start.sh",
-		ConfigureScript: "dist/scripts/configure-project.sh",
+		ConfigureScript: "dist/scripts/configure-workspace.sh",
 	}
 	return p, fake, root
 }
@@ -38,7 +38,7 @@ func TestNewStagerForUsesConfiguredScriptPaths(t *testing.T) {
 	home, root, reg, _ := fixture(t, "cloned")
 	fake := &cmdrun.Fake{}
 	podmanStates(fake)
-	p := NewStagerFor(fake, home, reg, "/opt/oc/start.sh", "/opt/oc/configure-project.sh")(root)
+	p := NewStagerFor(fake, home, reg, "/opt/oc/start.sh", "/opt/oc/configure-workspace.sh")(root)
 
 	var emitted []string
 	if err := p.Run(StageStart, func(l string) { emitted = append(emitted, l) }); err != nil {
@@ -169,7 +169,7 @@ func TestCloneStageProbeFailureFallsThroughToClone(t *testing.T) {
 		case name == "podman" && strings.Contains(joined, "remote.origin.url"):
 			return "fatal: unable to access", errDenied{}
 		case name == "podman" && strings.Contains(joined, "git clone"):
-			return "Cloning into '/home/dev/project'...", nil
+			return "Cloning into '/home/dev/workspace'...", nil
 		}
 		return "", nil
 	}
