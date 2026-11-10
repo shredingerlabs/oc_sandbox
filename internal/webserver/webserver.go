@@ -34,6 +34,7 @@ var tokenRe = regexp.MustCompile(`/t/[0-9a-f]{32}/`)
 type Options struct {
 	BasePort int    // first port tried; 0 means "pick a free port" (tests)
 	Version  string // reported nowhere until a screen needs it
+	Deps     *Deps  // container/image screens (#158); nil = shell-only skeleton
 }
 
 // Server is one WebUI instance: a loopback listener with a per-launch
@@ -41,8 +42,10 @@ type Options struct {
 // on quit — the token dies with the process.
 type Server struct {
 	opts    Options
+	deps    *Deps
 	token   string // hex, ≥128 bit of CSPRNG entropy
 	hub     *Hub
+	queue   *opQueue // web-side op queue (#158) — nil without Deps
 	srv     *http.Server
 	ln      net.Listener
 	url     string
@@ -54,8 +57,12 @@ type Server struct {
 func New(opts Options) *Server {
 	s := &Server{
 		opts:  opts,
+		deps:  opts.Deps,
 		token: newToken(),
 		hub:   newHub(),
+	}
+	if opts.Deps != nil {
+		s.queue = newOpQueue(s.hub)
 	}
 	s.errSink = &redactingLog{next: &s.errLog}
 	return s
@@ -121,6 +128,9 @@ func (s *Server) Start() error {
 		http.FileServerFS(assetsFS).ServeHTTP(w, r)
 	}))
 	inner.HandleFunc("GET /events", s.hub.serveEvents)
+	if s.deps != nil {
+		s.wireRoutes(inner) // container/image screens (#158)
+	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", s.handleHealthz)
 	mux.Handle("/", s.auth(inner))
