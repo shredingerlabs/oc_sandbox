@@ -68,6 +68,14 @@ func (h *Hub) PublishWorkspace() uint64 {
 	return h.publish("workspace", "{}")
 }
 
+// PublishWorkspaceOp reports one workspace op's terminal state (the
+// create chain, #156): open tabs re-render and the log pane's form
+// un-inerts on failure / resets on success. Additive payload on the
+// workspace class — plain "{}" consumers keep working.
+func (h *Hub) PublishWorkspaceOp(opID int, state string) uint64 {
+	return h.publish("workspace", fmt.Sprintf(`{"op":%d,"state":%s}`, opID, mustJSON(state)))
+}
+
 // PublishUpdate pushes one §12 update phase (up-to-date / available /
 // installing / applied / failed) for the footer banner and Update card.
 func (h *Hub) PublishUpdate(phase string) uint64 {

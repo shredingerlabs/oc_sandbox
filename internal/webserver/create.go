@@ -18,6 +18,8 @@
 package webserver
 
 import (
+	"errors"
+	"fmt"
 	"html/template"
 	"net/http"
 	"net/url"
@@ -30,6 +32,7 @@ import (
 	"github.com/shredingerlabs/oc-sandbox/internal/discovery"
 	"github.com/shredingerlabs/oc-sandbox/internal/providerid"
 	"github.com/shredingerlabs/oc-sandbox/internal/registry"
+	"github.com/shredingerlabs/oc-sandbox/internal/sandboxcfg"
 )
 
 // nameRe validates the workspace name exactly like the registry
@@ -46,11 +49,11 @@ var wizardTemplate = template.Must(template.New("wizard").Parse(`
 <section class="wizard" id="new-workspace" data-screen="ws-new">
   <h2>New Workspace</h2>
   {{if .Error}}<p class="form-error" role="alert">{{.Error}}</p>{{end}}
-  {{if .LogLines}}
+  {{if or .LogLines (gt .OpID 0)}}
   <div class="logpane" data-role="create-log" data-op-id="{{.OpID}}">{{range .LogLines}}<div class="logline">{{.}}</div>{{end}}</div>
   {{end}}
   <form data-role="new-workspace-form" hx-post="{{.P}}workspaces" hx-target="#new-workspace" hx-swap="outerHTML">
-    <fieldset class="rows" data-role="wizard-fields">
+    <fieldset class="rows" data-role="wizard-fields"{{if .Inert}} disabled{{end}}>
 
     <div class="row" data-row="source">
       <span class="label">Source</span>
@@ -358,11 +361,32 @@ func (s *Server) handleWorkspacesPOST(w http.ResponseWriter, r *http.Request) {
 		s.renderConfirm(w, r, f)
 		return
 	}
-	// confirm=1: the chain launches (next slice)
+	// confirm=1: refuse while a chain for this workspace is queued or
+	// running (one-at-a-time per workspace, parallel across workspaces),
+	// then launch the ONE create-chain task.
 	if msg := s.validateWizard(r, f); msg != "" {
 		f.Error = msg
+		s.renderWizard(w, f)
+		return
 	}
+	opID, busy := s.createBegin(f.Name)
+	if busy {
+		f.Error = "A create chain for this workspace is already queued or running — wait for it to finish."
+		s.renderWizard(w, f)
+		return
+	}
+	chain := s.newCreateChain(r, f)
+	if chain.err != "" {
+		s.createBusyEnd(f.Name) // the launch is abandoned before any script runs
+		f.Error = chain.err
+		s.renderWizard(w, f)
+		return
+	}
+	chain.opID = opID
+	f.OpID = opID
+	f.Inert = true // the form stays visible but inert while the chain runs
 	s.renderWizard(w, f)
+	go chain.run(s)
 }
 
 // trackerLabel maps a tracker kind onto the stored vcs_tracking value —
@@ -597,4 +621,332 @@ func pathSlug(name string) string {
 		}
 	}
 	return string(b)
+}
+
+// --- the create chain (ONE task: image build → init → configure) ------------
+
+// createBegin reserves the workspace's chain slot and assigns the op ID
+// for the SSE line events. The reservation is the conflict semantics:
+// while a chain is queued or running for the name, confirms refuse;
+// chains for other names run in parallel.
+func (s *Server) createBegin(name string) (int, bool) {
+	s.createMu.Lock()
+	defer s.createMu.Unlock()
+	if s.createBusy[name] {
+		return 0, true
+	}
+	s.createSeq++
+	s.createBusy[name] = true
+	return s.createSeq, false
+}
+
+func (s *Server) createBusyEnd(name string) {
+	s.createMu.Lock()
+	defer s.createMu.Unlock()
+	delete(s.createBusy, name)
+}
+
+// createChain is the captured payload of one confirmed create — every
+// request-scoped value (tokens included) is read before the chain goes
+// to its own goroutine. err carries a catalog-save refusal (the launch
+// is abandoned before any script runs).
+type createChain struct {
+	err string
+
+	opID int
+	name string
+	root string
+
+	fromRepo bool
+	repoURL  string
+	agent    string // code | chat | pkm
+	edition  string // pkm pinned for the pkm agent
+
+	vcsLabel string // stored vcs_tracking value (none/github.com/…)
+	vcsKind  string // catalog kind slug driving the invocation
+	vcsHost  string
+	vcsToken string
+	gitName  string
+	gitEmail string
+
+	providerName     string
+	providerEndpoint string
+	providerToken    string
+	providerID       string
+
+	modes  []string
+	start  string
+	search string
+	proxy  bool
+	build  bool // Build now decision (the row only drives visibility)
+}
+
+// newCreateChain captures the confirmed payload (fresh image/edition
+// decision re-checked here, like the TUI's create()).
+func (s *Server) newCreateChain(r *http.Request, f wizardForm) *createChain {
+	if f.Agent == "pkm" { // pkm pins the edition (ADR-0027)
+		f.Edition = "pkm"
+	}
+	c := &createChain{
+		name:             f.Name,
+		root:             s.wizardRoot(f.Name),
+		fromRepo:         f.FromRepo,
+		repoURL:          f.RepoURL,
+		agent:            f.Agent,
+		edition:          f.Edition,
+		vcsLabel:         s.wizardVCSTracking(f),
+		vcsHost:          f.VCSHost,
+		vcsToken:         r.PostFormValue("vcs_token"),
+		gitName:          strings.TrimSpace(f.VCSGitName),
+		gitEmail:         strings.TrimSpace(f.VCSGitMail),
+		providerName:     f.ProviderName,
+		providerEndpoint: f.ProviderEndpoint,
+		providerToken:    r.PostFormValue("provider_token"),
+		modes:            wizardModes(f),
+		start:            f.StartOption,
+		search:           f.SearchMode,
+		proxy:            f.Proxy,
+	}
+	c.build = !discovery.ImageExists(s.runner(), c.edition) && !f.BuildLater
+	// resolve catalog entries (picked or the inline "New…" — the entry
+	// saves to the catalog before applying it, §8; an empty catalog
+	// never dead-ends first-run)
+	var tracker catalogs.Tracker
+	var provider catalogs.Provider
+	if f.VCS == "new" {
+		tracker = catalogs.Tracker{Name: f.VCSName, GitName: f.VCSGitName, GitEmail: f.VCSGitMail, Kind: f.VCSKind, Host: f.VCSHost}
+		c.vcsKind = tracker.Kind
+		if err := s.saveCatalogEntry(&tracker, nil); err != "" {
+			c.err = err
+			return c
+		}
+	} else if t, ok := s.wizardTracker(f.VCS); ok {
+		tracker = t
+		c.vcsKind = t.Kind
+		if c.vcsHost == "" {
+			c.vcsHost = t.Host
+		}
+	}
+	c.gitName, c.gitEmail = strings.TrimSpace(tracker.GitName), strings.TrimSpace(tracker.GitEmail)
+	if f.Provider == "new" {
+		provider = catalogs.Provider{Name: f.ProviderName, Endpoint: f.ProviderEndpoint}
+		if err := s.saveCatalogEntry(nil, &provider); err != "" {
+			c.err = err
+			return c
+		}
+	} else if p, ok := s.wizardProvider(f.Provider); ok {
+		provider = p
+	}
+	if provider.Name != "" {
+		c.providerName = provider.Name
+		c.providerEndpoint = provider.Endpoint
+		c.providerID = providerid.Slug(provider.Name)
+	}
+	return c
+}
+
+// saveCatalogEntry persists the inline "New…" entry to the global
+// catalog before applying it (§8); entries stay token-free — the typed
+// tokens ride the chain payload only.
+func (s *Server) saveCatalogEntry(t *catalogs.Tracker, p *catalogs.Provider) string {
+	d := catalogs.Read(s.opts.Home)
+	var err error
+	if t != nil {
+		err = d.AddTracker(*t)
+	} else {
+		err = d.AddProvider(*p)
+	}
+	if err == nil {
+		err = catalogs.WriteFile(s.opts.Home, d)
+	}
+	if err != nil {
+		return err.Error()
+	}
+	return ""
+}
+
+// wizardModes computes container_modes from the Advanced toggles: the
+// §6 presets are recorded regardless of the display mode — proxy off /
+// offline off / CBM-UI off stay absent, HIL on for embedded (the row's
+// checked state posts the preset).
+func wizardModes(f wizardForm) []string {
+	var modes []string
+	add := func(m string) { modes = append(modes, m) }
+	if f.Offline {
+		add("offline")
+	}
+	if f.CBMUI {
+		add("cbm_ui")
+	}
+	if f.HIL {
+		add("hil_mode")
+	}
+	return modes
+}
+
+// run executes the chain: every step streams into the log pane under
+// the form via SSE line events keyed by the op ID; the scripts are
+// invoked exactly as the TUI invokes them — `bash <script> <args>` —
+// through the runner seam (ADR-0007).
+func (c *createChain) run(s *Server) {
+	emit := func(line string) { s.hub.PublishLine(c.opID, line) }
+	emitf := func(format string, a ...any) { emit(fmt.Sprintf(format, a...)) }
+	runScript := func(script string, args ...string) error {
+		out, err := s.runner().Output("bash", append([]string{script}, args...)...)
+		for _, l := range cmdrun.Lines(out) {
+			emit(l)
+		}
+		return err
+	}
+	fail := func(msg string) {
+		emit(msg)
+		s.createBusyEnd(c.name)
+		s.hub.PublishWorkspaceOp(c.opID, "failed")
+	}
+
+	// image build (only when the image is missing and Build now won)
+	if c.build {
+		emitf("==> Building image %s", c.edition)
+		if err := runScript(s.opts.BuildScript, c.edition); err != nil ||
+			!discovery.ImageExists(s.runner(), c.edition) {
+			fail("Build failed — the " + c.edition + " image is still unavailable. Press Create Workspace to retry.")
+			return
+		}
+	}
+
+	// init-workspace.sh BEFORE any state write (registry/config)
+	emitf("==> Creating workspace %s", c.name)
+	initArgs := []string{c.root}
+	if kind := agentKind(c.agent); kind != "" {
+		initArgs = append(initArgs, "--workspace_kind", kind)
+	}
+	if c.fromRepo {
+		initArgs = append(initArgs, "--repo_url", c.repoURL)
+	}
+	if err := runScript(s.opts.InitScript, initArgs...); err != nil {
+		fail("Workspace initialization failed: " + err.Error() + " — no workspace state was registered.")
+		return
+	}
+
+	// sandbox_config.json: the Create payload + the atomic patches
+	cfgPath := sandboxcfg.Path(c.root)
+	providerID := c.providerID
+	if providerID == "" {
+		providerID = "none"
+	}
+	if err := sandboxcfg.Create(s.opts.Home, cfgPath, c.edition, c.modes, c.start, providerID, c.search); err != nil {
+		fail("sandbox_config.json could not be created: " + err.Error())
+		return
+	}
+	if err := c.patchConfig(s.opts.Home, cfgPath); err != nil {
+		fail("sandbox_config.json could not be patched: " + err.Error())
+		return
+	}
+
+	// configure-workspace.sh in credential order (TUI buildCreds parity)
+	if c.vcsKind != "" && strings.TrimSpace(c.vcsToken) != "" {
+		emit("==> Configuring credentials")
+		if err := runScript(s.opts.ConfigureScript, vcsCredArgs(c)...); err != nil {
+			fail("Workspace configuration failed — " + err.Error())
+			return
+		}
+	}
+	if c.vcsKind != "" && c.gitName != "" && c.gitEmail != "" {
+		emit("==> Configuring credentials")
+		if err := runScript(s.opts.ConfigureScript, "git-identity", c.root, "--name", c.gitName, "--email", c.gitEmail); err != nil {
+			fail("Workspace configuration failed — " + err.Error())
+			return
+		}
+	}
+	if c.providerName != "" {
+		emit("==> Configuring credentials")
+		if err := runScript(s.opts.ConfigureScript, "ai-provider", c.root, "--name", c.providerName,
+			"--endpoint", c.providerEndpoint, "--token", c.providerToken); err != nil {
+			fail("Workspace configuration failed — " + err.Error())
+			return
+		}
+		if err := runScript(s.opts.ConfigureScript, "opencode-config", c.root, "--id", c.providerID,
+			"--name", c.providerName, "--endpoint", c.providerEndpoint); err != nil {
+			fail("Workspace configuration failed — " + err.Error())
+			return
+		}
+	}
+
+	// the registry write (missing workspaces.json seeds once)
+	reg := &registry.Registry{Home: s.opts.Home}
+	req := registry.AddRequest{
+		Name: c.name, Path: c.root,
+		GitTracking: c.vcsLabel, RepoURL: c.repoURL,
+	}
+	err := reg.AddWorkspace(req)
+	if errors.Is(err, registry.ErrNotFound) {
+		err = reg.CreateWorkspacesFile()
+		if err == nil {
+			err = reg.AddWorkspace(req)
+		}
+	}
+	if err != nil {
+		fail("Workspace not registered: " + err.Error())
+		return
+	}
+	emit("Workspace created successfully.")
+	s.createBusyEnd(c.name)
+	s.hub.PublishWorkspaceOp(c.opID, "done")
+}
+
+// patchConfig applies the field patches via the atomic paths
+// (newworkspace.patchConfig parity).
+func (c *createChain) patchConfig(home, cfgPath string) error {
+	source := "empty"
+	if c.fromRepo {
+		source = "cloned"
+	}
+	if err := sandboxcfg.PatchString(home, cfgPath, "workspace_source", source); err != nil {
+		return err
+	}
+	if source == "cloned" {
+		if err := sandboxcfg.PatchString(home, cfgPath, "repo_url", c.repoURL); err != nil {
+			return err
+		}
+	}
+	if err := sandboxcfg.PatchString(home, cfgPath, "vcs_tracking", c.vcsLabel); err != nil {
+		return err
+	}
+	if kind := agentKind(c.agent); kind != "" { // kind recorded once, never re-applied
+		if err := sandboxcfg.PatchString(home, cfgPath, "workspace_kind", kind); err != nil {
+			return err
+		}
+	}
+	if c.proxy {
+		return sandboxcfg.PatchBool(home, cfgPath, "use_proxy", true)
+	}
+	return nil
+}
+
+// agentKind maps the agent to the --workspace_kind value ("" for code).
+func agentKind(agent string) string {
+	switch agent {
+	case "chat":
+		return "chat"
+	case "pkm":
+		return "pkm"
+	}
+	return ""
+}
+
+// vcsCredArgs renders the configure-workspace.sh vcs-credentials
+// invocation from the catalog kind (newworkspace.vcsCredStep parity,
+// host-from-entry instead of the free-form row).
+func vcsCredArgs(c *createChain) []string {
+	switch c.vcsKind {
+	case catalogs.KindGitHub:
+		return []string{"vcs-credentials", "github", c.root, "--token", c.vcsToken}
+	case catalogs.KindGitLab:
+		return []string{"vcs-credentials", "gitlab", c.root, "--token", c.vcsToken, "--host", "gitlab.com"}
+	case catalogs.KindGitLabSel:
+		return []string{"vcs-credentials", "gitlab", c.root, "--token", c.vcsToken, "--host", c.vcsHost}
+	case catalogs.KindOther:
+		return []string{"vcs-credentials", "custom", c.root, "--token", c.vcsToken, "--host", c.vcsHost}
+	}
+	return nil
 }

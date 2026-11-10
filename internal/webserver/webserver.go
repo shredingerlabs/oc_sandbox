@@ -23,6 +23,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/shredingerlabs/oc-sandbox/internal/cmdrun"
 )
@@ -62,14 +63,21 @@ type Server struct {
 	url     string
 	errLog  strings.Builder // captured (token-redacted) http.Server error log — test seam
 	errSink *redactingLog   // the http.Server ErrorLog sink — redaction seam
+
+	// create-chain bookkeeping (#156): one chain at a time per workspace
+	// name (confirms refuse while queued/running), parallel across names.
+	createMu   sync.Mutex
+	createBusy map[string]bool
+	createSeq  int
 }
 
 // New creates an unstarted server with a fresh per-launch token.
 func New(opts Options) *Server {
 	s := &Server{
-		opts:  opts,
-		token: newToken(),
-		hub:   newHub(),
+		opts:       opts,
+		token:      newToken(),
+		hub:        newHub(),
+		createBusy: map[string]bool{},
 	}
 	s.errSink = &redactingLog{next: &s.errLog}
 	return s
