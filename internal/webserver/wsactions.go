@@ -37,16 +37,13 @@ type accessView struct {
 	PlainURL string `json:"plain_url"`
 }
 
-// runner is the command seam: options override deps, production runs
-// real commands.
-func (s *Server) runner() cmdrun.Runner {
+// accessRunner is the command seam of the access verbs: the Options
+// runner overrides #156's deps-first resolution (tests inject fakes).
+func (s *Server) accessRunner() cmdrun.Runner {
 	if s.opts.Runner != nil {
 		return s.opts.Runner
 	}
-	if s.deps != nil && s.deps.Run != nil {
-		return s.deps.Run
-	}
-	return cmdrun.ExecRunner{}
+	return s.runner()
 }
 
 // startScript resolves the shipped start.sh path for the home (the TUI
@@ -77,7 +74,7 @@ func (s *Server) handlePairLink(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	run := s.runner()
+	run := s.accessRunner()
 	ctr := registry.ContainerName(ws.ContainerID)
 	port := discovery.WebPort(run, ctr)
 	var v pairLinkView
@@ -123,7 +120,7 @@ func (s *Server) handleAccess(w http.ResponseWriter, r *http.Request) {
 			v.Opened = true
 		}
 	case "web":
-		run := s.runner()
+		run := s.accessRunner()
 		port := discovery.WebPort(run, ctr)
 		if port != "" {
 			v.PlainURL = "http://" + port

@@ -170,6 +170,49 @@ body { background:var(--bg); color:var(--ink);
 .banner.danger { background:var(--danger); }
 .footer .version { margin-left:auto; color:var(--ink2); font-size:12px; }
 
+/* New Workspace wizard (#156, spec §7/§8): one form card, the
+   create-chain log pane under it, and the create-summary confirm. */
+.wizard { max-width:860px; }
+.wizard h2 { margin:0 0 12px; font-size:16px; }
+.rows { border:1px solid var(--hairline); border-radius:10px; padding:6px 14px;
+  margin:0; background:var(--surface); }
+.rows:disabled { opacity:.55; pointer-events:none; }
+.wizard .row input[type=text], .wizard .row input:not([type]),
+.wizard .row input[type=password], .wizard .row select {
+  background:var(--bg); color:var(--ink); border:1px solid var(--hairline);
+  border-radius:8px; padding:6px 10px; font:inherit; font-size:13px;
+  min-width:280px; }
+.wizard .row > input { margin-left:8px; }
+.wizard .row label span { font-size:12px; color:var(--ink2); }
+.wizard .opts { display:inline-flex; gap:14px; }
+.wizard .actions { display:flex; justify-content:flex-end; gap:10px;
+  margin-top:14px; }
+.wizard button { background:var(--accent); color:var(--accent-ink);
+  border:0; border-radius:8px; padding:7px 16px; font-weight:600;
+  font-size:13px; cursor:pointer; }
+.wizard button:hover { filter:brightness(1.1); }
+.create-confirm button { background:var(--accent); color:var(--accent-ink);
+  border:0; border-radius:8px; padding:7px 16px; font-weight:600;
+  font-size:13px; cursor:pointer; }
+.create-confirm button:hover { filter:brightness(1.1); }
+[data-hidden="1"] { display:none; }
+[data-repo-only="1"] { display:none; }
+[data-pkm-pin] { display:none; } /* pkm pins the edition — the row hides */
+
+/* create-chain log line children: the pane itself streams from the
+   shared .logpane styles (#158); lines append as divs here. */
+.logline { white-space:pre-wrap; }
+.logline:first-child { font-weight:700; }
+
+/* create-summary confirm (#156, §9: the TUI confirm set carried 1:1) —
+   swaps into the wizard slot, apart from the shared popup (ADR-0021) */
+.create-confirm { background:var(--surface); border:1px solid var(--hairline);
+  border-radius:12px; padding:18px 20px; max-width:560px; }
+.create-confirm h2 { margin:0 0 10px; font-size:15px; }
+.create-confirm .summary { list-style:none; margin:0 0 14px; padding:0;
+  font-family:ui-monospace,monospace; font-size:12.5px; }
+.create-confirm .summary li { padding:2px 0; }
+
 /* buttons */
 .btn { background:var(--surface); color:var(--ink); border:1px solid var(--hairline);
   border-radius:10px; padding:7px 16px; font:inherit; font-weight:600; cursor:pointer; }

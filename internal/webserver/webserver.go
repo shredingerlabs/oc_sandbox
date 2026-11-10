@@ -140,6 +140,8 @@ func (s *Server) Start() error {
 		http.FileServerFS(assetsFS).ServeHTTP(w, r)
 	}))
 	inner.HandleFunc("GET /events", s.hub.serveEvents)
+	inner.HandleFunc("GET /workspaces/new", s.handleNewWorkspaceGET)
+	inner.HandleFunc("POST /workspaces", s.handleWorkspacesPOST)
 	inner.HandleFunc("GET /update", s.handleUpdateCard)
 	inner.HandleFunc("POST /update/check", s.handleUpdateCheck)
 	inner.HandleFunc("POST /update/run", s.handleUpdateRun)

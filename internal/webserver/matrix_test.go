@@ -29,6 +29,14 @@ var matrixCases = []struct {
 	{"ws-settings", config.DisplayAdvanced,
 		[]string{"edition", "start_option", "proxy", "search_mode", "offline", "cbm_ui", "hil"},
 		nil, false},
+	// New Workspace wizard (#156, §6): Standard hides the preset rows,
+	// Advanced reveals them all.
+	{"ws-new", config.DisplayStandard, nil,
+		[]string{"start_option", "proxy", "search_mode", "offline", "cbm_ui", "hil"},
+		true},
+	{"ws-new", config.DisplayAdvanced,
+		[]string{"start_option", "proxy", "search_mode", "offline", "cbm_ui", "hil"},
+		nil, false},
 }
 
 func TestPresentationMatrix(t *testing.T) {

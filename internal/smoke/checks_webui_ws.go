@@ -26,7 +26,7 @@ import (
 // workspaces), the fresh-per-request pair link and the headless access
 // fallback. The runner is faked; nothing external is touched.
 func checkWebUIWorkspaces(home, root string) Item {
-	p := newPhase("A11", "Open Workspace screen: cards, ?q= filter, start chain with Container-center reuse, taskmgr queue semantics (one-at-a-time per workspace), fresh pair link, access variants + headless fallback (#153)")
+	p := newPhase("A12", "Open Workspace screen: cards, ?q= filter, start chain with Container-center reuse, taskmgr queue semantics (one-at-a-time per workspace), fresh pair link, access variants + headless fallback (#153)")
 
 	// Fixture install: two workspaces with distinct sandbox configs.
 	rootA := seedWSFixture(home, "mural", "swdev", []string{}, "web")

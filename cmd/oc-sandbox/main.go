@@ -153,8 +153,10 @@ func runLauncher() {
 }
 
 // will take over. Home wires GET/POST /settings to global_config.json
-// (#152). A failed start never kills the TUI — it prints a warning and
-// returns nil. The §12 update check rides the server start: one silent
+// (#152) and the New Workspace wizard (#156) to the install-layout
+// scripts — invoked exactly as the TUI invokes them (ADR-0007). A
+// failed start never kills the TUI — it prints a warning and returns
+// nil. The §12 update check rides the server start: one silent
 // GitHub request, badge pushed via /events.
 func startWebserver(home, version string) *webserver.Server {
 	layout := app.LayoutFor(home)
@@ -162,13 +164,16 @@ func startWebserver(home, version string) *webserver.Server {
 		Version:     version,
 		Home:        home,
 		InstallRoot: layout.InstallRoot,
-		Deps: &webserver.Deps{ // container/image screens (#158)
-			Run:              cmdrun.ExecRunner{},
-			Registry:         &registry.Registry{Home: home},
-			BuildScript:      layout.BuildScript,
-			StartScript:      layout.StartScript,
-			Dockerfile:       layout.Dockerfile,
-			DockerfileCustom: layout.DockerfileCustom,
+		Deps: &webserver.Deps{ // container/image screens (#158) + the create chain (#156)
+			Run:                  cmdrun.ExecRunner{},
+			Registry:             &registry.Registry{Home: home},
+			BuildScript:          layout.BuildScript,
+			StartScript:          layout.StartScript,
+			InitScript:           layout.InitScript,
+			ConfigureScript:      layout.ConfigureScript,
+			Dockerfile:           layout.Dockerfile,
+			DockerfileCustom:     layout.DockerfileCustom,
+			DefaultWorkspacePath: app.DefaultWorkspacePath(home),
 		},
 	})
 	if err := ui.Start(); err != nil {
