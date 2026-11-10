@@ -97,21 +97,23 @@ type aiEditState struct {
 	token    field
 }
 
-// entry is one provider entry of the selected workspace.
-type entry struct {
-	id       string
-	name     string
-	endpoint string
-	token    string // stored credential (token file); empty when orphaned
-	orphan   bool   // section without a stored credential
+// Entry is one provider entry of a workspace (opencode.json v2 section
+// plus stored credential state, ADR 0025) — the shared read view of the
+// TUI pane and the WebUI settings screen.
+type Entry struct {
+	ID       string
+	Name     string
+	Endpoint string
+	Token    string // stored credential (token file); empty when orphaned
+	Orphan   bool   // section without a stored credential
 }
 
-// readEntries reads the selected workspace's provider entries from
+// ReadProviderEntries reads the selected workspace's provider entries from
 // opencode.json (the list's single source of truth — v2 `providers.<id>`
 // with the legacy `provider.<id>` shape as pre-migration fallback, ADR
 // 0025) and the per-provider token files, flagging entries whose
 // credential is missing as orphaned.
-func readEntries(root string) []entry {
+func ReadProviderEntries(root string) []Entry {
 	data, err := os.ReadFile(filepath.Join(root, ".opencode_config", "opencode.json"))
 	if err != nil {
 		return nil
@@ -148,30 +150,30 @@ func readEntries(root string) []entry {
 			idSet[id] = true
 		}
 	}
-	tokens := storedTokens(root)
+	tokens := StoredTokens(root)
 	ids := make([]string, 0, len(rows))
 	for id := range rows {
 		ids = append(ids, id)
 	}
 	sort.Strings(ids)
-	out := make([]entry, 0, len(ids))
+	out := make([]Entry, 0, len(ids))
 	for _, id := range ids {
-		e := entry{id: id, name: rows[id].name, endpoint: rows[id].endpoint, token: tokens[id]}
-		if e.name == "" {
-			e.name = id
+		e := Entry{ID: id, Name: rows[id].name, Endpoint: rows[id].endpoint, Token: tokens[id]}
+		if e.Name == "" {
+			e.Name = id
 		}
 		_, has := tokens[id]
-		e.orphan = !has
+		e.Orphan = !has
 		out = append(out, e)
 	}
 	return out
 }
 
-// storedTokens maps provider id → stored token. Tokens live in the
+// StoredTokens maps provider id → stored token. Tokens live in the
 // per-provider credential files (.opencode_data/credentials/<id>, ADR
 // 0025); the legacy auth.json keys serve as a pre-migration fallback.
 // Missing/invalid sources yield entries only for what could be read.
-func storedTokens(root string) map[string]string {
+func StoredTokens(root string) map[string]string {
 	out := map[string]string{}
 	credDir := filepath.Join(root, ".opencode_data", "credentials")
 	if files, err := os.ReadDir(credDir); err == nil {
@@ -253,9 +255,9 @@ func (v *View) gateAIWrite() bool {
 	return true
 }
 
-// validateProviderFields validates a Name / Endpoint / optional Token
+// ValidateProviderFields validates a Name / Endpoint / optional Token
 // trio with creation semantics; empty return = valid.
-func validateProviderFields(name, endpoint, token string) string {
+func ValidateProviderFields(name, endpoint, token string) string {
 	if !providerid.ValidName(name) {
 		return "Name must not be empty and needs at least one letter or digit."
 	}
@@ -277,7 +279,7 @@ func (v *View) addProvider() tea.Cmd {
 	if !v.gateAIWrite() {
 		return nil
 	}
-	if msg := validateProviderFields(v.aiName.val, v.aiEndpoint.val, v.aiToken.val); msg != "" {
+	if msg := ValidateProviderFields(v.aiName.val, v.aiEndpoint.val, v.aiToken.val); msg != "" {
 		v.toast = msg
 		return nil
 	}
@@ -351,8 +353,8 @@ func (v *View) resolveAIConfirm(replace bool) tea.Cmd {
 // prefilled (token from the stored credential, rendered masked). Orphaned entries
 // are read-only; while a previously triggered save or confirm is
 // pending the click just toasts.
-func (v *View) openEntryEdit(e entry) bool {
-	if e.orphan {
+func (v *View) openEntryEdit(e Entry) bool {
+	if e.Orphan {
 		return false
 	}
 	if v.aiRunning {
@@ -363,10 +365,10 @@ func (v *View) openEntryEdit(e entry) bool {
 		v.toast = "Resolve the Keep existing / Replace confirm first"
 		return true
 	}
-	st := &aiEditState{id: e.id}
-	st.name.insert(e.name)
-	st.endpoint.insert(e.endpoint)
-	st.token.insert(e.token)
+	st := &aiEditState{id: e.ID}
+	st.name.insert(e.Name)
+	st.endpoint.insert(e.Endpoint)
+	st.token.insert(e.Token)
 	v.aiEdit = st
 	v.focus = piEditName
 	return true
@@ -383,7 +385,7 @@ func (v *View) saveProviderEdit() tea.Cmd {
 	if !v.gateAIWrite() {
 		return nil
 	}
-	if msg := validateProviderFields(v.aiEdit.name.val, v.aiEdit.endpoint.val, v.aiEdit.token.val); msg != "" {
+	if msg := ValidateProviderFields(v.aiEdit.name.val, v.aiEdit.endpoint.val, v.aiEdit.token.val); msg != "" {
 		v.toast = msg
 		return nil
 	}
@@ -401,7 +403,7 @@ func (v *View) saveProviderEdit() tea.Cmd {
 		if token == "" && v.aiRename {
 			// renaming must move the stored credential; the emptied
 			// token is read back from the credential file (#111)
-			token = storedTokens(root)[oldID]
+			token = StoredTokens(root)[oldID]
 			if token == "" {
 				v.aiErr = "Token required — renaming moves the stored credential from '" + oldID +
 					"'; type the token and save again."
@@ -522,7 +524,7 @@ func (v *View) aiDone(msg taskmgr.DoneMsg) tea.Cmd {
 // Cancel leaves the config files untouched; removal is a plain delete —
 // the last entry simply leaves the workspace with no providers (ADR-0023),
 // and sandbox_config's legacy ai_provider field is never written.
-func (v *View) removeEntry(e entry) tea.Cmd {
+func (v *View) removeEntry(e Entry) tea.Cmd {
 	if v.aiRunning {
 		v.toast = "AI provider configuration is running — wait for it to finish"
 		return nil
@@ -534,7 +536,7 @@ func (v *View) removeEntry(e entry) tea.Cmd {
 		return nil
 	}
 	root := v.workspaces[v.sel].Path
-	id := e.id
+	id := e.ID
 	v.confirm.Open("Remove provider?",
 		"Remove", "Cancel",
 		[]string{"Remove '" + id + "' — deletes its stored credential " +
@@ -592,7 +594,7 @@ func (v *View) entryCount() int {
 	if v.pane != paneAI || v.sel < 0 || v.sel >= len(v.workspaces) {
 		return 0
 	}
-	return len(readEntries(v.workspaces[v.sel].Path))
+	return len(ReadProviderEntries(v.workspaces[v.sel].Path))
 }
 
 // deps resolves the zero-valued Deps to production defaults.
@@ -649,7 +651,7 @@ func (v *View) aiPaneRows(paneW int) []paneRow {
 
 	add("")
 	add(shell.StyleFieldLabel.Render("Providers"))
-	entries := readEntries(root)
+	entries := ReadProviderEntries(root)
 	if len(entries) == 0 {
 		add(shell.StyleMutedAlt.Render("no entries — add a provider above"))
 	}
@@ -658,16 +660,16 @@ func (v *View) aiPaneRows(paneW int) []paneRow {
 		// entries' name rows are additionally clickable (open the edit
 		// form, #111), orphan rows and hints are plain text.
 		mark := shell.SymOff
-		if !e.orphan {
+		if !e.Orphan {
 			mark = shell.SymOn
 		}
-		if e.orphan {
-			add(shell.StyleMutedAlt.Render(mark + " " + truncate(e.name, paneW-4)))
+		if e.Orphan {
+			add(shell.StyleMutedAlt.Render(mark + " " + truncate(e.Name, paneW-4)))
 			add(shell.StyleWarn.Render(truncate("stored credential missing", paneW-4)))
 			add(shell.StyleMutedAlt.Render(truncate("read-only — reconfigure via the add form", paneW-4)))
 		} else {
 			rows = append(rows, paneRow{
-				text: shell.StyleMutedAlt.Render(mark + " " + truncate(e.name, paneW-4)),
+				text: shell.StyleMutedAlt.Render(mark + " " + truncate(e.Name, paneW-4)),
 				ai:   -1,
 				ent:  i,
 			})
@@ -765,7 +767,7 @@ func (v *View) removeAt(idx int) tea.Cmd {
 	if v.sel < 0 || v.sel >= len(v.workspaces) {
 		return nil
 	}
-	entries := readEntries(v.workspaces[v.sel].Path)
+	entries := ReadProviderEntries(v.workspaces[v.sel].Path)
 	if i := idx - piRemove; i < len(entries) {
 		return v.removeEntry(entries[i])
 	}

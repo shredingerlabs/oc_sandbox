@@ -485,7 +485,7 @@ func (v *View) click(x, y int) {
 			if r.Hit(x, y) {
 				idx, ent := v.paneIdx[i], v.paneEnts[i]
 				if ent >= 0 {
-					entries := readEntries(v.workspaces[v.sel].Path)
+					entries := ReadProviderEntries(v.workspaces[v.sel].Path)
 					if ent < len(entries) {
 						v.openEntryEdit(entries[ent])
 					}

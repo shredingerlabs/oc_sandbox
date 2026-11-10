@@ -26,7 +26,7 @@ import (
 // same relay, and the pending session blocks the workspace's other
 // actions. The runner is faked; nothing external is touched.
 func checkWebUISetup(home, root string) Item {
-	p := newPhase("A14", "First-run setup interaction: setup/retry machine run with streamed stages, skills-stage auto-open with the status-file relay, exit-code routing (0/2/other), Cancel setup + late-file session guard, headless manual-command path, pending-session action blocking (#161)")
+	p := newPhase("A16", "First-run setup interaction: setup/retry machine run with streamed stages, skills-stage auto-open with the status-file relay, exit-code routing (0/2/other), Cancel setup + late-file session guard, headless manual-command path, pending-session action blocking (#161)")
 
 	// Four workspaces: full relay, cancel+late-file, headless, exit-2.
 	rootA := seedSetupWS(home, "setup-alpha")

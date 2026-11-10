@@ -174,6 +174,15 @@ func (s *Server) Start() error {
 	inner.HandleFunc("GET /workspaces", s.handleWorkspacesGET)
 	inner.HandleFunc("POST /workspaces/{name}/access", s.handleAccess)
 	inner.HandleFunc("POST /workspaces/{name}/pair-link", s.handlePairLink)
+	// Workspace Settings screen (#157): the per-workspace settings —
+	// the card settings icon jumps in preselected, the menu entry is
+	// the name-less alias (MRU workspace preselected).
+	inner.HandleFunc("GET /workspaces/{name}/settings", s.handleWsSettingsGET)
+	inner.HandleFunc("GET /workspace-settings", s.handleWsSettingsMenu)
+	inner.HandleFunc("POST /workspaces/{name}/settings", s.handleWsSettingsPost)
+	inner.HandleFunc("POST /workspaces/{name}/vcs-credentials", s.handleWsVCSCredentialsPost)
+	inner.HandleFunc("POST /workspaces/{name}/providers", s.handleWsProvidersPost)
+	inner.HandleFunc("POST /workspaces/{name}/remove-from-list", s.handleWsRemoveFromList)
 	if s.deps != nil {
 		s.wireRoutes(inner) // container/image screens (#158)
 	}
