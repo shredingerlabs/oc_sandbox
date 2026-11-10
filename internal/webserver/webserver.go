@@ -86,6 +86,11 @@ func (s *Server) baseURL() string { return s.url[:strings.Index(s.url, "/t/")+1]
 // Token returns the per-launch path token.
 func (s *Server) Token() string { return s.token }
 
+// ErrorLog returns everything the http.Server has written to its error
+// log so far — with tokenized URLs redacted. The smoke harness asserts
+// the token never appears here.
+func (s *Server) ErrorLog() string { return s.errLog.String() }
+
 // Start binds 127.0.0.1 on the base port, scanning upward while the
 // port is taken (4096/CBM-UI precedent), and serves until Close. The
 // chosen port is never persisted — re-derived per launch.
