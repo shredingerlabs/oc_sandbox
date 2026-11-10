@@ -8,7 +8,7 @@ import (
 // lastUsedLayout is the registry's last_used stamp format (UTC).
 const lastUsedLayout = "2006-01-02T15:04:05Z"
 
-// RelativeLastUsed renders a projects.json last_used stamp for a card
+// RelativeLastUsed renders a workspaces.json last_used stamp for a card
 // row: same day reads "Today 13:04" (local time), the previous day
 // "Yesterday", the last six days "n d ago", anything older the absolute
 // local date. Empty or unparseable stamps render empty so callers can
@@ -39,4 +39,3 @@ func RelativeLastUsed(stamp string, now time.Time) string {
 		return local.Format("2006-01-02")
 	}
 }
-

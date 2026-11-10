@@ -4,7 +4,7 @@ package app_test
 // the Export / Restore / Import cards: exporting twice to the same
 // destination leaked a raw "Refusing to back up…" stderr line into the
 // alt-screen (no overwrite prompt), the Restore button ignored mouse
-// clicks when it did not hold keyboard focus, and legacy project roots
+// clicks when it did not hold keyboard focus, and legacy workspace roots
 // (start.sh re-creates the infra dirs at every start) were refused by
 // the import structure check.
 
@@ -43,14 +43,14 @@ func waitText(t *testing.T, rec *recorder, subs ...string) {
 	}
 }
 
-// legacyRoot builds a pre-cbd48b7-style project root: sandbox_config.json
-// and project/.git exist, but none of the infra dirs added later
+// legacyRoot builds a pre-cbd48b7-style workspace root: sandbox_config.json
+// and workspace/.git exist, but none of the infra dirs added later
 // (.cbm_cache, .ssh_local). start.sh mkdir -p's those at every start, so
-// such roots are real sandbox projects.
+// such roots are real sandbox workspaces.
 func legacyRoot(t *testing.T, home, name string) string {
 	t.Helper()
 	root := filepath.Join(home, "oc-sandbox", name)
-	if err := os.MkdirAll(filepath.Join(root, "project", ".git"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(root, "workspace", ".git"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.MkdirAll(filepath.Join(root, ".opencode_config"), 0o755); err != nil {
@@ -65,14 +65,14 @@ func legacyRoot(t *testing.T, home, name string) string {
 // E2E: exporting to an existing destination asks for an overwrite
 // confirmation (no raw stderr refusal line), the restore button works
 // for mouse users regardless of keyboard focus, and a legacy (removed)
-// project root imports while a registered root hits the guard.
+// workspace root imports while a registered root hits the guard.
 func TestE2ESettingsExportOverwriteRestoreImport(t *testing.T) {
 	home := installHome(t)
-	if err := (&registry.Registry{Home: home}).CreateProjectsFile(); err != nil {
+	if err := (&registry.Registry{Home: home}).CreateWorkspacesFile(); err != nil {
 		t.Fatal(err)
 	}
-	pp := filepath.Join(home, ".config", "oc-sandbox", "projects.json")
-	if err := os.WriteFile(pp, []byte("{\"projects\":[],\"version\":\"1.0\"}"), 0o600); err != nil {
+	pp := filepath.Join(home, ".config", "oc-sandbox", "workspaces.json")
+	if err := os.WriteFile(pp, []byte("{\"workspaces\":[],\"version\":\"1.0\"}"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	// BUG3 fixtures: a prior-registered legacy root (registry entry
@@ -81,13 +81,13 @@ func TestE2ESettingsExportOverwriteRestoreImport(t *testing.T) {
 	listedRoot := legacyRoot(t, home, "listedproj")
 	reg := &registry.Registry{Home: home, Now: time.Now}
 	for _, r := range []string{removedRoot, listedRoot} {
-		if err := reg.AddProject(registry.AddRequest{
+		if err := reg.AddWorkspace(registry.AddRequest{
 			Name: filepath.Base(r), Path: r, GitTracking: "none",
 		}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if err := reg.RemoveProject(removedRoot); err != nil {
+	if err := reg.RemoveWorkspace(removedRoot); err != nil {
 		t.Fatal(err)
 	}
 	// BUG2 fixtures: two restorable backups with distinct content.
@@ -103,21 +103,21 @@ func TestE2ESettingsExportOverwriteRestoreImport(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	writeBackupFile("projects.json.20260101T000000000.aaa111", "{\"projects\":[],\"version\":\"0.1\"}")
-	writeBackupFile("projects.json.20260102T000000000.bbb222", "{\"projects\":[],\"version\":\"0.2\"}")
+	writeBackupFile("workspaces.json.20260101T000000000.aaa111", "{\"workspaces\":[],\"version\":\"0.1\"}")
+	writeBackupFile("workspaces.json.20260102T000000000.bbb222", "{\"workspaces\":[],\"version\":\"0.2\"}")
 
 	run := &podmanRunner{images: defaultImages()}
 	tm, rec := newTUI(t, home, run)
 	defer tm.Quit()
-	waitText(t, rec, "Open Project")
+	waitText(t, rec, "Open Workspace")
 
 	// --- Settings → Export Config ---
 	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("4")})
-	waitText(t, rec, "Project settings")
+	waitText(t, rec, "Workspace settings")
 	clickText(t, tm, rec, "Export Config", 2)
 	waitText(t, rec, "Export Config…")
 
-	dest := filepath.Join(home, "oc-sandbox-projects.json")
+	dest := filepath.Join(home, "oc-sandbox-workspaces.json")
 
 	// First export: fresh destination, no prompt.
 	clickText(t, tm, rec, "Export Config…", 3)
@@ -140,8 +140,8 @@ func TestE2ESettingsExportOverwriteRestoreImport(t *testing.T) {
 	}
 	tm.Send(tea.KeyMsg{Type: tea.KeyTab}) // popup: Cancel → Overwrite
 	tm.Send(tea.KeyMsg{Type: tea.KeyEnter})
-	waitText(t, rec, "Exported projects.json to "+dest)
-	if got, err := os.ReadFile(dest); err != nil || !strings.Contains(string(got), "projects") {
+	waitText(t, rec, "Exported workspaces.json")
+	if got, err := os.ReadFile(dest); err != nil || !strings.Contains(string(got), "workspaces") {
 		t.Fatalf("overwrite did not write the snapshot: %q (%v)", string(got), err)
 	}
 
@@ -153,7 +153,7 @@ func TestE2ESettingsExportOverwriteRestoreImport(t *testing.T) {
 	waitText(t, rec, "Restore this config backup?")
 	tm.Send(tea.KeyMsg{Type: tea.KeyTab}) // popup: Cancel → Restore
 	tm.Send(tea.KeyMsg{Type: tea.KeyEnter})
-	waitText(t, rec, "Restored projects.json")
+	waitText(t, rec, "Restored workspaces.json")
 	deadline := time.Now().Add(10 * time.Second)
 	for {
 		b, err := os.ReadFile(pp)
@@ -166,10 +166,10 @@ func TestE2ESettingsExportOverwriteRestoreImport(t *testing.T) {
 		time.Sleep(50 * time.Millisecond)
 	}
 
-	// --- Import project: legacy (previously removed) root imports ---
+	// --- Import workspace: legacy (previously removed) root imports ---
 	// (the restore replaced the registry file, so re-register the root
 	// whose entry must hit the already-registered guard below)
-	if err := reg.AddProject(registry.AddRequest{
+	if err := reg.AddWorkspace(registry.AddRequest{
 		Name: "listedproj", Path: listedRoot, GitTracking: "none",
 	}); err != nil {
 		t.Fatal(err)
@@ -178,8 +178,8 @@ func TestE2ESettingsExportOverwriteRestoreImport(t *testing.T) {
 	// typing (the chooser's ".oc-sandbox" row also contains
 	// "oc-sandbox", so navigation clicks are ambiguous here).
 	importRoot := func(root string) {
-		clickText(t, tm, rec, "Import project", 2)
-		waitText(t, rec, "Project folder path")
+		clickText(t, tm, rec, "Import workspace", 2)
+		waitText(t, rec, "Workspace folder path")
 		for i := 0; i < 160; i++ {
 			tm.Send(tea.KeyMsg{Type: tea.KeyBackspace})
 		}
@@ -187,7 +187,7 @@ func TestE2ESettingsExportOverwriteRestoreImport(t *testing.T) {
 			tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
 		}
 		waitText(t, rec, root)
-		clickText(t, tm, rec, "Import Project  │", 3)
+		clickText(t, tm, rec, "Import Workspace  │", 3)
 	}
 	importRoot(removedRoot)
 	waitText(t, rec, "Import summary")

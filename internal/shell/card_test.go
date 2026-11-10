@@ -23,8 +23,8 @@ func TestCardWidthIsWidestContent(t *testing.T) {
 }
 
 func TestCardGeometryStableWithAndWithoutToast(t *testing.T) {
-	empty := Card([]string{"Project name", "abcdefgh", Toast("")})
-	full := Card([]string{"Project name", "abcdefgh", Toast("creating…")})
+	empty := Card([]string{"Workspace name", "abcdefgh", Toast("")})
+	full := Card([]string{"Workspace name", "abcdefgh", Toast("creating…")})
 	if Width(empty) != Width(full) {
 		t.Errorf("toast changed card width: %d vs %d", Width(empty), Width(full))
 	}
@@ -57,19 +57,19 @@ func TestCardMutedOnlyChangesBorder(t *testing.T) {
 }
 
 func TestButton(t *testing.T) {
-	plain := Button("Create Project", false)
-	focus := Button("Create Project", true)
+	plain := Button("Create Workspace", false)
+	focus := Button("Create Workspace", true)
 	if Width(plain) != Width(focus) {
 		t.Errorf("focus changed button width: %d vs %d", Width(plain), Width(focus))
 	}
 	if !strings.Contains(StripANSI(plain), "╭") {
 		t.Errorf("unfocused button not bordered: %q", StripANSI(plain))
 	}
-	lines := ButtonLines("Create Project", true)
+	lines := ButtonLines("Create Workspace", true)
 	if len(lines) != 3 {
 		t.Fatalf("button lines = %d, want 3", len(lines))
 	}
-	if !strings.Contains(lines[1], "Create Project") {
+	if !strings.Contains(lines[1], "Create Workspace") {
 		t.Errorf("focused button middle line = %q, want label", lines[1])
 	}
 }

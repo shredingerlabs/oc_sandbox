@@ -66,8 +66,8 @@ func (f *fakeStager) Interactive(Stage) bool         { return false }
 func (f *fakeStager) Cmd(Stage) *exec.Cmd            { return nil }
 func (f *fakeStager) ExecFor(Stage, string) []string { return nil }
 
-// fixture creates a registered project with a fresh sandbox_config.json
-// (default payload: all setup flags false, project_source from arg) in a
+// fixture creates a registered workspace with a fresh sandbox_config.json
+// (default payload: all setup flags false, workspace_source from arg) in a
 // temp home.
 func fixture(t *testing.T, source string) (home, root string, reg *registry.Registry, st *fakeStager) {
 	t.Helper()
@@ -77,10 +77,10 @@ func fixture(t *testing.T, source string) (home, root string, reg *registry.Regi
 		t.Fatal(err)
 	}
 	reg = &registry.Registry{Home: home, Now: stamp()}
-	if err := reg.CreateProjectsFile(); err != nil {
+	if err := reg.CreateWorkspacesFile(); err != nil {
 		t.Fatal(err)
 	}
-	if err := reg.AddProject(registry.AddRequest{
+	if err := reg.AddWorkspace(registry.AddRequest{
 		Name: "proj", Path: root, GitTracking: "github.com", RepoURL: repoURL,
 	}); err != nil {
 		t.Fatal(err)
@@ -89,7 +89,7 @@ func fixture(t *testing.T, source string) (home, root string, reg *registry.Regi
 	if err := sandboxcfg.Create(home, cfgPath, "swdev", []string{"offline"}, "console", "none", sandboxcfg.SearchWebsearch); err != nil {
 		t.Fatal(err)
 	}
-	if err := sandboxcfg.PatchString(home, cfgPath, "project_source", source); err != nil {
+	if err := sandboxcfg.PatchString(home, cfgPath, "workspace_source", source); err != nil {
 		t.Fatal(err)
 	}
 	if err := sandboxcfg.PatchString(home, cfgPath, "repo_url", repoURL); err != nil {
@@ -289,7 +289,7 @@ func TestCloneFailureOffersChangeURL(t *testing.T) {
 	}
 }
 
-// Change URL updates BOTH sandbox_config.json and projects.json
+// Change URL updates BOTH sandbox_config.json and workspaces.json
 // repo_url (mirror sync), then the loop resumes with the new URL.
 func TestChangeURLMirrorSync(t *testing.T) {
 	home, root, reg, st := fixture(t, "cloned")
@@ -315,7 +315,7 @@ func TestChangeURLMirrorSync(t *testing.T) {
 		t.Fatal(err)
 	}
 	if p.RepoURL != newURL {
-		t.Fatalf("projects.json repo_url = %q, want %q", p.RepoURL, newURL)
+		t.Fatalf("workspaces.json repo_url = %q, want %q", p.RepoURL, newURL)
 	}
 }
 

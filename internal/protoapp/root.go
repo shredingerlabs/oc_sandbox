@@ -1,5 +1,5 @@
 // Root model: view switcher. THROWAWAY prototype (issue #70/#71, feedback
-// 3: single winning design — Open Project (variant A), New Project +
+// 3: single winning design — Open Workspace (variant A), New Workspace +
 // Container (design C) — with Settings; design pill removed).
 package protoapp
 

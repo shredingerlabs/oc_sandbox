@@ -21,16 +21,16 @@ const (
 )
 
 type variantA struct {
-	projects []Project
-	focus    int
-	cols     int
-	offRow   int
-	dbl      dblClickTracker
-	toast    string
+	workspaces []Workspace
+	focus      int
+	cols       int
+	offRow     int
+	dbl        dblClickTracker
+	toast      string
 }
 
 func newVariantA() *variantA {
-	return &variantA{projects: fakeProjects()}
+	return &variantA{workspaces: fakeProjects()}
 }
 
 func (v *variantA) Name() string { return "A cards" }
@@ -48,17 +48,17 @@ func (v *variantA) geom(width, height int) (gridW, cols, visRows int) {
 func (v *variantA) Update(msg tea.Msg, width, height int) {
 	_, cols, visRows := v.geom(width, height)
 	v.cols = cols
-	totalRows := (len(v.projects) + cols - 1) / cols
+	totalRows := (len(v.workspaces) + cols - 1) / cols
 	v.offRow = min(v.offRow, maxInt(0, totalRows-visRows))
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "down", "j", "tab", "right", "l":
-			v.focus = (v.focus + 1) % len(v.projects)
+			v.focus = (v.focus + 1) % len(v.workspaces)
 		case "up", "k", "shift+tab", "left", "h":
-			v.focus = (v.focus - 1 + len(v.projects)) % len(v.projects)
+			v.focus = (v.focus - 1 + len(v.workspaces)) % len(v.workspaces)
 		case "enter":
-			v.toast = fmt.Sprintf("▶ start %s (fake)", v.projects[v.focus].Name)
+			v.toast = fmt.Sprintf("▶ start %s (fake)", v.workspaces[v.focus].Name)
 		}
 	case tea.MouseMsg:
 		n := v.dbl.press(msg)
@@ -66,7 +66,7 @@ func (v *variantA) Update(msg tea.Msg, width, height int) {
 			if idx, hit := v.hitCard(msg.X, msg.Y, width, height); hit {
 				if n == 2 {
 					v.focus = idx
-					v.toast = fmt.Sprintf("▶ start %s (fake double-click)", v.projects[idx].Name)
+					v.toast = fmt.Sprintf("▶ start %s (fake double-click)", v.workspaces[idx].Name)
 				} else if idx != v.focus {
 					v.focus = idx
 					v.toast = ""
@@ -91,7 +91,7 @@ func (v *variantA) hitCard(x, y, width, height int) (int, bool) {
 	}
 	localRow := (y - 2) / cardH
 	idx := (v.offRow+localRow)*cols + col
-	if idx >= 0 && idx < len(v.projects) {
+	if idx >= 0 && idx < len(v.workspaces) {
 		return idx, true
 	}
 	return 0, false
@@ -101,7 +101,7 @@ func (v *variantA) View(width, height int, h help.Model, k keyMap) string {
 	gridW, cols, visRows := v.geom(width, height)
 	v.cols = cols
 	bodyH := height - 3
-	totalRows := (len(v.projects) + cols - 1) / cols
+	totalRows := (len(v.workspaces) + cols - 1) / cols
 	if v.offRow > totalRows-visRows {
 		v.offRow = maxInt(0, totalRows-visRows)
 	}
@@ -119,10 +119,10 @@ func (v *variantA) View(width, height int, h help.Model, k keyMap) string {
 		var cards []string
 		for c := 0; c < cols; c++ {
 			i := r*cols + c
-			if i >= len(v.projects) {
+			if i >= len(v.workspaces) {
 				break
 			}
-			cards = append(cards, v.card(v.projects[i], i == v.focus))
+			cards = append(cards, v.card(v.workspaces[i], i == v.focus))
 		}
 		gridRows = append(gridRows, lipgloss.JoinHorizontal(lipgloss.Top, cards...))
 	}
@@ -145,7 +145,7 @@ func (v *variantA) View(width, height int, h help.Model, k keyMap) string {
 	return shell(width, height, 0, body, h, k)
 }
 
-func (v *variantA) card(p Project, focused bool) string {
+func (v *variantA) card(p Workspace, focused bool) string {
 	status := styleStatusStop.Render("○ stopped")
 	if p.Status == "running" {
 		status = styleStatusRun.Render("● running")
@@ -176,7 +176,7 @@ func (v *variantA) card(p Project, focused bool) string {
 }
 
 func (v *variantA) settingsPane() string {
-	p := v.projects[v.focus]
+	p := v.workspaces[v.focus]
 	blocks := []string{
 		styleHeader.Render("Settings — " + p.Name + "  (muted = alternatives)"),
 		settingsBlock("Edition", shortEdition(p.Edition),

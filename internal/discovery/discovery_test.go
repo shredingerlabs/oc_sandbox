@@ -86,7 +86,7 @@ func TestSelectableEditionsOnlyBaseErrors(t *testing.T) {
 	only := filepath.Join(dir, "Dockerfile")
 	os.WriteFile(only, []byte("FROM ubuntu AS opencode-sandbox-base\n"), 0o644)
 	if _, err := SelectableEditions(only, ""); err == nil {
-		t.Fatal("only-base stages must not be project-selectable")
+		t.Fatal("only-base stages must not be workspace-selectable")
 	}
 }
 
@@ -136,7 +136,7 @@ func (*fakeErr) Error() string { return "fake" }
 func TestRunningContainers(t *testing.T) {
 	run := &cmdrun.Fake{Script: func(name string, args []string) (string, error) {
 		if name == "podman" {
-			// Fixture of a pod-based run (#125): the project container
+			// Fixture of a pod-based run (#125): the workspace container
 			// `opencode-sandbox-<id>`, a legacy bare container, and the
 			// pod's infra container (podman names it <pod-name>-infra).
 			return "opencode-sandbox-aaa\nopencode-sandbox-legacy\nopencode-sandbox-pod-aaa-infra\n", nil

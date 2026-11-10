@@ -38,7 +38,7 @@ func homeFixture(t *testing.T) string {
 		t.Fatal(err)
 	}
 	reg := registry.Registry{Home: home}
-	if err := reg.CreateProjectsFile(); err != nil {
+	if err := reg.CreateWorkspacesFile(); err != nil {
 		t.Fatal(err)
 	}
 	return home
@@ -49,7 +49,7 @@ func homeFixture(t *testing.T) string {
 func sandboxRoot(t *testing.T, home, name, edition string, modes []string, startOption string) string {
 	t.Helper()
 	root := filepath.Join(home, "roots", name)
-	if err := os.MkdirAll(filepath.Join(root, "project", ".git"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(root, "workspace", ".git"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	for _, d := range importDirs {
@@ -285,10 +285,10 @@ func TestNonMatchingFolderPromptAndWizardCmd(t *testing.T) {
 	clickLabel(t, v, "Select this folder")
 
 	key(v, "down") // path field → import button
-	clickLabel(t, v, "Import Project")
+	clickLabel(t, v, "Import Workspace")
 
 	b := body(v)
-	if !strings.Contains(b, "Import isn't possible here") || !strings.Contains(b, "New Project") {
+	if !strings.Contains(b, "Import isn't possible here") || !strings.Contains(b, "New Workspace") {
 		t.Errorf("informational prompt missing:\n%s", b)
 	}
 	cmd := key(v, "enter") // focus defaults to the wizard action
@@ -300,8 +300,8 @@ func TestNonMatchingFolderPromptAndWizardCmd(t *testing.T) {
 	if !ok {
 		t.Fatalf("cmd produced %T, want shell.NavRequestMsg", msg)
 	}
-	if nav.Index != newProjectViewIndex {
-		t.Errorf("nav index = %d, want %d (New Project wizard)", nav.Index, newProjectViewIndex)
+	if nav.Index != newWorkspaceViewIndex {
+		t.Errorf("nav index = %d, want %d (New Workspace wizard)", nav.Index, newWorkspaceViewIndex)
 	}
 }
 
@@ -312,7 +312,7 @@ func TestImportBrokenConfigPrompt(t *testing.T) {
 	v := newSettings(t, home, nil)
 	v.Update(shell.SubTabMsg{Index: subImport})
 	typePath(t, v, root)
-	clickLabel(t, v, "Import Project")
+	clickLabel(t, v, "Import Workspace")
 	if b := body(v); !strings.Contains(b, "Config is broken") {
 		t.Errorf("broken-config prompt missing:\n%s", b)
 	}
@@ -326,7 +326,7 @@ func TestImportRegistersCompleteRootStoppedNoCopy(t *testing.T) {
 	v := newSettings(t, home, nil)
 	v.Update(shell.SubTabMsg{Index: subImport})
 	typePath(t, v, root)
-	clickLabel(t, v, "Import Project") // structure check passes → summary
+	clickLabel(t, v, "Import Workspace") // structure check passes → summary
 
 	b := body(v)
 	for _, want := range []string{"python", "bridge, cbm_ui", "terminal", "stopped"} {
@@ -339,7 +339,7 @@ func TestImportRegistersCompleteRootStoppedNoCopy(t *testing.T) {
 	reg := registry.Registry{Home: home}
 	p, err := reg.ByPath(root)
 	if err != nil {
-		t.Fatalf("project not registered: %v", err)
+		t.Fatalf("workspace not registered: %v", err)
 	}
 	if p.ContainerStatus != "stopped" {
 		t.Errorf("registered as %q, want stopped", p.ContainerStatus)
@@ -365,13 +365,13 @@ func TestImportDuplicatePathToast(t *testing.T) {
 	home := homeFixture(t)
 	root := sandboxRoot(t, home, "alpha", "python", []string{"bridge"}, "terminal")
 	reg := registry.Registry{Home: home}
-	if err := reg.AddProject(registry.AddRequest{Name: "alpha", Path: root}); err != nil {
+	if err := reg.AddWorkspace(registry.AddRequest{Name: "alpha", Path: root}); err != nil {
 		t.Fatal(err)
 	}
 	v := newSettings(t, home, nil)
 	v.Update(shell.SubTabMsg{Index: subImport})
 	typePath(t, v, root)
-	clickLabel(t, v, "Import Project")
+	clickLabel(t, v, "Import Workspace")
 	if b := body(v); !strings.Contains(b, "Already registered") {
 		t.Errorf("duplicate toast missing:\n%s", b)
 	}
@@ -388,22 +388,22 @@ func TestExportGolden(t *testing.T) {
 
 func TestExportSnapshotThroughBackupMachinery(t *testing.T) {
 	home := homeFixture(t)
-	pp := config.Paths{Home: home}.ProjectsPath()
-	content := "{\n  \"projects\": [],\n  \"version\": \"1.0\"\n}"
+	pp := config.Paths{Home: home}.WorkspacesPath()
+	content := "{\n  \"workspaces\": [],\n  \"version\": \"1.0\"\n}"
 	writeFile(t, pp, content)
 
 	v := newSettings(t, home, nil)
 	v.Update(shell.SubTabMsg{Index: subExport})
 	clickLabel(t, v, "Export Config…")
 	clearField(v, len(home)+129)
-	typeText(v, filepath.Join(home, "exported-projects.json"))
+	typeText(v, filepath.Join(home, "exported-workspaces.json"))
 	key(v, "down")
 	key(v, "enter") // Save
 
-	if got := readFile(t, filepath.Join(home, "exported-projects.json")); !strings.Contains(got, "projects") {
+	if got := readFile(t, filepath.Join(home, "exported-workspaces.json")); !strings.Contains(got, "workspaces") {
 		t.Errorf("snapshot at destination incomplete: %q", got)
 	}
-	if n := len(backupFiles(t, home, "projects.json")); n < 1 {
+	if n := len(backupFiles(t, home, "workspaces.json")); n < 1 {
 		t.Errorf("no backup produced when exporting the config")
 	}
 	if orphans := tmpOrphans(t, home, config.Paths{Home: home}.Dir()); len(orphans) > 0 {
@@ -450,12 +450,12 @@ func TestRestoreNoBackupsGolden(t *testing.T) {
 // new backup (the safety copy of the pre-restore state), no temp files.
 func TestRestoreOrderedWriteIsNoBackup(t *testing.T) {
 	home := homeFixture(t)
-	pp := config.Paths{Home: home}.ProjectsPath()
-	const before = "{\n    \"projects\": []\n  }"
+	pp := config.Paths{Home: home}.WorkspacesPath()
+	const before = "{\n    \"workspaces\": []\n  }"
 	writeFile(t, pp, before)
-	const backup1 = "{\n  \"projects\": [\n    { \"restored\": true }\n  ],\n  \"version\": \"1.0\"\n}\n"
-	writeBackup(t, home, "projects.json.20260101T000000000.aaa111", backup1)
-	writeBackup(t, home, "projects.json.20260102T000000000.bbb222", "{\n  \"projects\": [],\n  \"version\": \"1.0\"\n}")
+	const backup1 = "{\n  \"workspaces\": [\n    { \"restored\": true }\n  ],\n  \"version\": \"1.0\"\n}\n"
+	writeBackup(t, home, "workspaces.json.20260101T000000000.aaa111", backup1)
+	writeBackup(t, home, "workspaces.json.20260102T000000000.bbb222", "{\n  \"workspaces\": [],\n  \"version\": \"1.0\"\n}")
 
 	v := newSettings(t, home, nil)
 	v.Update(shell.SubTabMsg{Index: subRestore})
@@ -469,13 +469,13 @@ func TestRestoreOrderedWriteIsNoBackup(t *testing.T) {
 	if got := readFile(t, pp); got != backup1 {
 		t.Errorf("active file = %q, want the restored backup content", got)
 	}
-	if n := len(backupFiles(t, home, "projects.json")); n != 3 {
+	if n := len(backupFiles(t, home, "workspaces.json")); n != 3 {
 		t.Errorf("backups = %d, want 3 (2 pre-existing + 1 safety copy, no rotation on restore write)", n)
 	}
 	if orphans := tmpOrphans(t, config.Paths{Home: home}.BackupsDir()); len(orphans) > 0 {
 		t.Errorf("temp files left behind: %v", orphans)
 	}
-	if b := body(v); !strings.Contains(b, "Restored projects.json") {
+	if b := body(v); !strings.Contains(b, "Restored workspaces.json") {
 		t.Errorf("toast missing:\n%s", b)
 	}
 }
@@ -484,10 +484,10 @@ func TestRestoreOrderedWriteIsNoBackup(t *testing.T) {
 // order: no safety backup, active file untouched.
 func TestRestoreInvalidJSONLeavesActiveUntouched(t *testing.T) {
 	home := homeFixture(t)
-	pp := config.Paths{Home: home}.ProjectsPath()
-	const before = "{\n    \"projects\": []\n  }\n"
+	pp := config.Paths{Home: home}.WorkspacesPath()
+	const before = "{\n    \"workspaces\": []\n  }\n"
 	writeFile(t, pp, before)
-	writeBackup(t, home, "projects.json.20260101T000000000.ccc333", "{broken")
+	writeBackup(t, home, "workspaces.json.20260101T000000000.ccc333", "{broken")
 
 	v := newSettings(t, home, nil)
 	v.Update(shell.SubTabMsg{Index: subRestore})
@@ -499,7 +499,7 @@ func TestRestoreInvalidJSONLeavesActiveUntouched(t *testing.T) {
 	if got := readFile(t, pp); got != before {
 		t.Errorf("active file changed by an invalid backup restore: %q", got)
 	}
-	if n := len(backupFiles(t, home, "projects.json")); n != 1 {
+	if n := len(backupFiles(t, home, "workspaces.json")); n != 1 {
 		t.Errorf("safety backup created despite invalid JSON (%d backups)", n)
 	}
 	if b := body(v); !strings.Contains(b, "not valid JSON") {
@@ -655,7 +655,7 @@ func TestHitRectsOnRenderedRows(t *testing.T) {
 	root := plainDir(t, home, "plain")
 	typePath(t, v, root)
 	v.Body(76, 26)
-	clickLabel(t, v, "Import Project")
+	clickLabel(t, v, "Import Workspace")
 	if b := body(v); !strings.Contains(b, "Import isn't possible here") {
 		t.Errorf("click on the button rect did not run the check:\n%s", b)
 	}

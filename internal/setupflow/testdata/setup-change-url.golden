@@ -1,5 +1,5 @@
   Change repository URL                                                                             
-  Applies to sandbox_config.json and projects.json.                                                 
+  Applies to sandbox_config.json and workspaces.json.                                               
   ╭──────────────────────────────╮                                                                  
   │ New repo URL:  ▌             │                                                                  
   ╰──────────────────────────────╯                                                                  

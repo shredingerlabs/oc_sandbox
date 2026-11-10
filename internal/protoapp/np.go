@@ -1,6 +1,6 @@
-// Shared New Project state: one merged view, fake standard values.
+// Shared New Workspace state: one merged view, fake standard values.
 // THROWAWAY prototype (issue #70). The question: does the merged
-// left-menu/right-fields New Project feel right, and how should the
+// left-menu/right-fields New Workspace feel right, and how should the
 // Container build/stop center-view be laid out?
 package protoapp
 
@@ -26,21 +26,21 @@ const (
 const pathBase = "/home/dev/oc-sandbox"
 
 type npState struct {
-	source     int    // 0 blank, 1 from-url
+	source     int // 0 blank, 1 from-url
 	url        string
 	name       string
 	path       string // derived from name
 	pathManual bool   // set when the user types in the path field
 	edition    string
-	modes   []string
-	start   string
-	ai      string
-	vcs     string
-	proxy   bool
-	cursor  int    // caret position inside the focused text field
-	fields  []int  // visible field ids, in order (per design)
-	focus   int    // index into fields
-	toast   string
+	modes      []string
+	start      string
+	ai         string
+	vcs        string
+	proxy      bool
+	cursor     int   // caret position inside the focused text field
+	fields     []int // visible field ids, in order (per design)
+	focus      int   // index into fields
+	toast      string
 }
 
 func newNPState() *npState {
@@ -49,7 +49,7 @@ func newNPState() *npState {
 		path: pathBase,
 		url:  "https://github.com/user/repo.git",
 	}
-	// standard values (decided defaults from configure-project extraction)
+	// standard values (decided defaults from configure-workspace extraction)
 	s.edition = "swdev"
 	s.modes = nil
 	s.start = "opencode"
@@ -86,9 +86,9 @@ func (s *npState) autofill() {
 func fieldLabel(id int) string {
 	switch id {
 	case fName:
-		return "Project name"
+		return "Workspace name"
 	case fPath:
-		return "Project path (auto)"
+		return "Workspace path (auto)"
 	case fURL:
 		return "Repo URL"
 	case fEdition:
@@ -284,8 +284,8 @@ func newCTState() *ctState {
 	return &ctState{selection: map[string]bool{}}
 }
 
-func fakeRunning() []Project {
-	var out []Project
+func fakeRunning() []Workspace {
+	var out []Workspace
 	for _, p := range fakeProjects() {
 		if p.Status == "running" {
 			out = append(out, p)
@@ -294,7 +294,7 @@ func fakeRunning() []Project {
 	return out
 }
 
-func (c *ctState) selectedNames(running []Project) []string {
+func (c *ctState) selectedNames(running []Workspace) []string {
 	var out []string
 	for _, p := range running {
 		if c.selection[p.Name] {
@@ -304,7 +304,7 @@ func (c *ctState) selectedNames(running []Project) []string {
 	return out
 }
 
-func (c *ctState) allSelected(running []Project) bool {
+func (c *ctState) allSelected(running []Workspace) bool {
 	n := len(running)
 	if n == 0 {
 		return false
@@ -312,7 +312,7 @@ func (c *ctState) allSelected(running []Project) bool {
 	return len(c.selectedNames(running)) == n
 }
 
-func (c *ctState) toggleAll(running []Project) {
+func (c *ctState) toggleAll(running []Workspace) {
 	if c.allSelected(running) {
 		for k := range c.selection {
 			delete(c.selection, k)
@@ -324,7 +324,7 @@ func (c *ctState) toggleAll(running []Project) {
 	}
 }
 
-func (c *ctState) stop(running []Project) {
+func (c *ctState) stop(running []Workspace) {
 	names := c.selectedNames(running)
 	if len(names) == 0 {
 		c.toast = "nothing selected"

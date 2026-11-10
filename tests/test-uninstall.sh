@@ -96,7 +96,7 @@ setup_installed_home() {
 
   mkdir -p "$install_path" "$home/.config/oc-sandbox" "$home/.local/bin"
   echo "fake" > "$install_path/some-file.txt"
-  echo '{}' > "$home/.config/oc-sandbox/projects.json"
+  echo '{}' > "$home/.config/oc-sandbox/workspaces.json"
 
   # Ein Symlink, der auf die Installation zeigt
   ln -s "$install_path/uninstall.sh" "$home/.local/bin/uninstall.sh"
@@ -369,7 +369,7 @@ test_remove_config_removes_dir_and_creates_backup() {
   run_uninstall "$home" --remove-config
 
   assert_dir_not_exists "$home/.oc-sandbox" || return 1
-  assert_dir_not_exists "$home/.config/oc-sandbox/projects.json" "Config soll entfernt werden" || return 1
+  assert_dir_not_exists "$home/.config/oc-sandbox/workspaces.json" "Config soll entfernt werden" || return 1
   assert_dir_exists "$home/.config/oc-sandbox/backups" "Backup soll erhalten bleiben" || return 1
 
   # Backup-Verzeichnis mit Timestamp-Schema
@@ -378,7 +378,7 @@ test_remove_config_removes_dir_and_creates_backup() {
   assert_equals "1" "$backup_count" "genau ein Backup erwartet" || return 1
 
   # Backup enthält die Config
-  assert_file_exists "$(find "$home/.config/oc-sandbox/backups" -maxdepth 1 -type d -name "config-*" | head -1)/projects.json" || return 1
+  assert_file_exists "$(find "$home/.config/oc-sandbox/backups" -maxdepth 1 -type d -name "config-*" | head -1)/workspaces.json" || return 1
 
   cleanup_test_env "$test_dir"
 }
@@ -470,7 +470,7 @@ test_dry_run_shows_config_removal() {
     return 1
   fi
   assert_dir_exists "$home/.oc-sandbox" "Dry-Run darf nichts löschen" || return 1
-  assert_file_exists "$home/.config/oc-sandbox/projects.json" || return 1
+  assert_file_exists "$home/.config/oc-sandbox/workspaces.json" || return 1
 
   cleanup_test_env "$test_dir"
 }
@@ -516,7 +516,7 @@ test_backup_failure_with_force_continues() {
   run_uninstall "$home" --remove-config --force
 
   assert_dir_not_exists "$home/.oc-sandbox" || return 1
-  assert_dir_not_exists "$home/.config/oc-sandbox/projects.json" || return 1
+  assert_dir_not_exists "$home/.config/oc-sandbox/workspaces.json" || return 1
   chmod 600 "$home/.config/oc-sandbox/unreadable.json" 2>/dev/null || true
 
   cleanup_test_env "$test_dir"
@@ -538,7 +538,7 @@ test_backup_failure_without_force_aborts() {
   HOME="$home" bash "$UNINSTALL_SCRIPT" --remove-config <<< "n" >/dev/null 2>&1
 
   # Config muss noch vorhanden sein (Abbruch vor Entfernung)
-  assert_file_exists "$home/.config/oc-sandbox/projects.json" "Abbruch darf Config nicht entfernen" || return 1
+  assert_file_exists "$home/.config/oc-sandbox/workspaces.json" "Abbruch darf Config nicht entfernen" || return 1
   chmod 600 "$home/.config/oc-sandbox/unreadable.json" 2>/dev/null || true
 
   cleanup_test_env "$test_dir"

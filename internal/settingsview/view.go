@@ -1,5 +1,5 @@
 // Package settingsview implements the Settings center view (ticket #80,
-// spec #84): four cards under sub-menu tabs — Import project, Export
+// spec #84): four cards under sub-menu tabs — Import workspace, Export
 // Config, Restore Config, Uninstall — in the shared Variant C card frame
 // with uniform buttons, full keyboard parity, hit rects and toast
 // feedback. Long operations (uninstall.sh invocation, export write) go
@@ -10,28 +10,28 @@ package settingsview
 import (
 	"time"
 
-	"github.com/charmbracelet/x/ansi"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/shredingerlabs/oc-sandbox/internal/cmdrun"
 	"github.com/shredingerlabs/oc-sandbox/internal/config"
 	"github.com/shredingerlabs/oc-sandbox/internal/discovery"
-	"github.com/shredingerlabs/oc-sandbox/internal/projectsettings"
 	"github.com/shredingerlabs/oc-sandbox/internal/registry"
 	"github.com/shredingerlabs/oc-sandbox/internal/sandboxcfg"
 	"github.com/shredingerlabs/oc-sandbox/internal/shell"
 	"github.com/shredingerlabs/oc-sandbox/internal/taskmgr"
+	"github.com/shredingerlabs/oc-sandbox/internal/workspacesettings"
 )
 
-// Sub-menu tab items; "Project settings" first (feedback: it is the
+// Sub-menu tab items; "Workspace settings" first (feedback: it is the
 // starting tab), the core panes follow in their order, "Update" sits
-// directly left of "Uninstall". "Project settings" delegates its
-// pane surface to the projectsettings view (ticket #108).
-var tabs = []string{"Project settings", "Import project", "Export Config", "Restore Config", "Update", "Uninstall"}
+// directly left of "Uninstall". "Workspace settings" delegates its
+// pane surface to the workspacesettings view (ticket #108).
+var tabs = []string{"Workspace settings", "Import workspace", "Export Config", "Restore Config", "Update", "Uninstall"}
 
 // Pane indexes into tabs: which pane each sub-menu position routes to.
 const (
-	subEdit      = 0 // full delegation to projectsettings (#108)
+	subEdit      = 0 // full delegation to workspacesettings (#108)
 	subImport    = 1
 	subExport    = 2
 	subRestore   = 3
@@ -59,7 +59,7 @@ type View struct {
 	sub   int // pane index (subImport..subUninstall, subEdit delegated)
 	toast string
 
-	ps *projectsettings.View // Project settings screen (#108)
+	ps *workspacesettings.View // Workspace settings screen (#108)
 
 	// Import pane: 0 picker, 1 summary, 2 informational prompt.
 	impStage     int
@@ -137,16 +137,16 @@ func New(home string) *View {
 		follow:             shell.NewFollow(true, false),
 	}
 	v.ops = DefaultOps{view: v}
-	v.ps = projectsettings.New(projectsettings.Deps{
+	v.ps = workspacesettings.New(workspacesettings.Deps{
 		Home:            home,
 		Runner:          v.run,
-		ConfigureScript: installRoot + "/scripts/configure-project.sh",
+		ConfigureScript: installRoot + "/scripts/configure-workspace.sh",
 		Ops:             psLauncher{v},
 	})
 	return v
 }
 
-// psLauncher routes the Project settings view's ops through the
+// psLauncher routes the Workspace settings view's ops through the
 // shared task manager when wired, else runs them as one batch cmd.
 type psLauncher struct{ v *View }
 
@@ -161,10 +161,10 @@ func (l psLauncher) Launch(op taskmgr.Op) tea.Cmd {
 	}
 }
 
-// WireProjectSettingsDeps wires the Project settings view's write
-// path (app composition): runner, configure-project.sh and the shared
+// WireWorkspaceSettingsDeps wires the Workspace settings view's write
+// path (app composition): runner, configure-workspace.sh and the shared
 // task manager as the Ops launcher.
-func (v *View) WireProjectSettingsDeps(d projectsettings.Deps) { v.ps.Deps = d }
+func (v *View) WireWorkspaceSettingsDeps(d workspacesettings.Deps) { v.ps.Deps = d }
 
 // SubTabs implements shell.CenterView.
 func (v *View) SubTabs() ([]string, int) { return tabs, v.sub }
@@ -180,7 +180,7 @@ func (v *View) TextFocused() bool {
 
 // Rects returns the interactive hit rects of the current pane as laid
 // out by the last Body render (regression-tested geometry); the Edit
-// Project settings tab delegates to its view.
+// Workspace settings tab delegates to its view.
 func (v *View) Rects() []shell.Rect {
 	if v.sub == subEdit {
 		return v.ps.Rects()
@@ -189,7 +189,7 @@ func (v *View) Rects() []shell.Rect {
 }
 
 // ConfirmOpen implements shell.ConfirmView (ADR-0021): the popup is up —
-// the pane's own or the delegated Project settings view's.
+// the pane's own or the delegated Workspace settings view's.
 func (v *View) ConfirmOpen() bool {
 	return v.confirm.IsOpen() || (v.sub == subEdit && v.ps.ConfirmOpen())
 }
@@ -222,7 +222,7 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 		if v.confirm.IsOpen() { // the popup consumes keys (ADR-0021)
 			return v.confirm.Key(msg)
 		}
-		if v.sub == subEdit { // Project settings: full delegation (#108)
+		if v.sub == subEdit { // Workspace settings: full delegation (#108)
 			return v.ps.Update(msg)
 		}
 		return v.key(msg)
@@ -310,7 +310,7 @@ func (v *View) Body(width, height int) string {
 	case subUninstall:
 		rows, hits, focusRow = v.uninstallPane(width)
 	default:
-		return v.ps.Body(width, height) // Project settings (#108)
+		return v.ps.Body(width, height) // Workspace settings (#108)
 	}
 	rows = append(rows, shell.Toast(v.toast))
 	if v.sub == subUpdate {
@@ -356,7 +356,7 @@ func (v *View) Body(width, height int) string {
 
 // hitRow is an interactive row of a pane: row indexes into the pane's
 // rows, x/w its hit box inside the card, act runs on click and returns
-// the cmd it produces (e.g. the New Project navigation request).
+// the cmd it produces (e.g. the New Workspace navigation request).
 type hitRow struct {
 	row  int
 	x, w int
@@ -404,7 +404,10 @@ func (v *View) focusCount() int {
 		case 1:
 			return 3 // name field, register, back
 		default:
-			return 2 // new-project wizard, back
+			if v.impBrokenCfg {
+				return 1 // Back only
+			}
+			return 3 // wizard, convert-to-workspace-layout, back
 		}
 	case subExport:
 		if v.expStage == 0 {
@@ -513,7 +516,7 @@ func (v *View) activate() tea.Cmd {
 	case subUninstall:
 		return v.uninstallActivate()
 	}
-	return nil // case subEdit (Project settings) is fully delegated
+	return nil // case subEdit (Workspace settings) is fully delegated
 }
 
 func insertRune(f *field, r rune) {
@@ -534,7 +537,7 @@ func deleteRune(f *field) {
 	*f.cur--
 }
 
-// registryView returns the project registry for the view's home.
+// registryView returns the workspace registry for the view's home.
 func (v *View) registryView() *registry.Registry {
 	return &registry.Registry{Home: v.home, Now: v.now}
 }

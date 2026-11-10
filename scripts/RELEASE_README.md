@@ -128,15 +128,15 @@ Run these steps before cutting a release; CI cannot verify them:
 1. **Rebuild all edition images** (`build-container.sh all` or the Container
    center Build Images tab). The base stage now ships node + `mcp-searxng`
    for every edition; existing edition images must be rebuilt to pick it up,
-   or the SearXNG MCP fails to spawn in running projects.
-2. **Restart both kinds of projects** (a `search_mode: searxng` project and a
-   `--use_proxy` project) and verify inside the container:
+   or the SearXNG MCP fails to spawn in running workspaces.
+2. **Restart both kinds of workspaces** (a `search_mode: searxng` workspace and a
+   `--use_proxy` workspace) and verify inside the container:
    - `searxng_web_search` returns structured results (per-pod SearXNG member,
      `SEARXNG_URL=http://127.0.0.1:8080` bare — mcp-searxng appends `/search`
      itself, a `/search`-suffixed value 404s via `/search/search`);
    - `searxng_instance_info` answers;
    - `web_url_read` still fetches arbitrary pages;
-   - a proxied project reaches the squid member (`127.0.0.1:3128`) and the
+   - a proxied workspace reaches the squid member (`127.0.0.1:3128`) and the
      egress allowlist bounds traffic as before.
 
 ### Published Release

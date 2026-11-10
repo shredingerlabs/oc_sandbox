@@ -2,7 +2,7 @@ package providerid
 
 import "testing"
 
-// The slug rules mirror configure-project.sh's slugify_provider_id
+// The slug rules mirror configure-workspace.sh's slugify_provider_id
 // (spec user story 4): lowercase, non-[a-z0-9] runs → single '-', trim '-'.
 func TestSlug(t *testing.T) {
 	cases := []struct{ in, want string }{

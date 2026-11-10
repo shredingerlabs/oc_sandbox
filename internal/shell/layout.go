@@ -11,7 +11,7 @@ import (
 // layout record (#72): the four center views, Exit last.
 var (
 	Title     = "oc-sandbox"
-	MenuItems = []string{"Open Project", "New Project", "Container", "Settings", "Exit"}
+	MenuItems = []string{"Open Workspace", "New Workspace", "Container", "Settings", "Exit"}
 )
 
 // Screen rows owned by the shell: header (0), full-width separator (1),
@@ -93,7 +93,7 @@ func SubTabsRow(items []string, selected int) (string, []Rect) {
 }
 
 // footerHintText is the fixed keyboard hint on the footer's left edge.
-const footerHintText = "1 open · 2 new project · 3 container · 4 settings"
+const footerHintText = "1 open · 2 new workspace · 3 container · 4 settings"
 
 // footerBadgeGap is the space between the hint and the update badge.
 const footerBadgeGap = 3

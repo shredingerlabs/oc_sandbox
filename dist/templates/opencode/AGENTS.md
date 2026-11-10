@@ -1,12 +1,12 @@
 When reporting information to me, be extremely concise and sacrifice grammar for the sake of concision.
 When changing public-facing behavior, check README.md to see if the documentation needs updating.
 Check ./CONTEXT.md for terminology questions.
-When searching the codebase, use codebase-memory-mcp (project=home-dev-project).
+When searching the codebase, use codebase-memory-mcp (workspace=home-dev-workspace).
 
 ## Environment
 
 This agent runs inside a rootless Podman container.
-The only persistent directory is /home/dev/project.
+The only persistent directory is /home/dev/workspace.
 
 ## Simplicity First
 

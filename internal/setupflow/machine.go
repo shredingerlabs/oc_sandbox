@@ -1,7 +1,7 @@
 // Package setupflow is the Go state machine driving the first-run setup
-// pipeline inside the project container (per the hybrid decision #57 and
-// the configure-project extraction #58/#67): container start → clone (for
-// project_source "cloned") → CBM configuration → skills setup.
+// pipeline inside the workspace container (per the hybrid decision #57 and
+// the configure-workspace extraction #58/#67): container start → clone (for
+// workspace_source "cloned") → CBM configuration → skills setup.
 //
 // The machine itself is podman-independent: all container-facing work
 // goes through the Stager seam, so tests inject fake stage runners and
@@ -69,7 +69,7 @@ const (
 	OptExit      = "Exit"
 )
 
-// Deps injects the data surfaces: project home, registered project root,
+// Deps injects the data surfaces: workspace home, registered workspace root,
 // the registry (repo_url mirror) and the stage runner.
 type Deps struct {
 	Home   string
@@ -106,12 +106,12 @@ type Machine struct {
 	plan    []Stage // remaining stages, plan[0] is the current one
 	phase   Phase
 	lastErr error
-	cloned  bool // project_source == "cloned" (checklist rendering)
+	cloned  bool // workspace_source == "cloned" (checklist rendering)
 }
 
 // NewMachine builds the machine from the stored state (resumable
 // recovery): the plan contains only stages whose sandbox flag is still
-// false. A project with setup_complete true is done immediately.
+// false. A workspace with setup_complete true is done immediately.
 func NewMachine(d Deps) (*Machine, error) {
 	cfg, err := sandboxcfg.Read(sandboxcfg.Path(d.Root))
 	if err != nil {
@@ -123,7 +123,7 @@ func NewMachine(d Deps) (*Machine, error) {
 		return m, nil
 	}
 	m.plan = m.buildPlan(cfg)
-	m.cloned = cfg.ProjectSource == "cloned"
+	m.cloned = cfg.WorkspaceSource == "cloned"
 	if len(m.plan) == 0 { // defensively complete without stages
 		m.phase = PhaseReady
 		return m, nil
@@ -136,7 +136,7 @@ func NewMachine(d Deps) (*Machine, error) {
 // is still false).
 func (m *Machine) buildPlan(cfg sandboxcfg.Config) []Stage {
 	plan := []Stage{StageStart}
-	if cfg.ProjectSource == "cloned" && !cfg.SetupCloneComplete {
+	if cfg.WorkspaceSource == "cloned" && !cfg.SetupCloneComplete {
 		plan = append(plan, StageClone)
 	}
 	if !cfg.SetupCBMComplete {
@@ -148,7 +148,7 @@ func (m *Machine) buildPlan(cfg sandboxcfg.Config) []Stage {
 	return plan
 }
 
-// Root returns the project root the flow operates on.
+// Root returns the workspace root the flow operates on.
 func (m *Machine) Root() string { return m.root }
 
 // Phase returns the current phase.
@@ -180,7 +180,7 @@ func (m *Machine) Title() string {
 // Err returns the error that stopped the flow (error phase).
 func (m *Machine) Err() error { return m.lastErr }
 
-// SourceCloned reports whether the project source is "cloned" (ADR 0016):
+// SourceCloned reports whether the workspace source is "cloned" (ADR 0016):
 // the checklist shows the clone stage row only then.
 func (m *Machine) SourceCloned() bool { return m.cloned }
 

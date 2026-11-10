@@ -13,7 +13,7 @@ import (
 func Card(rows []string) string { return cardFrame(rows, ColAccent) }
 
 // CardMuted renders the same frame with the unfocused border color:
-// unselected cards (project grid, build view) get a muted frame while
+// unselected cards (workspace grid, build view) get a muted frame while
 // the selected card keeps the accent border.
 func CardMuted(rows []string) string { return cardFrame(rows, ColBorder) }
 

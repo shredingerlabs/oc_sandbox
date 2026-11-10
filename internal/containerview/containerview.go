@@ -8,19 +8,19 @@
 // naming convention plus oc-proxy) and removes unused ones via podman
 // rmi behind the danger confirmation popup; in-use images are refused
 // with a remove-containers-first hint. Start lists the
-// registered projects with their running marker and starts the checked
-// containers via start.sh with each project's stored sandbox_config.json
+// registered workspaces with their running marker and starts the checked
+// containers via start.sh with each workspace's stored sandbox_config.json
 // — status "running" only after every container is verified live.
 // Delete lists every sandbox pod (podman pod ps, filtered by the
 // opencode-sandbox-pod- naming convention; the pod row stands for the
 // pod as a unit, so its member containers are not listed) alongside
 // legacy pod-less containers (podman ps -a, incl. exited/created
-// leftovers of gone projects) and removes stopped ones via podman pod
+// leftovers of gone workspaces) and removes stopped ones via podman pod
 // rm / podman rm — never force-killing a running unit (stop-first
 // refusal, the pre-op guard re-checks) — mirroring a stale registry
 // status after verified removal. Stop lists the live running
 // containers as a checklist and stops them as units — podman pod stop
-// when the project's pod exists, podman stop alone for pre-upgrade
+// when the workspace's pod exists, podman stop alone for pre-upgrade
 // containers without a pod — writing container_status="stopped" only
 // after the container is verified gone. All long operations launch
 // through the Launcher seam so the background-task manager (#82) can
@@ -42,7 +42,7 @@ import (
 
 	"github.com/shredingerlabs/oc-sandbox/internal/cmdrun"
 	"github.com/shredingerlabs/oc-sandbox/internal/discovery"
-	"github.com/shredingerlabs/oc-sandbox/internal/openproject"
+	"github.com/shredingerlabs/oc-sandbox/internal/openworkspace"
 	"github.com/shredingerlabs/oc-sandbox/internal/registry"
 	"github.com/shredingerlabs/oc-sandbox/internal/sandboxcfg"
 	"github.com/shredingerlabs/oc-sandbox/internal/shell"
@@ -102,10 +102,10 @@ type PodsContainersMsg struct {
 	Containers []discovery.ContainerState
 }
 
-// ProjectsMsg carries the ordered registry projects back from a
-// refresh cmd (Start tab rows, Delete project-name echo).
-type ProjectsMsg struct {
-	Projects []registry.Project
+// WorkspacesMsg carries the ordered registry workspaces back from a
+// refresh cmd (Start tab rows, Delete workspace-name echo).
+type WorkspacesMsg struct {
+	Projects []registry.Workspace
 	Err      string
 }
 
@@ -252,28 +252,28 @@ type Model struct {
 	Launch           Launcher
 	Queue            *taskmgr.Manager
 
-	opID        int    // view-assigned handle echoed in DoneMsg/LineEvent filters
-	opKey       string // queue key of the in-flight op (id-disambiguation)
-	sub         int
-	buildChk    checklist
-	imgChk      checklist
-	startChk    checklist
-	stopChk     checklist
-	delChk      checklist
-	editions    []string
-	discovErr   string
-	imgOK       map[string]bool          // cached image-existence per edition (Build markers)
-	images      []discovery.SandboxImage // sandbox-family images (Delete Images rows)
-	imgRefs     []string                 // container image refs (Delete Images use markers)
-	projects    []registry.Project
-	projectsErr string
-	running     []string
-	containers  []discovery.ContainerState
-	pods        []discovery.PodState // sandbox pods (Delete tab rows)
-	log         shell.LogPane
-	opKind      string // "" idle, "build" / "start" / "stop" / "delete" while an op runs
-	toast       string
-	confirm     shell.Confirm // shared confirmation popup (ADR-0021)
+	opID          int    // view-assigned handle echoed in DoneMsg/LineEvent filters
+	opKey         string // queue key of the in-flight op (id-disambiguation)
+	sub           int
+	buildChk      checklist
+	imgChk        checklist
+	startChk      checklist
+	stopChk       checklist
+	delChk        checklist
+	editions      []string
+	discovErr     string
+	imgOK         map[string]bool          // cached image-existence per edition (Build markers)
+	images        []discovery.SandboxImage // sandbox-family images (Delete Images rows)
+	imgRefs       []string                 // container image refs (Delete Images use markers)
+	workspaces    []registry.Workspace
+	workspacesErr string
+	running       []string
+	containers    []discovery.ContainerState
+	pods          []discovery.PodState // sandbox pods (Delete tab rows)
+	log           shell.LogPane
+	opKind        string // "" idle, "build" / "start" / "stop" / "delete" while an op runs
+	toast         string
+	confirm       shell.Confirm // shared confirmation popup (ADR-0021)
 
 	// Hit rects, stored at render time in screen space (regression
 	// tests pin them). rowKeys[i] is the selection key of rowRects[i].
@@ -363,8 +363,8 @@ func (m *Model) keys(t int) []string {
 		}
 		return tags
 	case TabStart:
-		names := make([]string, 0, len(m.projects))
-		for _, p := range m.projects {
+		names := make([]string, 0, len(m.workspaces))
+		for _, p := range m.workspaces {
 			names = append(names, registry.ContainerName(p.ContainerID))
 		}
 		return names
@@ -473,16 +473,16 @@ func (m *Model) refreshProjects() tea.Cmd {
 	reg := m.Registry
 	return func() tea.Msg {
 		if reg == nil {
-			return ProjectsMsg{}
+			return WorkspacesMsg{}
 		}
 		ps, err := reg.AllOrdered()
 		switch {
 		case errors.Is(err, registry.ErrNotFound):
-			return ProjectsMsg{} // no projects.json yet: a clean empty list
+			return WorkspacesMsg{} // no workspaces.json yet: a clean empty list
 		case err != nil:
-			return ProjectsMsg{Err: "Could not read the project registry: " + err.Error()}
+			return WorkspacesMsg{Err: "Could not read the workspace registry: " + err.Error()}
 		}
-		return ProjectsMsg{Projects: ps}
+		return WorkspacesMsg{Projects: ps}
 	}
 }
 
@@ -547,10 +547,10 @@ func (m *Model) Update(msg tea.Msg) tea.Cmd {
 		m.delChk.follow.Arm()
 		m.delChk.follow.Force()
 		return nil
-	case ProjectsMsg:
-		m.projects, m.projectsErr = msg.Projects, msg.Err
+	case WorkspacesMsg:
+		m.workspaces, m.workspacesErr = msg.Projects, msg.Err
 		purge(&m.startChk, m.keys(TabStart))
-		clampSel(&m.startChk, len(m.projects))
+		clampSel(&m.startChk, len(m.workspaces))
 		m.startChk.follow.Arm()
 		m.startChk.follow.Force()
 		return nil
@@ -776,9 +776,9 @@ func (m *Model) launchBuild() tea.Cmd {
 	})
 }
 
-// startStart runs the stored-config start op for the checked projects:
+// startStart runs the stored-config start op for the checked workspaces:
 // already-running containers are reused, the rest run start.sh with the
-// values from the project's sandbox_config.json (openproject.StartArgs,
+// values from the workspace's sandbox_config.json (openworkspace.StartArgs,
 // --detach). Registry writes "running" only after every checked
 // container is verified live against a fresh podman ps (data map §3).
 func (m *Model) startStart() tea.Cmd {
@@ -796,12 +796,12 @@ func (m *Model) startStart() tea.Cmd {
 	m.toast = fmt.Sprintf("starting %d container(s)…", len(names))
 	run, script, reg := m.Run, m.StartScript, m.Registry
 	return m.launch(fmt.Sprintf("starting %d container(s)", len(names)), keyStart, func(emit func(string)) error {
-		byName := make(map[string]registry.Project, len(names))
+		byName := make(map[string]registry.Workspace, len(names))
 		for _, name := range names {
 			id := strings.TrimPrefix(name, registry.ContainerName(""))
 			p, err := reg.ByID(id)
 			if err != nil {
-				return fmt.Errorf("project for %s is not registered", name)
+				return fmt.Errorf("workspace for %s is not registered", name)
 			}
 			byName[name] = p
 		}
@@ -815,17 +815,17 @@ func (m *Model) startStart() tea.Cmd {
 			if err != nil {
 				return fmt.Errorf("cannot read sandbox_config.json for %s: %v", name, err)
 			}
-			if !openproject.ValidModes(cfg.ContainerModes) {
+			if !openworkspace.ValidModes(cfg.ContainerModes) {
 				return errors.New("offline and cbm_ui are mutually exclusive — fix settings first")
 			}
-			if !openproject.ValidSearchCombination(cfg.SearchMode, cfg.ContainerModes, cfg.UseProxy) {
+			if !openworkspace.ValidSearchCombination(cfg.SearchMode, cfg.ContainerModes, cfg.UseProxy) {
 				return errors.New("searxng search requires network and no proxy (ADR 0026) — fix settings first")
 			}
 			if !discovery.ImageExists(run, cfg.ContainerEdition) {
 				return fmt.Errorf("image opencode-sandbox-%s is not built yet", cfg.ContainerEdition)
 			}
 			emit("==> " + name)
-			args := openproject.StartArgs(p.Path, cfg.ContainerEdition, p.ContainerID, cfg.ContainerModes, cfg.StartOption, cfg.UseProxy, cfg.SearchMode)
+			args := openworkspace.StartArgs(p.Path, cfg.ContainerEdition, p.ContainerID, cfg.ContainerModes, cfg.StartOption, cfg.UseProxy, cfg.SearchMode)
 			out, err := run.Output("bash", append([]string{script}, args...)...)
 			for _, l := range cmdrun.Lines(out) {
 				emit(l)
@@ -871,7 +871,7 @@ func (m *Model) startStop() tea.Cmd {
 	run, reg := m.Run, m.Registry
 	return m.launch(fmt.Sprintf("stopping %d container(s)", len(names)), "cv-stop", func(emit func(string)) error {
 		for _, name := range names {
-			// pod-per-project (#125): a container running inside a pod
+			// pod-per-workspace (#125): a container running inside a pod
 			// takes its companions down with it — stop the pod as the
 			// unit; pre-upgrade containers without a pod stop alone.
 			pod := registry.PodName(registry.ContainerID(name))
@@ -908,7 +908,7 @@ func (m *Model) startStop() tea.Cmd {
 			id := strings.TrimPrefix(name, registry.ContainerName(""))
 			p, err := reg.ByID(id)
 			if err != nil {
-				continue // not a registry project
+				continue // not a registry workspace
 			}
 			if err := reg.UpdateStatus(p.Path, "stopped"); err != nil {
 				return err
@@ -1065,11 +1065,11 @@ func (m *Model) launchDelete() tea.Cmd {
 			return nil
 		}
 		for _, name := range names {
-			// registry reconciliation stays keyed to the project
+			// registry reconciliation stays keyed to the workspace
 			// container name — pod rows and container rows share the id
 			p, err := reg.ByID(registry.ContainerID(name))
 			if err != nil {
-				continue // leftover of a gone project: nothing to mirror
+				continue // leftover of a gone workspace: nothing to mirror
 			}
 			if p.ContainerStatus != "stopped" {
 				if err := reg.UpdateStatus(p.Path, "stopped"); err != nil {
@@ -1280,7 +1280,7 @@ func (m *Model) Body(width, height int) string {
 			"no sandbox images found", "Delete")
 	case TabStart:
 		lines = m.checklistBody(width, height, m.rows(TabStart, width), &m.startChk, 1,
-			m.projectsBanner(), "Start")
+			m.workspacesBanner(), "Start")
 	case TabStop:
 		lines = m.checklistBody(width, height, m.rows(TabStop, width), &m.stopChk, 1,
 			"no containers running", "Stop")
@@ -1295,12 +1295,12 @@ func (m *Model) Body(width, height int) string {
 	return body
 }
 
-// projectsBanner is the Start tab's empty-state / loud-error text.
-func (m *Model) projectsBanner() string {
-	if m.projectsErr != "" {
-		return m.projectsErr
+// workspacesBanner is the Start tab's empty-state / loud-error text.
+func (m *Model) workspacesBanner() string {
+	if m.workspacesErr != "" {
+		return m.workspacesErr
 	}
-	return "no projects registered"
+	return "no workspaces registered"
 }
 
 // buildBody renders the edition checklist (loud discovery error
@@ -1421,10 +1421,10 @@ func (m *Model) rows(t, width int) []chkRow {
 			})
 		}
 		// the shared SearXNG infra image: non-edition row (ADR 0026),
-		// not offered as a project edition by runtime detection
+		// not offered as a workspace edition by runtime detection
 		rows = append(rows, chkRow{key: discovery.SearxngImageTag,
 			main: shell.StyleFieldLabel.Render("SearXNG") + m.imageMarker(discovery.SearxngImageTag),
-			sub:  shell.StyleMutedAlt.Render("shared SearXNG web search (projects with search mode searxng)"),
+			sub:  shell.StyleMutedAlt.Render("shared SearXNG web search (workspaces with search mode searxng)"),
 		})
 		return rows
 	case TabImages:
@@ -1436,8 +1436,8 @@ func (m *Model) rows(t, width int) []chkRow {
 		}
 		return rows
 	case TabStart:
-		rows := make([]chkRow, 0, len(m.projects))
-		for _, p := range m.projects {
+		rows := make([]chkRow, 0, len(m.workspaces))
+		for _, p := range m.workspaces {
 			name := registry.ContainerName(p.ContainerID)
 			main := truncate(p.Name, 34) + "  " +
 				shell.StyleMutedAlt.Render(truncate(name, 44)) + m.runningMarker(name)
@@ -1448,7 +1448,7 @@ func (m *Model) rows(t, width int) []chkRow {
 		rows := make([]chkRow, 0, len(m.running))
 		for _, name := range m.running {
 			main := truncate(name, 44)
-			if p, err := m.projectFor(name); err == nil {
+			if p, err := m.workspaceFor(name); err == nil {
 				main = truncate(p.Name, 34) + "  " + shell.StyleMutedAlt.Render(truncate(name, 44))
 			}
 			rows = append(rows, chkRow{key: name, main: truncate(main, width-4) + m.runningMarker(name)})
@@ -1458,14 +1458,14 @@ func (m *Model) rows(t, width int) []chkRow {
 		rows := make([]chkRow, 0, len(m.pods)+len(m.containers))
 		for _, p := range m.pods {
 			main := truncate(p.Name, 44)
-			if po, err := m.projectFor(registry.ContainerName(registry.ContainerID(p.Name))); err == nil {
+			if po, err := m.workspaceFor(registry.ContainerName(registry.ContainerID(p.Name))); err == nil {
 				main += "  " + shell.StyleMutedAlt.Render(truncate(po.Name, 24))
 			}
 			rows = append(rows, chkRow{key: p.Name, main: truncate(main, width-4) + podStateMarker(p)})
 		}
 		for _, c := range m.containers {
 			main := truncate(c.Name, 44)
-			if p, err := m.projectFor(c.Name); err == nil {
+			if p, err := m.workspaceFor(c.Name); err == nil {
 				main += "  " + shell.StyleMutedAlt.Render(truncate(p.Name, 24))
 			}
 			main += stateMarker(c)
@@ -1529,7 +1529,7 @@ func podStateMarker(p discovery.PodState) string {
 }
 
 // deletePodMembers drops pod infra containers (opencode-sandbox-pod-…
-// hosts) and project containers represented by their pod row
+// hosts) and workspace containers represented by their pod row
 // (pod-as-unit): the pod row is the delete tab's unit for them.
 func deletePodMembers(all []discovery.ContainerState, pods []discovery.PodState) []discovery.ContainerState {
 	podSet := make(map[string]bool, len(pods))
@@ -1549,11 +1549,11 @@ func deletePodMembers(all []discovery.ContainerState, pods []discovery.PodState)
 	return out
 }
 
-// projectFor resolves the registry project behind a container name;
+// workspaceFor resolves the registry workspace behind a container name;
 // ErrNotFound for unregistered containers.
-func (m *Model) projectFor(name string) (registry.Project, error) {
+func (m *Model) workspaceFor(name string) (registry.Workspace, error) {
 	if m.Registry == nil {
-		return registry.Project{}, registry.ErrNotFound
+		return registry.Workspace{}, registry.ErrNotFound
 	}
 	return m.Registry.ByID(strings.TrimPrefix(name, registry.ContainerName("")))
 }

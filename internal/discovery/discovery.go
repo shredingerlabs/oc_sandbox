@@ -55,8 +55,8 @@ func Editions(dockerfile, dockerfileCustom string) ([]string, error) {
 }
 
 // SelectableEditions returns the editions offered in the menus that select a
-// project's edition: the raw stage list without `base`, whose stage is the
-// parent image other editions build FROM — infrastructure, not project
+// workspace's edition: the raw stage list without `base`, whose stage is the
+// parent image other editions build FROM — infrastructure, not workspace
 // material (ADR 0019 amendment). Container center Build tab, build-container.sh
 // and start.sh keep using Editions.
 func SelectableEditions(dockerfile, dockerfileCustom string) ([]string, error) {
@@ -266,7 +266,7 @@ type PodState struct {
 
 // AllPods lists every sandbox pod in any state (`podman pod ps`,
 // filtered by the pod naming convention opencode-sandbox-pod-), which
-// includes exited pods of gone projects. Errors yield an empty list
+// includes exited pods of gone workspaces. Errors yield an empty list
 // (podman-output based, like the podman ps adapters).
 func AllPods(run cmdrun.Runner) []PodState {
 	out, err := run.Output("podman", "pod", "ps", "--format", "{{.Names}}\t{{.Status}}")
@@ -306,12 +306,12 @@ type SandboxImage struct {
 
 // SearxngImageTag is the fixed tag of the shared SearXNG search image:
 // an infra image like oc-proxy, built from dist/searxng/Dockerfile and
-// never offered as a project edition.
+// never offered as a workspace edition.
 const SearxngImageTag = "oc-searxng"
 
 // ProxyImageTag is the fixed tag of the shared squid proxy image: an
 // infra image like oc-searxng, built from proxy/Dockerfile and never
-// offered as a project edition.
+// offered as a workspace edition.
 const ProxyImageTag = "oc-proxy"
 
 // BaseImageRef is the bare image ref of the family's infrastructure

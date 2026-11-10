@@ -27,7 +27,7 @@ type Ops interface {
 	// up an existing destination file before overwriting it.
 	ExportSnapshot(home, src, dest string) error
 	// RestoreConfig determines the active file from the backup's
-	// basename (projects.json.* / global_config.json.*), validates that
+	// basename (workspaces.json.* / global_config.json.*), validates that
 	// the backup is JSON, creates the safety backup of the active file,
 	// then writes the restore via the no-backup path — never through
 	// rotation. Failure leaves the active file untouched.
@@ -99,14 +99,14 @@ func (ops DefaultOps) RestoreConfig(home, backupPath string) (string, error) {
 }
 
 // restoreTarget maps a backup basename to the active file it restores:
-// projects.json.* → projects.json, global_config.json.* likewise.
+// workspaces.json.* → workspaces.json, global_config.json.*/catalogs.json.*
+// likewise.
 func restoreTarget(backupPath string) string {
 	base := filepath.Base(backupPath)
-	if base == "projects.json" || strings.HasPrefix(base, "projects.json.") {
-		return "projects.json"
-	}
-	if base == "global_config.json" || strings.HasPrefix(base, "global_config.json.") {
-		return "global_config.json"
+	for _, name := range []string{"workspaces.json", "global_config.json", "catalogs.json"} {
+		if base == name || strings.HasPrefix(base, name+".") {
+			return name
+		}
 	}
 	return base
 }

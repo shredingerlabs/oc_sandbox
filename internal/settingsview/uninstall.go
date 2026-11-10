@@ -23,7 +23,7 @@ func (v *View) uninstallPane(width int) ([]string, []hitRow, int) {
 	}
 	rows := []string{
 		shell.StyleWarn.Render("This removes the oc-sandbox installation."),
-		muted("Project roots are never touched."),
+		muted("Workspace roots are never touched."),
 		"",
 	}
 	if len(v.unRunning) > 0 {

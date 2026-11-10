@@ -1,4 +1,4 @@
-// Design C ("C dialog"): New Project as a centered bordered dialog —
+// Design C ("C dialog"): New Workspace as a centered bordered dialog —
 // source tabs inside the box, label-above-value fields, Create button
 // bottom-right. Container: Build/Stop as tabs across the top (no left
 // menu); build = 2-column edition cards; stop = container rows with
@@ -165,10 +165,10 @@ func (d *designC) ViewNP(width, height int, h help.Model, k keyMap) string {
 	d.boxX = x0
 	// source tabs in the sub-menu row under the header menu (feedback 3)
 	xTabs := lipgloss.Width(styleHeaderTitle.Render("oc-sandbox"))
-	tabs, offs := subTabs([]string{"Blank Project", "From URL"}, s.source)
+	tabs, offs := subTabs([]string{"Blank Workspace", "From URL"}, s.source)
 	tabsRow := strings.Repeat(" ", xTabs-1) + tabs
 	d.tabsRects = [2]rect{
-		{x: xTabs, y: 2, w: lipgloss.Width("Blank Project") + 2, h: 1},
+		{x: xTabs, y: 2, w: lipgloss.Width("Blank Workspace") + 2, h: 1},
 		{x: xTabs + offs[1], y: 2, w: lipgloss.Width("From URL") + 2, h: 1},
 	}
 	rows := []string{}
@@ -182,7 +182,7 @@ func (d *designC) ViewNP(width, height int, h help.Model, k keyMap) string {
 	}
 	// toast row is always reserved so hit rects never shift
 	rows = append(rows, styleWarn.Render(s.toast))
-	btn := button("Create Project", s.fields[s.focus] == fCreate)
+	btn := button("Create Workspace", s.fields[s.focus] == fCreate)
 	rows = append(rows, btn) // right-aligned after the card width is known
 
 	// card as wide as the widest content (no "…" truncation)
@@ -208,7 +208,7 @@ func (d *designC) ViewNP(width, height int, h help.Model, k keyMap) string {
 	d.npBtn = rect{x: btnX, y: 5 + len(rows), w: lipgloss.Width(btn), h: 1}
 	rows[len(rows)-1] = alignRight(maxw, btn)
 
-	inner := lipgloss.NewStyle().Width(boxW - 2).Padding(0, 1).Render(strings.Join(rows, "\n"))
+	inner := lipgloss.NewStyle().Width(boxW-2).Padding(0, 1).Render(strings.Join(rows, "\n"))
 	box := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(colAccent).
 		Width(boxW).MaxHeight(bodyH).Render(inner)
 	body := tabsRow + "\n\n" + padLeft(x0, box)
@@ -220,7 +220,6 @@ func (d *designC) ViewNP(width, height int, h help.Model, k keyMap) string {
 	body = lipgloss.NewStyle().Width(width).MaxWidth(width).Render(body)
 	return shell(width, height, 1, body, h, k)
 }
-
 
 // dlgValue renders a field's value line; select fields render ALL options
 // in fixed order — ● current, ○ others, no reordering, no "·" separators —
@@ -354,7 +353,7 @@ func (d *designC) UpdateCT(msg tea.Msg, width, height int) {
 
 func (d *designC) ViewCT(width, height int, h help.Model, k keyMap) string {
 	bodyH := height - 3
-	// align the Build/Stop sub-menu under "Open Project" in the top menu:
+	// align the Build/Stop sub-menu under "Open Workspace" in the top menu:
 	// the header starts with the padded "oc-sandbox" title, so xTabs is its
 	// printed width. PaddingLeft(1) already puts content at x=1; prepend the
 	// difference to the tab row only.
@@ -417,7 +416,7 @@ func (d *designC) ctContent(width int) []string {
 		}
 		for r := 0; r*cols < len(cards); r++ {
 			end := min((r+1)*cols, len(cards))
-			rowCards := cards[r*cols:end]
+			rowCards := cards[r*cols : end]
 			rows = append(rows, lipgloss.JoinHorizontal(lipgloss.Top, rowCards...))
 			for c := range rowCards {
 				d.chipRects = append(d.chipRects, rect{x: 1 + c*cardW, y: 4 + r*cardH, w: cardW, h: cardH})
@@ -442,7 +441,6 @@ func (d *designC) ctContent(width int) []string {
 	}
 	return rows
 }
-
 
 func editionCard(title string, selected bool) string {
 	inner := []string{title, styleMutedAlt.Render("not built (fake)"), ""}

@@ -9,7 +9,7 @@ import (
 
 // Confirm is the shared confirmation popup (ADR-0021): a centered modal
 // over the body region confirming triggered actions before they run —
-// Create Project (content summary), Restore Config, Build (idle only),
+// Create Workspace (content summary), Restore Config, Build (idle only),
 // and Uninstall (after the typed confirm; red confirm, toggles echoed).
 //
 // Focus model: focus starts on Cancel; left/right/tab switch buttons,

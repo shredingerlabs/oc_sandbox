@@ -12,7 +12,7 @@ import (
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/shredingerlabs/oc-sandbox/internal/newproject"
+	"github.com/shredingerlabs/oc-sandbox/internal/newworkspace"
 	"github.com/shredingerlabs/oc-sandbox/internal/sandboxcfg"
 	"github.com/shredingerlabs/oc-sandbox/internal/shell"
 )
@@ -29,7 +29,7 @@ const (
 
 var updateViewGolden = flag.Bool("update-view-goldens", false, "rewrite view golden files")
 
-// flow is one wired view fixture: registered project + sandbox config +
+// flow is one wired view fixture: registered workspace + sandbox config +
 // fake stager behind StagerFor (the tests of an in-package fixture).
 type flow struct {
 	t    *testing.T
@@ -85,7 +85,7 @@ func (f *flow) key(k string) {
 // hookup sends the post-create handoff and drives it to a settle point.
 func (f *flow) hookup(root string) {
 	f.t.Helper()
-	consumed, cmd := f.v.HookMsg(newproject.CreatedMsg{Path: root})
+	consumed, cmd := f.v.HookMsg(newworkspace.CreatedMsg{Path: root})
 	if !consumed {
 		f.t.Fatal("HookMsg must consume the CreatedMsg handoff")
 	}
@@ -372,7 +372,7 @@ func TestChangeURLEscReturnsToMenu(t *testing.T) {
 }
 
 // Exit keeps partial progress and shows the aborted screen; Enter (or
-// click) on Done hands the shell back to Open Project (NavRequestMsg).
+// click) on Done hands the shell back to Open Workspace (NavRequestMsg).
 func TestAbortExitAndContinueHanding(t *testing.T) {
 	f := newFlow(t, "empty")
 	failOnOnce(f, StageStart, stageErr{"start failed"})

@@ -49,9 +49,9 @@ func (f *fakeView) TextFocused() bool        { return f.textFocused }
 func newTestModel() Model {
 	return New(
 		&fakeView{name: "one", subTabs: []string{"Alpha Tab", "Beta Tab"}},
-		&fakeView{name: "two", subTabs: []string{"Blank Project", "From URL"}},
+		&fakeView{name: "two", subTabs: []string{"Blank Workspace", "From URL"}},
 		&fakeView{name: "three", subTabs: []string{"Build Container", "Stop Container"}},
-		&fakeView{name: "four", subTabs: []string{"Import project", "Export Config"}},
+		&fakeView{name: "four", subTabs: []string{"Import workspace", "Export Config"}},
 	)
 }
 
@@ -111,7 +111,7 @@ func TestViewRendersChrome(t *testing.T) {
 	if len(lines) != 41 {
 		t.Fatalf("view has %d lines, want 41", len(lines))
 	}
-	if !strings.Contains(lines[0], "oc-sandbox") || !strings.Contains(lines[0], "Open Project") {
+	if !strings.Contains(lines[0], "oc-sandbox") || !strings.Contains(lines[0], "Open Workspace") {
 		t.Errorf("header row = %q", lines[0])
 	}
 	if strings.TrimRight(lines[1], " ") != strings.Repeat("─", 99) { // full-window bg pads the last cell
@@ -124,7 +124,7 @@ func TestViewRendersChrome(t *testing.T) {
 		t.Errorf("body does not start at row 3: %q", lines[3])
 	}
 	footer := lines[len(lines)-1]
-	if !strings.Contains(footer, "1 open · 2 new project") || !strings.Contains(footer, "quit") {
+	if !strings.Contains(footer, "1 open · 2 new workspace") || !strings.Contains(footer, "quit") {
 		t.Errorf("footer = %q", footer)
 	}
 	// body gets height-4 rows
@@ -162,8 +162,8 @@ func TestSubTabRectsStableAcrossSizesAndViews(t *testing.T) {
 		t.Errorf("sub-tab rects moved with window size: %v vs %v", m2.SubTabRects(), rects)
 	}
 	m3, _ := step(resized(newTestModel(), 120, 41), keyMsg("2"))
-	want := []Rect{{X: 1, Y: 2, W: Width("Blank Project") + 2, H: 1},
-		{X: 1 + Width("Blank Project") + 2, Y: 2, W: Width("From URL") + 2, H: 1}}
+	want := []Rect{{X: 1, Y: 2, W: Width("Blank Workspace") + 2, H: 1},
+		{X: 1 + Width("Blank Workspace") + 2, Y: 2, W: Width("From URL") + 2, H: 1}}
 	if fmt.Sprint(m3.SubTabRects()) != fmt.Sprint(want) {
 		t.Errorf("view 2 sub-tab rects = %v, want %v", m3.SubTabRects(), want)
 	}

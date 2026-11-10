@@ -58,9 +58,9 @@ func TestExportThroughSharedQueue(t *testing.T) {
 	home := homeFixture(t)
 	run := fakeRunner()
 	v, mgr := queueSettings(t, home, run)
-	pp := config.Paths{Home: home}.ProjectsPath()
-	writeFile(t, pp, "{\n  \"projects\": [],\n  \"version\": \"1.0\"\n}")
-	dest := filepath.Join(home, "exported-projects.json")
+	pp := config.Paths{Home: home}.WorkspacesPath()
+	writeFile(t, pp, "{\n  \"workspaces\": [],\n  \"version\": \"1.0\"\n}")
+	dest := filepath.Join(home, "exported-workspaces.json")
 	v.Update(shell.SubTabMsg{Index: subExport})
 	clickLabel(t, v, "Export Config…")
 	clearField(v, len(home)+129)
@@ -75,7 +75,7 @@ func TestExportThroughSharedQueue(t *testing.T) {
 	if !strings.Contains(v.toast, "Exported") {
 		t.Fatalf("continuation toast missing: %q", v.toast)
 	}
-	if got := readFile(t, dest); !strings.Contains(got, "projects") {
+	if got := readFile(t, dest); !strings.Contains(got, "workspaces") {
 		t.Fatalf("snapshot not written: %q", got)
 	}
 }
@@ -84,10 +84,10 @@ func TestRestoreThroughSharedQueueWritesActiveFile(t *testing.T) {
 	home := homeFixture(t)
 	run := fakeRunner()
 	v, mgr := queueSettings(t, home, run)
-	pp := config.Paths{Home: home}.ProjectsPath()
-	const before = "{\n    \"projects\": []\n  }"
+	pp := config.Paths{Home: home}.WorkspacesPath()
+	const before = "{\n    \"workspaces\": []\n  }"
 	writeFile(t, pp, before)
-	writeBackup(t, home, "projects.json.20260101T000000000.aaa111", "{\n  \"projects\": [\n    { \"restored\": true }\n  ],\n  \"version\": \"1.0\"\n}")
+	writeBackup(t, home, "workspaces.json.20260101T000000000.aaa111", "{\n  \"workspaces\": [\n    { \"restored\": true }\n  ],\n  \"version\": \"1.0\"\n}")
 	v.Update(shell.SubTabMsg{Index: subRestore})
 	cmd := v.doRestore() // restore action directly (keyboard parity tested elsewhere)
 	if !mgr.BusyKey("settings") {

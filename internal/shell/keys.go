@@ -25,8 +25,8 @@ type KeyMap struct {
 // NewKeys returns the default binding table.
 func NewKeys() KeyMap {
 	return KeyMap{
-		View1:    key.NewBinding(key.WithKeys("1"), key.WithHelp("1", "open project")),
-		View2:    key.NewBinding(key.WithKeys("2"), key.WithHelp("2", "new project")),
+		View1:    key.NewBinding(key.WithKeys("1"), key.WithHelp("1", "open workspace")),
+		View2:    key.NewBinding(key.WithKeys("2"), key.WithHelp("2", "new workspace")),
 		View3:    key.NewBinding(key.WithKeys("3"), key.WithHelp("3", "container")),
 		View4:    key.NewBinding(key.WithKeys("4"), key.WithHelp("4", "settings")),
 		Up:       key.NewBinding(key.WithKeys("up", "k"), key.WithHelp("↑/k", "select up")),

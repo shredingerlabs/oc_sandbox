@@ -21,8 +21,8 @@ func TestLayoutForMirrorsInstallLayout(t *testing.T) {
 		InstallRoot:      root,
 		StartScript:      root + "/scripts/start.sh",
 		BuildScript:      root + "/scripts/build-container.sh",
-		InitScript:       root + "/scripts/init-project.sh",
-		ConfigureScript:  root + "/scripts/configure-project.sh",
+		InitScript:       root + "/scripts/init-workspace.sh",
+		ConfigureScript:  root + "/scripts/configure-workspace.sh",
 		UninstallScript:  root + "/scripts/uninstall.sh",
 		Dockerfile:       root + "/Dockerfile",
 		DockerfileCustom: root + "/Dockerfile.custom",
@@ -40,6 +40,6 @@ func TestComposeWiresSharedTaskQueue(t *testing.T) {
 	m, _ := a.Model.Update(tea.WindowSizeMsg{Width: 80, Height: 41})
 	a.Model = m.(shell.Model)
 	if a.Model.TooSmall() || a.Model.Active() != 0 {
-		t.Fatalf("composed root too small / not on Open Project (active %d)", a.Model.Active())
+		t.Fatalf("composed root too small / not on Open Workspace (active %d)", a.Model.Active())
 	}
 }

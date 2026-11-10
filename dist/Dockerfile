@@ -66,14 +66,14 @@ RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
 # --- Non-root user -----------------------------------------------------------
 RUN userdel -r ubuntu \
     && useradd -m -s /bin/bash -u 1000 dev \
-    && mkdir -p /home/dev/.ssh /home/dev/project /home/dev/.git_local/glab-cli \
+    && mkdir -p /home/dev/.ssh /home/dev/workspace /home/dev/.git_local/glab-cli \
               /home/dev/.config/opencode /home/dev/.local/share/opencode /home/dev/.cache/opencode \
     && chown -R dev:dev /home/dev
 
 USER dev
-WORKDIR /home/dev/project
+WORKDIR /home/dev/workspace
 
-RUN git config --global --add safe.directory /home/dev/project
+RUN git config --global --add safe.directory /home/dev/workspace
 
 # =============================================================================
 # EDITION: web

@@ -26,7 +26,7 @@ var (
 	ColMuted    = lipgloss.Color("241") // non-current alternatives
 	ColCurrent  = lipgloss.Color("252") // current value
 	ColWarn     = lipgloss.Color("220") // toast / warnings
-	ColCardBg   = lipgloss.Color("0") // cards paint black, same as window
+	ColCardBg   = lipgloss.Color("0")   // cards paint black, same as window
 	ColCardFg   = lipgloss.Color("252")
 	ColHeaderBg = lipgloss.Color("0") // header menu paints black, same as window
 	ColFooterFg = lipgloss.Color("244")

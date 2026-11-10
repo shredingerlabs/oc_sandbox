@@ -1,21 +1,21 @@
-  ╭─────────────────────────────────────────────╮
-  │ Registers an existing sandbox project root  │
-  │ (strict structure check, nothing is moved). │
-  │                                             │
-  │ Project folder path                         │
-  │   ╭─────────────────────────────────╮       │
-  │   │ ~▌ │       │
-  │   ╰─────────────────────────────────╯       │
-  │                                             │
-  │ Folders — ~    │
-  │  ▶ .. (up one level)                        │
-  │    .config                                  │
-  │    other                                    │
-  │    roots                                    │
-  │    → Select this folder                     │
-  │                                             │
-  │   ╭──────────────────╮                      │
-  │   │  Import Project  │                      │
-  │   ╰──────────────────╯                      │
-  │                                             │
-  ╰─────────────────────────────────────────────╯
+  ╭──────────────────────────────────────────────╮
+  │ Registers an existing sandbox workspace root │
+  │ (strict structure check, nothing is moved).  │
+  │                                              │
+  │ Workspace folder path                        │
+  │   ╭─────────────────────────────────╮        │
+  │   │ ~▌ │        │
+  │   ╰─────────────────────────────────╯        │
+  │                                              │
+  │ Folders — ~     │
+  │  ▶ .. (up one level)                         │
+  │    .config                                   │
+  │    other                                     │
+  │    roots                                     │
+  │    → Select this folder                      │
+  │                                              │
+  │   ╭────────────────────╮                     │
+  │   │  Import Workspace  │                     │
+  │   ╰────────────────────╯                     │
+  │                                              │
+  ╰──────────────────────────────────────────────╯

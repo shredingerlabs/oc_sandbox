@@ -58,7 +58,7 @@ func psList(fake *cmdrun.Fake, running, all string) {
 	}
 }
 
-// addProject registers a project with a sandbox_config.json (edition
+// addProject registers a workspace with a sandbox_config.json (edition
 // + modes) and returns its container name.
 func addProject(t *testing.T, m *Model, name, edition string, extraModes ...string) string {
 	t.Helper()
@@ -66,14 +66,14 @@ func addProject(t *testing.T, m *Model, name, edition string, extraModes ...stri
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := m.Registry.CreateProjectsFile(); err != nil && !strings.Contains(err.Error(), "already exists") {
+	if err := m.Registry.CreateWorkspacesFile(); err != nil && !strings.Contains(err.Error(), "already exists") {
 		t.Fatal(err)
 	}
 	modes := append([]string{"skills"}, extraModes...)
 	if err := sandboxcfg.Create(m.Registry.Home, sandboxcfg.Path(root), edition, modes, "opencode", "gwdg-saia", sandboxcfg.SearchWebsearch); err != nil {
 		t.Fatal(err)
 	}
-	if err := m.Registry.AddProject(registry.AddRequest{Name: name, Path: root, GitTracking: "none"}); err != nil {
+	if err := m.Registry.AddWorkspace(registry.AddRequest{Name: name, Path: root, GitTracking: "none"}); err != nil {
 		t.Fatal(err)
 	}
 	p, err := m.Registry.ByPath(root)
@@ -177,13 +177,13 @@ func TestSubTabsOrder(t *testing.T) {
 			t.Fatalf("subtab %d = %q, want %q", i, items[i], w)
 		}
 	}
-	// switching to Start refreshes the running list + projects
+	// switching to Start refreshes the running list + workspaces
 	cmd := m.Update(shell.SubTabMsg{Index: TabStart})
 	runCmds(t, m, cmd)
 	if _, sel := m.SubTabs(); sel != 2 {
 		t.Fatalf("selected sub-tab = %d, want 2", sel)
 	}
-	// switching to Delete refreshes containers + projects
+	// switching to Delete refreshes containers + workspaces
 	cmd = m.Update(shell.SubTabMsg{Index: TabDelete})
 	runCmds(t, m, cmd)
 	if _, sel := m.SubTabs(); sel != 4 {
@@ -460,10 +460,10 @@ func TestStopTabGoldenAndRects(t *testing.T) {
 	name := registry.ContainerName(id)
 	other := registry.ContainerName("ffffffffffff")
 	psList(fake, name+"\n"+other+"\n", name+"\n"+other+"\n")
-	if err := reg.CreateProjectsFile(); err != nil {
+	if err := reg.CreateWorkspacesFile(); err != nil {
 		t.Fatal(err)
 	}
-	if err := reg.AddProject(registry.AddRequest{Name: "proj", Path: "/tmp/proj", GitTracking: "github"}); err != nil {
+	if err := reg.AddWorkspace(registry.AddRequest{Name: "proj", Path: "/tmp/proj", GitTracking: "github"}); err != nil {
 		t.Fatal(err)
 	}
 	runCmds(t, m, m.Update(shell.SubTabMsg{Index: TabStop}))
@@ -526,10 +526,10 @@ func TestStopOpVerifiedGoneWritesStatusAndInvocations(t *testing.T) {
 		}
 		return "", nil
 	}
-	if err := reg.CreateProjectsFile(); err != nil {
+	if err := reg.CreateWorkspacesFile(); err != nil {
 		t.Fatal(err)
 	}
-	if err := reg.AddProject(registry.AddRequest{Name: "proj", Path: "/tmp/proj", GitTracking: "github"}); err != nil {
+	if err := reg.AddWorkspace(registry.AddRequest{Name: "proj", Path: "/tmp/proj", GitTracking: "github"}); err != nil {
 		t.Fatal(err)
 	}
 	runCmds(t, m, m.Update(shell.SubTabMsg{Index: TabStop}))
@@ -566,10 +566,10 @@ func TestStopStatusNotWrittenWhenStillRunning(t *testing.T) {
 		}
 		return "", nil
 	}
-	if err := reg.CreateProjectsFile(); err != nil {
+	if err := reg.CreateWorkspacesFile(); err != nil {
 		t.Fatal(err)
 	}
-	if err := reg.AddProject(registry.AddRequest{Name: "proj", Path: "/tmp/proj", GitTracking: "github"}); err != nil {
+	if err := reg.AddWorkspace(registry.AddRequest{Name: "proj", Path: "/tmp/proj", GitTracking: "github"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := reg.UpdateStatus("/tmp/proj", "running"); err != nil {
@@ -602,7 +602,7 @@ func TestStopWithoutSelectionToasts(t *testing.T) {
 	}
 }
 
-// --- Stop tab: pod-per-project (#125) ---
+// --- Stop tab: pod-per-workspace (#125) ---
 
 // podPodman scripts `podman pod ps` (rows "name\tstatus") and
 // `podman pod exists` against a live name→status map.
@@ -655,10 +655,10 @@ func TestStopOpPodExistsStopsPod(t *testing.T) {
 		}
 		return stop(n, args)
 	}
-	if err := reg.CreateProjectsFile(); err != nil {
+	if err := reg.CreateWorkspacesFile(); err != nil {
 		t.Fatal(err)
 	}
-	if err := reg.AddProject(registry.AddRequest{Name: "proj", Path: "/tmp/proj", GitTracking: "github"}); err != nil {
+	if err := reg.AddWorkspace(registry.AddRequest{Name: "proj", Path: "/tmp/proj", GitTracking: "github"}); err != nil {
 		t.Fatal(err)
 	}
 	runCmds(t, m, m.Update(shell.SubTabMsg{Index: TabStop}))
@@ -711,10 +711,10 @@ func TestStopOpNoPodFallsBackToContainerStop(t *testing.T) {
 		}
 		return "", nil
 	}
-	if err := reg.CreateProjectsFile(); err != nil {
+	if err := reg.CreateWorkspacesFile(); err != nil {
 		t.Fatal(err)
 	}
-	if err := reg.AddProject(registry.AddRequest{Name: "proj", Path: "/tmp/proj", GitTracking: "github"}); err != nil {
+	if err := reg.AddWorkspace(registry.AddRequest{Name: "proj", Path: "/tmp/proj", GitTracking: "github"}); err != nil {
 		t.Fatal(err)
 	}
 	runCmds(t, m, m.Update(shell.SubTabMsg{Index: TabStop}))
@@ -742,7 +742,7 @@ func TestStartTabGoldenAndEmptyStates(t *testing.T) {
 	m, fake, _, _ := newFixture(t)
 	psList(fake, "", "")
 	runCmds(t, m, m.Update(shell.SubTabMsg{Index: TabStart}))
-	if got := body(m); !strings.Contains(got, "no projects registered") {
+	if got := body(m); !strings.Contains(got, "no workspaces registered") {
 		t.Fatalf("empty state missing:\n%s", got)
 	}
 	name := addProject(t, m, "alpha", "web", "hil_mode")
@@ -754,12 +754,12 @@ func TestStartTabGoldenAndEmptyStates(t *testing.T) {
 	}
 	// stopped container: no running marker
 	if strings.Contains(got, "● running") {
-		t.Errorf("stopped project shows running marker:\n%s", got)
+		t.Errorf("stopped workspace shows running marker:\n%s", got)
 	}
 }
 
 // TestStartSkipsRunningAndStartsStopped: a checked already-running
-// project reuses (no start.sh call), the stopped one starts.
+// workspace reuses (no start.sh call), the stopped one starts.
 func TestStartSkipsRunningAndStartsStopped(t *testing.T) {
 	m, fake, _, _ := newFixture(t)
 	liveName := addProject(t, m, "alpha", "web", "hil_mode")
@@ -774,7 +774,7 @@ func TestStartSkipsRunningAndStartsStopped(t *testing.T) {
 			return liveName + "\n", nil
 		case n == "bash" && args[0] == startScript:
 			if !strings.Contains(strings.Join(args, " "), filepath.Join(filepath.Dir(m.Dockerfile), "beta")) {
-				t.Errorf("start.sh called for a running project: %v", args)
+				t.Errorf("start.sh called for a running workspace: %v", args)
 			}
 			started = true
 			return "", nil
@@ -988,7 +988,7 @@ func TestDeleteRemovesStoppedAndMirrors(t *testing.T) {
 	}
 	runCmds(t, m, m.Update(shell.SubTabMsg{Index: TabDelete}))
 	m.Body(80, 22)
-	// deleted project names echo on the rows: select all (2 rows)
+	// deleted workspace names echo on the rows: select all (2 rows)
 	m.Update(mousePress(m.selAll.X, m.selAll.Y))
 	before := len(fake.Calls)
 	cmd := m.Update(mousePress(m.opBtn.X+2, m.opBtn.Y))
@@ -1030,10 +1030,10 @@ func TestDeleteNoSelectionToasts(t *testing.T) {
 	}
 }
 
-// --- Delete tab: pod-per-project (#125) ---
+// --- Delete tab: pod-per-workspace (#125) ---
 
 // TestDeleteTabListsPodsNotTheirContainers: pods show as rows with the
-// project echo, the project container inside a pod and the pod's infra
+// workspace echo, the workspace container inside a pod and the pod's infra
 // container do not (pod-as-unit); a pod-less legacy container keeps its row.
 func TestDeleteTabListsPodsNotTheirContainers(t *testing.T) {
 	m, fake, reg, _ := newFixture(t)
@@ -1049,10 +1049,10 @@ func TestDeleteTabListsPodsNotTheirContainers(t *testing.T) {
 		}
 		return podScript(n, args)
 	}
-	if err := reg.CreateProjectsFile(); err != nil {
+	if err := reg.CreateWorkspacesFile(); err != nil {
 		t.Fatal(err)
 	}
-	if err := reg.AddProject(registry.AddRequest{Name: "proj", Path: "/tmp/proj", GitTracking: "github"}); err != nil {
+	if err := reg.AddWorkspace(registry.AddRequest{Name: "proj", Path: "/tmp/proj", GitTracking: "github"}); err != nil {
 		t.Fatal(err)
 	}
 	runCmds(t, m, m.Update(shell.SubTabMsg{Index: TabDelete}))
@@ -1080,10 +1080,10 @@ func TestDeleteRefusesRunningPodWithStopHint(t *testing.T) {
 		}
 		return podScript(n, args)
 	}
-	if err := reg.CreateProjectsFile(); err != nil {
+	if err := reg.CreateWorkspacesFile(); err != nil {
 		t.Fatal(err)
 	}
-	if err := reg.AddProject(registry.AddRequest{Name: "proj", Path: "/tmp/proj", GitTracking: "github"}); err != nil {
+	if err := reg.AddWorkspace(registry.AddRequest{Name: "proj", Path: "/tmp/proj", GitTracking: "github"}); err != nil {
 		t.Fatal(err)
 	}
 	runCmds(t, m, m.Update(shell.SubTabMsg{Index: TabDelete}))
@@ -1103,16 +1103,16 @@ func TestDeleteRefusesRunningPodWithStopHint(t *testing.T) {
 // TestDeleteRemovesStoppedPodAsUnit pins the pod delete op: danger
 // popup ("pod: " row), `podman pod rm` (no force), verified gone
 // against a fresh pod list, stale registry status mirrored to the
-// project container name.
+// workspace container name.
 func TestDeleteRemovesStoppedPodAsUnit(t *testing.T) {
 	m, fake, reg, _ := newFixture(t)
 	root := filepath.Join(filepath.Dir(m.Dockerfile), "proj")
 	id := registry.ContainerIdentity(root)
 	pod := registry.PodName(id)
-	if err := reg.CreateProjectsFile(); err != nil {
+	if err := reg.CreateWorkspacesFile(); err != nil {
 		t.Fatal(err)
 	}
-	if err := reg.AddProject(registry.AddRequest{Name: "proj", Path: root, GitTracking: "github"}); err != nil {
+	if err := reg.AddWorkspace(registry.AddRequest{Name: "proj", Path: root, GitTracking: "github"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := reg.UpdateStatus(root, "running"); err != nil { // stale mirror

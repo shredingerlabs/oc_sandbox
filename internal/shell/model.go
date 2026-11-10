@@ -13,7 +13,7 @@ import (
 )
 
 // screen instead of the app. The recommended dimensions name the fully
-// fitting layout (Project settings: two project card columns
+// fitting layout (Workspace settings: two workspace card columns
 // beside the fully unfolded AI provider pane) that the startup
 // window-size escape grows narrow terminals toward (80x41).
 const (
@@ -28,21 +28,21 @@ const (
 type SubTabMsg struct{ Index int }
 
 // NavRequestMsg asks the root to switch the active center view (e.g. the
-// Settings import flow referring into the New Project wizard). Views emit
+// Settings import flow referring into the New Workspace wizard). Views emit
 // it as a tea.Cmd; the root consumes it so navigation stays a shell
 // concern, not a view-to-view call.
 type NavRequestMsg struct{ Index int }
 
 // RecoverMsg asks the first-run setup flow to resume setup for the
-// project at Path: the resumable recovery entry other views emit (e.g.
-// Open Project details on a project with setup_complete false). Like
+// workspace at Path: the resumable recovery entry other views emit (e.g.
+// Open Workspace details on a workspace with setup_complete false). Like
 // NavRequestMsg it is consumed at the root level so views never depend
 // on the setup flow's package.
 type RecoverMsg struct{ Path string }
 
 // Hook lets a center view see every message the root receives (before
 // the active view). The first-run setup flow uses it to catch the
-// post-create handoff (newproject.CreatedMsg) and RecoverMsg even when
+// post-create handoff (newworkspace.CreatedMsg) and RecoverMsg even when
 // another view is active: consumed=false passes the message through
 // unchanged, so hooks stay passive for everything they don't own.
 type Hook interface {
@@ -103,7 +103,7 @@ func (m *Model) AddInitCmd(cmd tea.Cmd) {
 func (m Model) ExitStatus() int { return m.exitStatus }
 
 // New returns a shell around the given center views, ordered like
-// MenuItems (Open Project / New Project / Container / Settings).
+// MenuItems (Open Workspace / New Workspace / Container / Settings).
 func New(views ...CenterView) Model {
 	return Model{views: views, keys: NewKeys(), help: help.New()}
 }
@@ -187,7 +187,7 @@ func (m Model) confirmOpen() bool {
 
 // ActivableView is a center view that refreshes external state when it
 // becomes active. The shell reuses view instances across switches, so a
-// view whose data lives outside the model (e.g. the Open Project view's
+// view whose data lives outside the model (e.g. the Open Workspace view's
 // registry read) implements this to stay fresh without polling.
 type ActivableView interface {
 	Activate() tea.Cmd

@@ -1,6 +1,6 @@
 // Settings center-view, iteration 2 of feedback (issue #71): sub-menu
-// under the header menu (Import project / Export Config / Restore Config /
-// Uninstall) over a separator line, options in a New Project (Variant C)
+// under the header menu (Import workspace / Export Config / Restore Config /
+// Uninstall) over a separator line, options in a New Workspace (Variant C)
 // style card. Import = path entry + folder chooser; export = export button
 // + save-as wizard; restore = file chooser; uninstall = option rows +
 // typed "uninstall" confirmation before the executable. THROWAWAY prototype.
@@ -14,9 +14,9 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-var settingsTabs = []string{"Import project", "Export Config", "Restore Config", "Uninstall"}
+var settingsTabs = []string{"Import workspace", "Export Config", "Restore Config", "Uninstall"}
 
-// fake folder chooser entries: one is a complete sandbox project root,
+// fake folder chooser entries: one is a complete sandbox workspace root,
 // the rest are ordinary folders (strict structure check rejects them).
 var fakeFolders = []string{
 	"/home/dev/oc-sandbox/swdev-core",
@@ -238,7 +238,7 @@ func (s *settings71) doImport() {
 			return
 		}
 	}
-	s.toast = "not a sandbox project root → New Project wizard (fake)"
+	s.toast = "not a sandbox workspace root → New Workspace wizard (fake)"
 }
 
 func (s *settings71) runUninstall() {
@@ -359,7 +359,7 @@ func textField(val string, cursor int, focused bool) string {
 	return styleSelectedRow.Render(string(rs[:cursor]) + "▌" + string(rs[cursor:]))
 }
 
-// buttonBlock appends a bordered button (same style as Create Project /
+// buttonBlock appends a bordered button (same style as Create Workspace /
 // Build) as its own rows below a blank spacer, and returns the button's
 // hit rect for its middle line.
 // buttonLines renders a bordered button as exactly 3 lines; focus dims in
@@ -381,7 +381,7 @@ func buttonBlock(rows []string, label string, focused bool) ([]string, rect) {
 	for _, l := range lines {
 		rows = append(rows, "  "+l)
 	}
-	return rows, rect{x: cardX(), y: cardY(midIdx), w: lipgloss.Width("  "+lines[1]), h: 1}
+	return rows, rect{x: cardX(), y: cardY(midIdx), w: lipgloss.Width("  " + lines[1]), h: 1}
 }
 
 func chooserRow(label string, selected bool) string {
@@ -456,10 +456,10 @@ func cardX() int { return 3 }
 
 func (s *settings71) importPane() []string {
 	rows := []string{
-		styleMutedAlt.Render("Registers an existing folder as a project"),
+		styleMutedAlt.Render("Registers an existing folder as a workspace"),
 		styleMutedAlt.Render("(strict structure check, nothing is moved)."),
 		"",
-		styleFieldLabel.Render("Project folder path"),
+		styleFieldLabel.Render("Workspace folder path"),
 	}
 	focused := s.impFocus == 0
 	rows = append(rows, "  "+textField(s.impPath, s.impCur, focused))
@@ -471,14 +471,14 @@ func (s *settings71) importPane() []string {
 		s.foldRects = append(s.foldRects, rect{x: cardX(), y: cardY(7 + i), w: 60, h: 1})
 	}
 	s.impArea = rect{x: cardX(), y: areaY, w: 60, h: len(fakeFolders)}
-	rows, s.impRects[1] = buttonBlock(rows, "Import Project", s.impFocus == 2)
+	rows, s.impRects[1] = buttonBlock(rows, "Import Workspace", s.impFocus == 2)
 	return rows
 }
 
 func (s *settings71) exportPane() []string {
 	if s.expStage == 0 {
 		rows0, rect0 := buttonBlock([]string{
-			styleMutedAlt.Render("Copies the sandbox_config.json of a project"),
+			styleMutedAlt.Render("Copies the sandbox_config.json of a workspace"),
 			styleMutedAlt.Render("to a destination you pick (save-as)."),
 		}, "Export Config…", false)
 		s.expRects[1] = rect0
@@ -492,7 +492,7 @@ func (s *settings71) exportPane() []string {
 	focused := s.expFocus == 0
 	rows = append(rows, "  "+textField(s.expDest, s.expCur, focused))
 	s.expRects[0] = rect{x: cardX() + 2, y: cardY(3), w: max(30, lipgloss.Width(s.expDest)+2), h: 1}
-	// Save + Cancel side by side, bordered buttons like Create Project
+	// Save + Cancel side by side, bordered buttons like Create Workspace
 	b1 := buttonLines("Save", s.expFocus == 1)
 	b2 := buttonLines("Cancel", s.expFocus == 2)
 	w1 := lipgloss.Width("  " + b1[1])
@@ -502,7 +502,7 @@ func (s *settings71) exportPane() []string {
 		"  "+b1[1]+"  "+b2[1],
 		"  "+b1[2]+"  "+b2[2])
 	s.expRects[1] = rect{x: cardX(), y: cardY(midIdx), w: w1, h: 1}
-	s.expRects[2] = rect{x: cardX() + w1 + 2, y: cardY(midIdx), w: lipgloss.Width("  "+b2[1]), h: 1}
+	s.expRects[2] = rect{x: cardX() + w1 + 2, y: cardY(midIdx), w: lipgloss.Width("  " + b2[1]), h: 1}
 	return rows
 }
 

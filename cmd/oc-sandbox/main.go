@@ -9,6 +9,7 @@ import (
 
 	"github.com/shredingerlabs/oc-sandbox/internal/app"
 	"github.com/shredingerlabs/oc-sandbox/internal/cmdrun"
+	"github.com/shredingerlabs/oc-sandbox/internal/migration"
 	"github.com/shredingerlabs/oc-sandbox/internal/shell"
 	"github.com/shredingerlabs/oc-sandbox/internal/smoke"
 )
@@ -66,6 +67,11 @@ func runTUI() {
 		fmt.Fprintf(os.Stderr, "oc-sandbox: resolve home: %v\n", err)
 		os.Exit(1)
 	}
+	// One-time first-start migration (spec §2): blocking before anything
+	// reads config — before Compose, unlike the silent-init precedent.
+	if err := runMigration(home); err != nil {
+		os.Exit(1)
+	}
 	a := app.Compose(home, Version, cmdrun.ExecRunner{}, nil)
 	a.Model.AddInitCmd(a.StartupCheck) // silent background update check
 	p := tea.NewProgram(a.Model, tea.WithAltScreen(), tea.WithMouseCellMotion())
@@ -77,4 +83,29 @@ func runTUI() {
 	if code != 0 {
 		os.Exit(code)
 	}
+}
+
+// runMigration detects and runs the one-time first-start workspace
+// migration (spec §2). Fresh installs proceed normally with no screen;
+// a migrating install prints quiet stage progress; a failure prints the
+// plain-text error screen to stderr and returns non-nil — no TUI runs,
+// no auto-restore (backups/ + an idempotent rerun are the recovery path).
+func runMigration(home string) error {
+	st, err := migration.Run(home)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "oc-sandbox — workspace migration failed\n\n")
+		fmt.Fprintf(os.Stderr, "  %v\n\n", err)
+		fmt.Fprintf(os.Stderr, "  Your configuration was backed up under %s before the failed\n", migrationBackupsDir(home))
+		fmt.Fprintf(os.Stderr, "  stage. Fix the cause and start oc-sandbox again: the migration\n")
+		fmt.Fprintf(os.Stderr, "  is idempotent and re-runs where it stopped.\n")
+		return err
+	}
+	if st == migration.Migrate {
+		fmt.Println("Workspace migration complete.")
+	}
+	return nil
+}
+
+func migrationBackupsDir(home string) string {
+	return home + "/.config/oc-sandbox/backups"
 }

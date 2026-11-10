@@ -5,7 +5,7 @@ PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 test_home=$(mktemp -d)
 trap 'rm -rf "$test_home"' EXIT
 
-mkdir -p "$test_home/project" "$test_home/.opencode_config" "$test_home/.opencode_data" \
+mkdir -p "$test_home/workspace" "$test_home/.opencode_config" "$test_home/.opencode_data" \
   "$test_home/.ssh_local" "$test_home/.git_local" "$test_home/.cbm_cache" "$test_home/.bash_local"
 
 fake_bin="$test_home/bin"
@@ -33,8 +33,8 @@ if ! bash "$PROJECT_ROOT/dist/scripts/start.sh" "$test_home" --edition swdev --c
   exit 1
 fi
 
-# Pod pro Projekt (ADR 0029): Recreate = rm -f (best effort) + create,
-# Publishings haengen am Pod, Projektcontainer tritt via --pod bei;
+# pod per workspace (ADR 0029): Recreate = rm -f (best effort) + create,
+# Publishings haengen am Pod, workspace container tritt via --pod bei;
 # ADR 0028s --add-host/host.oc-sandbox.internal-Mechanik ist entfallen.
 grep -q -- 'pod rm -f opencode-sandbox-pod-' "$PODMAN_LOG"
 pod_create_line="$(grep -m1 -- 'pod create --name opencode-sandbox-pod-' "$PODMAN_LOG")"
@@ -49,7 +49,7 @@ run_line="$(grep -m1 -- '--rm -d --name opencode-sandbox-' "$PODMAN_LOG")"
 
 # Pod-Member erben den usern-Namespace des Pods (podman: "userns and pod
 # cannot be set together"): pod create setzt --userns=keep-id, der
-# Projektcontainer traegt kein eigenes --userns, wenn er via --pod beitritt.
+# workspace container traegt kein eigenes --userns, wenn er via --pod beitritt.
 grep -q -- '--userns=keep-id' <<<"$pod_create_line"
 if grep -q -- '--userns' <<<"$run_line"; then
   printf 'project run joining a pod must not carry --userns (podman 4.9 conflict)\n' >&2
@@ -58,8 +58,8 @@ fi
 
 # Git-Heal: OpenCode-Web braucht ein Git-Repo in project/ (sonst worktree "/"
 # und Weboberflaeche ohne neue Sessions)
-[[ -e "$test_home/project/.git" ]]
-[[ "$(git -C "$test_home/project" rev-parse --is-inside-work-tree 2>/dev/null)" == "true" ]]
+[[ -e "$test_home/workspace/.git" ]]
+[[ "$(git -C "$test_home/workspace" rev-parse --is-inside-work-tree 2>/dev/null)" == "true" ]]
 
 printf 'start networking and CBM port tests passed\n'
 
@@ -76,7 +76,7 @@ grep -q -- 'exec sleep infinity' "$PODMAN_LOG"
 ! grep -q -- 'opencode service set' "$PODMAN_LOG"
 ! grep -q -- 'opencode web' "$PODMAN_LOG"
 grep -q -- '-e START_WEB=false' "$PODMAN_LOG"
-grep -q 'OpenCode Web: http://127.0.0.1:4097' "$web_output"
+grep -q 'OpenCode web: http://127.0.0.1:4097' "$web_output"
 # Boot-unabhaengiges Pinnen: hostname/port stehen in der gemounteten service.json
 sq="$test_home/.opencode_config/service.json"
 jq -e '.hostname == "0.0.0.0" and .port == 4096' "$sq" >/dev/null || { printf 'web start did not pin service.json\n' >&2; exit 1; }
@@ -100,7 +100,7 @@ fi
 grep -q -- '-it' "$PODMAN_LOG"
 ! grep -q -- '-c sleep infinity' "$PODMAN_LOG"
 grep -q -- '-e START_WEB=true' "$PODMAN_LOG"
-grep -q 'OpenCode Web: http://127.0.0.1:4097' "$web_output"
+grep -q 'OpenCode web: http://127.0.0.1:4097' "$web_output"
 
 if ! bash "$PROJECT_ROOT/dist/scripts/start.sh" --help | grep -q -- '--start_web'; then
   printf 'help text does not mention --start_web\n' >&2
@@ -109,11 +109,11 @@ fi
 printf 'start web option tests passed\n'
 
 # Bestehendes Repo in project/ bleibt unangetastet (kein Re-Init, kein Hinweis)
-rm -rf "$test_home/project"
-mkdir -p "$test_home/project"
-git -C "$test_home/project" init -q
-git -C "$test_home/project" -c user.name=T -c user.email=t@example.com commit --allow-empty -q -m seed
-existing_head="$(git -C "$test_home/project" rev-parse HEAD)"
+rm -rf "$test_home/workspace"
+mkdir -p "$test_home/workspace"
+git -C "$test_home/workspace" init -q
+git -C "$test_home/workspace" -c user.name=T -c user.email=t@example.com commit --allow-empty -q -m seed
+existing_head="$(git -C "$test_home/workspace" rev-parse HEAD)"
 
 : > "$PODMAN_LOG"
 heal_output="$test_home/heal-output"
@@ -122,30 +122,30 @@ if ! bash "$PROJECT_ROOT/dist/scripts/start.sh" "$test_home" --edition swdev --d
   exit 1
 fi
 
-[[ "$(git -C "$test_home/project" rev-parse HEAD)" == "$existing_head" ]]
+[[ "$(git -C "$test_home/workspace" rev-parse HEAD)" == "$existing_head" ]]
 ! grep -q 'nachgeholt' "$heal_output"
 printf 'start git heal tests passed\n'
 
-# Cloned-Quelle (project_source == "cloned") -> kein git init in project/
-rm -rf "$test_home/project"
-mkdir -p "$test_home/project"
+# Cloned-Quelle (workspace_source == "cloned") -> kein git init in project/
+rm -rf "$test_home/workspace"
+mkdir -p "$test_home/workspace"
 bash "$PROJECT_ROOT/dist/scripts/start.sh" "$test_home" --edition swdev --detach > /dev/null 2>&1
 cloned_project="$test_home/cloned-root"
-mkdir -p "$cloned_project/project" "$cloned_project/.opencode_config"
-printf '%s' '{"project_source":"cloned"}' > "$cloned_project/.opencode_config/sandbox_config.json"
+mkdir -p "$cloned_project/workspace" "$cloned_project/.opencode_config"
+printf '%s' '{"workspace_source":"cloned"}' > "$cloned_project/.opencode_config/sandbox_config.json"
 
 : > "$PODMAN_LOG"
 if ! bash "$PROJECT_ROOT/dist/scripts/start.sh" "$cloned_project" --edition swdev --detach > /dev/null 2>&1; then
   printf 'start script failed with mocked podman (cloned source)\n' >&2
   exit 1
 fi
-[[ ! -e "$cloned_project/project/.git" ]]
+[[ ! -e "$cloned_project/workspace/.git" ]]
 printf 'start cloned-source heal guard tests passed\n'
 
 # --- opencode.json v2-Migration (ADR 0025) ---------------------------------------
 # Legacy v1-Formate (permission-Map, flaches mcp, plugin/provider, auth.json)
 # werden vor dem Containerlauf auf das v2-Schema migriert - nachgebildet mit
-# REAL configure-project.sh, jq lokal vorhanden.
+# REAL configure-workspace.sh, jq lokal vorhanden.
 cat > "$test_home/.opencode_config/opencode.json" <<'EOF'
 {"permission":{"external_directory":{"/tmp/**":"allow"}},"mcp":{"codebase-memory-mcp":{"type":"local","command":["cbm"],"enabled":true}},"plugin":["opencode-models-discovery@1.5.3"],"provider":{"legacy":{"npm":"@ai-sdk/openai-compatible","name":"Legacy","options":{"baseURL":"https://l.example.com/v1"}}},"custom":{"keep":true}}
 EOF
@@ -236,7 +236,7 @@ printf 'start search_mode tests passed\n'
 script_fixture="$test_home/dist"
 mkdir -p "$script_fixture/scripts"
 cp "$PROJECT_ROOT/dist/scripts/start.sh" "$script_fixture/scripts/"
-cp "$PROJECT_ROOT/dist/scripts/configure-project.sh" "$script_fixture/scripts/"
+cp "$PROJECT_ROOT/dist/scripts/configure-workspace.sh" "$script_fixture/scripts/"
 cp "$PROJECT_ROOT/dist/Dockerfile" "$script_fixture/"
 cat > "$script_fixture/Dockerfile.custom" <<'EOF'
 FROM opencode-sandbox-base AS opencode-sandbox-rust
@@ -287,12 +287,12 @@ if run_start "$cloned_project" --edition rust --search_mode searxng --offline --
   printf 'start.sh accepted searxng + offline\n' >&2
   exit 1
 fi
-grep -q 'offline inkompatibel' "$test_home/edition-output"
+grep -q 'requires network' "$test_home/edition-output"
 if run_start "$cloned_project" --edition rust --search_mode bogus --detach; then
   printf 'start.sh accepted unknown search_mode\n' >&2
   exit 1
 fi
-grep -q -- 'Unbekannter --search_mode' "$test_home/edition-output"
+grep -q -- 'unknown --search_mode' "$test_home/edition-output"
 printf 'start search_mode combination tests passed\n'
 
 # 4. Custom-Edition wird akzeptiert und an podman durchgereicht
@@ -364,7 +364,7 @@ if grep -q -- 'run -d --replace --name oc-searxng' "$PODMAN_LOG"; then
 fi
 # --- Proxy-Pod-Member (#127, ADR 0029) ------------------------------------------
 # use_proxy startet einen per-Pod Squid-Member (detached, oc-proxy-Image,
-# keine Publishings, pro-Pod-eindeutiger Name) und der Projektcontainer
+# keine Publishings, pro-Pod-eindeutiger Name) und der workspace container
 # zeigt auf die In-Namespace-Konstante 127.0.0.1:3128. Der hostseitige
 # geteilte oc-proxy-Container ist entfallen.
 : > "$PODMAN_LOG"
@@ -406,7 +406,7 @@ fi
 printf 'start proxy pod member tests passed\n'
 
 # --- 7: Offline-Userns (#125-Regression) ---------------------------------------
-# Offline gibt es keinen Pod: der Projektcontainer laeuft solo und behaelt
+# Offline gibt es keinen Pod: der workspace container laeuft solo und behaelt
 # --userns=keep-id (+ keep-groups). Der Pod-Pfad (oben) traegt es dagegen
 # nie selbst - der Pod uebernimmt es.
 : > "$PODMAN_LOG"

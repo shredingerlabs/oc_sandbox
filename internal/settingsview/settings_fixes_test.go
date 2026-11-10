@@ -3,7 +3,7 @@ package settingsview
 // Regression tests for the reported Settings bugs: export-to-existing-
 // destination leaked a raw stderr refusal (no overwrite prompt), the
 // Restore button ignored clicks when it did not hold keyboard focus,
-// and legacy project roots (infra dirs re-created by start.sh at every
+// and legacy workspace roots (infra dirs re-created by start.sh at every
 // start) were refused by the import structure check — and a registered
 // path showed the referrer prompt instead of the registered guard.
 
@@ -25,9 +25,9 @@ import (
 // can otherwise never reach it.
 func TestRestoreButtonClickableWithoutFocus(t *testing.T) {
 	home := homeFixture(t)
-	pp := config.Paths{Home: home}.ProjectsPath()
-	writeFile(t, pp, "{\n  \"projects\": [],\n  \"version\": \"1.0\"\n}")
-	writeBackup(t, home, "projects.json.20260102T000000000.bbb222", "{\n  \"projects\": [],\n  \"version\": \"1.0\"\n}")
+	pp := config.Paths{Home: home}.WorkspacesPath()
+	writeFile(t, pp, "{\n  \"workspaces\": [],\n  \"version\": \"1.0\"\n}")
+	writeBackup(t, home, "workspaces.json.20260102T000000000.bbb222", "{\n  \"workspaces\": [],\n  \"version\": \"1.0\"\n}")
 
 	v := newSettings(t, home, nil)
 	v.Update(shell.SubTabMsg{Index: subRestore})
@@ -43,11 +43,11 @@ func TestRestoreButtonClickableWithoutFocus(t *testing.T) {
 // replaces the file (no destination backup machinery, no stderr leak).
 func TestExportOverwriteAsksAndOverwrites(t *testing.T) {
 	home := homeFixture(t)
-	pp := config.Paths{Home: home}.ProjectsPath()
-	writeFile(t, pp, "{\n  \"projects\": [],\n  \"version\": \"1.0\"\n}")
+	pp := config.Paths{Home: home}.WorkspacesPath()
+	writeFile(t, pp, "{\n  \"workspaces\": [],\n  \"version\": \"1.0\"\n}")
 
 	v, mgr := queueSettings(t, home, nil)
-	dest := filepath.Join(home, "oc-sandbox-projects.json")
+	dest := filepath.Join(home, "oc-sandbox-workspaces.json")
 	writeFile(t, dest, "{\"previous\":\"content\"}")
 
 	v.Update(shell.SubTabMsg{Index: subExport})
@@ -63,7 +63,7 @@ func TestExportOverwriteAsksAndOverwrites(t *testing.T) {
 	key(v, "tab")
 	cmd := key(v, "enter") // confirm
 	testutil.Drain(t, v, mgr, cmd)
-	if got := readFile(t, dest); !strings.Contains(got, "projects") {
+	if got := readFile(t, dest); !strings.Contains(got, "workspaces") {
 		t.Fatalf("confirmed overwrite did not write the snapshot: %q", got)
 	}
 	if !strings.Contains(v.toast, "Exported") {
@@ -75,12 +75,12 @@ func TestExportOverwriteAsksAndOverwrites(t *testing.T) {
 }
 
 // TestImportLegacyRootRegisters: a root with sandbox_config.json and a
-// project/.git worktree imports even without the infra directories
+// workspace/.git worktree imports even without the infra directories
 // (start.sh mkdir -p's them at every container start).
 func TestImportLegacyRootRegisters(t *testing.T) {
 	home := homeFixture(t)
 	root := filepath.Join(home, "roots", "legacy")
-	if err := os.MkdirAll(filepath.Join(root, "project", ".git"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(root, "workspace", ".git"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.MkdirAll(filepath.Join(root, ".opencode_config"), 0o755); err != nil {
@@ -93,7 +93,7 @@ func TestImportLegacyRootRegisters(t *testing.T) {
 	v := newSettings(t, home, nil)
 	v.Update(shell.SubTabMsg{Index: subImport})
 	typePath(t, v, root)
-	clickLabel(t, v, "Import Project")
+	clickLabel(t, v, "Import Workspace")
 	if b := body(v); !strings.Contains(b, "Import summary") {
 		t.Fatalf("legacy root refused instead of showing the summary:\n%s", b)
 	}
@@ -112,14 +112,14 @@ func TestImportRegisteredPathWinsOverStructureCheck(t *testing.T) {
 	home := homeFixture(t)
 	root := filepath.Join(home, "roots", "listed") // empty folder
 	reg := &registry.Registry{Home: home}
-	if err := reg.AddProject(registry.AddRequest{Name: "listed", Path: root}); err != nil {
+	if err := reg.AddWorkspace(registry.AddRequest{Name: "listed", Path: root}); err != nil {
 		t.Fatal(err)
 	}
 
 	v := newSettings(t, home, nil)
 	v.Update(shell.SubTabMsg{Index: subImport})
 	typePath(t, v, root)
-	clickLabel(t, v, "Import Project")
+	clickLabel(t, v, "Import Workspace")
 	if b := body(v); !strings.Contains(b, "Already registered") {
 		t.Fatalf("registered path did not hit the guard:\n%s", b)
 	}

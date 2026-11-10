@@ -74,7 +74,7 @@ func menuRow(label string, selected bool) string {
 }
 
 // checklist enumerates the stages the view displays, fixed pipeline
-// order; the clone row appears only for a cloned project source.
+// order; the clone row appears only for a cloned workspace source.
 func (v *View) checklist() []Stage {
 	stages := []Stage{StageStart}
 	if v.machine.SourceCloned() {
@@ -158,7 +158,7 @@ func (v *View) bodyChangeURL(width, height int) string {
 	}
 	rows := []string{
 		padLeft(ind, width, bold("Change repository URL")),
-		padLeft(ind, width, "Applies to sandbox_config.json and projects.json."),
+		padLeft(ind, width, "Applies to sandbox_config.json and workspaces.json."),
 	}
 	rows = append(rows, urlRows...)
 	rows = append(rows,
@@ -178,10 +178,10 @@ func (v *View) bodyChangeURL(width, height int) string {
 }
 
 // bodyTerminal: done/aborted screens with one Continue action (Enter or
-// click) that sends the root back to Open Project.
+// click) that sends the root back to Open Workspace.
 func (v *View) bodyTerminal(width, height int, complete bool) string {
 	v.clicks = nil
-	title, detail, button := "Setup complete", "The project container is ready.", "Done"
+	title, detail, button := "Setup complete", "The workspace container is ready.", "Done"
 	if !complete {
 		title, detail, button = "Setup aborted", "Partial progress is preserved.", "Done"
 	}
