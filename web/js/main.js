@@ -601,7 +601,16 @@
     return u.replace(/\.git$/, "");
   }
 
-  function wizardForm(el) { return el.closest('[data-role="new-workspace-form"]'); }
+  function wizardForm(el) {
+    var f = el.closest('[data-role="new-workspace-form"]');
+    if (f) return f;
+    // The pagehead source segment (signed-off prototype placement) sits
+    // outside the form and rides the form="" attribute — route its
+    // change events onto the wizard form all the same.
+    if (el.name === "source" && el.form &&
+        el.form.dataset.role === "new-workspace-form") return el.form;
+    return null;
+  }
   function q(form, sel) { return form.querySelector(sel); }
   function setHidden(el, hidden) {
     if (!el) return;
@@ -622,7 +631,11 @@
   });
 
   function applySource(form) {
-    var repo = q(form, '[name="source"][value="repo"]').checked;
+    // The source radios are form-attribute-associated (pagehead
+    // placement) — they are not descendants of the form.
+    var radio = document.querySelector('[data-screen="ws-new"] [name="source"][value="repo"]');
+    if (!radio) return;
+    var repo = radio.checked;
     var row = q(form, '[data-row="repo_url"]');
     if (row) {
       if (repo) row.removeAttribute("data-repo-only");
@@ -661,10 +674,13 @@
   // Edition chips (#156, prototype ws-new .edotsel): one chip per
   // edition; the click sets the hidden input (the confirm round-trip
   // unaffected) and fires the HIL preset rule like the old select did.
+  // The Workspace-settings Advanced row (#157) uses the same chip
+  // group under data-role="settings-edition" — no HIL preset coupling
+  // there (the HIL row is its own checkbox).
   document.addEventListener("click", function (ev) {
     var chip = ev.target.closest(".edopt");
     if (!chip || chip.disabled) return;
-    var holder = chip.closest('[data-role="wizard-edition"]');
+    var holder = chip.closest('[data-role="wizard-edition"], [data-role="settings-edition"]');
     if (!holder) return;
     setEdition(holder, chip.dataset.ed);
     var form = holder.closest('[data-role="new-workspace-form"]');
@@ -740,6 +756,11 @@
         currentScreen = name;
         screenEl.innerHTML = html;
         restoreLog();
+        // htmx processes only its own swaps — a fragment landed through
+        // raw innerHTML (the settings/config screens, SSE re-renders)
+        // must be initialized explicitly or its hx-post forms submit
+        // natively (full reload → back to the Open screen, §9).
+        if (window.htmx) htmx.process(screenEl);
       })
       .catch(function () { /* server may be gone; SSE shutdown covers it */ });
   }
@@ -838,6 +859,7 @@
         .then(function (html) {
           screenEl.innerHTML = html;
           restoreLog();
+          if (window.htmx) htmx.process(screenEl); // raw innerHTML swap: re-init hx-*
           var refused = screenEl.querySelector('[data-toast]');
           if (refused) toast(refused.textContent, "warn");
         })

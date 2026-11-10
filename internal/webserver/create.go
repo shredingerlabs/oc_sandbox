@@ -55,14 +55,14 @@ var wizardTemplate = template.Must(template.New("wizard").
   <div class="desc">Name, source, edition and provider are recorded once; later changes apply on next start.</div>
   </div>
   <span class="seg" role="group" aria-label="creation path">
-    <label>Blank Workspace<input type="radio" name="source" value="blank" {{if not .FromRepo}}checked{{end}}></label>
-    <label>From Repo<input type="radio" name="source" value="repo" {{if .FromRepo}}checked{{end}}></label>
+    <label>Blank Workspace<input type="radio" name="source" value="blank" form="new-workspace-form" {{if not .FromRepo}}checked{{end}}></label>
+    <label>From Repo<input type="radio" name="source" value="repo" form="new-workspace-form" {{if .FromRepo}}checked{{end}}></label>
   </span></div>
   {{if .Error}}<p class="form-error" role="alert">{{.Error}}</p>{{end}}
   {{if or .LogLines (gt .OpID 0)}}
   <div class="logpane" data-role="create-log" data-op-id="{{.OpID}}">{{range .LogLines}}<div class="logline">{{.}}</div>{{end}}</div>
   {{end}}
-  <form data-role="new-workspace-form" hx-post="{{.P}}workspaces" hx-target="#new-workspace" hx-swap="outerHTML">
+  <form data-role="new-workspace-form" id="new-workspace-form" hx-post="{{.P}}workspaces" hx-target="#new-workspace" hx-swap="outerHTML">
     <fieldset class="rows" data-role="wizard-fields"{{if .Inert}} disabled{{end}}>
 
     <div class="row" data-row="name">

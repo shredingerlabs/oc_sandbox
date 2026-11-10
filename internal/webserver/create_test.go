@@ -158,6 +158,8 @@ func TestNewWorkspaceFormStandard(t *testing.T) {
 	doc := readAll(t, resp)
 	for _, want := range []string{
 		`data-role="new-workspace-form"`, // the wizard form
+		`id="new-workspace-form"`,        // the form ids the pagehead segment binds to
+		`form="new-workspace-form"`,      // source radios ride the form (pagehead placement)
 		`name="source"`,                  // source radio pair
 		`value="blank"`, `value="repo"`,  // Blank Workspace / From Repo
 		`name="repo_url"`,              // From Repo URL input

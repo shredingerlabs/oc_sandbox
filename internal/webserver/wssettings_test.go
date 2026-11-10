@@ -112,9 +112,10 @@ func TestWsSettingsScreenAdvanced(t *testing.T) {
 
 	doc := body(t, get(t, fx.s.URL()+"workspaces/alpha/settings"))
 	for _, want := range []string{
-		`data-row="edition"`,     // switchable, next-start apply (chips)
-		`data-row="proxy"`,       // stored on
-		`data-row="search_mode"`, // the triad with searxng preselected
+		`data-row="edition"`,           // switchable, next-start apply (chips)
+		`data-role="settings-edition"`, // the chip group the shell's .edopt clicks bind
+		`data-row="proxy"`,             // stored on
+		`data-row="search_mode"`,       // the triad with searxng preselected
 		`data-row="offline"`,
 		`data-row="cbm_ui"`,
 		`data-row="hil"`,                      // HIL row for every edition
