@@ -29,9 +29,11 @@ func read(t *testing.T, path string) string {
 	return string(b)
 }
 
-// Golden captured from bash `create_global_config` (jq pipeline).
+// Golden captured from bash `create_global_config` (jq pipeline), plus
+// the #152 display_mode default (standard).
 const goldenGlobalConfig = `{
   "default_workspace_path": "/home/user/oc-sandbox",
+  "display_mode": "standard",
   "version": "2.0"
 }
 `
@@ -56,6 +58,79 @@ func TestReadGlobalConfigRoundTrip(t *testing.T) {
 	}
 	if gc.DefaultWorkspacePath != "/home/user/oc-sandbox" || gc.Version != "2.0" {
 		t.Fatalf("unexpected config: %+v", gc)
+	}
+}
+
+// Display mode (#152): display_mode in global_config.json is
+// standard/advanced with default standard — the creation path writes
+// it, and absent or unknown keys read as standard.
+func TestDisplayModeDefaultAndLegacyRead(t *testing.T) {
+	home := t.TempDir()
+	if err := CreateGlobalConfig(home, "/home/user/oc-sandbox"); err != nil {
+		t.Fatal(err)
+	}
+	if got := read(t, Paths{Home: home}.GlobalConfigPath()); !strings.Contains(got, `"display_mode": "standard"`) {
+		t.Fatalf("creation path must write display_mode standard:\n%s", got)
+	}
+	// Pre-#152 files without the key read as standard.
+	writeFile(t, Paths{Home: home}.GlobalConfigPath(),
+		"{\n  \"default_workspace_path\": \"/home/user/oc-sandbox\",\n  \"version\": \"2.0\"\n}\n")
+	gc, err := ReadGlobalConfig(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gc.DisplayMode != DisplayStandard {
+		t.Fatalf("absent display_mode reads %q, want standard", gc.DisplayMode)
+	}
+	// A stored advanced survives; an unknown value falls back.
+	for _, c := range []struct{ stored, want string }{
+		{`{"version": "2.0", "display_mode": "advanced"}`, DisplayAdvanced},
+		{`{"version": "2.0", "display_mode": "compact"}`, DisplayStandard},
+	} {
+		writeFile(t, Paths{Home: home}.GlobalConfigPath(), c.stored+"\n")
+		gc, err := ReadGlobalConfig(home)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if gc.DisplayMode != c.want {
+			t.Fatalf("display_mode %q reads %q, want %q", c.stored, gc.DisplayMode, c.want)
+		}
+	}
+}
+
+// SetDisplayMode persists the mode via POST /settings (#152):
+// read-modify-write that preserves the other keys, refused values leave
+// the file untouched, and a missing global_config.json is created
+// instead of dead-ending the WebUI.
+func TestSetDisplayModePersists(t *testing.T) {
+	home := t.TempDir()
+	if err := CreateGlobalConfig(home, "/home/user/oc-sandbox"); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetDisplayMode(home, DisplayAdvanced); err != nil {
+		t.Fatal(err)
+	}
+	gc, err := ReadGlobalConfig(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gc.DisplayMode != DisplayAdvanced || gc.DefaultWorkspacePath != "/home/user/oc-sandbox" || gc.Version != "2.0" {
+		t.Fatalf("persisted config: %+v", gc)
+	}
+	before := read(t, Paths{Home: home}.GlobalConfigPath())
+	if err := SetDisplayMode(home, "compact"); err == nil {
+		t.Fatal("invalid display_mode must be refused")
+	}
+	if after := read(t, Paths{Home: home}.GlobalConfigPath()); after != before {
+		t.Fatalf("refused write changed the file:\n%s", after)
+	}
+	// Missing file → created, not an error path.
+	home2 := t.TempDir()
+	if err := SetDisplayMode(home2, DisplayStandard); err != nil {
+		t.Fatal(err)
+	}
+	if got := read(t, Paths{Home: home2}.GlobalConfigPath()); !strings.Contains(got, `"display_mode": "standard"`) {
+		t.Fatalf("missing global_config.json must be created:\n%s", got)
 	}
 }
 

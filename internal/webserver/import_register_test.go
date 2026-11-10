@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/shredingerlabs/oc-sandbox/internal/registry"
-	"github.com/shredingerlabs/oc-sandbox/internal/taskmgr"
 )
 
 // POST /import-register performs the registry-only change from the
@@ -20,7 +19,7 @@ func TestImportRegister(t *testing.T) {
 	s, home := wiredServer(t)
 	root := seedCanonicalRoot(t)
 	newRegistry(home) // workspaces.json exists (first-run setup ran)
-	status, doc := postForm(t, s.URL()+"import-register", url.Values{
+	status, doc := postFormDoc(t, s.URL()+"import-register", url.Values{
 		"path": {root}, "name": {"imported"},
 	})
 	if status != http.StatusOK {
@@ -44,8 +43,8 @@ func TestImportRegister(t *testing.T) {
 
 // blockedOp is an op that stays running until release closes — the busy
 // fixture for refusal tests.
-func blockedOp(release chan struct{}) taskmgr.Op {
-	return taskmgr.Op{Key: "settings", Title: "blocked op", Run: func(emit func(string)) error {
+func blockedOp(release chan struct{}) webOp {
+	return webOp{Key: "settings", Run: func(emit func(string)) error {
 		<-release
 		return nil
 	}}
@@ -58,11 +57,11 @@ func TestImportRegisterRefusesWhileBusy(t *testing.T) {
 	root := seedCanonicalRoot(t)
 	newRegistry(home)
 	release := make(chan struct{})
-	s.launchOp(blockedOp(release))
-	for !s.deps.Tasks.Busy() {
+	s.queue.Launch(blockedOp(release))
+	for !s.busy() {
 		time.Sleep(time.Millisecond)
 	}
-	status, doc := postForm(t, s.URL()+"import-register", url.Values{
+	status, doc := postFormDoc(t, s.URL()+"import-register", url.Values{
 		"path": {root}, "name": {"imported"},
 	})
 	if status != http.StatusOK || !strings.Contains(doc, "queued or running") {
@@ -73,10 +72,10 @@ func TestImportRegisterRefusesWhileBusy(t *testing.T) {
 	}
 	// After the op drains, the register goes through.
 	close(release)
-	for s.deps.Tasks.Busy() {
+	for s.busy() {
 		time.Sleep(time.Millisecond)
 	}
-	_, doc = postForm(t, s.URL()+"import-register", url.Values{
+	_, doc = postFormDoc(t, s.URL()+"import-register", url.Values{
 		"path": {root}, "name": {"imported"},
 	})
 	if !strings.Contains(doc, "Imported imported") {
@@ -101,7 +100,7 @@ func TestImportConvertThenSummary(t *testing.T) {
 		t.Fatal(err)
 	}
 	newRegistry(home)
-	status, doc := postForm(t, s.URL()+"import-convert", url.Values{"path": {root}})
+	status, doc := postFormDoc(t, s.URL()+"import-convert", url.Values{"path": {root}})
 	if status != http.StatusOK || !strings.Contains(doc, "Import summary") {
 		t.Fatalf("convert did not lead to the summary flow (status %d):\n%s", status, doc)
 	}
@@ -133,7 +132,7 @@ func TestImportConvertFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	newRegistry(home)
-	_, doc := postForm(t, s.URL()+"import-convert", url.Values{"path": {root}})
+	_, doc := postFormDoc(t, s.URL()+"import-convert", url.Values{"path": {root}})
 	if !strings.Contains(doc, "Converting the legacy layout failed") {
 		t.Fatalf("failure notice missing:\n%s", doc)
 	}

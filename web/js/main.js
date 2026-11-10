@@ -1,9 +1,7 @@
-// oc_sandbox WebUI shell script (#150 skeleton, screens from #159):
-// theme + display-mode toggles, sidebar folding, screen loading for the
-// wired Settings screens, the confirm popup (ADR-0021 parity), and the
-// one multiplexed SSE stream per tab (spec §9 — GET /events; event
-// classes line / workspace / update / shutdown). Screens re-render
-// reactively on the workspace event.
+// oc_sandbox WebUI shell script (#150 skeleton): theme + display-mode
+// toggles, sidebar folding, and the one multiplexed SSE stream per tab
+// (spec §9 — GET /events; event classes line / workspace / update /
+// shutdown). Screens re-render reactively in the per-screen tickets.
 
 (function () {
   "use strict";
@@ -17,25 +15,6 @@
   var root = document.documentElement;
   var screenEl = document.querySelector('[data-role="screen"]');
 
-  // --- screens wired by their tickets: nav key → fragment URL; other
-  // nav targets stay stubs until their tickets land ---
-  var SCREENS = {
-    "set-import": "import",
-    "set-config": "config",
-    "set-uninstall": "uninstall",
-  };
-  var currentNav = null;
-
-  function showScreen(nav) {
-    currentNav = nav;
-    var url = SCREENS[nav];
-    if (url && window.htmx) {
-      htmx.ajax("GET", url, { target: screenEl, swap: "innerHTML" });
-    } else {
-      screenEl.innerHTML = ""; // stub slot until the per-screen tickets land
-    }
-  }
-
   // --- theme toggle (client preference; no ambient authority) ---
   var saved = null;
   try { saved = localStorage.getItem("oc_sandbox.theme"); } catch (e) {}
@@ -45,17 +24,35 @@
     try { localStorage.setItem("oc_sandbox.theme", root.dataset.theme); } catch (e) {}
   });
 
-  // --- Standard/Advanced segmented control (skeleton: visual only —
-  // persistence rides GET/POST /settings, later ticket) ---
+  // --- Standard/Advanced display mode (#152, spec §6): stored truth
+  // lives in global_config.json via GET/POST /settings — no localStorage.
+  // A switch applies immediately: data-display flips on <html> (CSS
+  // hides advanced-only rows) and screens re-render on `displaychange`.
   var seg = document.querySelector('[data-role="display-mode"]');
+  var modeSub = document.querySelector('[data-role="mode-sub"]');
+
+  function applyDisplay(mode) {
+    root.dataset.display = mode;
+    modeSub.textContent = mode === "advanced" ? "Advanced" : "Standard";
+    seg.querySelectorAll("button").forEach(function (b) {
+      b.setAttribute("aria-pressed", String(b.dataset.mode === mode));
+    });
+    document.dispatchEvent(new CustomEvent("displaychange", { detail: { mode: mode } }));
+  }
+
+  fetch(base + "settings").then(function (r) { return r.json(); }).then(function (s) {
+    applyDisplay(s.display_mode === "advanced" ? "advanced" : "standard");
+  }).catch(function () { /* defaults hold: data-display="standard" */ });
+
   seg.addEventListener("click", function (ev) {
     var btn = ev.target.closest("button[data-mode]");
     if (!btn) return;
-    seg.querySelectorAll("button").forEach(function (b) {
-      b.setAttribute("aria-pressed", String(b === btn));
-    });
-    document.querySelector('[data-role="mode-sub"]').textContent =
-      btn.dataset.mode === "advanced" ? "Advanced" : "Standard";
+    var form = new FormData();
+    form.append("display_mode", btn.dataset.mode);
+    fetch(base + "settings", { method: "POST", body: new URLSearchParams(form) })
+      .then(function (r) { if (!r.ok) throw new Error("settings POST " + r.status); return r.json(); })
+      .then(function (s) { applyDisplay(s.display_mode === "advanced" ? "advanced" : "standard"); })
+      .catch(function () { /* UI keeps the stored mode — never pin */ });
   });
 
   // --- sidebar tree folding + active state ---
@@ -72,49 +69,79 @@
       document.querySelectorAll(".tree [data-nav]").forEach(function (b) {
         b.classList.toggle("active", b === btn);
       });
-      showScreen(btn.dataset.nav);
+      if (btn.hasAttribute("hx-get")) return; // htmx swaps its own fragment in (Update, #160)
+      // Catalogs screen (#155): Settings → VCS Tracker / AI-Provider
+      // both load GET /catalogs (one fragment, both sections).
+      if ((btn.dataset.nav === "set-vcs" || btn.dataset.nav === "set-ai") && window.htmx) {
+        currentNav = btn.dataset.nav;
+        htmx.ajax("GET", base + "catalogs", { target: '[data-role="screen"]', swap: "innerHTML" });
+        return;
+      }
+      // Global settings screens (#159): Import Workspace, Export/Restore
+      // Config, Uninstall — one fragment each.
+      if (SCREENS[btn.dataset.nav] && window.htmx) {
+        showScreen(btn.dataset.nav);
+        return;
+      }
+      currentNav = btn.dataset.nav;
+      renderStub(btn.dataset.nav);
     });
   });
 
-  // --- confirm popup (ADR-0021 parity): elements with data-confirm-popup
-  // ask before issuing — HTMX's confirm hook drives the overlay ---
+  // #159: nav key → fragment URL; showScreen tracks the current screen
+  // so the workspace SSE event re-renders it reactively (§6/§9).
+  var SCREENS = {
+    "set-import": "import",
+    "set-config": "config",
+    "set-uninstall": "uninstall",
+  };
+  var currentNav = null;
+  function showScreen(nav) {
+    currentNav = nav;
+    htmx.ajax("GET", base + SCREENS[nav], { target: '[data-role="screen"]', swap: "innerHTML" });
+  }
+
+  // --- shared confirm popup (ADR-0021 set): per-action copy, Cancel-safe ---
+  var confirmEl = document.querySelector('[data-role="confirm"]');
+  var confirmState = null;
+  function showConfirm(title, body, okLabel, onOk) {
+    confirmState = onOk;
+    confirmEl.querySelector('[data-role="confirm-title"]').textContent = title;
+    confirmEl.querySelector('[data-role="confirm-body"]').textContent = body;
+    confirmEl.querySelector('[data-role="confirm-ok"]').textContent = okLabel;
+    confirmEl.hidden = false;
+    confirmEl.querySelector('[data-role="confirm-cancel"]').focus();
+  }
+  confirmEl.addEventListener("click", function (ev) {
+    if (confirmState && ev.target.closest('[data-role="confirm-ok"]')) {
+      var ok = confirmState;
+      confirmState = null;
+      confirmEl.hidden = true;
+      ok();
+    } else if (ev.target.closest('[data-role="confirm-cancel"]') || ev.target === confirmEl) {
+      confirmState = null;
+      confirmEl.hidden = true;
+    }
+  });
+
+  // #159: confirm-gated HTMX actions carry data-confirm-popup + per-action
+  // copy in data-confirm-* attributes — the htmx:confirm hook opens the
+  // shared popup; the request issues only on OK.
   document.body.addEventListener("htmx:confirm", function (evt) {
     var elt = evt.detail.elt;
     if (!elt || !elt.hasAttribute || !elt.hasAttribute("data-confirm-popup")) return;
     evt.preventDefault();
-    openPopup(
+    showConfirm(
       elt.getAttribute("data-confirm-title") || "Are you sure?",
       elt.getAttribute("data-confirm-question") || "",
       elt.getAttribute("data-confirm-label") || "Confirm",
-      elt.classList.contains("danger"),
       function () { evt.detail.issueRequest(true); }
     );
   });
 
-  function openPopup(title, question, label, danger, onConfirm) {
-    var backdrop = document.createElement("div");
-    backdrop.className = "popup-backdrop";
-    backdrop.innerHTML =
-      '<div class="popup" role="dialog" aria-modal="true">' +
-      "<h3></h3>" + '<div class="q"></div>' +
-      '<div class="popup-acts">' +
-      '<button class="btn ghost" data-act="cancel">Cancel</button>' +
-      '<button class="btn" data-act="ok"></button>' +
-      "</div></div>";
-    backdrop.querySelector("h3").textContent = title;
-    backdrop.querySelector(".q").textContent = question;
-    var ok = backdrop.querySelector('[data-act="ok"]');
-    ok.textContent = label;
-    if (danger) ok.classList.add("danger");
-    function close() { backdrop.remove(); }
-    ok.addEventListener("click", function () { close(); onConfirm(); });
-    backdrop.querySelector('[data-act="cancel"]').addEventListener("click", close);
-    backdrop.addEventListener("click", function (ev) { if (ev.target === backdrop) close(); });
-    document.body.appendChild(backdrop);
-  }
-
-  // --- typed confirmation arms its submit button (delegated: survives
-  // fragment swaps). data-arms="<button id>" data-arms-match="<text>" ---
+  // #159: typed confirmations arm their submit button (delegated, so it
+  // survives fragment swaps): data-arms="<button id>" gates on the exact
+  // data-arms-match text (default "uninstall").
   document.addEventListener("input", function (ev) {
     var input = ev.target.closest("[data-arms]");
     if (!input) return;
@@ -124,29 +151,156 @@
     btn.disabled = input.value.trim().toLowerCase() !== match.toLowerCase();
   });
 
+  // --- toasts ---
+  var toastsEl = document.querySelector('[data-role="toasts"]');
+  function toast(text, kind) {
+    var el = document.createElement("div");
+    el.className = "toast" + (kind ? " " + kind : "");
+    el.textContent = text;
+    toastsEl.appendChild(el);
+    setTimeout(function () { el.remove(); }, 6000);
+  }
+
+  // --- §12 update phases: footer banner + Update card render purely
+  //     from the one SSE `update` event; the run streams its log into
+  //     the pane under the card; there is no in-WebUI restart.
+  var bannerEl = document.querySelector('[data-role="update-banner"]');
+  var updateOp = null; // the running/last update op — the log pane's filter
+  function onUpdate(ev) {
+    var st;
+    try { st = JSON.parse(ev.data); } catch (e) { return; }
+    if (st.op) updateOp = st.op;
+    renderBanner(st);
+    renderUpdateCard(st);
+    if (st.phase === "applied") {
+      toast("Update installed — restart oc-sandbox to apply.", "ok");
+    } else if (st.phase === "failed") {
+      toast("Update failed: " + (st.error || "see the log"), "warn");
+    }
+  }
+  function renderBanner(st) {
+    if (st.phase === "available") {
+      bannerEl.textContent = "Update available: " + (st.latest || "");
+      bannerEl.className = "banner";
+      bannerEl.hidden = false;
+    } else if (st.phase === "installing") {
+      bannerEl.textContent = "Updating oc-sandbox…";
+      bannerEl.className = "banner";
+      bannerEl.hidden = false;
+    } else if (st.phase === "failed") {
+      bannerEl.textContent = "Update failed — see Settings → Update.";
+      bannerEl.className = "banner danger";
+      bannerEl.hidden = false;
+    } else { // up-to-date / applied: the banner clears (§12)
+      bannerEl.hidden = true;
+    }
+  }
+  function renderUpdateCard(st) {
+    var card = document.querySelector('[data-role="update-card"]');
+    if (!card) return;
+    var rowVerdict = card.querySelector('[data-role="update-verdict"]');
+    var rowInstalled = card.querySelector('[data-role="update-installed"]');
+    var rowLatest = card.querySelector('[data-role="update-latest"]');
+    var rowError = card.querySelector('[data-role="update-error"]');
+    var rowNote = card.querySelector('[data-role="update-note"]');
+    var runBtn = card.querySelector('[data-role="update-run"]');
+    if (st.installed && rowInstalled) rowInstalled.textContent = "Installed version: " + st.installed;
+    if (st.latest && rowLatest && st.phase !== "installing") rowLatest.textContent = "Latest version: " + st.latest;
+    var verdict = { "available": "Update available!", "up-to-date": "You are up to date.", "installing": "Updating…" }[st.phase] || "";
+    if (rowVerdict) {
+      rowVerdict.textContent = verdict;
+      rowVerdict.dataset.phase = st.phase;
+    }
+    if (rowError) { // the failure stays visible until the next attempt
+      if (st.phase === "failed") {
+        rowError.textContent = "Update failed: " + (st.error || "");
+        rowError.hidden = false;
+      } else if (st.phase === "installing" || st.phase === "applied") {
+        rowError.hidden = true; // the next attempt started / succeeded
+      }
+    }
+    if (rowNote) rowNote.hidden = st.phase !== "applied";
+    if (runBtn) {
+      if (st.phase === "installing") runBtn.setAttribute("disabled", "");
+      else runBtn.removeAttribute("disabled");
+    }
+  }
+
+  // --- the update run behind the shared confirm popup (§12): the popup
+  //     copy carries the keep-note; the POST answers at once, phases
+  //     stream via /events ---
+  document.addEventListener("click", function (ev) {
+    var runBtn = ev.target.closest('[data-role="update-run"]');
+    if (!runBtn || runBtn.hasAttribute("disabled")) return;
+    ev.preventDefault();
+    showConfirm(
+      runBtn.dataset.confirmTitle || "Update oc-sandbox?",
+      runBtn.dataset.confirmBody || "",
+      "Update",
+      function () {
+        htmx.ajax("POST", base + "update/run", { target: '[data-role="update-card"]', swap: "outerHTML" });
+      }
+    );
+  });
+
+    es.addEventListener("update", function (ev) { onUpdate(ev); });
+
+  // Stub screen (#152 foundation): one Standard row, one advanced-only
+  // row (stored value survives the Standard view — presets, not
+  // pinning), and the presets hint. Per-screen tickets (#153,
+  // #155–#157) replace this with real rows driven by the Go matrix.
+  function renderStub(nav) {
+    screenEl.innerHTML =
+      '<div class="stub">Screen "' + nav + '" arrives with its ticket.</div>' +
+      '<div class="row"><span class="label">AI-Provider</span>(none)</div>' +
+      '<div class="row" data-advanced-only><span class="label">Search mode</span>searxng</div>' +
+      '<div class="row hint">presets, see Advanced</div>';
+  }
+  renderStub(null);
+
   // --- SSE hub: one stream per tab, reconnect replay via line serial ---
   function connect() {
     var es = new EventSource(base + "events");
     es.addEventListener("open", function () { /* stub: clear reconnect exhaustion UI */ });
-    es.addEventListener("line", function (ev) {
-      var pane = document.querySelector('[data-role="op-log"]');
-      if (!pane) return;
-      try {
-        var data = JSON.parse(ev.data);
-        pane.textContent += data.text + "\n";
-        pane.scrollTop = pane.scrollHeight;
-      } catch (e) { /* malformed line: ignore */ }
-    });
+    es.addEventListener("line", function (ev) { onLine(ev); });
     es.addEventListener("workspace", function () {
-      if (currentNav) showScreen(currentNav); // reactive re-render (§6)
+      // #159: state-changing ops publish workspace — the current screen
+      // re-renders reactively (no reload).
+      if (currentNav && SCREENS[currentNav] && window.htmx) showScreen(currentNav);
     });
-    es.addEventListener("update", function (ev) { stubEvent("update", ev); });
+    es.addEventListener("update", function (ev) { onUpdate(ev); });
     es.addEventListener("shutdown", function () {
       es.close();
       screenEl.innerHTML =
         '<div class="stub">Server stopped — relaunch oc-sandbox.</div>'; // §12 screen stub
     });
     return es;
+  }
+
+  // Line events stream into the embedded log pane under the Update card
+  // while the update op runs (spec §12) — keyed by the op ID the update
+  // event carries.
+  function onLine(ev) {
+    var stubbed = true;
+    var line;
+    try { line = JSON.parse(ev.data); } catch (e) { return; }
+    var card = document.querySelector('[data-role="update-card"]');
+    var pane = card && card.querySelector('[data-role="update-log"]');
+    if (pane && updateOp !== null && line.op === updateOp) {
+      stubbed = false;
+      pane.hidden = false;
+      pane.textContent += (pane.textContent ? "\n" : "") + line.text;
+      pane.scrollTop = pane.scrollHeight;
+    }
+    // #159: the uninstall screen's log pane streams every op's lines
+    // (only one screen is mounted at a time, so no filter is needed).
+    var log = document.querySelector('[data-role="op-log"]');
+    if (log && !pane) {
+      stubbed = false;
+      log.textContent += (log.textContent ? "\n" : "") + line.text;
+      log.scrollTop = log.scrollHeight;
+    }
+    if (stubbed && window.console && console.debug) console.debug("sse line", ev.data);
   }
 
   function stubEvent(kind, ev) {

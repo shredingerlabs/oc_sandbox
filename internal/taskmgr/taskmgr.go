@@ -14,8 +14,6 @@
 package taskmgr
 
 import (
-	"sync"
-
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -85,11 +83,8 @@ type Launcher interface {
 	Launch(op Op) tea.Cmd
 }
 
-// Manager launches, tracks and cancels background ops. It is safe for
-// concurrent use: the TUI event loop and the WebUI's op-drain goroutine
-// share one instance.
+// Manager launches, tracks and cancels background ops.
 type Manager struct {
-	mu       sync.Mutex
 	nextID   int
 	tasks    map[int]*task // internal serial → task
 	perKey   map[string][]*task
@@ -117,8 +112,6 @@ func New() *Manager {
 // Busy reports whether any task is queued or running — the guarded-exit
 // query the shell makes before quitting.
 func (m *Manager) Busy() bool {
-	m.mu.Lock()
-	defer m.mu.Unlock()
 	for key := range m.perKey {
 		for _, t := range m.perKey[key] {
 			if t.state == StateRunning || t.state == StateQueued {
@@ -131,17 +124,11 @@ func (m *Manager) Busy() bool {
 
 // BusyKey reports whether the key has a running or queued op (the
 // still-running indicator on the owning workspace's cards/checklists).
-func (m *Manager) BusyKey(key string) bool {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return len(m.perKey[key]) > 0
-}
+func (m *Manager) BusyKey(key string) bool { return len(m.perKey[key]) > 0 }
 
 // RunningTitle returns the title of the key's running op, ok=false when
 // the key is idle — the still-running indicator label.
 func (m *Manager) RunningTitle(key string) (string, bool) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
 	for _, t := range m.perKey[key] {
 		if t.state == StateRunning {
 			return t.op.Title, true
@@ -154,8 +141,6 @@ func (m *Manager) RunningTitle(key string) (string, bool) {
 // an already-running op keeps running to completion — its owning view
 // discards the DoneMsg by its own bookkeeping.
 func (m *Manager) CancelQueued(key string) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
 	q := m.perKey[key]
 	var keep []*task
 	for _, t := range q {
@@ -175,8 +160,6 @@ func (m *Manager) CancelQueued(key string) {
 // cmd for an op that had to wait (the successor's start cmd is returned
 // from Update when the running op finishes).
 func (m *Manager) Launch(op Op) tea.Cmd {
-	m.mu.Lock()
-	defer m.mu.Unlock()
 	if op.ID == 0 {
 		m.nextID++
 		op.ID = m.nextID
@@ -229,8 +212,6 @@ func (m *Manager) start(t *task) tea.Cmd {
 // a key's level frees up it returns the successor's start cmd batched
 // with its Running StatusMsg.
 func (m *Manager) Update(msg tea.Msg) tea.Cmd {
-	m.mu.Lock()
-	defer m.mu.Unlock()
 	switch msg := msg.(type) {
 	case LineEvent: // one more streaming event: wait for the next one
 		t := m.bySerial[msg.Serial]

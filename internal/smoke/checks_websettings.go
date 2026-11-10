@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/shredingerlabs/oc-sandbox/internal/cmdrun"
-	"github.com/shredingerlabs/oc-sandbox/internal/taskmgr"
 	"github.com/shredingerlabs/oc-sandbox/internal/webserver"
 )
 
@@ -27,12 +26,11 @@ func checkWebSettings(home, root string) Item {
 	fix := filepath.Join(home, "A10")
 
 	fake := &cmdrun.Fake{}
-	s := webserver.New(webserver.Options{BasePort: 0})
-	s.Wire(webserver.Deps{
-		Home:            fix,
-		UninstallScript: filepath.Join(fix, "scripts", "uninstall.sh"),
-		Runner:          fake,
-		Tasks:           taskmgr.New(),
+	s := webserver.New(webserver.Options{
+		BasePort:    0,
+		Home:        fix,
+		InstallRoot: fix,
+		Runner:      fake,
 	})
 	if err := s.Start(); err != nil {
 		p.reasonf("start: %v", err)
@@ -228,7 +226,7 @@ func checkWebSettings(home, root string) Item {
 		want := filepath.Join(fix, "scripts", "uninstall.sh")
 		if call.Name != "bash" || len(call.Args) < 2 || call.Args[0] != want ||
 			strings.Join(call.Args[1:], " ") != "--force --no-symlinks" {
-			p.reasonf("uninstall argv = %v %v, want bash %s --force --no-symlinks", call.Name, call.Args, want)
+			p.reasonf("uninstall argv = %v %v, want bash <uninstall.sh> --force --no-symlinks", call.Name, call.Args)
 		}
 	}
 	// The toggled run: wait for the first uninstall op to drain (a busy

@@ -14,7 +14,6 @@ import (
 
 	"github.com/shredingerlabs/oc-sandbox/internal/cmdrun"
 	"github.com/shredingerlabs/oc-sandbox/internal/discovery"
-	"github.com/shredingerlabs/oc-sandbox/internal/taskmgr"
 )
 
 // uninstallTmpl renders the Uninstall screen: the warning block (running
@@ -43,6 +42,7 @@ var uninstallTmpl = template.Must(template.New("uninstall").Parse(
 <button id="uninstall-btn" class="btn danger" type="submit" disabled
  data-confirm-popup data-confirm-title="Uninstall oc-sandbox?"
  data-confirm-question="This removes images, symlinks, shortcuts and (if selected) the config — a config backup is made first. This cannot be undone." data-confirm-label="Uninstall">Uninstall</button>
+<pre class="op-log" data-role="op-log" hidden></pre>
 </form></div>`))
 
 // uninstallDoneTmpl reports the queued/finished state of the script run.
@@ -61,16 +61,15 @@ func uninstallArmed(s string) bool { return strings.EqualFold(strings.TrimSpace(
 
 // handleUninstallScreen renders the Uninstall screen (GET /uninstall).
 func (s *Server) handleUninstallScreen(w http.ResponseWriter, r *http.Request) {
-	running := []string{}
-	if s.deps.Runner != nil {
-		running = discovery.RunningContainers(s.deps.Runner)
-	}
+	running := discovery.RunningContainers(s.runner)
 	renderT(w, uninstallTmpl, struct{ Running []string }{Running: running})
 }
 
 // handleUninstall validates the typed confirmation, refuses while busy,
 // maps the toggles onto the script flags and runs uninstall.sh as one
-// task-manager op (POST /uninstall).
+// queue op (POST /uninstall). Flags exactly like the TUI's runUninstall:
+// always --force; keeping the symlinks adds --no-symlinks; the other two
+// are opt-in.
 func (s *Server) handleUninstall(w http.ResponseWriter, r *http.Request) {
 	if !uninstallArmed(r.FormValue("confirm_text")) {
 		renderT(w, uninstallConfirmFailedTmpl, nil)
@@ -80,8 +79,6 @@ func (s *Server) handleUninstall(w http.ResponseWriter, r *http.Request) {
 		renderT(w, busyNoticeTmpl, nil)
 		return
 	}
-	// Flag mapping exactly like the TUI's runUninstall: always --force;
-	// keeping the symlinks adds --no-symlinks; the other two are opt-in.
 	args := []string{"--force"}
 	if r.FormValue("remove_symlinks") == "" {
 		args = append(args, "--no-symlinks")
@@ -92,17 +89,19 @@ func (s *Server) handleUninstall(w http.ResponseWriter, r *http.Request) {
 	if r.FormValue("remove_config") != "" {
 		args = append(args, "--remove-config")
 	}
-	script := s.deps.UninstallScript
-	runner := s.deps.Runner
-	s.launchOp(taskmgr.Op{
-		Key:   "settings", // config-file ops serialize (TUI parity)
-		Title: "Uninstalling oc-sandbox",
+	script := s.uninstallScript()
+	runner := s.runner
+	s.queue.Launch(webOp{
+		Key: "settings", // config-file ops serialize (TUI parity)
 		Run: func(emit func(string)) error {
 			out, err := runner.Output("bash", append([]string{script}, args...)...)
 			for _, line := range cmdrun.Lines(out) {
 				emit(line)
 			}
 			return err
+		},
+		Done: func(err error) {
+			s.hub.PublishWorkspace() // busy state changed — tabs re-render
 		},
 	})
 	renderT(w, uninstallDoneTmpl, nil)

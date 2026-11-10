@@ -6,8 +6,10 @@ package config
 import (
 	"crypto/rand"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -265,25 +267,70 @@ func IsGeneralConfigFile(home, path string) bool {
 	return strings.Contains(p, "/.opencode_config/")
 }
 
+// Display modes of the WebUI (display_mode in global_config.json,
+// #152): Standard preselects at creation and hides advanced rows/chips
+// (presets, not pinning — the stored sandbox_config.json stays the
+// single truth); Advanced always reveals stored values. Default is
+// standard: absent and unknown keys read as standard.
+const (
+	DisplayStandard = "standard"
+	DisplayAdvanced = "advanced"
+)
+
+// ValidDisplayMode reports whether v is a known display_mode value.
+func ValidDisplayMode(v string) bool {
+	return v == DisplayStandard || v == DisplayAdvanced
+}
+
 // GlobalConfig models global_config.json.
 type GlobalConfig struct {
 	DefaultWorkspacePath string `json:"default_workspace_path"`
+	DisplayMode          string `json:"display_mode"`
 	Version              string `json:"version"`
 }
 
 // CreateGlobalConfig writes the initial global_config.json for first-run setup.
 func CreateGlobalConfig(home, workspacePath string) error {
 	return AtomicWrite(home, Paths{Home: home}.GlobalConfigPath(),
-		jsonfmt.Marshal(GlobalConfig{DefaultWorkspacePath: workspacePath, Version: "2.0"}))
+		jsonfmt.Marshal(GlobalConfig{
+			DefaultWorkspacePath: workspacePath,
+			DisplayMode:          DisplayStandard,
+			Version:              "2.0",
+		}))
 }
 
-// ReadGlobalConfig reads global_config.json.
+// SetDisplayMode persists the WebUI display mode (POST /settings, #152):
+// read-modify-write preserving every other key, one atomic write with
+// backup rotation (ADR-0009). A missing global_config.json is created —
+// the WebUI must not dead-end.
+func SetDisplayMode(home, mode string) error {
+	if !ValidDisplayMode(mode) {
+		return fmt.Errorf("config: invalid display_mode %q", mode)
+	}
+	gc, err := ReadGlobalConfig(home)
+	if err != nil {
+		if !errors.Is(err, fs.ErrNotExist) {
+			return err
+		}
+		gc = GlobalConfig{Version: "2.0"}
+	}
+	gc.DisplayMode = mode
+	return AtomicWrite(home, Paths{Home: home}.GlobalConfigPath(), jsonfmt.Marshal(gc))
+}
+
+// ReadGlobalConfig reads global_config.json. An absent or unknown
+// display_mode reads as standard (default, #152).
 func ReadGlobalConfig(home string) (GlobalConfig, error) {
 	var gc GlobalConfig
 	data, err := os.ReadFile(Paths{Home: home}.GlobalConfigPath())
 	if err != nil {
 		return gc, err
 	}
-	err = json.Unmarshal(data, &gc)
-	return gc, err
+	if err = json.Unmarshal(data, &gc); err != nil {
+		return gc, err
+	}
+	if !ValidDisplayMode(gc.DisplayMode) {
+		gc.DisplayMode = DisplayStandard
+	}
+	return gc, nil
 }

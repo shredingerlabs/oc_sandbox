@@ -9,17 +9,15 @@ import (
 	"testing"
 
 	"github.com/shredingerlabs/oc-sandbox/internal/registry"
-	"github.com/shredingerlabs/oc-sandbox/internal/taskmgr"
 )
 
 // wiredServer starts a Server wired for one fixture home (import_test
-// slices): real registry, real task manager, no uninstall script needed
+// slices): real registry, its own op queue, no uninstall script needed
 // yet. Returns the server and the fixture home.
 func wiredServer(t *testing.T) (*Server, string) {
 	t.Helper()
 	home := t.TempDir()
-	s := New(Options{BasePort: 0})
-	s.Wire(Deps{Home: home, Tasks: taskmgr.New()})
+	s := New(Options{BasePort: 0, Home: home})
 	if err := s.Start(); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -29,7 +27,7 @@ func wiredServer(t *testing.T) (*Server, string) {
 
 // postForm issues a form-encoded POST like HTMX does and returns status
 // and body.
-func postForm(t *testing.T, url string, vals url.Values) (int, string) {
+func postFormDoc(t *testing.T, url string, vals url.Values) (int, string) {
 	t.Helper()
 	resp, err := http.PostForm(url, vals)
 	if err != nil {
@@ -101,7 +99,7 @@ func TestImportScreen(t *testing.T) {
 func TestImportCheckMatchingRoot(t *testing.T) {
 	s, _ := wiredServer(t)
 	root := seedCanonicalRoot(t)
-	status, doc := postForm(t, s.URL()+"import-workspace", url.Values{"path": {root}})
+	status, doc := postFormDoc(t, s.URL()+"import-workspace", url.Values{"path": {root}})
 	if status != http.StatusOK {
 		t.Fatalf("status = %d, want 200", status)
 	}
@@ -129,7 +127,7 @@ func TestImportCheckRegisteredGuard(t *testing.T) {
 	s, home := wiredServer(t)
 	root := t.TempDir() // deliberately not a matching structure
 	newRegistry(home).AddWorkspace(registry.AddRequest{Name: "some", Path: root})
-	_, doc := postForm(t, s.URL()+"import-workspace", url.Values{"path": {root}})
+	_, doc := postFormDoc(t, s.URL()+"import-workspace", url.Values{"path": {root}})
 	if !strings.Contains(doc, "Already registered") {
 		t.Fatalf("registered guard missing:\n%s", doc)
 	}
@@ -153,7 +151,7 @@ func TestImportCheckLegacyLayout(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(root, "project", ".git"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	_, doc := postForm(t, s.URL()+"import-workspace", url.Values{"path": {root}})
+	_, doc := postFormDoc(t, s.URL()+"import-workspace", url.Values{"path": {root}})
 	for _, want := range []string{
 		"Import isn't possible here",
 		"Convert to workspace layout",
@@ -171,7 +169,7 @@ func TestImportCheckLegacyLayout(t *testing.T) {
 // A non-matching folder gets the referrer prompt (New Workspace wizard).
 func TestImportCheckNonMatching(t *testing.T) {
 	s, _ := wiredServer(t)
-	_, doc := postForm(t, s.URL()+"import-workspace", url.Values{"path": {t.TempDir()}})
+	_, doc := postFormDoc(t, s.URL()+"import-workspace", url.Values{"path": {t.TempDir()}})
 	if !strings.Contains(doc, "Import isn't possible here") {
 		t.Fatalf("referrer prompt missing:\n%s", doc)
 	}
@@ -190,7 +188,7 @@ func TestImportCheckBrokenConfig(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, ".opencode_config", "sandbox_config.json"), []byte("{nope"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	_, doc := postForm(t, s.URL()+"import-workspace", url.Values{"path": {root}})
+	_, doc := postFormDoc(t, s.URL()+"import-workspace", url.Values{"path": {root}})
 	if !strings.Contains(doc, "not valid JSON") {
 		t.Fatalf("broken-config prompt missing:\n%s", doc)
 	}

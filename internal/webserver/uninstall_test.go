@@ -2,25 +2,25 @@ package webserver
 
 import (
 	"net/url"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/shredingerlabs/oc-sandbox/internal/cmdrun"
-	"github.com/shredingerlabs/oc-sandbox/internal/taskmgr"
 )
 
-// uninstallServer wires a Server whose uninstall.sh calls land on a
-// recorded Fake runner.
+// uninstallServer starts a Server whose uninstall.sh calls land on a
+// recorded Fake runner (Options.Runner seam).
 func uninstallServer(t *testing.T) (*Server, *cmdrun.Fake) {
 	t.Helper()
-	s := New(Options{BasePort: 0})
+	home := t.TempDir()
 	fake := &cmdrun.Fake{}
-	s.Wire(Deps{
-		Home:            t.TempDir(),
-		UninstallScript: "/install/.oc-sandbox/scripts/uninstall.sh",
-		Runner:          fake,
-		Tasks:           taskmgr.New(),
+	s := New(Options{
+		BasePort:    0,
+		Home:        home,
+		InstallRoot: filepath.Join(home, ".oc-sandbox"),
+		Runner:      fake,
 	})
 	if err := s.Start(); err != nil {
 		t.Fatalf("Start: %v", err)
@@ -33,7 +33,7 @@ func uninstallServer(t *testing.T) (*Server, *cmdrun.Fake) {
 // runs on a goroutine — tests poll instead of racing it).
 func waitIdle(t *testing.T, s *Server) {
 	t.Helper()
-	for i := 0; i < 500 && s.deps.Tasks.Busy(); i++ {
+	for i := 0; i < 500 && s.busy(); i++ {
 		sleepMillis(2)
 	}
 }
@@ -72,7 +72,7 @@ func TestUninstallRequiresTypedConfirm(t *testing.T) {
 	for _, confirm := range []string{"", "yes", "UNINSTALL  ", " uninstall "} {
 		// case-insensitive trimmed match is armed; whitespace-only and
 		// wrong text are not ("UNINSTALL  " trimmed IS armed — see map)
-		_, doc := postForm(t, s.URL()+"uninstall", url.Values{
+		_, doc := postFormDoc(t, s.URL()+"uninstall", url.Values{
 			"confirm_text": {confirm},
 		})
 		armed := strings.EqualFold(strings.TrimSpace(confirm), "uninstall")
@@ -108,7 +108,7 @@ func TestUninstallFlagMapping(t *testing.T) {
 			[]string{"--force"}},
 	} {
 		fake.Calls = nil
-		_, doc := postForm(t, s.URL()+"uninstall", c.vals)
+		_, doc := postFormDoc(t, s.URL()+"uninstall", c.vals)
 		if !strings.Contains(doc, "Uninstall started") {
 			t.Fatalf("%s: start notice missing:\n%s", c.name, doc)
 		}
@@ -117,7 +117,7 @@ func TestUninstallFlagMapping(t *testing.T) {
 			t.Fatalf("%s: script not invoked exactly once: %+v", c.name, fake.Calls)
 		}
 		call := fake.Calls[0]
-		if call.Name != "bash" || len(call.Args) == 0 || call.Args[0] != "/install/.oc-sandbox/scripts/uninstall.sh" {
+		if call.Name != "bash" || len(call.Args) == 0 || call.Args[0] != s.uninstallScript() {
 			t.Fatalf("%s: invocation = %v %v, want bash <uninstall.sh>", c.name, call.Name, call.Args)
 		}
 		if got := call.Args[1:]; strings.Join(got, " ") != strings.Join(c.want, " ") {
@@ -132,10 +132,10 @@ func TestUninstallRefusesWhileBusy(t *testing.T) {
 	s, fake := uninstallServer(t)
 	release := make(chan struct{})
 	defer close(release)
-	s.launchOp(blockedOp(release))
-	for !s.deps.Tasks.Busy() {
+	s.queue.Launch(blockedOp(release))
+	for !s.busy() {
 	}
-	_, doc := postForm(t, s.URL()+"uninstall", url.Values{"confirm_text": {"uninstall"}})
+	_, doc := postFormDoc(t, s.URL()+"uninstall", url.Values{"confirm_text": {"uninstall"}})
 	if !strings.Contains(doc, "queued or running") {
 		t.Fatalf("busy refusal missing:\n%s", doc)
 	}

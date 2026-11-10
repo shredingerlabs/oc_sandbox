@@ -59,7 +59,7 @@ func TestConfigScreen(t *testing.T) {
 func TestExportConfigNamedBackup(t *testing.T) {
 	s, home := wiredServer(t)
 	seedGlobalConfigs(t, home)
-	status, doc := postForm(t, s.URL()+"export-config", url.Values{"label": {"pre-release"}})
+	status, doc := postFormDoc(t, s.URL()+"export-config", url.Values{"label": {"pre-release"}})
 	if status != http.StatusOK || !strings.Contains(doc, "Exported") {
 		t.Fatalf("export failed (status %d):\n%s", status, doc)
 	}
@@ -80,13 +80,13 @@ func TestExportConfigNamedBackup(t *testing.T) {
 func TestExportConfigOverwriteConfirm(t *testing.T) {
 	s, home := wiredServer(t)
 	seedGlobalConfigs(t, home)
-	if _, doc := postForm(t, s.URL()+"export-config", url.Values{"label": {"snap"}}); !strings.Contains(doc, "Exported") {
+	if _, doc := postFormDoc(t, s.URL()+"export-config", url.Values{"label": {"snap"}}); !strings.Contains(doc, "Exported") {
 		t.Fatalf("first export failed")
 	}
 	// Change the active file, then re-export without confirmation.
 	gc := filepath.Join(home, ".config", "oc-sandbox", "global_config.json")
 	os.WriteFile(gc, []byte(`{"default_workspace_path":"/other","version":"2.0"}`), 0o644) //nolint:errcheck
-	_, doc := postForm(t, s.URL()+"export-config", url.Values{"label": {"snap"}})
+	_, doc := postFormDoc(t, s.URL()+"export-config", url.Values{"label": {"snap"}})
 	if !strings.Contains(doc, "already exists") {
 		t.Fatalf("overwrite confirm missing:\n%s", doc)
 	}
@@ -96,7 +96,7 @@ func TestExportConfigOverwriteConfirm(t *testing.T) {
 		t.Fatalf("snapshot changed without confirmation: %s", data)
 	}
 	// With the confirmation the snapshot is replaced.
-	_, doc = postForm(t, s.URL()+"export-config", url.Values{"label": {"snap"}, "confirm": {"1"}})
+	_, doc = postFormDoc(t, s.URL()+"export-config", url.Values{"label": {"snap"}, "confirm": {"1"}})
 	if !strings.Contains(doc, "Exported") {
 		t.Fatalf("confirmed export failed:\n%s", doc)
 	}
@@ -111,7 +111,7 @@ func TestExportConfigOverwriteConfirm(t *testing.T) {
 func TestExportConfigBadLabel(t *testing.T) {
 	s, _ := wiredServer(t)
 	for _, label := range []string{"", "../evil", "has space", "sl/ash"} {
-		_, doc := postForm(t, s.URL()+"export-config", url.Values{"label": {label}})
+		_, doc := postFormDoc(t, s.URL()+"export-config", url.Values{"label": {label}})
 		if !strings.Contains(doc, "Invalid backup name") {
 			t.Fatalf("label %q not refused:\n%s", label, doc)
 		}
@@ -124,10 +124,10 @@ func TestExportConfigRefusesWhileBusy(t *testing.T) {
 	seedGlobalConfigs(t, home)
 	release := make(chan struct{})
 	defer close(release)
-	s.launchOp(blockedOp(release))
-	for !s.deps.Tasks.Busy() {
+	s.queue.Launch(blockedOp(release))
+	for !s.busy() {
 	}
-	_, doc := postForm(t, s.URL()+"export-config", url.Values{"label": {"snap"}})
+	_, doc := postFormDoc(t, s.URL()+"export-config", url.Values{"label": {"snap"}})
 	if !strings.Contains(doc, "queued or running") {
 		t.Fatalf("busy refusal missing:\n%s", doc)
 	}
@@ -139,7 +139,7 @@ func TestExportConfigRefusesWhileBusy(t *testing.T) {
 func TestRestoreConfigRoundTrip(t *testing.T) {
 	s, home := wiredServer(t)
 	seedGlobalConfigs(t, home)
-	if _, doc := postForm(t, s.URL()+"export-config", url.Values{"label": {"snap"}}); !strings.Contains(doc, "Exported") {
+	if _, doc := postFormDoc(t, s.URL()+"export-config", url.Values{"label": {"snap"}}); !strings.Contains(doc, "Exported") {
 		t.Fatalf("export failed")
 	}
 	// Change the active workspaces.json, then restore.
@@ -148,12 +148,12 @@ func TestRestoreConfigRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Without the confirmation nothing is restored (server-side guard).
-	postForm(t, s.URL()+"restore-config", url.Values{"label": {"snap"}}) //nolint:errcheck
-	data, _ := os.ReadFile(ws)                                           //nolint:errcheck
+	postFormDoc(t, s.URL()+"restore-config", url.Values{"label": {"snap"}}) //nolint:errcheck
+	data, _ := os.ReadFile(ws)                                              //nolint:errcheck
 	if !strings.Contains(string(data), `"workspaces":[]`) {
 		t.Fatalf("restored without confirmation: %s", data)
 	}
-	_, doc := postForm(t, s.URL()+"restore-config", url.Values{"label": {"snap"}, "confirm": {"1"}})
+	_, doc := postFormDoc(t, s.URL()+"restore-config", url.Values{"label": {"snap"}, "confirm": {"1"}})
 	if !strings.Contains(doc, "Restored") {
 		t.Fatalf("restore confirmation missing:\n%s", doc)
 	}
@@ -173,15 +173,15 @@ func TestRestoreConfigRoundTrip(t *testing.T) {
 func TestRestoreConfigRefusesWhileBusy(t *testing.T) {
 	s, home := wiredServer(t)
 	seedGlobalConfigs(t, home)
-	if _, doc := postForm(t, s.URL()+"export-config", url.Values{"label": {"snap"}}); !strings.Contains(doc, "Exported") {
+	if _, doc := postFormDoc(t, s.URL()+"export-config", url.Values{"label": {"snap"}}); !strings.Contains(doc, "Exported") {
 		t.Fatalf("export failed")
 	}
 	release := make(chan struct{})
 	defer close(release)
-	s.launchOp(blockedOp(release))
-	for !s.deps.Tasks.Busy() {
+	s.queue.Launch(blockedOp(release))
+	for !s.busy() {
 	}
-	_, doc := postForm(t, s.URL()+"restore-config", url.Values{"label": {"snap"}, "confirm": {"1"}})
+	_, doc := postFormDoc(t, s.URL()+"restore-config", url.Values{"label": {"snap"}, "confirm": {"1"}})
 	if !strings.Contains(doc, "queued or running") {
 		t.Fatalf("busy refusal missing:\n%s", doc)
 	}
@@ -192,8 +192,8 @@ func TestRestoreConfigRefusesWhileBusy(t *testing.T) {
 func TestConfigScreenListsNamedBackups(t *testing.T) {
 	s, home := wiredServer(t)
 	seedGlobalConfigs(t, home)
-	postForm(t, s.URL()+"export-config", url.Values{"label": {"first"}})  //nolint:errcheck
-	postForm(t, s.URL()+"export-config", url.Values{"label": {"second"}}) //nolint:errcheck
+	postFormDoc(t, s.URL()+"export-config", url.Values{"label": {"first"}})  //nolint:errcheck
+	postFormDoc(t, s.URL()+"export-config", url.Values{"label": {"second"}}) //nolint:errcheck
 	doc := body(t, get(t, s.URL()+"config"))
 	if !strings.Contains(doc, "first") || !strings.Contains(doc, "second") {
 		t.Fatalf("named backups not listed:\n%s", doc)

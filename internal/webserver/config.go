@@ -164,7 +164,7 @@ func (s *Server) handleConfigScreen(w http.ResponseWriter, r *http.Request) {
 func (s *Server) renderConfigScreen(w http.ResponseWriter, notice string) {
 	renderT(w, configScreenTmpl, configScreenData{
 		Notice:  template.HTML(template.HTMLEscapeString(notice)),
-		Backups: namedBackups(s.deps.Home),
+		Backups: namedBackups(s.home()),
 	})
 }
 
@@ -180,7 +180,7 @@ func (s *Server) handleExportConfig(w http.ResponseWriter, r *http.Request) {
 		renderT(w, exportFailedTmpl, "Invalid backup name (letters, digits, _, -).")
 		return
 	}
-	dir := exportDir(s.deps.Home, label)
+	dir := exportDir(s.home(), label)
 	if _, err := os.Stat(dir); err == nil && r.FormValue("confirm") != "1" {
 		renderT(w, overwriteTmpl, label)
 		return
@@ -200,16 +200,16 @@ func (s *Server) handleExportConfig(w http.ResponseWriter, r *http.Request) {
 // exportSnapshot writes the named snapshot: every active general config
 // file copied byte-exact into backups/export-<label>/.
 func (s *Server) exportSnapshot(label string) ([]string, error) {
-	names := activeConfigNames(s.deps.Home)
+	names := activeConfigNames(s.home())
 	if len(names) == 0 {
 		return nil, fmt.Errorf("nothing to export yet — config files appear once setup has run")
 	}
-	dir := exportDir(s.deps.Home, label)
+	dir := exportDir(s.home(), label)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, err
 	}
 	for _, name := range names {
-		data, err := os.ReadFile(filepath.Join(config.Paths{Home: s.deps.Home}.Dir(), name))
+		data, err := os.ReadFile(filepath.Join(config.Paths{Home: s.home()}.Dir(), name))
 		if err != nil {
 			return nil, err
 		}
@@ -230,7 +230,7 @@ func (s *Server) handleRestoreConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	label := strings.TrimSpace(r.FormValue("label"))
-	dir := exportDir(s.deps.Home, label)
+	dir := exportDir(s.home(), label)
 	if fi, err := os.Stat(dir); err != nil || !fi.IsDir() || !exportLabelRe.MatchString(label) {
 		renderT(w, restoreFailedTmpl, "Unknown backup — it does not exist (or the name is invalid).")
 		return
@@ -257,8 +257,8 @@ func (s *Server) handleRestoreConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	for _, name := range restored {
-		target := filepath.Join(config.Paths{Home: s.deps.Home}.Dir(), name)
-		if _, err := config.BackupFile(s.deps.Home, target); err != nil { // safety backup of the active file
+		target := filepath.Join(config.Paths{Home: s.home()}.Dir(), name)
+		if _, err := config.BackupFile(s.home(), target); err != nil { // safety backup of the active file
 			renderT(w, restoreFailedTmpl, "could not create a safety backup — the active configuration was not changed")
 			return
 		}

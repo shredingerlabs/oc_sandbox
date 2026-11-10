@@ -24,6 +24,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/shredingerlabs/oc-sandbox/internal/cmdrun"
 	"github.com/shredingerlabs/oc-sandbox/internal/registry"
 )
 
@@ -31,11 +32,18 @@ import (
 // server error log runs every line through.
 var tokenRe = regexp.MustCompile(`/t/[0-9a-f]{32}/`)
 
+// BasePort is the launcher's base webserver port (spec §4): scanned
+// upward on conflict, never persisted — re-derived per launch.
+const BasePort = 8090
+
 // Options carries the launch-time knobs. The zero value is production:
 // base port 8090 (scans upward on conflict, never persisted).
 type Options struct {
-	BasePort int    // first port tried; 0 means "pick a free port" (tests)
-	Version  string // reported nowhere until a screen needs it
+	BasePort    int           // first port tried; 0 means "pick a free port" (tests)
+	Version     string        // compiled-in version — the update card's fallback when the VERSION file is absent
+	InstallRoot string        // the install layout root (app.LayoutFor): the VERSION file lives here
+	Home        string        // the oc-sandbox home: ~/.config/oc-sandbox holds catalogs.json etc. and global_config.json (GET/POST /settings)
+	Runner      cmdrun.Runner // the command-runner seam (podman/scripts calls); nil → cmdrun.ExecRunner (smoke injects a Fake)
 }
 
 // Server is one WebUI instance: a loopback listener with a per-launch
@@ -45,24 +53,35 @@ type Server struct {
 	opts    Options
 	token   string // hex, ≥128 bit of CSPRNG entropy
 	hub     *Hub
+	queue   *opRunner
+	updater *Updater
+	runner  cmdrun.Runner
 	srv     *http.Server
 	ln      net.Listener
 	url     string
 	errLog  strings.Builder // captured (token-redacted) http.Server error log — test seam
 	errSink *redactingLog   // the http.Server ErrorLog sink — redaction seam
 
-	deps Deps
-	reg  *registry.Registry
+	reg *registry.Registry
 }
 
 // New creates an unstarted server with a fresh per-launch token.
 func New(opts Options) *Server {
 	s := &Server{
-		opts:  opts,
-		token: newToken(),
-		hub:   newHub(),
+		opts:   opts,
+		token:  newToken(),
+		hub:    newHub(),
+		runner: opts.Runner,
+	}
+	if s.runner == nil {
+		s.runner = cmdrun.ExecRunner{}
 	}
 	s.errSink = &redactingLog{next: &s.errLog}
+	s.queue = newOpRunner(s.hub)
+	s.updater = newUpdater(s.hub, s.queue, opts.InstallRoot, opts.Version)
+	if opts.Home != "" {
+		s.reg = &registry.Registry{Home: opts.Home}
+	}
 	return s
 }
 
@@ -79,16 +98,6 @@ func newToken() string {
 // Hub returns the SSE hub so launch wiring (#151) can push
 // line/workspace/update/shutdown events onto open tabs.
 func (s *Server) Hub() *Hub { return s.hub }
-
-// Wire attaches the business wiring (spec §9: business logic stays in
-// config/registry/taskmgr/discovery; scripts invoked exactly as the TUI
-// invokes them). Tasks is the process-wide task manager shared with the
-// TUI — the WebUI's ops queue behind the same per-key semantics and its
-// confirmations refuse while any op is queued/running. Call before Start.
-func (s *Server) Wire(d Deps) {
-	s.deps = d
-	s.reg = &registry.Registry{Home: d.Home}
-}
 
 // URL returns the full tokenized base URL, trailing slash included —
 // the surface the launcher's URL/status line shows (never logged).
@@ -112,7 +121,7 @@ func (s *Server) ErrorLog() string { return s.errLog.String() }
 func (s *Server) Start() error {
 	base := s.opts.BasePort
 	if base == 0 {
-		base = 8090
+		base = BasePort
 	}
 	var ln net.Listener
 	var err error
@@ -145,6 +154,14 @@ func (s *Server) Start() error {
 	inner.HandleFunc("POST /restore-config", s.handleRestoreConfig)
 	inner.HandleFunc("GET /uninstall", s.handleUninstallScreen)
 	inner.HandleFunc("POST /uninstall", s.handleUninstall)
+	inner.HandleFunc("GET /update", s.handleUpdateCard)
+	inner.HandleFunc("POST /update/check", s.handleUpdateCheck)
+	inner.HandleFunc("POST /update/run", s.handleUpdateRun)
+	inner.HandleFunc("GET /catalogs", s.handleCatalogsGET)
+	inner.HandleFunc("POST /catalogs/trackers", s.handleTrackersPOST)
+	inner.HandleFunc("POST /catalogs/providers", s.handleProvidersPOST)
+	inner.HandleFunc("GET /settings", s.handleSettingsGet)
+	inner.HandleFunc("POST /settings", s.handleSettingsPost)
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", s.handleHealthz)
 	mux.Handle("/", s.auth(inner))
