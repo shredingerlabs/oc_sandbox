@@ -1,15 +1,19 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/term"
 
 	"github.com/shredingerlabs/oc-sandbox/internal/app"
 	"github.com/shredingerlabs/oc-sandbox/internal/cmdrun"
+	"github.com/shredingerlabs/oc-sandbox/internal/launcher"
 	"github.com/shredingerlabs/oc-sandbox/internal/migration"
+	"github.com/shredingerlabs/oc-sandbox/internal/registry"
 	"github.com/shredingerlabs/oc-sandbox/internal/shell"
 	"github.com/shredingerlabs/oc-sandbox/internal/smoke"
 	"github.com/shredingerlabs/oc-sandbox/internal/webserver"
@@ -33,11 +37,14 @@ func main() {
 			fmt.Fprintf(os.Stdout, "oc-sandbox %s\n", Version)
 			return
 		case "--help":
-			fmt.Fprintf(os.Stdout, "usage: oc-sandbox [--version|--smoke]  (no flags runs the TUI)\n")
+			fmt.Fprintf(os.Stdout, "usage: oc-sandbox [--version|--smoke|--full-tui]  (no flags runs the minimal launcher)\n")
+			return
+		case "--full-tui": // transitional parity gate (spec §14): the full TUI stays reachable until the flip
+			runTUI()
 			return
 		}
 	}
-	runTUI()
+	runLauncher()
 }
 
 // requestMinTermSize asks the terminal to grow to the shell minimum when
@@ -91,6 +98,58 @@ func runTUI() {
 	if code != 0 {
 		os.Exit(code)
 	}
+}
+
+// runLauncher is the default launch (spec §4, #151): the minimal TUI
+// face. Migration runs first (blocking, before anything reads config),
+// then the single-instance probe, then the webserver starts and the
+// browser tab auto-opens; the face runs until quit, which stops the
+// server — the token dies with the process.
+func runLauncher() {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "oc-sandbox: resolve home: %v\n", err)
+		os.Exit(1)
+	}
+	if err := runMigration(home); err != nil {
+		os.Exit(1)
+	}
+	// Single instance (spec §4): before binding, the unauthenticated
+	// reveals-nothing healthz probe on the base port detects a running
+	// WebUI — point at it and exit 0; a foreign app is scanned past.
+	if webserver.ProbeInstance(webserver.BasePort) {
+		fmt.Println("WebUI already running — copy the full tokenized URL from that session's window")
+		return
+	}
+	ui := startWebserver(home, Version)
+	url := ""
+	if ui != nil {
+		url = ui.URL()
+		launcher.OpenBrowser(url) // auto-open at launch; on failure the URL stays on the face
+	}
+	m := launcher.New(launcher.Options{
+		URL:      url,
+		Runner:   cmdrun.ExecRunner{},
+		Registry: &registry.Registry{Home: home, Now: time.Now},
+	})
+	p := tea.NewProgram(&m) // inline face: migration output and the URL line stay in scrollback
+	final, err := p.Run()
+	if ui != nil {
+		ui.Hub().PublishShutdown() // best-effort push; tabs stop reconnecting (§4/§12)
+		_ = ui.Close()
+	}
+	lm := final.(*launcher.Model)
+	if err == nil {
+		if code := lm.ExitStatus(); code != 0 { // 130 = ctrl+c (story 28 parity)
+			os.Exit(code)
+		}
+		return
+	}
+	if errors.Is(err, tea.ErrInterrupted) || errors.Is(err, tea.ErrProgramKilled) {
+		os.Exit(130)
+	}
+	fmt.Fprintf(os.Stderr, "oc-sandbox: %v\n", err)
+	os.Exit(1)
 }
 
 // startWebserver starts the embedded WebUI (spec §3/#150) and prints

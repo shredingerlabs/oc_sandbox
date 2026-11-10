@@ -29,6 +29,10 @@ import (
 // server error log runs every line through.
 var tokenRe = regexp.MustCompile(`/t/[0-9a-f]{32}/`)
 
+// BasePort is the launcher's base webserver port (spec §4): scanned
+// upward on conflict, never persisted — re-derived per launch.
+const BasePort = 8090
+
 // Options carries the launch-time knobs. The zero value is production:
 // base port 8090 (scans upward on conflict, never persisted).
 type Options struct {
@@ -98,7 +102,7 @@ func (s *Server) ErrorLog() string { return s.errLog.String() }
 func (s *Server) Start() error {
 	base := s.opts.BasePort
 	if base == 0 {
-		base = 8090
+		base = BasePort
 	}
 	var ln net.Listener
 	var err error
