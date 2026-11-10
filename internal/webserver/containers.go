@@ -300,7 +300,11 @@ func (s *Server) startOp(name string) func(emit func(string)) error {
 		if !slices.Contains(discovery.RunningContainers(d.Run), cname) {
 			return errNotRunning(cname)
 		}
-		return d.Registry.UpdateStatus(ws.Path, "running")
+		if err := d.Registry.UpdateStatus(ws.Path, "running"); err != nil {
+			return err
+		}
+		// The Open action is a use: the registry's last_used updates (#153).
+		return d.Registry.UpdateLastUsed(ws.Path)
 	}
 }
 

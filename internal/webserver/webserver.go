@@ -23,6 +23,9 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"time"
+
+	"github.com/shredingerlabs/oc-sandbox/internal/cmdrun"
 )
 
 // tokenRe matches the tokenized path prefix — the redaction pattern the
@@ -36,11 +39,14 @@ const BasePort = 8090
 // Options carries the launch-time knobs. The zero value is production:
 // base port 8090 (scans upward on conflict, never persisted).
 type Options struct {
-	BasePort    int    // first port tried; 0 means "pick a free port" (tests)
-	Version     string // compiled-in version — the update card's fallback when the VERSION file is absent
-	InstallRoot string // the install layout root (app.LayoutFor): the VERSION file lives here
-	Home        string // the oc-sandbox home: ~/.config/oc-sandbox holds catalogs.json etc. and global_config.json (GET/POST /settings)
-	Deps        *Deps  // screen seams (#156/#158/#159); nil = shell + update/settings/catalogs only
+	BasePort      int                        // first port tried; 0 means "pick a free port" (tests)
+	Version       string                     // compiled-in version — the update card's fallback when the VERSION file is absent
+	InstallRoot   string                     // the install layout root (app.LayoutFor): the VERSION file lives here
+	Home          string                     // the oc-sandbox home: ~/.config/oc-sandbox holds catalogs.json etc. and global_config.json (GET/POST /settings)
+	Deps          *Deps                      // screen seams (#156/#158/#159); nil = shell + update/settings/catalogs only
+	Runner        cmdrun.Runner              // podman/script runner for the workspace access verbs (#153); nil → deps.Run, then real execution
+	Now           func() time.Time           // clock for relative last-used dates; nil → time.Now
+	TerminalSpawn func(command string) error // host terminal window opener (§3); nil → per-platform spawn
 }
 
 // Server is one WebUI instance: a loopback listener with a per-launch
@@ -155,6 +161,12 @@ func (s *Server) Start() error {
 	inner.HandleFunc("POST /catalogs/providers", s.handleProvidersPOST)
 	inner.HandleFunc("GET /settings", s.handleSettingsGet)
 	inner.HandleFunc("POST /settings", s.handleSettingsPost)
+	// Workspaces screen (#153): the card grid + access verbs. The start
+	// verb is #158's Container-center route (wireRoutes) — the same URL
+	// this screen's Open action posts to.
+	inner.HandleFunc("GET /workspaces", s.handleWorkspacesGET)
+	inner.HandleFunc("POST /workspaces/{name}/access", s.handleAccess)
+	inner.HandleFunc("POST /workspaces/{name}/pair-link", s.handlePairLink)
 	if s.deps != nil {
 		s.wireRoutes(inner) // container/image screens (#158)
 	}

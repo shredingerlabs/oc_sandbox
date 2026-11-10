@@ -113,6 +113,55 @@ body { background:var(--bg); color:var(--ink);
 .row { padding:6px 0; border-bottom:1px solid var(--hairline); }
 .row .label { font-weight:600; margin-right:8px; }
 
+/* Workspace → Open screen (#153, spec §7): Signal cards in a grid —
+   edition icon tile tinted via --ed, bold names, chips, action rows,
+   streamed op log, confirm rows. */
+.ws-screen { max-width:1060px; }
+.pagehead { display:flex; align-items:center; justify-content:space-between;
+  gap:16px; margin-bottom:16px; }
+.pagehead h2 { margin:0; font-size:15px; }
+.ws-search { background:var(--surface); color:var(--ink); border:1px solid var(--hairline);
+  border-radius:10px; padding:7px 12px; font:inherit; min-width:220px; }
+.grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(320px, 1fr)); gap:14px; }
+.card { background:var(--surface); border:1px solid var(--hairline); border-left:3px solid var(--ed, var(--accent));
+  border-radius:10px; padding:14px 16px; display:flex; flex-direction:column; gap:10px; }
+.card .toprow { display:flex; align-items:center; gap:12px; }
+.card .tile { width:44px; height:44px; border-radius:10px; background:var(--ed-tint);
+  color:var(--ed, var(--accent)); display:flex; align-items:center; justify-content:center;
+  flex-shrink:0; }
+.card .tile img { width:26px; height:26px; }
+.card .body { min-width:0; }
+.card .name { font-weight:700; font-size:15px; display:flex; align-items:center; gap:7px; }
+.card .sub { color:var(--ink2); font-size:12.5px; }
+.card .dot { width:8px; height:8px; border-radius:50%; background:var(--ok); }
+.card .btn.icon { margin-left:auto; background:none; border:0; color:var(--ink2); cursor:pointer;
+  padding:4px; border-radius:8px; }
+.card .btn.icon:hover { background:var(--surface2); color:var(--ink); }
+.card .btn.icon .ic { width:17px; height:17px; fill:none; stroke:currentColor;
+  stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
+.meta { display:flex; flex-wrap:wrap; gap:6px; }
+.chip { background:var(--surface2); color:var(--ink2); border-radius:999px;
+  font-size:11px; padding:2px 9px; font-weight:600; }
+.chip[data-chip="hil"] { background:var(--ed-tint); color:var(--ed, var(--accent)); }
+.acts { display:flex; flex-wrap:wrap; gap:8px; }
+.btn { background:var(--accent); color:var(--accent-ink); border:0; border-radius:8px;
+  padding:7px 14px; font-weight:600; font-size:13px; cursor:pointer; font:inherit;
+  font-size:13px; font-weight:600; }
+.btn:hover { filter:brightness(1.1); }
+.btn.danger { background:none; border:1px solid var(--danger); color:var(--danger); }
+.confirms { display:flex; gap:8px; }
+.card-confirm { display:flex; align-items:center; gap:8px; background:var(--surface2);
+  border:1px solid var(--hairline); border-radius:8px; padding:6px 10px; flex-wrap:wrap; }
+.card-confirm-label { font-size:13px; font-weight:600; }
+.busy { color:var(--ink2); font-size:12.5px; font-style:italic; }
+.oplog { background:var(--bg); border:1px solid var(--hairline); border-radius:8px;
+  font:12px/1.5 ui-monospace, monospace; color:var(--ink2); padding:8px 10px;
+  max-height:140px; overflow-y:auto; white-space:pre-wrap; word-break:break-all; margin:0; }
+.oplog .cmd, code.cmd { background:var(--bg); border:1px solid var(--hairline); border-radius:6px;
+  padding:2px 6px; font:12px ui-monospace, monospace; word-break:break-all; }
+.note-row { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+.note { color:var(--ink2); font-size:12.5px; }
+
 /* footer: always-present update banner slot + version */
 .footer { display:flex; align-items:center; gap:14px; padding:10px 24px;
   border-top:1px solid var(--hairline); background:var(--bg-side); min-height:44px; }

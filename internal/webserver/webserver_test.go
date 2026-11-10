@@ -125,16 +125,18 @@ func TestShellAssets(t *testing.T) {
 	}
 	js := body(t, get(t, s.URL()+"js/main.js"))
 	for _, want := range []string{
-		`"settings"`,            // GET on load — stored truth, no localStorage
-		`method: "POST"`,        // toggle persists via POST /settings
-		`data-advanced-only`,    // stub rows carry the matrix marker
-		"presets, see Advanced", // helper wording (spec §6, PresetsHint)
-		"displaychange",         // screens re-render reactively on this event
+		`"settings"`,          // GET on load — stored truth, no localStorage
+		`method: "POST"`,      // toggle persists via POST /settings
+		"displaychange",       // screens re-render reactively on this event
+		`base + "workspaces"`, // #153: the Open screen rides the same reactive re-render
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("main.js missing %q", want)
 		}
 	}
+	// The data-advanced-only marker and the "presets, see Advanced"
+	// hint moved server-side with the real screens (#153/#155) — they
+	// are asserted on the rendered fragments in their screen tests.
 }
 
 // Auth grammar (#150): a tokenized URL is the capability. Missing and

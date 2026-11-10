@@ -70,21 +70,259 @@
         b.classList.toggle("active", b === btn);
       });
       if (btn.hasAttribute("hx-get")) return; // htmx swaps its own fragment in (Update, #160)
+      var nav = btn.dataset.nav;
+      currentNav = nav;
+      // Workspace → Open (#153): the card grid loads as a fragment.
+      if (nav === "ws-open" && window.htmx) {
+        renderWorkspaces();
+        return;
+      }
       // Catalogs screen (#155): Settings → VCS Tracker / AI-Provider
       // both load GET /catalogs (one fragment, both sections).
-      if ((btn.dataset.nav === "set-vcs" || btn.dataset.nav === "set-ai") && window.htmx) {
+      if ((nav === "set-vcs" || nav === "set-ai") && window.htmx) {
         htmx.ajax("GET", base + "catalogs", { target: '[data-role="screen"]', swap: "innerHTML" });
         return;
       }
       // Container center + images (#158): fragment screens with the
       // reactive workspace re-render.
-      if (screenPaths[btn.dataset.nav]) {
-        loadScreen(screenPaths[btn.dataset.nav]);
+      if (screenPaths[nav]) {
+        loadScreen(screenPaths[nav]);
         return;
       }
-      renderStub(btn.dataset.nav);
+      renderStub(nav);
     });
   });
+
+  var currentNav = "ws-open"; // the Open screen is the primary (#153)
+
+  // --- Workspace → Open screen (#153, spec §7): the card grid loads as
+  // a fragment; cards re-render reactively from the SSE workspace
+  // events and the display-mode switch — no polling (§6/§9).
+  function renderWorkspaces() {
+    if (currentNav !== "ws-open" || !window.htmx) return;
+    var search = document.querySelector('[data-role="ws-search"]');
+    var url = base + "workspaces";
+    if (search && search.value) url += "?q=" + encodeURIComponent(search.value);
+    htmx.ajax("GET", url, { target: '[data-role="screen"]', swap: "innerHTML" });
+  }
+  document.addEventListener("displaychange", renderWorkspaces);
+
+  // Card actions: Open (Standard always web; Advanced honors the
+  // configured start option), Web access (fresh pair link → new tab
+  // under the click gesture), console/OpenCode host-terminal access,
+  // and the Stop/Delete confirm rows (#154 owns the ops themselves).
+  screenEl.addEventListener("click", function (ev) {
+    var btn = ev.target.closest("button");
+    if (!btn || btn.closest("[data-action]") || btn.disabled) return;
+    var card = btn.closest(".card");
+    if (!card) return;
+
+    if (btn.dataset.confirm === "stop" || btn.dataset.confirm === "delete") {
+      showConfirmRow(card, btn.dataset.confirm);
+      return;
+    }
+    if (btn.dataset.act === "confirm-stop" || btn.dataset.act === "confirm-delete") {
+      // The stop/delete ops themselves arrive with the workspace-ops
+      // ticket (#154) — the confirm rows are the UI this ticket owns.
+      showNote(card, "arrives with #154");
+      return;
+    }
+    if (btn.dataset.act === "cancel-confirm") {
+      renderWorkspaces(); // restore the plain card rows
+      return;
+    }
+    if (btn.dataset.act === "copy-command") {
+      var text = btn.getAttribute("data-command");
+      if (navigator.clipboard) navigator.clipboard.writeText(text);
+      btn.textContent = "copied";
+      return;
+    }
+    if (btn.dataset.act === "retry-web") {
+      var rcard = cardByWs(card.dataset.ws) || card;
+      openPairTab(rcard);
+      pairInto(rcard, tabFor(rcard));
+      return;
+    }
+    if (btn.dataset.act !== "open" && btn.dataset.act !== "web" &&
+        btn.dataset.act !== "console" && btn.dataset.act !== "opencode") return;
+
+    var act = btn.dataset.act;
+    var variant = act === "open" ? (btn.dataset.variant || "web") : act;
+
+    if (variant === "web") {
+      // The new tab opens synchronously under the click gesture (§10),
+      // then navigates once the fresh pair link arrives.
+      openPairTab(card);
+      chainStart(card, variant, function (fresh) { pairInto(fresh, tabFor(fresh)); });
+    } else {
+      chainStart(card, variant, function (fresh) {
+        accessVariant(fresh, variant);
+      });
+    }
+  });
+
+  // chainStart runs the start op (queued-not-refused on the shared
+  // opRunner) and continues the access chain once the workspace drains.
+  function chainStart(card, variant, then) {
+    fetch(post(card, "start"), { method: "POST", referrerPolicy: "no-referrer" })
+      .then(function () { return waitForIdle(card); })
+      .then(then)
+      .catch(function () { showNote(card, "start failed — retry"); });
+  }
+
+  // waitForIdle polls (bounded) until the workspace's op drains — the
+  // access chain continues only after the verified start.
+  function waitForIdle(card, tries) {
+    tries = tries === undefined ? 30 : tries;
+    if (!tries) return Promise.resolve(cardByWs(card.dataset.ws) || card);
+    return fetch(base + "workspaces", { referrerPolicy: "no-referrer" })
+      .then(function (r) { return r.text(); })
+      .then(function (doc) {
+        if (cardBlock(doc, card.dataset.ws).indexOf("data-busy") < 0) {
+          return cardByWs(card.dataset.ws) || card;
+        }
+        return promiseDelay(800).then(function () { return waitForIdle(card, tries - 1); });
+      })
+      .catch(function () { return cardByWs(card.dataset.ws) || card; });
+  }
+
+  function post(card, action) {
+    return base + "workspaces/" + encodeURIComponent(card.dataset.ws) + "/" + action;
+  }
+
+  function cardByWs(ws) { return document.querySelector('.card[data-ws="' + ws + '"]'); }
+
+  function cardBlock(doc, ws) {
+    var i = doc.indexOf('data-ws="' + ws + '"');
+    if (i < 0) return "";
+    var end = doc.indexOf("</article>", i);
+    return end < 0 ? "" : doc.slice(i, end);
+  }
+
+  function promiseDelay(ms) {
+    return new Promise(function (res) { setTimeout(res, ms); });
+  }
+
+  // Access variants: console/OpenCode ride the host-terminal spawn —
+  // the headless fallback renders the exact copyable command (§3).
+  function accessVariant(card, variant) {
+    fetch(post(card, "access"), {
+      method: "POST",
+      body: "variant=" + encodeURIComponent(variant),
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      referrerPolicy: "no-referrer"
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (v) {
+        if (!v.opened && v.command) showCommand(card, v.command);
+      })
+      .catch(function () { showNote(card, "access failed — retry"); });
+  }
+
+  // Pair-link handoff (§10): a fresh one-time link per request; the tab
+  // opened under the click gets it. The plain URL is the fallback when
+  // pairing fails or the v2 service is mid-boot; Retry rows stay on the
+  // card.
+  var tabs = {};
+  function tabFor(card) { return tabs[card.dataset.ws]; }
+
+  function openPairTab(card) {
+    var tab = window.open("", "_blank");
+    if (tab) {
+      tab.document.body.innerHTML =
+        '<p style="font:14px system-ui;padding:2em">Pairing OpenCode web…</p>';
+      tabs[card.dataset.ws] = tab;
+    }
+    return tab;
+  }
+
+  function pairInto(card, tab, tries) {
+    tries = tries === undefined ? 5 : tries;
+    fetch(post(card, "pair-link"), { method: "POST", referrerPolicy: "no-referrer" })
+      .then(function (r) { return r.json(); })
+      .then(function (v) {
+        if (v.pair_link) {
+          if (tab) tab.location.href = v.pair_link;
+          return;
+        }
+        if (tries > 0) { // service mid-boot: keep trying quietly
+          promiseDelay(1000).then(function () { pairInto(card, tab, tries - 1); });
+          return;
+        }
+        if (v.plain_url && tab) {
+          tab.document.body.innerHTML = '<p style="font:14px system-ui;padding:2em">OpenCode web: <a href="' +
+            v.plain_url + '">' + v.plain_url + '</a></p>';
+        }
+        showRetry(card);
+      })
+      .catch(function () {
+        if (tab) tab.document.body.innerHTML =
+          '<p style="font:14px system-ui;padding:2em">Pairing failed.</p>';
+        showRetry(card);
+      });
+  }
+
+  function showRetry(card) {
+    var acts = card.querySelector(".acts");
+    if (!acts || acts.querySelector("[data-act='retry-web']")) return;
+    var b = document.createElement("button");
+    b.className = "btn";
+    b.setAttribute("data-act", "retry-web");
+    b.textContent = "Retry web access";
+    acts.appendChild(b);
+  }
+
+  // Headless fallback (§3): the exact copyable command, session pending.
+  function showCommand(card, command) {
+    showRow(card, '<code class="cmd">' + command + '</code> ' +
+      '<button class="btn" data-act="copy-command" data-command="' + command + '">Copy</button>');
+  }
+
+  function showNote(card, text) {
+    showRow(card, '<span class="note">' + text + '</span>');
+  }
+
+  function showRow(card, html) {
+    var log = card.querySelector("[data-oplog]");
+    if (!log) return;
+    log.hidden = false;
+    log.innerHTML = '<div class="row note-row">' + html + '</div>' + log.innerHTML;
+  }
+
+  // Confirm rows (§9 confirm set): Stop/Delete ask before acting; the
+  // ops themselves land with #154.
+  function showConfirmRow(card, kind) {
+    var box = card.querySelector(".confirms");
+    if (!box) return;
+    var label = kind === "stop" ? "Stop this workspace?" : "Delete this workspace?";
+    box.innerHTML =
+      '<span class="card-confirm" data-confirm-row="' + kind + '">' +
+      '<span class="card-confirm-label">' + label + '</span>' +
+      '<button class="btn danger" data-act="confirm-' + kind + '">Confirm</button>' +
+      '<button class="btn" data-act="cancel-confirm">Cancel</button>' +
+      '</span>';
+  }
+
+  // The grid re-render keeps busy card logs and the sidebar count pill
+  // in step with what streamed while the fragment was in flight.
+  screenEl.addEventListener("htmx:afterSwap", function () {
+    var src = screenEl.querySelector("[data-count]");
+    if (src) {
+      var pill = document.querySelector('[data-role="ws-count"]');
+      if (pill) pill.textContent = src.getAttribute("data-count");
+    }
+    document.querySelectorAll(".card[data-op-id]").forEach(applyCardLog);
+  });
+
+  function applyCardLog(card) {
+    var lines = logLines[card.getAttribute("data-op-id")];
+    if (!lines || !lines.length) return;
+    var log = card.querySelector("[data-oplog]");
+    if (!log) return;
+    log.hidden = false;
+    log.textContent = lines.join("\n");
+    log.scrollTop = log.scrollHeight;
+  }
 
   // --- New Workspace wizard (#156, spec §7/§8): live derivation and
   // row toggles ride delegated events — HTMX swaps the fragments, so
@@ -427,7 +665,6 @@
       '<div class="row" data-advanced-only><span class="label">Search mode</span>searxng</div>' +
       '<div class="row hint">presets, see Advanced</div>';
   }
-  renderStub(null);
 
   // --- SSE hub: one stream per tab, reconnect replay via line serial ---
   function connect() {
@@ -440,6 +677,7 @@
       var d = null;
       try { d = JSON.parse(ev.data); } catch (e) {}
       if (d && d.state) onCreateWorkspace(d); // the create chain's terminal event (#156)
+      else if (currentNav === "ws-open") renderWorkspaces(); // #153: reactive cards
       else if (currentScreen) loadScreen(currentScreen);
     });
     es.addEventListener("update", function (ev) { onUpdate(ev); });
@@ -472,6 +710,16 @@
         pane.scrollTop = pane.scrollHeight;
       }
       // the create chain streams into the log pane under the wizard (#156)
+      // #153: the busy card's log streams by the same op id
+      var opcard = document.querySelector('.card[data-op-id="' + line.op + '"]');
+      if (opcard) {
+        var oplog = opcard.querySelector("[data-oplog]");
+        if (oplog) {
+          oplog.hidden = false;
+          oplog.textContent += line.text + "\n";
+          oplog.scrollTop = oplog.scrollHeight;
+        }
+      }
       var cpane = document.querySelector('[data-role="create-log"][data-op-id="' + line.op + '"]');
       if (cpane) {
         var div = document.createElement("div");
@@ -494,6 +742,11 @@
     // The per-screen tickets consume these; the shell only holds the door.
     if (window.console && console.debug) console.debug("sse " + kind, ev.data);
   }
+
+  // Open Workspace is the primary screen — load it at start (#153).
+  var openBtn = document.querySelector('[data-nav="ws-open"]');
+  if (openBtn) openBtn.classList.add("active");
+  renderWorkspaces();
 
   connect();
 })();
