@@ -20,7 +20,9 @@ package webserver
 import (
 	"html/template"
 	"net/http"
+	"net/url"
 	"regexp"
+	"sort"
 	"strings"
 
 	"github.com/shredingerlabs/oc-sandbox/internal/catalogs"
@@ -350,15 +352,134 @@ func (s *Server) handleWorkspacesPOST(w http.ResponseWriter, r *http.Request) {
 	if r.PostFormValue("confirm") != "1" {
 		if msg := s.validateWizard(r, f); msg != "" {
 			f.Error = msg
+			s.renderWizard(w, f)
+			return
 		}
-		s.renderWizard(w, f)
+		s.renderConfirm(w, r, f)
 		return
 	}
-	// confirm=1: launch (implemented in the chain slice)
+	// confirm=1: the chain launches (next slice)
 	if msg := s.validateWizard(r, f); msg != "" {
 		f.Error = msg
 	}
 	s.renderWizard(w, f)
+}
+
+// trackerLabel maps a tracker kind onto the stored vcs_tracking value —
+// the exact option vocabulary the settings flow reads back
+// (github.com / gitlab.com / own GitLab / others).
+func trackerLabel(kind string) string {
+	switch kind {
+	case catalogs.KindGitHub:
+		return "github.com"
+	case catalogs.KindGitLab:
+		return "gitlab.com"
+	case catalogs.KindGitLabSel:
+		return "own GitLab"
+	case catalogs.KindOther:
+		return "others"
+	}
+	return "none"
+}
+
+// wizardVCSTracking resolves the stored vcs_tracking value of the
+// payload: the catalog entry's kind label, or "none".
+func (s *Server) wizardVCSTracking(f wizardForm) string {
+	if f.VCS == "none" {
+		return "none"
+	}
+	var kind string
+	if f.VCS == "new" {
+		kind = f.VCSKind
+	} else if t, ok := s.wizardTracker(f.VCS); ok {
+		kind = t.Kind
+	}
+	return trackerLabel(kind)
+}
+
+// wizardTracker finds a catalog tracker by display name (slug match).
+func (s *Server) wizardTracker(name string) (catalogs.Tracker, bool) {
+	slug := catalogs.Slug(name)
+	for _, t := range catalogs.Read(s.opts.Home).Trackers {
+		if catalogs.Slug(t.Name) == slug {
+			return t, true
+		}
+	}
+	return catalogs.Tracker{}, false
+}
+
+// wizardProvider finds a catalog provider by display name (slug match).
+func (s *Server) wizardProvider(name string) (catalogs.Provider, bool) {
+	slug := catalogs.Slug(name)
+	for _, p := range catalogs.Read(s.opts.Home).Providers {
+		if catalogs.Slug(p.Name) == slug {
+			return p, true
+		}
+	}
+	return catalogs.Provider{}, false
+}
+
+// renderConfirm renders the create-summary confirmation popup (§9: the
+// TUI confirm set carried 1:1 — newworkspace.askCreate parity) with the
+// payload round-tripping in hidden fields.
+func (s *Server) renderConfirm(w http.ResponseWriter, r *http.Request, f wizardForm) {
+	if f.Agent == "pkm" { // pkm pins the edition (ADR-0027)
+		f.Edition = "pkm"
+	}
+	lines := []string{
+		"name: " + f.Name,
+		"path: " + s.wizardRoot(f.Name),
+		"edition: " + f.Edition,
+	}
+	if f.Agent == "chat" {
+		lines = append(lines, "agent: chat")
+	}
+	lines = append(lines,
+		"start: "+f.StartOption,
+		"search: "+f.SearchMode,
+		"VCS tracking: "+s.wizardVCSTracking(f),
+	)
+	if f.Provider == "new" {
+		lines = append(lines, "AI provider: "+f.ProviderName)
+	} else if p, ok := s.wizardProvider(f.Provider); ok {
+		lines = append(lines, "AI provider: "+p.Name)
+	} else {
+		lines = append(lines, "AI provider: none")
+	}
+	if !discovery.ImageExists(s.runner(), f.Edition) {
+		line := "image build: Build later"
+		if !f.BuildLater {
+			line = "image build: Build now"
+		}
+		lines = append(lines, line)
+	}
+	fields := formFields{}
+	for _, k := range sortedFormKeys(r.PostForm) {
+		if k == "confirm" {
+			continue
+		}
+		fields = append(fields, formField{Name: k, Value: r.PostForm.Get(k)})
+	}
+	data := struct {
+		P      string
+		Error  string
+		Lines  []string
+		Fields formFields
+	}{P: s.pathPrefix(), Lines: lines, Fields: fields}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := wizardTemplate.ExecuteTemplate(w, "confirm", data); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+}
+
+// sortedFormKeys gives the hidden round-trip a deterministic order.
+func sortedFormKeys(vs url.Values) []string {
+	keys := make([]string, 0, len(vs))
+	for k := range vs {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 // parseWizardForm reads the wizard payload into the rendered state,

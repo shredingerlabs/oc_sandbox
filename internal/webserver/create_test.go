@@ -11,6 +11,7 @@ import (
 
 	"github.com/shredingerlabs/oc-sandbox/internal/catalogs"
 	"github.com/shredingerlabs/oc-sandbox/internal/cmdrun"
+	"github.com/shredingerlabs/oc-sandbox/internal/registry"
 )
 
 // --- create-chain test harness (#156) --------------------------------------
@@ -169,7 +170,108 @@ func readAll(t *testing.T, resp *http.Response) string {
 	return buf.String()
 }
 
+// registryAddRequest builds a registry entry for a wizard-named workspace.
+func registryAddRequest(name, home string) registry.AddRequest {
+	return registry.AddRequest{Name: name, Path: registry.CanonicalPath(home + "/ws/" + name), GitTracking: "none"}
+}
+
 // --- Slice 2: the selects are fed from the catalogs ------------------------
+
+// A valid wizard payload (confirm round 1) renders the create-summary
+// confirmation (§9 carries the TUI confirm set 1:1) — no chain runs yet.
+func TestCreateConfirmSummary(t *testing.T) {
+	f := newCreateFixture(t, imageExistsScript(true))
+	resp := f.postForm(t, f.blankForm())
+	doc := readAll(t, resp)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	if !strings.Contains(doc, `data-role="create-confirm"`) {
+		t.Fatalf("no confirm popup rendered:\n%s", doc)
+	}
+	for _, want := range []string{
+		"name: demo",
+		"path: " + f.home + "/ws/demo",
+		"edition: swdev",
+		"start: web",
+		"search: searxng",
+		"VCS tracking: none",
+		"AI provider: none",
+	} {
+		if !strings.Contains(doc, want) {
+			t.Errorf("confirm summary misses %q", want)
+		}
+	}
+	for _, c := range f.fake.Calls {
+		if c.Name == "bash" {
+			t.Fatalf("no script may run before the confirm: %v", c)
+		}
+	}
+}
+
+// The image-missing contract: when the selected edition's image is not
+// built, the confirm carries the "Image build" decision line (TUI
+// contract — folded into the confirm and the chain).
+func TestCreateConfirmImageBuildLine(t *testing.T) {
+	f := newCreateFixture(t, imageExistsScript(false))
+	resp := f.postForm(t, f.blankForm())
+	doc := readAll(t, resp)
+	if !strings.Contains(doc, "image build: Build now") {
+		t.Errorf("confirm misses the image build decision line:\n%s", doc)
+	}
+}
+
+// Validation refusals re-render the form with the error — nothing runs.
+func TestCreateValidationRefusals(t *testing.T) {
+	cases := []struct {
+		title string
+		mut   func(map[string]string)
+		want  string
+	}{
+		{"bad name", func(m map[string]string) { m["name"] = "bad name!" }, "Invalid workspace name"},
+		{"missing repo url", func(m map[string]string) {
+			m["source"] = "repo"
+			m["repo_url"] = ""
+		}, "Repo URL is required"},
+		{"duplicate name", func(m map[string]string) {}, "Duplicate workspace name"},
+		{"searxng+proxy", func(m map[string]string) { m["proxy"] = "yes" }, "SearXNG needs network"},
+		{"searxng+offline", func(m map[string]string) { m["offline"] = "on" }, "SearXNG needs network"},
+		{"offline+cbm_ui", func(m map[string]string) { m["search_mode"] = "websearch"; m["offline"] = "on"; m["cbm_ui"] = "on" }, "mutually exclusive"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.title, func(t *testing.T) {
+			f := newCreateFixture(t, imageExistsScript(true))
+			if tc.title == "duplicate name" {
+				f.fake.Script = imageExistsScript(true)
+			}
+			vals := f.blankForm()
+			tc.mut(vals)
+			if tc.title == "duplicate name" {
+				// pre-register the name directly in the registry
+				reg := f.s.registry()
+				if err := reg.CreateWorkspacesFile(); err != nil {
+					t.Fatal(err)
+				}
+				if err := reg.AddWorkspace(registryAddRequest(vals["name"], f.home)); err != nil {
+					t.Fatal(err)
+				}
+			}
+			resp := f.postForm(t, vals)
+			doc := readAll(t, resp)
+			if !strings.Contains(doc, tc.want) {
+				t.Errorf("refusal misses %q:\n%s", tc.want, doc)
+			}
+			if strings.Contains(doc, `data-role="create-confirm"`) {
+				t.Error("a refused payload must not reach the confirm popup")
+			}
+			for _, c := range f.fake.Calls {
+				if c.Name == "bash" {
+					t.Fatalf("no script may run on a refused payload: %v", c)
+				}
+			}
+		})
+	}
+}
 
 // The VCS and AI-provider selects list the catalog entries (§8); an
 // empty catalog never dead-ends first-run: "none" stays the default and
