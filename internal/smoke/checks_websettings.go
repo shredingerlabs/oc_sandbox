@@ -22,7 +22,7 @@ import (
 // and uninstall's typed confirmation with the TUI flag mapping. Asserted
 // against a fixture home, a Fake runner and the real server on loopback.
 func checkWebSettings(home, root string) Item {
-	p := newPhase("A11", "WebUI global settings: import/convert flow, named config export/restore round trip, uninstall typed confirm + flag mapping, busy refusals")
+	p := newPhase("A12", "WebUI global settings: import/convert flow, named config export/restore round trip, uninstall typed confirm + flag mapping, busy refusals")
 	fix := filepath.Join(home, "A10")
 
 	fake := &cmdrun.Fake{}

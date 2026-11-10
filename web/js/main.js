@@ -86,6 +86,116 @@
     });
   });
 
+  // --- New Workspace wizard (#156, spec §7/§8): live derivation and
+  // row toggles ride delegated events — HTMX swaps the fragments, so
+  // nothing is bound to specific nodes here.
+
+  // deriveName mirrors the server's newworkspace rule: the repo URL's
+  // basename, .git suffix stripped.
+  function deriveName(url) {
+    var u = url;
+    if (u.indexOf("https://") === 0) u = u.slice("https://".length);
+    else if (u.indexOf("ssh://") === 0) u = u.slice("ssh://".length);
+    else if (u.indexOf("git@") === 0) { var c = u.indexOf(":"); if (c >= 0) u = u.slice(c + 1); }
+    if (!u) return "";
+    var li = u.lastIndexOf("/");
+    if (li >= 0) u = u.slice(li + 1);
+    return u.replace(/\.git$/, "");
+  }
+
+  function wizardForm(el) { return el.closest('[data-role="new-workspace-form"]'); }
+  function q(form, sel) { return form.querySelector(sel); }
+  function setHidden(el, hidden) {
+    if (!el) return;
+    if (hidden) el.setAttribute("data-hidden", "1");
+    else el.removeAttribute("data-hidden");
+  }
+
+  // name derivation: the workspace name derives live from the repo URL
+  // in From Repo until hand-edited (the TUI's prefill rule).
+  document.addEventListener("input", function (ev) {
+    var form = wizardForm(ev.target);
+    if (!form) return;
+    if (ev.target.name === "name") form.dataset.nameManual = "1";
+    if (ev.target.name === "repo_url" && q(form, '[name="source"][value="repo"]').checked &&
+        !form.dataset.nameManual) {
+      q(form, '[name="name"]').value = deriveName(ev.target.value);
+    }
+  });
+
+  function applySource(form) {
+    var repo = q(form, '[name="source"][value="repo"]').checked;
+    var row = q(form, '[data-row="repo_url"]');
+    if (row) {
+      if (repo) row.removeAttribute("data-repo-only");
+      else row.setAttribute("data-repo-only", "1");
+    }
+    if (repo && !form.dataset.nameManual) {
+      q(form, '[name="name"]').value = deriveName(q(form, '[name="repo_url"]').value);
+    }
+  }
+
+  function applyAgent(form) {
+    var agentSel = q(form, '[data-role="wizard-agent"]');
+    var row = q(form, '[data-row="edition"]');
+    if (agentSel.value === "pkm") { // pkm pins the edition — the row hides
+      row.setAttribute("data-pkm-pin", "1");
+      q(form, '[data-role="wizard-edition"]').value = "pkm";
+    } else {
+      if (row.getAttribute("data-pkm-pin") !== null) {
+        row.removeAttribute("data-pkm-pin");
+        q(form, '[data-role="wizard-edition"]').value = "swdev"; // §6 preselect
+      }
+    }
+  }
+
+  function applyEditionPreset(form) {
+    // §6: HIL presets on for embedded creations — a preset, not a pin:
+    // the user can toggle it right back off in the same row.
+    var ed = q(form, '[data-role="wizard-edition"]').value;
+    var hil = q(form, '[name="hil"]');
+    if (hil) hil.checked = ed === "embedded";
+  }
+
+  // catalog selects: the inline "New…" rows and the token input appear
+  // per selection; "none" hides both (the empty default).
+  function applyCatalogSelect(form, selRole, newRow, tokenRow) {
+    var v = q(form, selRole).value;
+    setHidden(q(form, newRow), v !== "new");
+    setHidden(q(form, tokenRow), v === "none");
+  }
+
+  document.addEventListener("change", function (ev) {
+    var form = wizardForm(ev.target);
+    if (!form) return;
+    if (ev.target.name === "source") applySource(form);
+    else if (ev.target.name === "agent") applyAgent(form);
+    else if (ev.target.name === "edition") applyEditionPreset(form);
+    else if (ev.target.name === "vcs") applyCatalogSelect(form, '[name="vcs"]', '[data-row="vcs_new"]', '[data-row="vcs_token"]');
+    else if (ev.target.name === "provider") applyCatalogSelect(form, '[name="provider"]', '[data-row="provider_new"]', '[data-row="provider_token"]');
+  });
+
+  // onCreateWorkspace reacts to the create chain's terminal workspace
+  // event ({op, state}): success swaps a fresh empty wizard (the TUI
+  // resets the form too); failure wakes the form for a retry while the
+  // pane stays readable.
+  function onCreateWorkspace(data) {
+    if (!data.op) return; // plain card re-render (Open screen ticket)
+    var pane = document.querySelector('[data-role="create-log"][data-op-id="' + data.op + '"]');
+    if (!pane) return;
+    if (data.state === "done") {
+      // success: a fresh empty wizard (the TUI resets the form too)
+      htmx.ajax("GET", base + "workspaces/new", { target: "#new-workspace", swap: "outerHTML" });
+    } else {
+      // failure: the pane stays readable, the form wakes for a retry
+      var fs = document.querySelector('[data-role="wizard-fields"]');
+      if (fs) fs.disabled = false;
+    }
+  }
+
+
+  // Stub screen (#152 foundation): per-screen tickets replace it —
+  // catalogs (#155) and the New Workspace wizard (#156) already do.
   // --- screens (#158): containers + images load as HTML fragments; the
   // log pane's streamed lines live in JS memory, so the reactive
   // workspace re-renders never lose build output ---
@@ -327,7 +437,10 @@
     es.addEventListener("workspace", function (ev) {
       // reactive re-render (#158, spec §9): fresh rows/markers after
       // every op state change — the log pane re-fills from memory
-      if (currentScreen) loadScreen(currentScreen);
+      var d = null;
+      try { d = JSON.parse(ev.data); } catch (e) {}
+      if (d && d.state) onCreateWorkspace(d); // the create chain's terminal event (#156)
+      else if (currentScreen) loadScreen(currentScreen);
     });
     es.addEventListener("update", function (ev) { onUpdate(ev); });
     es.addEventListener("shutdown", function () {
@@ -357,6 +470,15 @@
       if (pane && (parseInt(pane.getAttribute("data-op"), 10) || 0) === line.op) {
         pane.textContent = logLines[line.op].join("\n");
         pane.scrollTop = pane.scrollHeight;
+      }
+      // the create chain streams into the log pane under the wizard (#156)
+      var cpane = document.querySelector('[data-role="create-log"][data-op-id="' + line.op + '"]');
+      if (cpane) {
+        var div = document.createElement("div");
+        div.className = "logline";
+        div.textContent = line.text;
+        cpane.appendChild(div);
+        cpane.scrollTop = cpane.scrollHeight;
       }
     }
     var card = document.querySelector('[data-role="update-card"]');

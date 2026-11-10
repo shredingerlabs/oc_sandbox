@@ -32,7 +32,7 @@ func uninstallServer(t *testing.T) (*Server, *cmdrun.Fake) {
 // bashCalls filters the recorded calls to the uninstall script
 // invocations (the screen renders also query the runner for running
 // containers).
-func bashCalls(fake *cmdrun.Fake) []cmdrun.Call {
+func uninstallCalls(fake *cmdrun.Fake) []cmdrun.Call {
 	var out []cmdrun.Call
 	for _, c := range fake.Calls {
 		if c.Name == "bash" {
@@ -126,7 +126,7 @@ func TestUninstallFlagMapping(t *testing.T) {
 			t.Fatalf("%s: start notice missing:\n%s", c.name, doc)
 		}
 		waitIdle(t, s)
-		bash := bashCalls(fake)
+		bash := uninstallCalls(fake)
 		if len(bash) != 1 {
 			t.Fatalf("%s: script not invoked exactly once: %+v", c.name, fake.Calls)
 		}
@@ -153,7 +153,7 @@ func TestUninstallRefusesWhileBusy(t *testing.T) {
 	if !strings.Contains(doc, "queued or running") {
 		t.Fatalf("busy refusal missing:\n%s", doc)
 	}
-	if len(bashCalls(fake)) != 0 {
+	if len(uninstallCalls(fake)) != 0 {
 		t.Fatalf("script invoked despite busy refusal")
 	}
 }

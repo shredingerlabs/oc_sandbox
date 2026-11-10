@@ -40,12 +40,9 @@ type Options struct {
 	Version     string // compiled-in version — the update card's fallback when the VERSION file is absent
 	InstallRoot string // the install layout root (app.LayoutFor): the VERSION file lives here
 	Home        string // the oc-sandbox home: ~/.config/oc-sandbox holds catalogs.json etc. and global_config.json (GET/POST /settings)
-	Deps        *Deps  // screen seams (#158/#159); nil = shell + update/settings/catalogs only
+	Deps        *Deps  // screen seams (#156/#158/#159); nil = shell + update/settings/catalogs only
 }
 
-// Server is one WebUI instance: a loopback listener with a per-launch
-// token. Create with New, Start it, serve URL() to the browser, Close
-// on quit — the token dies with the process.
 // Server is one WebUI instance: a loopback listener with a per-launch
 // token. Create with New, Start it, serve URL() to the browser, Close
 // on quit — the token dies with the process.
@@ -148,6 +145,8 @@ func (s *Server) Start() error {
 	inner.HandleFunc("POST /restore-config", s.handleRestoreConfig)
 	inner.HandleFunc("GET /uninstall", s.handleUninstallScreen)
 	inner.HandleFunc("POST /uninstall", s.handleUninstall)
+	inner.HandleFunc("GET /workspaces/new", s.handleNewWorkspaceGET)
+	inner.HandleFunc("POST /workspaces", s.handleWorkspacesPOST)
 	inner.HandleFunc("GET /update", s.handleUpdateCard)
 	inner.HandleFunc("POST /update/check", s.handleUpdateCheck)
 	inner.HandleFunc("POST /update/run", s.handleUpdateRun)
