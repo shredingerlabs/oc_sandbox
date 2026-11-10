@@ -89,7 +89,8 @@ type wsSettingsView struct {
 	VCSCatalog    []catalogs.Tracker
 	TrackerKinds  []string
 	VCSKind       string // preselected kind (from stored vcs_tracking)
-	VCSHost       string // prefill (catalog entry host)
+	VCSHost       string // prefill (stored credential file host)
+	VCSHostful    bool   // the Host field renders visible (own GitLab / others)
 	VCSHasCreds   bool   // the tracker's host credential file exists
 	VCSTrackingSt string // stored vcs_tracking label
 
@@ -239,7 +240,7 @@ var wsSettingsTemplate = template.Must(template.New("wssettings").
             {{range .TrackerKinds}}<option value="{{.}}" {{if eq . $.VCSKind}}selected{{end}}>{{.}}</option>{{end}}
           </select>
         </label>
-        <label>Host <input name="host" value="{{.VCSHost}}" placeholder="gitlab.example.com"> <span class="field-hint">required for own GitLab / others</span></label>
+        <label data-field="host"{{if not .VCSHostful}} hidden{{end}}>Host <input name="host" value="{{.VCSHost}}" placeholder="gitlab.example.com"> <span class="field-hint">required for own GitLab / others</span></label>
         <label>Token <input type="password" name="token" autocomplete="off"></label>
         <div class="actions">
           <button type="submit" class="btn" name="replace" value="1"
@@ -814,6 +815,13 @@ func (s *Server) renderWsSettingsScreen(w http.ResponseWriter, name, errMsg stri
 	}
 	v.ProvConfirm = confirm
 	v.VCSKind = trackerKindForLabel(v.VCSTrackingSt)
+	// The Host field is Add-tracker behavior: visible (and prefilled from
+	// the stored credential file, TUI pane parity) for own GitLab /
+	// others, hidden for github / gitlab and for the empty default.
+	if v.VCSKind == catalogs.KindGitLabSel || v.VCSKind == catalogs.KindOther {
+		v.VCSHostful = true
+		v.VCSHost = workspacesettings.ReadHost(v.VCSTrackingSt, ws.Path)
+	}
 	if hostFile := workspacesettings.VCSHostFile(v.VCSTrackingSt, ws.Path); hostFile != "" {
 		v.VCSHasCreds = fileExists(hostFile) // the replace confirm gates an overwrite
 	}

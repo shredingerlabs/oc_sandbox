@@ -196,15 +196,21 @@
       var hostIn = f.querySelector('[name="host"]');
       if (kindIn) kindIn.value = opt.getAttribute("data-kind") || "";
       if (hostIn) hostIn.value = opt.getAttribute("data-host") || "";
+      // The kind moved programmatically — the change event above never
+      // fires, so sync the Host field's visibility with it here.
+      var hostField = f.querySelector('[data-field="host"]');
+      if (hostField) hostField.hidden =
+        kindIn.value === "github" || kindIn.value === "gitlab" || kindIn.value === "none";
       return;
     }
     // VCS Tracker: the Host field only applies to gitlab_self / other
-    // kinds — github / gitlab trackers are hostless. The field hides
-    // (value kept); the initial hidden state renders server-side.
+    // kinds — github / gitlab trackers are hostless and "none" tracks
+    // nothing. The field hides (value kept); the initial hidden state
+    // renders server-side (Catalog menu and Workspace settings alike).
     if (sel.matches('select[name="kind"]')) {
       var f = sel.closest("form");
       var host = f && f.querySelector('[data-field="host"]');
-      if (host) host.hidden = sel.value === "github" || sel.value === "gitlab";
+      if (host) host.hidden = sel.value === "github" || sel.value === "gitlab" || sel.value === "none";
       return;
     }
   });

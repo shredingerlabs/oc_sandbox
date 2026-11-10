@@ -104,7 +104,7 @@ func (p *vcsState) setTracker(tr string) {
 	p.tracker = tr
 	p.err = ""
 	if (tr == "own GitLab" || tr == "others") && strings.TrimSpace(p.host) == "" {
-		p.host = readHost(tr, p.root)
+		p.host = ReadHost(tr, p.root)
 		p.curH = len([]rune(p.host))
 	}
 }
@@ -127,7 +127,7 @@ func (v *View) openVCS(p registry.Workspace) {
 	st.origName, st.origEmail = name, email
 	st.curN, st.curE = len([]rune(name)), len([]rune(email))
 	if st.tracker == "own GitLab" || st.tracker == "others" {
-		st.host = readHost(st.tracker, p.Path)
+		st.host = ReadHost(st.tracker, p.Path)
 		st.curH = len([]rune(st.host))
 	}
 	st.focus = -1
@@ -166,9 +166,11 @@ func readGitIdentity(root string) (string, string) {
 	return name, email
 }
 
-// readHost returns the first (sorted) host recorded in the tracker's CLI
-// host credential file, ignoring glab's "editor" key.
-func readHost(tracker, root string) string {
+// ReadHost returns the first (sorted) host recorded in the tracker's CLI
+// host credential file, ignoring glab's "editor" key. The TUI pane and
+// the WebUI workspace settings render both prefill their Host field with
+// it.
+func ReadHost(tracker, root string) string {
 	data, err := os.ReadFile(VCSHostFile(tracker, root))
 	if err != nil {
 		return ""

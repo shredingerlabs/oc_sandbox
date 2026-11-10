@@ -14,6 +14,7 @@ import (
 	"github.com/shredingerlabs/oc-sandbox/internal/providerid"
 	"github.com/shredingerlabs/oc-sandbox/internal/registry"
 	"github.com/shredingerlabs/oc-sandbox/internal/sandboxcfg"
+	"github.com/shredingerlabs/oc-sandbox/internal/workspacesettings"
 )
 
 // --- Workspace Settings screen harness (#157) --------------------------------
@@ -916,6 +917,59 @@ func TestWsRemoveFromList(t *testing.T) {
 		t.Fatalf("busy refusal must keep the entry: %v", err)
 	}
 	close(release)
+}
+
+// The VCS Tracking row's Host field behaves like the catalog's Add
+// tracker: visible (and prefilled from the stored credential file, TUI
+// pane parity) for own GitLab / others, hidden for github / gitlab and
+// for the empty default. The POST contract is unchanged — the visible
+// field still carries its {host} value into the same route.
+func TestWsSettingsVCSHostVisibility(t *testing.T) {
+	fx := newCreateFixture(t, nil)
+	seedWorkspace(t, fx.home, "alpha", "swdev", nil)
+	root := rootOf(t, fx.home, "alpha")
+	patchTracking := func(label string) {
+		t.Helper()
+		if err := sandboxcfg.PatchString(fx.home, sandboxcfg.Path(root), "vcs_tracking", label); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// own GitLab with a stored credential file: visible + prefilled host.
+	patchTracking("own GitLab")
+	hostFile := workspacesettings.VCSHostFile("own GitLab", root)
+	if err := os.MkdirAll(filepath.Dir(hostFile), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(hostFile, []byte(`{"git.example.com":{"userid":"u"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	doc := body(t, get(t, fx.s.URL()+"workspaces/alpha/settings"))
+	if strings.Contains(doc, `data-field="host" hidden`) {
+		t.Fatalf("own GitLab must render the Host field visible:\n%s", doc)
+	}
+	for _, want := range []string{
+		`data-field="host">Host`,  // visible, no hidden attribute
+		`value="git.example.com"`, // the stored credential file's host
+	} {
+		if !strings.Contains(doc, want) {
+			t.Fatalf("own GitLab row missing %q:\n%s", want, doc)
+		}
+	}
+
+	// github.com: hidden server-side (the field never renders open).
+	patchTracking("github.com")
+	doc = body(t, get(t, fx.s.URL()+"workspaces/alpha/settings"))
+	if !strings.Contains(doc, `data-field="host" hidden`) {
+		t.Fatalf("github row must hide the Host field:\n%s", doc)
+	}
+
+	// none (empty stored label): hidden as well.
+	patchTracking("")
+	doc = body(t, get(t, fx.s.URL()+"workspaces/alpha/settings"))
+	if !strings.Contains(doc, `data-field="host" hidden`) {
+		t.Fatalf("empty label must hide the Host field:\n%s", doc)
+	}
 }
 
 // --- frontend wiring (#157) -----------------------------------------------------

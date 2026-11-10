@@ -317,8 +317,12 @@ body { background:var(--bg); color:var(--ink);
 .wssettings .label.danger { color:var(--danger); }
 .wssettings .cell { color:var(--ink2); margin-right:8px; }
 .wssettings .entries { margin:8px 0; }
-.wssettings .entries .entry { background:var(--surface2); border-radius:8px;
-  padding:8px 12px; margin:6px 0; }
+/* Both card-bearing rows stay flat on the panel: the add-forms lose the
+   grey inset entirely, the provider entry cards keep a hairline border
+   instead of the grey background. */
+.wssettings .add-form { background:transparent; box-shadow:none; }
+.wssettings .entries .entry { background:transparent; border:1px solid var(--hairline);
+  border-radius:8px; padding:8px 12px; margin:6px 0; }
 .wssettings .entry-head { display:flex; gap:8px; align-items:center; font-weight:700; }
 .wssettings .entry-sub { color:var(--ink2); font-size:12.5px; }
 .wssettings .badge.warn { background:var(--warn); color:#1b2438; border-radius:999px;
@@ -386,7 +390,11 @@ body { background:var(--bg); color:var(--ink);
   border:1px solid var(--hairline); border-radius:9px; padding:6px 10px;
   font:inherit; font-size:13px; min-width:160px; }
 .entry-remove button { margin-left:8px; }
-.add-form { background:var(--surface2); border-radius:13px; padding:14px 16px;
+/* The add form renders as a card like the surrounding .entry rows and
+   the Import Workspace panel: the elevated surface, not a grey inset.
+   (Workspace settings flattens it — see the .wssettings overrides.) */
+.add-form { background:var(--surface); border-radius:10px; box-shadow:var(--shadow);
+  padding:14px 16px;
   display:flex; flex-wrap:wrap; gap:10px 16px; align-items:end; }
 .add-form h3 { margin:2px 0 0; font-size:13px; font-weight:800; width:100%; }
 .catalog label { display:flex; flex-direction:column; gap:4px; font-size:11px;
