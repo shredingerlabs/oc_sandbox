@@ -23,9 +23,6 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
-
-	"github.com/shredingerlabs/oc-sandbox/internal/cmdrun"
-	"github.com/shredingerlabs/oc-sandbox/internal/registry"
 )
 
 // tokenRe matches the tokenized path prefix — the redaction pattern the
@@ -39,49 +36,46 @@ const BasePort = 8090
 // Options carries the launch-time knobs. The zero value is production:
 // base port 8090 (scans upward on conflict, never persisted).
 type Options struct {
-	BasePort    int           // first port tried; 0 means "pick a free port" (tests)
-	Version     string        // compiled-in version — the update card's fallback when the VERSION file is absent
-	InstallRoot string        // the install layout root (app.LayoutFor): the VERSION file lives here
-	Home        string        // the oc-sandbox home: ~/.config/oc-sandbox holds catalogs.json etc. and global_config.json (GET/POST /settings)
-	Runner      cmdrun.Runner // the command-runner seam (podman/scripts calls); nil → cmdrun.ExecRunner (smoke injects a Fake)
+	BasePort    int    // first port tried; 0 means "pick a free port" (tests)
+	Version     string // compiled-in version — the update card's fallback when the VERSION file is absent
+	InstallRoot string // the install layout root (app.LayoutFor): the VERSION file lives here
+	Home        string // the oc-sandbox home: ~/.config/oc-sandbox holds catalogs.json etc. and global_config.json (GET/POST /settings)
+	Deps        *Deps  // screen seams (#158/#159); nil = shell + update/settings/catalogs only
 }
 
 // Server is one WebUI instance: a loopback listener with a per-launch
 // token. Create with New, Start it, serve URL() to the browser, Close
 // on quit — the token dies with the process.
+// Server is one WebUI instance: a loopback listener with a per-launch
+// token. Create with New, Start it, serve URL() to the browser, Close
+// on quit — the token dies with the process.
 type Server struct {
 	opts    Options
+	deps    *Deps
 	token   string // hex, ≥128 bit of CSPRNG entropy
 	hub     *Hub
 	queue   *opRunner
 	updater *Updater
-	runner  cmdrun.Runner
 	srv     *http.Server
 	ln      net.Listener
 	url     string
 	errLog  strings.Builder // captured (token-redacted) http.Server error log — test seam
 	errSink *redactingLog   // the http.Server ErrorLog sink — redaction seam
 
-	reg *registry.Registry
+	lastUninstallOp int // the last uninstall run's op id — the log pane's data-op
 }
 
 // New creates an unstarted server with a fresh per-launch token.
 func New(opts Options) *Server {
 	s := &Server{
-		opts:   opts,
-		token:  newToken(),
-		hub:    newHub(),
-		runner: opts.Runner,
+		opts:  opts,
+		token: newToken(),
+		hub:   newHub(),
 	}
-	if s.runner == nil {
-		s.runner = cmdrun.ExecRunner{}
-	}
+	s.deps = opts.Deps
 	s.errSink = &redactingLog{next: &s.errLog}
 	s.queue = newOpRunner(s.hub)
 	s.updater = newUpdater(s.hub, s.queue, opts.InstallRoot, opts.Version)
-	if opts.Home != "" {
-		s.reg = &registry.Registry{Home: opts.Home}
-	}
 	return s
 }
 
@@ -162,6 +156,9 @@ func (s *Server) Start() error {
 	inner.HandleFunc("POST /catalogs/providers", s.handleProvidersPOST)
 	inner.HandleFunc("GET /settings", s.handleSettingsGet)
 	inner.HandleFunc("POST /settings", s.handleSettingsPost)
+	if s.deps != nil {
+		s.wireRoutes(inner) // container/image screens (#158)
+	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", s.handleHealthz)
 	mux.Handle("/", s.auth(inner))

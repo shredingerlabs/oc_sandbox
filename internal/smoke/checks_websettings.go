@@ -22,7 +22,7 @@ import (
 // and uninstall's typed confirmation with the TUI flag mapping. Asserted
 // against a fixture home, a Fake runner and the real server on loopback.
 func checkWebSettings(home, root string) Item {
-	p := newPhase("A10", "WebUI global settings: import/convert flow, named config export/restore round trip, uninstall typed confirm + flag mapping, busy refusals")
+	p := newPhase("A11", "WebUI global settings: import/convert flow, named config export/restore round trip, uninstall typed confirm + flag mapping, busy refusals")
 	fix := filepath.Join(home, "A10")
 
 	fake := &cmdrun.Fake{}
@@ -30,7 +30,7 @@ func checkWebSettings(home, root string) Item {
 		BasePort:    0,
 		Home:        fix,
 		InstallRoot: fix,
-		Runner:      fake,
+		Deps:        &webserver.Deps{Run: fake},
 	})
 	if err := s.Start(); err != nil {
 		p.reasonf("start: %v", err)
@@ -202,13 +202,13 @@ func checkWebSettings(home, root string) Item {
 	var scriptCalls int32
 	release := make(chan struct{})
 	fake.Script = func(name string, args []string) (string, error) {
-		if atomic.AddInt32(&scriptCalls, 1) == 1 {
-			<-release // hold the first run — the busy fixture
+		if name == "bash" && atomic.AddInt32(&scriptCalls, 1) == 1 {
+			<-release // hold the first uninstall.sh run — the busy fixture
 		}
 		return "", nil
 	}
 	post("uninstall", url.Values{"confirm_text": {"nope"}}) //nolint:errcheck
-	if snap := fake.Snapshot(); len(snap) != 0 {
+	if snap := bashCalls(fake); len(snap) != 0 {
 		p.reasonf("uninstall ran without the typed confirmation (%d calls)", len(snap))
 	}
 	post("uninstall", url.Values{"confirm_text": {"uninstall"}}) //nolint:errcheck
@@ -218,7 +218,7 @@ func checkWebSettings(home, root string) Item {
 	}
 	close(release)
 	waitCalls(1, fake)
-	calls := fake.Snapshot()
+	calls := bashCalls(fake)
 	if len(calls) != 1 {
 		p.reasonf("typed-confirm uninstall: script not invoked")
 	} else {
@@ -236,7 +236,7 @@ func checkWebSettings(home, root string) Item {
 	}
 	post("uninstall", url.Values{"confirm_text": {"uninstall"}, "remove_symlinks": {"1"}, "remove_shortcuts": {"1"}, "remove_config": {"1"}}) //nolint:errcheck
 	waitCalls(2, fake)
-	calls = fake.Snapshot()
+	calls = bashCalls(fake)
 	if len(calls) == 2 {
 		got := strings.Join(calls[1].Args[1:], " ")
 		if got != "--force --remove-shortcuts --remove-config" {
@@ -249,13 +249,26 @@ func checkWebSettings(home, root string) Item {
 	return p.finish()
 }
 
-// waitCalls polls until the runner recorded n calls (ops run on a
-// goroutine) — bounded so the harness never hangs. Reads through the
-// Fake's lock (Snapshot), never the bare slice.
+// waitCalls polls until the runner recorded n uninstall.sh calls (ops
+// run on a goroutine) — bounded so the harness never hangs. Reads
+// through the Fake's lock (Snapshot), never the bare slice.
 func waitCalls(n int, fake *cmdrun.Fake) {
-	for i := 0; i < 250 && len(fake.Snapshot()) < n; i++ {
+	for i := 0; i < 250 && len(bashCalls(fake)) < n; i++ {
 		sleepMillisSmoke(2)
 	}
+}
+
+// bashCalls filters the recorded calls to the uninstall script
+// invocations (the screen renders also query the runner for running
+// containers).
+func bashCalls(fake *cmdrun.Fake) []cmdrun.Call {
+	var out []cmdrun.Call
+	for _, c := range fake.Snapshot() {
+		if c.Name == "bash" {
+			out = append(out, c)
+		}
+	}
+	return out
 }
 
 func sleepMillisSmoke(ms int) { time.Sleep(time.Duration(ms) * time.Millisecond) }

@@ -133,7 +133,7 @@ func (s *Server) handleImportScreen(w http.ResponseWriter, r *http.Request) {
 // /import-workspace {path}) and renders the next stage.
 func (s *Server) handleImportWorkspace(w http.ResponseWriter, r *http.Request) {
 	root := canonicalImportPath(r.FormValue("path"))
-	res, err := importcheck.Check(root, s.reg)
+	res, err := importcheck.Check(root, s.regView())
 	switch {
 	case err != nil:
 		renderT(w, importStageTmpl, importStageData{Broken: true, Path: root})
@@ -175,7 +175,7 @@ func (s *Server) handleImportRegister(w http.ResponseWriter, r *http.Request) {
 		req.GitTracking = cfg.VCSTracking
 		req.RepoURL = cfg.RepoURL
 	}
-	if err := s.reg.AddWorkspace(req); err != nil {
+	if err := s.regView().AddWorkspace(req); err != nil {
 		renderT(w, registerFailedTmpl, importErrMsg(err))
 		return
 	}

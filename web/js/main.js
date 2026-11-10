@@ -73,56 +73,50 @@
       // Catalogs screen (#155): Settings → VCS Tracker / AI-Provider
       // both load GET /catalogs (one fragment, both sections).
       if ((btn.dataset.nav === "set-vcs" || btn.dataset.nav === "set-ai") && window.htmx) {
-        currentNav = btn.dataset.nav;
         htmx.ajax("GET", base + "catalogs", { target: '[data-role="screen"]', swap: "innerHTML" });
         return;
       }
-      // Global settings screens (#159): Import Workspace, Export/Restore
-      // Config, Uninstall — one fragment each.
-      if (SCREENS[btn.dataset.nav] && window.htmx) {
-        showScreen(btn.dataset.nav);
+      // Container center + images (#158): fragment screens with the
+      // reactive workspace re-render.
+      if (screenPaths[btn.dataset.nav]) {
+        loadScreen(screenPaths[btn.dataset.nav]);
         return;
       }
-      currentNav = btn.dataset.nav;
       renderStub(btn.dataset.nav);
     });
   });
 
-  // #159: nav key → fragment URL; showScreen tracks the current screen
-  // so the workspace SSE event re-renders it reactively (§6/§9).
-  var SCREENS = {
-    "set-import": "import",
-    "set-config": "config",
-    "set-uninstall": "uninstall",
-  };
-  var currentNav = null;
-  function showScreen(nav) {
-    currentNav = nav;
-    htmx.ajax("GET", base + SCREENS[nav], { target: '[data-role="screen"]', swap: "innerHTML" });
+  // --- screens (#158): containers + images load as HTML fragments; the
+  // log pane's streamed lines live in JS memory, so the reactive
+  // workspace re-renders never lose build output ---
+  var screenPaths = { "set-containers": "containers", "set-images": "images",
+    // global settings screens (#159)
+    "set-import": "import", "set-config": "config", "set-uninstall": "uninstall" };
+  var currentScreen = null;
+  var logLines = {};   // op id → array of streamed lines
+  var lastLineId = 0;  // SSE id dedupe across reconnect replay
+
+  function loadScreen(name) {
+    fetch(base + name, { referrerPolicy: "no-referrer" })
+      .then(function (r) { return r.text(); })
+      .then(function (html) {
+        currentScreen = name;
+        screenEl.innerHTML = html;
+        restoreLog();
+      })
+      .catch(function () { /* server may be gone; SSE shutdown covers it */ });
   }
 
-  // --- shared confirm popup (ADR-0021 set): per-action copy, Cancel-safe ---
-  var confirmEl = document.querySelector('[data-role="confirm"]');
-  var confirmState = null;
-  function showConfirm(title, body, okLabel, onOk) {
-    confirmState = onOk;
-    confirmEl.querySelector('[data-role="confirm-title"]').textContent = title;
-    confirmEl.querySelector('[data-role="confirm-body"]').textContent = body;
-    confirmEl.querySelector('[data-role="confirm-ok"]').textContent = okLabel;
-    confirmEl.hidden = false;
-    confirmEl.querySelector('[data-role="confirm-cancel"]').focus();
+  // restoreLog re-fills the current log pane from streamed memory.
+  function restoreLog() {
+    var pane = screenEl.querySelector('[data-role="log"]');
+    if (!pane) return;
+    var op = parseInt(pane.getAttribute("data-op"), 10) || 0;
+    if (!op) return;
+    var lines = logLines[op] || [];
+    pane.textContent = lines.join("\n");
+    if (lines.length) pane.scrollTop = pane.scrollHeight;
   }
-  confirmEl.addEventListener("click", function (ev) {
-    if (confirmState && ev.target.closest('[data-role="confirm-ok"]')) {
-      var ok = confirmState;
-      confirmState = null;
-      confirmEl.hidden = true;
-      ok();
-    } else if (ev.target.closest('[data-role="confirm-cancel"]') || ev.target === confirmEl) {
-      confirmState = null;
-      confirmEl.hidden = true;
-    }
-  });
 
   // #159: confirm-gated HTMX actions carry data-confirm-popup + per-action
   // copy in data-confirm-* attributes — the htmx:confirm hook opens the
@@ -151,6 +145,29 @@
     btn.disabled = input.value.trim().toLowerCase() !== match.toLowerCase();
   });
 
+  // --- shared confirm popup (ADR-0021 set): per-action copy, Cancel-safe ---
+  var confirmEl = document.querySelector('[data-role="confirm"]');
+  var confirmState = null;
+  function showConfirm(title, body, okLabel, onOk) {
+    confirmState = onOk;
+    confirmEl.querySelector('[data-role="confirm-title"]').textContent = title;
+    confirmEl.querySelector('[data-role="confirm-body"]').textContent = body;
+    confirmEl.querySelector('[data-role="confirm-ok"]').textContent = okLabel;
+    confirmEl.hidden = false;
+    confirmEl.querySelector('[data-role="confirm-cancel"]').focus();
+  }
+  confirmEl.addEventListener("click", function (ev) {
+    if (confirmState && ev.target.closest('[data-role="confirm-ok"]')) {
+      var ok = confirmState;
+      confirmState = null;
+      confirmEl.hidden = true;
+      ok();
+    } else if (ev.target.closest('[data-role="confirm-cancel"]') || ev.target === confirmEl) {
+      confirmState = null;
+      confirmEl.hidden = true;
+    }
+  });
+
   // --- toasts ---
   var toastsEl = document.querySelector('[data-role="toasts"]');
   function toast(text, kind) {
@@ -160,6 +177,50 @@
     toastsEl.appendChild(el);
     setTimeout(function () { el.remove(); }, 6000);
   }
+
+  // --- container/image actions (#158): buttons carry data-action +
+  // data-href (+ optional data-confirm / data-danger / data-tag).
+  // Confirmed actions fire the POST only on confirm — the popup set
+  // carried 1:1 (stop/delete container, build, delete image; the
+  // deletes the danger ones). Confirms refuse while an op is
+  // queued/running: the busy fragment comes back from the server and
+  // swaps in like any other response.
+  screenEl.addEventListener("click", function (ev) {
+    var btn = ev.target.closest("button[data-action]");
+    if (!btn || btn.disabled) return;
+    ev.preventDefault();
+    var href = btn.dataset.href;
+    function go(form) {
+      fetch(base + href, {
+        method: "POST",
+        body: form || null,
+        headers: form ? { "Content-Type": "application/x-www-form-urlencoded" } : undefined,
+        referrerPolicy: "no-referrer"
+      })
+        .then(function (r) { return r.text(); })
+        .then(function (html) {
+          screenEl.innerHTML = html;
+          restoreLog();
+          var refused = screenEl.querySelector('[data-toast]');
+          if (refused) toast(refused.textContent, "warn");
+        })
+        .catch(function () { /* SSE shutdown covers a dead server */ });
+    }
+    if (btn.dataset.confirm) {
+      showConfirm(
+        btn.dataset.confirm,
+        "",
+        btn.dataset.danger !== undefined ? "Delete" : "Confirm",
+        function () {
+          go(btn.dataset.action === "img-delete"
+            ? "tag=" + encodeURIComponent(btn.dataset.tag)
+            : null);
+        }
+      );
+      return;
+    }
+    go(null);
+  });
 
   // --- §12 update phases: footer banner + Update card render purely
   //     from the one SSE `update` event; the run streams its log into
@@ -263,10 +324,10 @@
     var es = new EventSource(base + "events");
     es.addEventListener("open", function () { /* stub: clear reconnect exhaustion UI */ });
     es.addEventListener("line", function (ev) { onLine(ev); });
-    es.addEventListener("workspace", function () {
-      // #159: state-changing ops publish workspace — the current screen
-      // re-renders reactively (no reload).
-      if (currentNav && SCREENS[currentNav] && window.htmx) showScreen(currentNav);
+    es.addEventListener("workspace", function (ev) {
+      // reactive re-render (#158, spec §9): fresh rows/markers after
+      // every op state change — the log pane re-fills from memory
+      if (currentScreen) loadScreen(currentScreen);
     });
     es.addEventListener("update", function (ev) { onUpdate(ev); });
     es.addEventListener("shutdown", function () {
@@ -279,28 +340,32 @@
 
   // Line events stream into the embedded log pane under the Update card
   // while the update op runs (spec §12) — keyed by the op ID the update
-  // event carries.
+  // event carries. #158: build lines stream the same way into the image
+  // screen's log pane, buffered in JS memory across re-renders.
   function onLine(ev) {
-    var stubbed = true;
+    var id = parseInt(ev.lastEventId, 10) || 0;
+    var replayed = lastLineId > 0 && id > 0 && id <= lastLineId;
+    if (id > lastLineId) lastLineId = id;
     var line;
     try { line = JSON.parse(ev.data); } catch (e) { return; }
+    // buffered copy for the container/image log panes (#158); replayed
+    // lines are already in memory, so they are not appended twice
+    if (line.op && !replayed) {
+      if (!logLines[line.op]) logLines[line.op] = [];
+      logLines[line.op].push(line.text);
+      var pane = screenEl.querySelector('[data-role="log"]');
+      if (pane && (parseInt(pane.getAttribute("data-op"), 10) || 0) === line.op) {
+        pane.textContent = logLines[line.op].join("\n");
+        pane.scrollTop = pane.scrollHeight;
+      }
+    }
     var card = document.querySelector('[data-role="update-card"]');
-    var pane = card && card.querySelector('[data-role="update-log"]');
-    if (pane && updateOp !== null && line.op === updateOp) {
-      stubbed = false;
-      pane.hidden = false;
-      pane.textContent += (pane.textContent ? "\n" : "") + line.text;
-      pane.scrollTop = pane.scrollHeight;
+    var upane = card && card.querySelector('[data-role="update-log"]');
+    if (upane && updateOp !== null && line.op === updateOp) {
+      upane.hidden = false;
+      upane.textContent += (upane.textContent ? "\n" : "") + line.text;
+      upane.scrollTop = upane.scrollHeight;
     }
-    // #159: the uninstall screen's log pane streams every op's lines
-    // (only one screen is mounted at a time, so no filter is needed).
-    var log = document.querySelector('[data-role="op-log"]');
-    if (log && !pane) {
-      stubbed = false;
-      log.textContent += (log.textContent ? "\n" : "") + line.text;
-      log.scrollTop = log.scrollHeight;
-    }
-    if (stubbed && window.console && console.debug) console.debug("sse line", ev.data);
   }
 
   function stubEvent(kind, ev) {

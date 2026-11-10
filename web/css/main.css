@@ -157,6 +157,37 @@ body { background:var(--bg); color:var(--ink);
 .toast.ok { border-left-color:var(--ok); }
 .toast.warn { border-left-color:var(--danger); }
 
+/* #158 container/image screens: cards, units, markers, actions */
+.card { background:var(--surface); border:1px solid var(--hairline);
+  border-radius:14px; padding:18px 20px; max-width:880px; }
+.card-head { display:flex; align-items:center; gap:14px; margin-bottom:12px; }
+.card-head h2 { margin:0; font-size:16px; font-weight:700; }
+.card-head button { margin-left:auto; }
+.units { display:flex; flex-direction:column; gap:8px; }
+.unit { display:flex; align-items:center; gap:14px;
+  background:var(--surface2); border:1px solid var(--hairline);
+  border-radius:10px; padding:9px 14px; }
+.unit[data-busy] { opacity:.7; }
+.unit-main { display:flex; align-items:center; gap:10px; min-width:0; flex:1; }
+.unit-name { font-weight:700; }
+.unit-name.muted { color:var(--ink2); font-weight:600; }
+.unit-sub { color:var(--ink2); font-size:12px; font-family:ui-monospace, monospace; }
+.marker { font-size:12px; font-weight:600; white-space:nowrap; }
+.marker.st-running { color:var(--ok); }
+.marker.st-off { color:var(--ink2); }
+.marker.st-busy { color:var(--accent); }
+.unit .actions { display:flex; gap:8px; margin-left:auto; }
+.unit .actions button, .card-head button { border:1px solid var(--hairline); background:var(--surface);
+  color:var(--ink); font-weight:600; font-size:13px; padding:5px 12px;
+  border-radius:8px; cursor:pointer; }
+.unit .actions button:hover:not(:disabled), .card-head button:hover { background:var(--surface2); }
+.unit .actions button:disabled { opacity:.45; cursor:not-allowed; }
+.unit .actions button[data-danger] { color:var(--danger); border-color:var(--danger); }
+.empty { color:var(--ink2); font-size:13px; padding:8px 2px; }
+.inline-toast { background:var(--danger); color:#fff; border-radius:8px;
+  padding:6px 12px; font-weight:600; font-size:13px; margin-bottom:12px; }
+.units + .logpane { margin-top:14px; max-height:280px; }
+
 /* #159 settings screens: Import / Export-Restore / Uninstall */
 :root, [data-theme="bright"] { --warn:#b45309; }
 [data-theme="dark"] { --warn:#fbbf24; }
@@ -181,7 +212,6 @@ body { background:var(--bg); color:var(--ink);
   margin:10px 0; font-size:13px; }
 .kv dt { color:var(--ink2); }
 .kv dd { margin:0; }
-.rows { display:flex; flex-direction:column; gap:8px; margin-top:8px; }
 .cfgrow { display:flex; align-items:center; gap:10px; justify-content:space-between;
   background:var(--surface2); border-radius:8px; padding:8px 12px; }
 .cfgname { font-weight:600; }
@@ -190,6 +220,3 @@ body { background:var(--bg); color:var(--ink);
 .optrow label { display:flex; gap:8px; align-items:center; }
 .inline { display:inline; }
 .dangerzone { border-color:var(--danger); }
-.op-log { background:var(--bg); border:1px solid var(--hairline); border-radius:8px;
-  padding:10px; font:12px ui-monospace, "SF Mono", Consolas, monospace;
-  max-height:240px; overflow-y:auto; white-space:pre-wrap; }
