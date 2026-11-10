@@ -26,7 +26,7 @@ import (
 // workspaces), the fresh-per-request pair link and the headless access
 // fallback. The runner is faked; nothing external is touched.
 func checkWebUIWorkspaces(home, root string) Item {
-	p := newPhase("A13", "Open Workspace screen: cards, ?q= filter, start chain with Container-center reuse, taskmgr queue semantics (one-at-a-time per workspace), fresh pair link, access variants + headless fallback (#153)")
+	p := newPhase("A13", "Open Workspace screen: cards, ?q= filter, start chain with Container-center reuse, taskmgr queue semantics (one-at-a-time per workspace), fresh pair link, access variants + headless fallback, display_mode default + persistence (#153)")
 
 	// Fixture install: two workspaces with distinct sandbox configs.
 	rootA := seedWSFixture(home, "mural", "swdev", []string{}, "web")
@@ -231,11 +231,36 @@ func checkWebUIWorkspaces(home, root string) Item {
 	}
 	headless.on = false
 
-	// Advanced display mode: the Open button honors the configured
-	// start option and the terminal rows appear (matrix, §6).
-	if _, sbody := post(s.URL()+"settings", map[string]string{"display_mode": "advanced"}); !strings.Contains(sbody, `"advanced"`) {
+	// Display mode default + persistence (§14 A-list): a fresh home
+	// reads back standard; an invalid value is refused 400 without
+	// touching the file; advanced persists into global_config.json and
+	// survives a server restart on the same home.
+	dsp, dbody := get(s.URL() + "settings")
+	if dsp == nil || dsp.StatusCode != http.StatusOK || !strings.Contains(dbody, `"display_mode": "standard"`) {
+		p.reasonf("display_mode default: want 200 standard, got %v %s", respStatusCT(dsp), dbody)
+	}
+	if ir, _ := post(s.URL()+"settings", map[string]string{"display_mode": "extra"}); ir == nil || ir.StatusCode != http.StatusBadRequest {
+		p.reasonf("invalid display_mode: want 400, got %v", respStatusCT(ir))
+	}
+	if _, mbody := post(s.URL()+"settings", map[string]string{"display_mode": "advanced"}); !strings.Contains(mbody, `"advanced"`) {
 		p.reasonf("display mode switch to advanced failed")
 	}
+	gcData, err := os.ReadFile(filepath.Join(home, ".config", "oc-sandbox", "global_config.json"))
+	if err != nil || !strings.Contains(string(gcData), `"display_mode": "advanced"`) {
+		p.reasonf("display_mode not persisted in global_config.json: %v", err)
+	}
+	s2 := webserver.New(webserver.Options{BasePort: 0, Home: home})
+	if err := s2.Start(); err != nil {
+		p.reasonf("restart: %v", err)
+		return p.finish()
+	}
+	if _, pbody := get(s2.URL() + "settings"); !strings.Contains(pbody, `"display_mode": "advanced"`) {
+		p.reasonf("display_mode did not survive the restart: %s", pbody)
+	}
+	_ = s2.Close()
+
+	// Advanced display mode: the Open button honors the configured
+	// start option and the terminal rows appear (matrix, §6).
 	_, advBody := get(s.URL() + "workspaces")
 	for _, wantAdv := range []string{
 		`data-act="open" data-variant="console"`, // beta's stored start option

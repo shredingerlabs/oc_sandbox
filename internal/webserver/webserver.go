@@ -47,6 +47,9 @@ type Options struct {
 	Runner        cmdrun.Runner              // podman/script runner for the workspace access verbs (#153); nil → deps.Run, then real execution
 	Now           func() time.Time           // clock for relative last-used dates; nil → time.Now
 	TerminalSpawn func(command string) error // host terminal window opener (§3); nil → per-platform spawn
+	UpdateCheck   func() (string, error)     // §12 version-check seam (mocked GitHub); nil → real API
+	UpdateFetch   func() (string, error)     // install-script fetch seam; nil → real download
+	UpdateRun     func(script string, args []string, emit func(string)) error // install-script run seam; nil → real bash run
 }
 
 // Server is one WebUI instance: a loopback listener with a per-launch
@@ -84,6 +87,15 @@ func New(opts Options) *Server {
 	s.errSink = &redactingLog{next: &s.errLog}
 	s.queue = newOpRunner(s.hub)
 	s.updater = newUpdater(s.hub, s.queue, opts.InstallRoot, opts.Version)
+	if opts.UpdateCheck != nil {
+		s.updater.check = opts.UpdateCheck
+	}
+	if opts.UpdateFetch != nil {
+		s.updater.fetchScript = opts.UpdateFetch
+	}
+	if opts.UpdateRun != nil {
+		s.updater.runScript = opts.UpdateRun
+	}
 	return s
 }
 
