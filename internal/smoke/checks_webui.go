@@ -62,9 +62,29 @@ func checkWebUI(home, root string) Item {
 	}
 
 	// Auth grammar: missing and wrong tokens refuse every route —
-	// pages, assets, SSE, unsafe verbs — with 404.
+	// pages, assets, SSE, unsafe verbs — with 404. The list is every
+	// inner route the server registers (webserver.go), so routes that
+	// land in later tickets are covered here centrally, not per-box.
 	base := strings.Replace(s.URL(), "/t/"+s.Token()+"/", "/", 1)
-	routes := []string{"", "css/main.css", "img/editions/swdev.svg", "events", "catalogs", "settings", "workspaces"}
+	routes := []string{
+		"", "css/main.css", "js/htmx.min.js", "js/main.js", "img/editions/swdev.svg",
+		"events",
+		"workspaces", "workspaces/new",
+		"workspaces/mural/access", "workspaces/mural/pair-link",
+		"workspaces/mural/start", "workspaces/mural/stop", "workspaces/mural/delete", "workspaces/mural/adopt",
+		"workspaces/mural/settings", "workspaces/mural/providers",
+		"workspaces/mural/vcs-credentials", "workspaces/mural/remove-from-list",
+		"workspaces/mural/setup/retry", "workspaces/mural/setup/cancel",
+		"workspace-settings",
+		"containers", "containers/mural/stop", "containers/mural/delete",
+		"images", "images/build", "images/delete",
+		"import", "import-workspace", "import-register", "import-convert",
+		"config", "export-config", "restore-config",
+		"uninstall",
+		"update", "update/check", "update/run",
+		"catalogs", "catalogs/trackers", "catalogs/providers",
+		"settings",
+	}
 	for _, prefix := range []string{base, base + "t/00000000000000000000000000000000/"} {
 		for _, route := range routes {
 			for _, method := range []string{"GET", "POST"} {

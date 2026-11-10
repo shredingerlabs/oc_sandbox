@@ -19,7 +19,7 @@ import (
 // Nothing) and the containers-untouched posture asserted as design
 // constants (no podman here — the migration never derives identity).
 func checkMigrationFixture(home, root string) Item {
-	p := newPhase("A8", "First-start workspace migration: stage order, invariants, idempotent rerun, version 2.0 marker")
+	p := newPhase("A8", "First-start workspace migration: stage order, invariants, abort-on-error, idempotent rerun, version 2.0 marker, backup-first")
 	fix := filepath.Join(root, "internal", "migration", "testdata", "legacy-home")
 	sub := filepath.Join(home, "A8")
 	if err := copyDir(fix, sub); err != nil {
@@ -180,6 +180,46 @@ func checkMigrationFixture(home, root string) Item {
 	}
 	if v := migration.ReadVersion(pg.WorkspacesPath()); v != migration.TargetVersion {
 		p.reasonf("rerun drifted version: %q", v)
+	}
+
+	// Abort-on-first-error (spec §2): a corrupt legacy registry aborts
+	// with an error — backups exist (backup-first ran), the legacy file
+	// is not consumed, no downstream stage wrote (no workspaces.json, no
+	// catalogs.json, no version markers), and the idempotent rerun
+	// errors again from the same spot.
+	ab := filepath.Join(home, "A8-abort")
+	if err := copyDir(fix, ab); err != nil {
+		p.reasonf("abort fixture copy: %v", err)
+		return p.finish()
+	}
+	if err := rep(filepath.Join(ab, ".config", "oc-sandbox", "global_config.json")); err != nil {
+		p.reasonf("abort fixture path fixup: %v", err)
+		return p.finish()
+	}
+	if err := os.WriteFile(filepath.Join(ab, ".config", "oc-sandbox", "projects.json"), []byte("{ not json"), 0o644); err != nil {
+		p.reasonf("corrupting the abort fixture: %v", err)
+		return p.finish()
+	}
+	pgAb := config.Paths{Home: ab}
+	stAb, errAb := migration.Run(ab)
+	if errAb == nil || stAb != migration.Migrate {
+		p.reasonf("abort run: state %v err %v, want Migrate + error", stAb, errAb)
+	}
+	if _, err := os.Stat(pgAb.LegacyProjectsPath()); err != nil {
+		p.reasonf("abort consumed the legacy projects.json")
+	}
+	if _, err := os.Stat(pgAb.WorkspacesPath()); !os.IsNotExist(err) {
+		p.reasonf("abort stage-3 downstream wrote workspaces.json")
+	}
+	if _, err := os.Stat(pgAb.CatalogsPath()); !os.IsNotExist(err) {
+		p.reasonf("abort stage-5 downstream wrote catalogs.json")
+	}
+	abs, _ := os.ReadDir(pgAb.BackupsDir())
+	if len(abs) == 0 {
+		p.reasonf("abort ran no backup-first rotation")
+	}
+	if stAb2, errAb2 := migration.Run(ab); errAb2 == nil || stAb2 != migration.Migrate {
+		p.reasonf("abort rerun: state %v err %v, want the same error again", stAb2, errAb2)
 	}
 	return p.finish()
 }
