@@ -139,3 +139,7 @@ func defaultProjectPath(home string) string {
 	}
 	return gc.DefaultWorkspacePath
 }
+
+// DefaultWorkspacePath is the exported default-workspace-path lookup the
+// WebUI wiring uses (same fallback rule as the TUI's wizard autofill).
+func DefaultWorkspacePath(home string) string { return defaultProjectPath(home) }

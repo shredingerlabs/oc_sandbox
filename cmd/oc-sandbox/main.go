@@ -96,10 +96,24 @@ func runTUI() {
 // startWebserver starts the embedded WebUI (spec §3/#150) and prints
 // the full tokenized URL as the status line the launcher face (#151)
 // will take over. Home wires GET/POST /settings to global_config.json
-// (#152). A failed start never kills the TUI — it prints a warning and
-// returns nil.
+// (#152) and the New Workspace wizard (#156) to the install-layout
+// scripts — invoked exactly as the TUI invokes them (ADR-0007). A
+// failed start never kills the TUI — it prints a warning and returns
+// nil.
 func startWebserver(home, version string) *webserver.Server {
-	ui := webserver.New(webserver.Options{Version: version, Home: home})
+	layout := app.LayoutFor(home)
+	ui := webserver.New(webserver.Options{
+		Version:              version,
+		Home:                 home,
+		Runner:               cmdrun.ExecRunner{},
+		DefaultWorkspacePath: app.DefaultWorkspacePath(home),
+		StartScript:          layout.StartScript,
+		InitScript:           layout.InitScript,
+		ConfigureScript:      layout.ConfigureScript,
+		BuildScript:          layout.BuildScript,
+		Dockerfile:           layout.Dockerfile,
+		DockerfileCustom:     layout.DockerfileCustom,
+	})
 	if err := ui.Start(); err != nil {
 		fmt.Fprintf(os.Stderr, "oc-sandbox: WebUI could not start: %v (the TUI keeps running)\n", err)
 		return nil
