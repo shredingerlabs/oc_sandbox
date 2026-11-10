@@ -218,3 +218,158 @@ func TestWorkspaceStopRefusesWhileBusy(t *testing.T) {
 		t.Fatalf("podman stop ran while the workspace was busy")
 	}
 }
+
+// POST /workspaces/{name}/adopt (#154, spec §9) — behind the new
+// web-native adopt confirm (§9 confirms): both running-container
+// replacements ride it. Happy-path mismatch switch: the TUI
+// launchSwitch chain (stop → verified gone → registry "stopped" →
+// start.sh with args rebuilt from the CURRENT settings carrying the
+// requested access → verified live → registry "running" + last_used).
+func TestAdoptSwitchReplacesContainerWithCurrentSettings(t *testing.T) {
+	reg, roots := fixtureRegistry(t, "alpha")
+	root := roots["alpha"]
+	sandboxConfigFixture(t, root) // swdev, hil_mode, start option web, websearch
+	if err := reg.UpdateStatus(root, "running"); err != nil {
+		t.Fatal(err)
+	}
+	id := registry.ContainerIdentity(root)
+	cname := "opencode-sandbox-" + id
+	release := make(chan struct{})
+	running := newSyncSet(cname)
+	stopCalls := &syncList{}
+	startArgs := &syncList{}
+	run := fakePodman(nil, nil, nil, []string{"opencode-sandbox-swdev"}, nil)
+	base := run.Script
+	run.Script = func(name string, args []string) (string, error) {
+		rest := ""
+		if name == "podman" {
+			rest = strings.Join(args, " ")
+		}
+		switch {
+		case name == "podman" && strings.HasPrefix(rest, "stop "):
+			stopCalls.add(args[1])
+			running.set(cname, false)
+			return "stopped " + cname, nil
+		case name == "podman" && strings.HasPrefix(rest, "pod stop"):
+			t.Fatal("adopt stops the container, never the pod (TUI launchSwitch parity)")
+		case name == "bash" && len(args) > 0 && args[0] == "/opt/oc-sandbox/scripts/start.sh":
+			startArgs.add(strings.Join(args[1:], "\x1f"))
+			<-release
+			running.set(cname, true)
+			return "started", nil
+		case name == "podman" && strings.HasPrefix(rest, "ps -a --format {{.Names}}"):
+			var rows []string
+			for _, n := range running.keys() {
+				rows = append(rows, containerState(n, "running"))
+			}
+			return strings.Join(rows, "\n"), nil
+		case name == "podman" && strings.HasPrefix(rest, "ps --format {{.Names}}"):
+			return strings.Join(running.keys(), "\n"), nil
+		case name == "podman" && strings.HasPrefix(rest, "ps --format {{.Names}}\t{{.Image}}"):
+			return cname + "\topencode-sandbox-web:latest", nil // live container runs web, saved is swdev
+		}
+		return base(name, args)
+	}
+	s := depsServer(t, run, reg)
+
+	v := postSidecar(t, s.URL()+"workspaces/alpha/adopt", "variant=web")
+	if v["ok"] != true {
+		t.Fatalf("adopt sidecar = %v, want ok:true", v)
+	}
+	// The chain: verified stop flips the registry to "stopped" FIRST…
+	waitFor(t, "registry stopped after the verified stop", func() bool {
+		ws, err := reg.ByName("alpha")
+		return err == nil && ws.ContainerStatus == "stopped"
+	})
+	// …the rebuilt args carry all current settings (edition swdev,
+	// --hil_mode, --search_mode websearch) plus the requested access
+	// (--start_web for variant web) and --detach.
+	want := strings.Join([]string{root, "--edition", "swdev", "--container-id", id,
+		"--hil_mode", "--search_mode", "websearch", "--start_web", "--detach"}, "\x1f")
+	waitFor(t, "start.sh with rebuilt args", func() bool {
+		calls := startArgs.snapshot()
+		return len(calls) == 1 && calls[0] == want
+	})
+	close(release)
+	// …and only a verified success flips "running" (TUI opDone parity).
+	waitFor(t, "registry running after the verified start", func() bool {
+		ws, err := reg.ByName("alpha")
+		return err == nil && ws.ContainerStatus == "running" && ws.LastUsed != ""
+	})
+	waitFor(t, "adopt op to drain", func() bool { return !s.Busy() })
+	if calls := stopCalls.snapshot(); len(calls) != 1 || calls[0] != cname {
+		t.Fatalf("podman stop calls = %v, want [%s]", calls, cname)
+	}
+}
+
+// The adopt confirm refuses while an op is queued or running (spec §9,
+// per-key gate): with a stop op in flight on the same workspace key,
+// the replacement is refused — nothing stops.
+func TestAdoptRefusesWhileBusy(t *testing.T) {
+	reg, roots := fixtureRegistry(t, "alpha")
+	if err := reg.UpdateStatus(roots["alpha"], "running"); err != nil {
+		t.Fatal(err)
+	}
+	id := registry.ContainerIdentity(roots["alpha"])
+	cname, pod := "opencode-sandbox-"+id, registry.PodName(id)
+	release := make(chan struct{})
+	running := newSyncSet(cname)
+	pods := newSyncSet(pod)
+	switched := false
+	var mu sync.Mutex
+	run := fakePodman(nil, nil, nil, nil, nil)
+	base := run.Script
+	run.Script = func(name string, args []string) (string, error) {
+		rest := ""
+		if name == "podman" {
+			rest = strings.Join(args, " ")
+		}
+		switch {
+		case name == "podman" && strings.HasPrefix(rest, "pod stop"):
+			<-release // the in-flight op holds the workspace's key
+			pods.set(pod, false)
+			running.set(cname, false)
+			return "stopped " + pod, nil
+		case name == "podman" && strings.HasPrefix(rest, "stop "):
+			mu.Lock()
+			switched = true
+			mu.Unlock()
+			return "stopped", nil
+		case name == "podman" && strings.HasPrefix(rest, "pod exists"):
+			if pods.has(args[len(args)-1]) {
+				return "", nil
+			}
+			return "", fmt.Errorf("no such pod")
+		case name == "podman" && strings.HasPrefix(rest, "pod ps --format"):
+			var rows []string
+			if pods.has(pod) {
+				rows = append(rows, podState(pod, "running"))
+			}
+			return strings.Join(rows, "\n"), nil
+		case name == "podman" && strings.HasPrefix(rest, "ps -a --format {{.Names}}"):
+			var rows []string
+			for _, n := range running.keys() {
+				rows = append(rows, containerState(n, "running"))
+			}
+			return strings.Join(rows, "\n"), nil
+		case name == "podman" && strings.HasPrefix(rest, "ps --format {{.Names}}"):
+			return strings.Join(running.keys(), "\n"), nil
+		}
+		return base(name, args)
+	}
+	s := depsServer(t, run, reg)
+
+	post(t, s.URL()+"containers/"+cname+"/stop", "") // the in-flight stop op
+	waitFor(t, "stop op to hold the key", func() bool { return s.Busy() })
+	v := postSidecar(t, s.URL()+"workspaces/alpha/adopt", "variant=web")
+	if v["ok"] != false || !strings.Contains(v["error"].(string), "already queued or running") {
+		t.Fatalf("adopt sidecar = %v, want the busy refusal", v)
+	}
+	close(release)
+	waitFor(t, "stop op to drain", func() bool { return !s.Busy() })
+	mu.Lock()
+	defer mu.Unlock()
+	if switched {
+		t.Fatalf("the replacement ran while the workspace was busy")
+	}
+}
