@@ -60,12 +60,12 @@ type provEntryView struct {
 // provConfirmView is the Keep/Replace round-trip (§9 replace-credentials
 // confirm, TUI parity): the pending write round-trips in hidden fields.
 type provConfirmView struct {
-	ID     string
-	Action string // add | edit
-	Orig   string // edit: the id being edited (renamed away from)
-	Name   string
+	ID       string
+	Action   string // add | edit
+	Orig     string // edit: the id being edited (renamed away from)
+	Name     string
 	Endpoint string
-	Token  string
+	Token    string
 }
 
 // wsSettingsView is the template data of the whole screen fragment.

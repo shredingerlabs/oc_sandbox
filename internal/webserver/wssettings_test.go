@@ -70,15 +70,15 @@ func TestWsSettingsScreenStandard(t *testing.T) {
 	for _, want := range []string{
 		`data-screen="ws-settings"`,
 		`data-ws="alpha"`,
-		`data-role="ws-selector"`,                    // menu-entry workspace selector dropdown
-		`style="--ed:#2f6fed"`,                       // letter-tinted avatar (Signal hue)
-		`apply on <b>next start</b>`,                 // the next-start note
-		`data-row="provider"`,                        // Standard row: AI-Provider
-		`data-row="vcs"`,                             // Standard row: VCS Tracking
-		`data-act="setup-retry"`,                     // first-run setup recovery (#161 link)
-		`remove-from-list`,                           // remove targets the §9 route
+		`data-role="ws-selector"`,    // menu-entry workspace selector dropdown
+		`style="--ed:#2f6fed"`,       // letter-tinted avatar (Signal hue)
+		`apply on <b>next start</b>`, // the next-start note
+		`data-row="provider"`,        // Standard row: AI-Provider
+		`data-row="vcs"`,             // Standard row: VCS Tracking
+		`data-act="setup-retry"`,     // first-run setup recovery (#161 link)
+		`remove-from-list`,           // remove targets the §9 route
 		`data-confirm-title="Remove alpha from the workspace list?"`, // red confirm
-		`presets, see Advanced`,                      // §6 helper wording
+		`presets, see Advanced`, // §6 helper wording
 	} {
 		if !strings.Contains(doc, want) {
 			t.Fatalf("Standard settings screen missing %q:\n%s", want, doc)
@@ -117,11 +117,11 @@ func TestWsSettingsScreenAdvanced(t *testing.T) {
 		`data-row="search_mode"`,  // the triad with searxng preselected
 		`data-row="offline"`,
 		`data-row="cbm_ui"`,
-		`data-row="hil"`,          // HIL row for every edition
-		`value="swdev" selected`,  // stored edition selected
+		`data-row="hil"`,           // HIL row for every edition
+		`value="swdev" selected`,   // stored edition selected
 		`value="opencode" checked`, // stored start option checked
 		`name="proxy" value="yes" checked`,
-		`value="searxng" checked`, // §6 preselected
+		`value="searxng" checked`,       // §6 preselected
 		`name="hil" value="on" checked`, // hil_mode recorded in modes
 	} {
 		if !strings.Contains(doc, want) {
@@ -242,12 +242,12 @@ func TestWsSettingsPostValidation(t *testing.T) {
 	postForm(t, fx.s.URL()+"settings", map[string]string{"display_mode": "advanced"})
 
 	for name, form := range map[string]map[string]string{
-		"searxng+proxy":  {"search_mode": "searxng", "proxy": "yes"},
+		"searxng+proxy":   {"search_mode": "searxng", "proxy": "yes"},
 		"searxng+offline": {"search_mode": "searxng", "modes_present": "1", "offline": "on"},
-		"offline+cbm":    {"modes_present": "1", "offline": "on", "cbm_ui": "on"},
-		"bad-edition":    {"edition": "ghost"},
-		"bad-start":      {"start_option": "x11"},
-		"bad-search":     {"search_mode": "bing"},
+		"offline+cbm":     {"modes_present": "1", "offline": "on", "cbm_ui": "on"},
+		"bad-edition":     {"edition": "ghost"},
+		"bad-start":       {"start_option": "x11"},
+		"bad-search":      {"search_mode": "bing"},
 	} {
 		resp := postForm(t, fx.s.URL()+"workspaces/alpha/settings", form)
 		if resp.StatusCode != http.StatusOK {
@@ -923,14 +923,14 @@ func TestFrontendWsSettingsWiring(t *testing.T) {
 	s := startTestServer(t)
 	js := body(t, get(t, s.URL()+"js/main.js"))
 	for _, want := range []string{
-		`workspace-settings`,  // the menu alias route
-		`/settings`,           // the per-workspace screen route
-		`ws-selector`,         // the dropdown drives the screen
-		`displaychange`,       // the matrix re-renders on a mode switch
-		`setup-retry`,         // the #161 link stub
-		`provider-prefill`,    // AI-Provider catalog prefill
-		`vcs-prefill`,         // VCS catalog prefill
-		`"settings"`,          // the card settings icon jump
+		`workspace-settings`, // the menu alias route
+		`/settings`,          // the per-workspace screen route
+		`ws-selector`,        // the dropdown drives the screen
+		`displaychange`,      // the matrix re-renders on a mode switch
+		`setup-retry`,        // the #161 link stub
+		`provider-prefill`,   // AI-Provider catalog prefill
+		`vcs-prefill`,        // VCS catalog prefill
+		`"settings"`,         // the card settings icon jump
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("main.js missing %q", want)
