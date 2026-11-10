@@ -34,6 +34,7 @@ var tokenRe = regexp.MustCompile(`/t/[0-9a-f]{32}/`)
 type Options struct {
 	BasePort int    // first port tried; 0 means "pick a free port" (tests)
 	Version  string // reported nowhere until a screen needs it
+	Home     string // the oc-sandbox home whose ~/.config/oc-sandbox holds catalogs.json etc.
 }
 
 // Server is one WebUI instance: a loopback listener with a per-launch
@@ -121,6 +122,9 @@ func (s *Server) Start() error {
 		http.FileServerFS(assetsFS).ServeHTTP(w, r)
 	}))
 	inner.HandleFunc("GET /events", s.hub.serveEvents)
+	inner.HandleFunc("GET /catalogs", s.handleCatalogsGET)
+	inner.HandleFunc("POST /catalogs/trackers", s.handleTrackersPOST)
+	inner.HandleFunc("POST /catalogs/providers", s.handleProvidersPOST)
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", s.handleHealthz)
 	mux.Handle("/", s.auth(inner))

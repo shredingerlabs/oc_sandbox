@@ -63,6 +63,48 @@ body { background:var(--bg); color:var(--ink);
 .screen { flex:1; overflow-y:auto; padding:24px; }
 .screen .stub { color:var(--ink2); font-size:13px; }
 
+/* catalogs screen (#155): Settings → VCS Tracker / AI-Provider.
+   Server-rendered fragments; HTMX swaps the <section> per action. */
+.catalog { margin-bottom:28px; max-width:860px; }
+.catalog h2 { margin:0 0 4px; font-size:16px; }
+.catalog-hint { color:var(--ink2); font-size:12.5px; margin:0 0 14px; }
+.form-error { background:var(--surface2); border:1px solid var(--danger);
+  color:var(--danger); border-radius:8px; padding:8px 12px; font-weight:600;
+  font-size:13px; margin:0 0 12px; }
+.empty { color:var(--ink2); font-size:13px; border:1px dashed var(--hairline);
+  border-radius:10px; padding:16px; }
+.entries { list-style:none; margin:0 0 16px; padding:0; display:flex;
+  flex-direction:column; gap:8px; }
+.entry { background:var(--surface); border:1px solid var(--hairline);
+  border-radius:10px; padding:12px 14px; display:flex; flex-wrap:wrap;
+  align-items:center; gap:10px; }
+.entry-head { display:flex; align-items:center; gap:8px; min-width:0; }
+.entry-name { font-weight:700; }
+.badge { background:var(--surface2); color:var(--ink2); border-radius:999px;
+  font-size:11px; padding:1px 8px; font-weight:600; }
+.entry-host, .entry-sub { color:var(--ink2); font-size:12.5px; }
+.entry-edit summary { cursor:pointer; color:var(--accent); font-size:12.5px; font-weight:600; }
+.entry-edit, .entry-remove { margin-left:auto; }
+.entry-edit form { display:flex; flex-wrap:wrap; gap:10px; margin-top:10px;
+  min-width:420px; }
+.entry-remove button { margin-left:8px; }
+.add-form { background:var(--surface2); border:1px solid var(--hairline);
+  border-radius:10px; padding:14px 16px; display:flex; flex-wrap:wrap;
+  gap:10px 16px; align-items:end; }
+.add-form h3 { margin:2px 0 0; font-size:13px; width:100%; }
+.catalog label { display:flex; flex-direction:column; gap:4px; font-size:12px;
+  color:var(--ink2); font-weight:600; }
+.catalog input, .catalog select { background:var(--surface); color:var(--ink);
+  border:1px solid var(--hairline); border-radius:8px; padding:6px 10px;
+  font-size:13px; font:inherit; min-width:160px; }
+.field-hint { font-weight:400; }
+.catalog button { background:var(--accent); color:var(--accent-ink);
+  border:0; border-radius:8px; padding:7px 14px; font-weight:600;
+  font-size:13px; cursor:pointer; }
+.catalog button:hover { filter:brightness(1.1); }
+.catalog button.danger { background:none; border:1px solid var(--danger);
+  color:var(--danger); padding:4px 10px; font-size:12px; }
+
 /* footer: always-present update banner slot + version */
 .footer { display:flex; align-items:center; gap:14px; padding:10px 24px;
   border-top:1px solid var(--hairline); background:var(--bg-side); min-height:44px; }
