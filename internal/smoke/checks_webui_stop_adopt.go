@@ -46,13 +46,13 @@ func checkWebUIStopAdopt(home, root string) Item {
 	runningImage := "" // the image the live container runs (the truth about what runs, #115)
 	podExists := false // the workspace's pod exists (pod-as-unit stop)
 	built := map[string]bool{"opencode-sandbox-swdev": true, "opencode-sandbox-web": true}
-	published := false            // fake podman port 4096/tcp
-	startFail := false            // the next start.sh run fails
-	pairCalls := 0                // each pair call mints its own one-time link (§10)
-	startArgs := [][]string{}     // start.sh invocation vectors
-	stopCalls := []string{}       // bare podman stop targets (the switch's move)
-	podStopCalls := []string{}    // podman pod stop targets (the stop route's move)
-	rmCalls := []string{}         // podman rm targets (the delete's move)
+	published := false             // fake podman port 4096/tcp
+	startFail := false             // the next start.sh run fails
+	pairCalls := 0                 // each pair call mints its own one-time link (§10)
+	startArgs := [][]string{}      // start.sh invocation vectors
+	stopCalls := []string{}        // bare podman stop targets (the switch's move)
+	podStopCalls := []string{}     // podman pod stop targets (the stop route's move)
+	rmCalls := []string{}          // podman rm targets (the delete's move)
 	release := make(chan struct{}) // unblocks the blocked start.sh call
 
 	fake := &cmdrun.Fake{Script: func(name string, args []string) (string, error) {
