@@ -114,6 +114,9 @@ var wsTemplate = template.Must(template.New("ws").
     <button class="btn icon" title="workspace settings" data-act="settings">
       <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z"/></svg>
     </button>
+    <button class="btn icon" data-confirm="restart"{{restartDisabled .RestartTitle}}{{if not .RestartTitle}} title="Restart this workspace"{{end}}>
+      <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+    </button>
   </div>
   <div class="meta">
     <span class="chip" data-chip="edition">{{.Edition}}</span>
@@ -143,9 +146,7 @@ var wsTemplate = template.Must(template.New("ws").
     <button class="btn" data-act="opencode" title="OpenCode TUI in a host terminal window"{{if .SetupPending}} disabled title="refused — first-run setup session pending"{{end}}>OpenCode</button>
     <button class="btn" data-act="console" title="console session in a host terminal window"{{if .SetupPending}} disabled title="refused — first-run setup session pending"{{end}}>Console</button>
   </div>
-  <div class="confirms">
-    <button class="btn danger" data-confirm="restart"{{restartDisabled .RestartTitle}}>Restart</button>
-  </div>
+  <div class="confirms"></div>
   <div class="oplog" data-oplog hidden></div>
 </article>
 {{end}}

@@ -98,6 +98,11 @@ body { background:var(--bg); color:var(--ink);
   border:1px solid var(--hairline); border-radius:8px; padding:6px 10px;
   font-size:13px; font:inherit; min-width:160px; }
 .field-hint { font-weight:400; }
+/* AI-Provider: Display name and Endpoint share one row — the endpoint
+   column wider (URLs run long). */
+.catalog .field-row { display:grid; grid-template-columns:1fr 2fr; gap:16px; width:100%; }
+/* The hidden Host label must win over the flex label rule above. */
+.catalog label[hidden] { display:none; }
 .catalog button { background:var(--accent); color:var(--accent-ink);
   border:0; border-radius:8px; padding:7px 14px; font-weight:600;
   font-size:13px; cursor:pointer; }
@@ -150,6 +155,7 @@ body { background:var(--bg); color:var(--ink);
 .btn:hover { filter:brightness(1.1); }
 .btn.danger { background:none; border:1px solid var(--danger); color:var(--danger); }
 .confirms { display:flex; gap:8px; }
+.confirms:empty { display:none; }
 .card-confirm { display:flex; align-items:center; gap:8px; background:var(--surface2);
   border:1px solid var(--hairline); border-radius:8px; padding:6px 10px; flex-wrap:wrap; }
 .card-confirm-label { font-size:13px; font-weight:600; }

@@ -173,6 +173,15 @@
       if (hostIn) hostIn.value = opt.getAttribute("data-host") || "";
       return;
     }
+    // VCS Tracker: the Host field only applies to gitlab_self / other
+    // kinds — github / gitlab trackers are hostless. The field hides
+    // (value kept); the initial hidden state renders server-side.
+    if (sel.matches('select[name="kind"]')) {
+      var f = sel.closest("form");
+      var host = f && f.querySelector('[data-field="host"]');
+      if (host) host.hidden = sel.value === "github" || sel.value === "gitlab";
+      return;
+    }
   });
 
   // Card actions: Open (Standard always web; Advanced honors the

@@ -68,7 +68,7 @@ var catalogsTemplate = template.Must(template.New("catalogs").Parse(`
               {{range $.Kinds}}<option value="{{.}}" {{if eq . $.Sel.Kind}}selected{{end}}>{{.}}</option>{{end}}
             </select>
           </label>
-          <label>Host <input name="host" value="{{.Host}}" placeholder="gitlab.example.com"></label>
+          <label data-field="host"{{if or (eq .Kind "github") (eq .Kind "gitlab")}} hidden{{end}}>Host <input name="host" value="{{.Host}}" placeholder="gitlab.example.com"></label>
           <button type="submit">Save</button>
         </form>
       </details>
@@ -94,7 +94,7 @@ var catalogsTemplate = template.Must(template.New("catalogs").Parse(`
         {{range $.Kinds}}<option value="{{.}}">{{.}}</option>{{end}}
       </select>
     </label>
-    <label>Host <input name="host" placeholder="gitlab.example.com"> <span class="field-hint">required for own GitLab / others</span></label>
+    <label data-field="host" hidden>Host <input name="host" placeholder="gitlab.example.com"> <span class="field-hint">required for own GitLab / others</span></label>
     <button type="submit">Add tracker</button>
   </form>
 </section>
@@ -118,8 +118,10 @@ var catalogsTemplate = template.Must(template.New("catalogs").Parse(`
         <form hx-post="{{$.P}}catalogs/providers" hx-target="#catalogs-providers" hx-swap="outerHTML">
           <input type="hidden" name="action" value="edit">
           <input type="hidden" name="orig" value="{{.Name}}">
-          <label>Display name <input name="name" value="{{.Name}}"></label>
-          <label>Endpoint <input name="endpoint" value="{{.Endpoint}}" placeholder="https://api.example.com/v1"></label>
+          <div class="field-row">
+            <label>Display name <input name="name" value="{{.Name}}"></label>
+            <label>Endpoint <input name="endpoint" value="{{.Endpoint}}" placeholder="https://api.example.com/v1"></label>
+          </div>
           <button type="submit">Save</button>
         </form>
       </details>
@@ -137,8 +139,10 @@ var catalogsTemplate = template.Must(template.New("catalogs").Parse(`
   <form class="add-form" hx-post="{{$.P}}catalogs/providers" hx-target="#catalogs-providers" hx-swap="outerHTML">
     <input type="hidden" name="action" value="add">
     <h3>Add provider</h3>
-    <label>Display name <input name="name"></label>
-    <label>Endpoint <input name="endpoint" placeholder="https://api.example.com/v1"> <span class="field-hint">OpenAI-compatible endpoint</span></label>
+    <div class="field-row">
+      <label>Display name <input name="name"></label>
+      <label>Endpoint <input name="endpoint" placeholder="https://api.example.com/v1"> <span class="field-hint">OpenAI-compatible endpoint</span></label>
+    </div>
     <button type="submit">Add provider</button>
   </form>
 </section>
