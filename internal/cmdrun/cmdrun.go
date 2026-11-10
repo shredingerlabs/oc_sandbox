@@ -43,6 +43,14 @@ type Call struct {
 	Args []string
 }
 
+// Snapshot returns a copy of the recorded calls — safe for polling from
+// another goroutine (smoke/test harnesses wait for op goroutines).
+func (f *Fake) Snapshot() []Call {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]Call(nil), f.Calls...)
+}
+
 // Output implements Runner.
 func (f *Fake) Output(name string, args ...string) (string, error) {
 	f.mu.Lock()
