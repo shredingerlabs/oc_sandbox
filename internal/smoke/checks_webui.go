@@ -4,6 +4,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -19,10 +22,9 @@ import (
 // serial, shutdown end). The server runs on the loopback with a random
 // port; nothing external is touched.
 func checkWebUI(home, root string) Item {
-	p := newPhase("A9", "WebUI skeleton: auth grammar on every route incl. SSE, healthz shape, Host allowlist, token never logged, embedded shell + assets, SSE distribution/replay/shutdown")
-	_ = home
+	p := newPhase("A9", "WebUI skeleton: auth grammar on every route incl. SSE, healthz shape, Host allowlist, token never logged, embedded shell + assets, SSE distribution/replay/shutdown, catalog CRUD (#155)")
 
-	s := webserver.New(webserver.Options{BasePort: 0})
+	s := webserver.New(webserver.Options{BasePort: 0, Home: home})
 	if err := s.Start(); err != nil {
 		p.reasonf("start: %v", err)
 		return p.finish()
@@ -62,7 +64,7 @@ func checkWebUI(home, root string) Item {
 	// Auth grammar: missing and wrong tokens refuse every route —
 	// pages, assets, SSE, unsafe verbs — with 404.
 	base := strings.Replace(s.URL(), "/t/"+s.Token()+"/", "/", 1)
-	routes := []string{"", "css/main.css", "img/editions/swdev.svg", "events", "workspaces"}
+	routes := []string{"", "css/main.css", "img/editions/swdev.svg", "events", "catalogs", "settings", "workspaces"}
 	for _, prefix := range []string{base, base + "t/00000000000000000000000000000000/"} {
 		for _, route := range routes {
 			for _, method := range []string{"GET", "POST"} {
@@ -140,6 +142,76 @@ func checkWebUI(home, root string) Item {
 	s.Hub().PublishShutdown()
 	if err := sseExpect(base, s.URL()+"events", "shutdown"); err != nil {
 		p.reasonf("shutdown push: %v", err)
+	}
+
+	// Catalogs CRUD (§8/#155): POST add writes catalogs.json — entry
+	// shape, insertion order, version key, no secret — with backup
+	// rotation on the second write; the duplicate slug is refused;
+	// GET /catalogs renders the entries.
+	post := func(target string, form map[string]string) (*http.Response, string) {
+		vals := make(url.Values, len(form))
+		for k, v := range form {
+			vals.Set(k, v)
+		}
+		resp, err := client.PostForm(target, vals)
+		if err != nil {
+			p.reasonf("POST %s: %v", target, err)
+			return nil, ""
+		}
+		defer resp.Body.Close()
+		b, err := io.ReadAll(resp.Body)
+		if err != nil {
+			p.reasonf("read POST %s: %v", target, err)
+			return resp, ""
+		}
+		return resp, string(b)
+	}
+	resp, cbody := post(s.URL()+"catalogs/trackers", map[string]string{
+		"action": "add", "name": "Company GitLab", "kind": "gitlab_self", "host": "gitlab.example.com",
+	})
+	if resp == nil || resp.StatusCode != http.StatusOK || !strings.Contains(cbody, `data-name="Company GitLab"`) {
+		p.reasonf("tracker add: want 200 + entry fragment, got %v", respStatusCT(resp))
+	}
+	if _, abody := post(s.URL()+"catalogs/trackers", map[string]string{
+		"action": "add", "name": "GitHub", "kind": "github",
+	}); !strings.Contains(abody, `data-name="GitHub"`) {
+		p.reasonf("second tracker add: want entry fragment")
+	}
+	catPath := filepath.Join(home, ".config", "oc-sandbox", "catalogs.json")
+	catData, err := os.ReadFile(catPath)
+	if err != nil {
+		p.reasonf("catalogs.json missing after add: %v", err)
+	} else {
+		file := string(catData)
+		for _, want := range []string{`"name": "Company GitLab"`, `"kind": "gitlab_self"`, `"host": "gitlab.example.com"`, `"name": "GitHub"`, `"version": "1.0"`} {
+			if !strings.Contains(file, want) {
+				p.reasonf("catalogs.json missing %q", want)
+			}
+		}
+		if strings.Contains(strings.ToLower(file), "token") {
+			p.reasonf("catalogs.json must be token-free")
+		}
+		if iLab := strings.Index(file, `"Company GitLab"`); iLab < 0 || iLab > strings.Index(file, `"GitHub"`) {
+			p.reasonf("catalogs.json insertion order violated")
+		}
+	}
+	backupEntries, _ := os.ReadDir(filepath.Join(home, ".config", "oc-sandbox", "backups"))
+	if len(backupEntries) == 0 {
+		p.reasonf("second catalogs.json write must rotate a backup under backups/")
+	}
+	if _, dbody := post(s.URL()+"catalogs/trackers", map[string]string{
+		"action": "add", "name": "github", "kind": "github",
+	}); !strings.Contains(dbody, "already exists") {
+		p.reasonf("duplicate slug add must be refused with the visible error")
+	}
+	if _, pbody := post(s.URL()+"catalogs/providers", map[string]string{
+		"action": "add", "name": "OpenRouter", "endpoint": "https://openrouter.ai/api/v1",
+	}); !strings.Contains(pbody, `data-name="OpenRouter"`) {
+		p.reasonf("provider add: want entry fragment")
+	}
+	resp, cbody = get("GET", s.URL()+"catalogs")
+	if resp == nil || resp.StatusCode != http.StatusOK || !strings.Contains(cbody, `data-name="Company GitLab"`) || !strings.Contains(cbody, `data-name="OpenRouter"`) {
+		p.reasonf("GET /catalogs must render the persisted entries, got %v", respStatusCT(resp))
 	}
 
 	// The tokenized URL never reaches log output.

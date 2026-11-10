@@ -24,17 +24,35 @@
     try { localStorage.setItem("oc_sandbox.theme", root.dataset.theme); } catch (e) {}
   });
 
-  // --- Standard/Advanced segmented control (skeleton: visual only —
-  // persistence rides GET/POST /settings, later ticket) ---
+  // --- Standard/Advanced display mode (#152, spec §6): stored truth
+  // lives in global_config.json via GET/POST /settings — no localStorage.
+  // A switch applies immediately: data-display flips on <html> (CSS
+  // hides advanced-only rows) and screens re-render on `displaychange`.
   var seg = document.querySelector('[data-role="display-mode"]');
+  var modeSub = document.querySelector('[data-role="mode-sub"]');
+
+  function applyDisplay(mode) {
+    root.dataset.display = mode;
+    modeSub.textContent = mode === "advanced" ? "Advanced" : "Standard";
+    seg.querySelectorAll("button").forEach(function (b) {
+      b.setAttribute("aria-pressed", String(b.dataset.mode === mode));
+    });
+    document.dispatchEvent(new CustomEvent("displaychange", { detail: { mode: mode } }));
+  }
+
+  fetch(base + "settings").then(function (r) { return r.json(); }).then(function (s) {
+    applyDisplay(s.display_mode === "advanced" ? "advanced" : "standard");
+  }).catch(function () { /* defaults hold: data-display="standard" */ });
+
   seg.addEventListener("click", function (ev) {
     var btn = ev.target.closest("button[data-mode]");
     if (!btn) return;
-    seg.querySelectorAll("button").forEach(function (b) {
-      b.setAttribute("aria-pressed", String(b === btn));
-    });
-    document.querySelector('[data-role="mode-sub"]').textContent =
-      btn.dataset.mode === "advanced" ? "Advanced" : "Standard";
+    var form = new FormData();
+    form.append("display_mode", btn.dataset.mode);
+    fetch(base + "settings", { method: "POST", body: new URLSearchParams(form) })
+      .then(function (r) { if (!r.ok) throw new Error("settings POST " + r.status); return r.json(); })
+      .then(function (s) { applyDisplay(s.display_mode === "advanced" ? "advanced" : "standard"); })
+      .catch(function () { /* UI keeps the stored mode — never pin */ });
   });
 
   // --- sidebar tree folding + active state ---
@@ -51,9 +69,14 @@
       document.querySelectorAll(".tree [data-nav]").forEach(function (b) {
         b.classList.toggle("active", b === btn);
       });
-      if (!btn.hasAttribute("hx-get")) {
-        screenEl.innerHTML = ""; // screen stubs fill this slot (per-screen tickets)
-      } // htmx-handled items swap their own fragment in
+      if (btn.hasAttribute("hx-get")) return; // htmx swaps its own fragment in (Update, #160)
+      // Catalogs screen (#155): Settings → VCS Tracker / AI-Provider
+      // both load GET /catalogs (one fragment, both sections).
+      if ((btn.dataset.nav === "set-vcs" || btn.dataset.nav === "set-ai") && window.htmx) {
+        htmx.ajax("GET", base + "catalogs", { target: '[data-role="screen"]', swap: "innerHTML" });
+        return;
+      }
+      renderStub(btn.dataset.nav);
     });
   });
 
@@ -171,6 +194,21 @@
       }
     );
   });
+
+    es.addEventListener("update", function (ev) { onUpdate(ev); });
+
+  // Stub screen (#152 foundation): one Standard row, one advanced-only
+  // row (stored value survives the Standard view — presets, not
+  // pinning), and the presets hint. Per-screen tickets (#153,
+  // #155–#157) replace this with real rows driven by the Go matrix.
+  function renderStub(nav) {
+    screenEl.innerHTML =
+      '<div class="stub">Screen "' + nav + '" arrives with its ticket.</div>' +
+      '<div class="row"><span class="label">AI-Provider</span>(none)</div>' +
+      '<div class="row" data-advanced-only><span class="label">Search mode</span>searxng</div>' +
+      '<div class="row hint">presets, see Advanced</div>';
+  }
+  renderStub(null);
 
   // --- SSE hub: one stream per tab, reconnect replay via line serial ---
   function connect() {

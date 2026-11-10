@@ -13,7 +13,7 @@ import (
 // exclusive run and returns the fragment at once (the phase events ride
 // /events). All under the token grammar the middleware enforces.
 
-func postForm(t *testing.T, url string) *http.Response {
+func postPlain(t *testing.T, url string) *http.Response {
 	t.Helper()
 	resp, err := http.Post(url, "application/x-www-form-urlencoded", strings.NewReader(""))
 	if err != nil {
@@ -112,7 +112,7 @@ func TestUpdateCheckNowEndpoint(t *testing.T) {
 	writeVersion(t, s.opts.InstallRoot, "v1.0.0")
 	u.check = func() (string, error) { return "v2.0.0", nil }
 
-	resp := postForm(t, s.URL()+"update/check")
+	resp := postPlain(t, s.URL()+"update/check")
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d, want 200", resp.StatusCode)
 	}
@@ -142,7 +142,7 @@ func TestUpdateRunEndpointStartsAndAnswers(t *testing.T) {
 		return nil
 	}
 	done := make(chan struct{})
-	go func() { defer close(done); postForm(t, s.URL()+"update/run") }()
+	go func() { defer close(done); postPlain(t, s.URL()+"update/run") }()
 
 	// The request must not wait for the script.
 	select {
@@ -178,7 +178,7 @@ func TestUpdateCheckEndpointWhileInstalling(t *testing.T) {
 	}
 	u.Run()
 
-	resp := postForm(t, s.URL()+"update/check")
+	resp := postPlain(t, s.URL()+"update/check")
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("check during installing: status = %d, want 200", resp.StatusCode)
 	}
@@ -211,7 +211,7 @@ func TestUpdateRunEndpointWhileInstalling(t *testing.T) {
 	u.Run()
 	waitForUpdates(t, ch, PhaseInstalling)
 
-	resp := postForm(t, s.URL()+"update/run")
+	resp := postPlain(t, s.URL()+"update/run")
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d, want 200", resp.StatusCode)
 	}

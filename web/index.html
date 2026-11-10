@@ -2,9 +2,11 @@
 <!-- oc_sandbox embedded WebUI — index shell (#150). Signal design
      language (spec §5, signed-off variant C): left sidebar tree,
      Standard/Advanced control + theme toggle in the header, footer
-     update banner. Screens are stubs here; the content slots fill in
-     the per-screen tickets. -->
-<html lang="en" data-theme="dark">
+     update banner. #152: the display-mode control persists via
+     GET/POST /settings (global_config.json) and re-renders
+     immediately — data-display on <html>, no reload. Screens are
+     stubs here; the content slots fill in the per-screen tickets. -->
+<html lang="en" data-theme="dark" data-display="standard">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
