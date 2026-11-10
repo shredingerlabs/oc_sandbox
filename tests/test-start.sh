@@ -108,6 +108,87 @@ if ! bash "$PROJECT_ROOT/dist/scripts/start.sh" --help | grep -q -- '--start_web
 fi
 printf 'start web option tests passed\n'
 
+# --- Always-on OpenCode web access (#149, spec §10) ------------------------------
+# Jeder detached Start publishes container port 4096 (scan-up, unchanged
+# unveränderte Range), startet den v2-Hintergrundservice + Keep-alive und
+# pinnt service.json — unabhaengig von --start_web. --offline ist vom
+# Publishing ausgenommen (--network=none hat nichts durchzureichen).
+rm -f "$test_home/.opencode_config/service.json"
+: > "$PODMAN_LOG"
+always_web_output="$test_home/always-web-output"
+if ! bash "$PROJECT_ROOT/dist/scripts/start.sh" "$test_home" --edition swdev --detach > "$always_web_output" 2>&1; then
+  printf 'start script failed with mocked podman (plain detached, always-on web)\n' >&2
+  exit 1
+fi
+pod_create_line="$(grep -m1 -- 'pod create --name opencode-sandbox-pod-' "$PODMAN_LOG")"
+if ! grep -q -- '-p 127.0.0.1:4097:4096' <<<"$pod_create_line"; then
+  printf 'plain detached start did not publish 4096 with scan-up: %s\n' "$pod_create_line" >&2
+  exit 1
+fi
+run_line="$(grep -m1 -- '--rm -d --name opencode-sandbox-' "$PODMAN_LOG")"
+if [[ "$run_line" != *'-c opencode service start && exec sleep infinity'* ]]; then
+  printf 'plain detached start lost the v2 background service command: %s\n' "$run_line" >&2
+  exit 1
+fi
+grep -q -- '-e START_WEB=false' "$PODMAN_LOG"
+grep -q 'OpenCode web: http://127.0.0.1:4097' "$always_web_output"
+grep -q 'Sign-in (one-time pair link): podman exec -it opencode-sandbox-' "$always_web_output"
+sq="$test_home/.opencode_config/service.json"
+jq -e '.hostname == "0.0.0.0" and .port == 4096' "$sq" >/dev/null || { printf 'plain detached start did not pin service.json\n' >&2; exit 1; }
+# Port-Autoritaet: der gescannte Host-Port wird nirgends persistiert —
+# live `podman port` (discovery.WebPort) bleibt die einzige Wahrheit.
+if grep -rq '4097' "$test_home/.opencode_config" "$test_home/.opencode_data"; then
+  printf 'scanned host port 4097 was persisted in workspace config\n' >&2
+  exit 1
+fi
+printf 'start always-on web detached tests passed\n'
+
+# Foreground ohne --start_web: Vertrag unveraendert (ADR 0024) — kein
+# Web-Publishing, kein Service-Kommando, kein Web-Echo.
+: > "$PODMAN_LOG"
+fg_plain_output="$test_home/fg-plain-output"
+if ! bash "$PROJECT_ROOT/dist/scripts/start.sh" "$test_home" --edition swdev > "$fg_plain_output" 2>&1; then
+  printf 'start script failed with mocked podman (plain foreground)\n' >&2
+  exit 1
+fi
+if grep -q -- '-p 127.0.0.1:' "$PODMAN_LOG"; then
+  printf 'plain foreground start grew a web publish (foreground contract must stay untouched)\n' >&2
+  exit 1
+fi
+if grep -q -- 'opencode service start' "$PODMAN_LOG"; then
+  printf 'plain foreground start grew a container service command\n' >&2
+  exit 1
+fi
+if grep -q 'OpenCode web:' "$fg_plain_output"; then
+  printf 'plain foreground start echoed a web URL\n' >&2
+  exit 1
+fi
+printf 'start always-on web foreground-exempt tests passed\n'
+
+# --offline detached: Service-Kommando bleibt (jeder detached Modus), aber
+# kein Publishing (strukturell nichts auf --network=none) und kein Web-Echo.
+: > "$PODMAN_LOG"
+offline_web_output="$test_home/offline-web-output"
+if ! bash "$PROJECT_ROOT/dist/scripts/start.sh" "$test_home" --edition swdev --offline --detach > "$offline_web_output" 2>&1; then
+  printf 'start script failed with mocked podman (offline detached, always-on web)\n' >&2
+  cat "$offline_web_output" >&2
+  exit 1
+fi
+offline_web_run_line="$(grep -m1 -- '--rm -d --name opencode-sandbox-' "$PODMAN_LOG")"
+if [[ "$offline_web_run_line" != *'-c opencode service start && exec sleep infinity'* ]]; then
+  printf 'offline detached start lost the v2 background service command: %s\n' "$offline_web_run_line" >&2
+  exit 1
+fi
+if grep -q -- '-p 127.0.0.1:' "$PODMAN_LOG"; then
+  printf 'offline detached start published a port (--offline must stay exempt)\n' >&2
+  exit 1
+fi
+if grep -q 'OpenCode web:' "$offline_web_output"; then
+  printf 'offline detached start echoed a web URL\n' >&2
+  exit 1
+fi
+printf 'start always-on web offline-exempt tests passed\n'
+
 # Bestehendes Repo in project/ bleibt unangetastet (kein Re-Init, kein Hinweis)
 rm -rf "$test_home/workspace"
 mkdir -p "$test_home/workspace"
