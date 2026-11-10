@@ -60,6 +60,13 @@ func busyRefusal(key string) string {
 	return "an operation is already queued or running for " + key
 }
 
+// setupRefusal is the shared per-workspace pending-setup refusal
+// message (§11: a pending first-run skills session holds the
+// workspace's container actions).
+func setupRefusal(name string) string {
+	return "refused — first-run setup session pending for " + name
+}
+
 // handleWorkspaceStop serves POST /workspaces/{name}/stop (#154) — the
 // existing graceful stop flow through the op runner (the pod-as-unit
 // stop, verified gone before the registry flip): the same op the
@@ -77,7 +84,7 @@ func (s *Server) handleWorkspaceStop(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if s.setupHolds(ws.Name) { // the pending skills session holds the container (#161)
-		refuseSidecar(w, "refused — first-run setup session pending for "+ws.Name)
+		refuseSidecar(w, setupRefusal(ws.Name))
 		return
 	}
 	s.queue.Launch(webOp{Key: cname, Run: s.stopOp(cname)})
@@ -101,7 +108,7 @@ func (s *Server) handleWorkspaceDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if s.setupHolds(ws.Name) { // the pending skills session holds the container (#161)
-		refuseSidecar(w, "refused — first-run setup session pending for "+ws.Name)
+		refuseSidecar(w, setupRefusal(ws.Name))
 		return
 	}
 	if s.runningUnit(cname) {
@@ -155,7 +162,7 @@ func (s *Server) handleWorkspaceAdopt(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if s.setupHolds(ws.Name) { // the pending skills session holds the container (#161)
-		refuseSidecar(w, "refused — first-run setup session pending for "+ws.Name)
+		refuseSidecar(w, setupRefusal(ws.Name))
 		return
 	}
 	cfg, err := readSandboxCfg(ws.Path)

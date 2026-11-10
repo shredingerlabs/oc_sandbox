@@ -268,7 +268,7 @@ func (s *Server) handleWorkspaceStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if s.setupHolds(name) {
-		http.Error(w, "refused — first-run setup session pending for "+name, http.StatusConflict)
+		http.Error(w, setupRefusal(name), http.StatusConflict)
 		return
 	}
 	if variant := r.PostFormValue("variant"); variant != "" {

@@ -40,6 +40,16 @@ func postSidecar(t *testing.T, url string, form string) map[string]any {
 // {mismatch} sidecar instead of silently reusing, the registry flips
 // truthful ("running", verified live) and last_used bumps, and nothing
 // is started or stopped (the switch is the adopt confirm's move).
+// setupRefusal is the shared per-workspace pending-setup refusal
+// message (§11: a pending first-run skills session holds the
+// workspace's container actions) — the string busyRefusal rides beside.
+func TestSetupRefusalMessage(t *testing.T) {
+	want := "refused — first-run setup session pending for alpha"
+	if got := setupRefusal("alpha"); got != want {
+		t.Fatalf("setupRefusal = %q, want %q", got, want)
+	}
+}
+
 func TestStartVariantDetectsEditionMismatch(t *testing.T) {
 	reg, roots := fixtureRegistry(t, "alpha")
 	root := roots["alpha"]

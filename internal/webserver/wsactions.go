@@ -116,7 +116,7 @@ func (s *Server) handleAccess(w http.ResponseWriter, r *http.Request) {
 	if variant != "web" && s.setupHolds(ws.Name) {
 		// A pending first-run setup session holds the workspace under
 		// the one-at-a-time rule (§11).
-		http.Error(w, "refused — first-run setup session pending for "+ws.Name, http.StatusConflict)
+		http.Error(w, setupRefusal(ws.Name), http.StatusConflict)
 		return
 	}
 	ctr := registry.ContainerName(ws.ContainerID)
