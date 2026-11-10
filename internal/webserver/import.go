@@ -211,7 +211,7 @@ func (s *Server) handleImportConvert(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	root := canonicalImportPath(r.FormValue("path"))
-	if err := migration.ConvertRoot(migration.Root{Name: filepath.Base(root), Path: root}); err != nil {
+	if err := migration.ConvertRoot(s.opts.Home, migration.Root{Name: filepath.Base(root), Path: root}); err != nil {
 		renderT(w, convertFailedTmpl, err.Error())
 		return
 	}

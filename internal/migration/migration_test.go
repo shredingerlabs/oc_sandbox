@@ -140,6 +140,59 @@ func TestDetectRerunOnStaleVersion(t *testing.T) {
 	}
 }
 
+// Stage-2's sandbox_config.json writes rotate into the REAL home's
+// backups/ (§2: "through the existing backups/ rotation") — on the
+// committed fixture layout the roots sit under <home>/ws/, and the old
+// workingHome guess rotated their backups into <home>/ws/.config/….
+func TestRunSandboxConfigBackupsLandInRealHome(t *testing.T) {
+	home := copyFixtureLegacyHome(t)
+	if _, err := Run(home); err != nil {
+		t.Fatal(err)
+	}
+	bd, err := os.ReadDir(config.Paths{Home: home}.BackupsDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	sbx := 0
+	for _, e := range bd {
+		if strings.HasPrefix(e.Name(), "sandbox_config.json.") {
+			sbx++
+		}
+	}
+	if sbx != 2 { // one per registered root (pkm-a, code-b)
+		t.Fatalf("sandbox_config.json backups in the real home backups/ = %d, want 2 (%v)", sbx, bd)
+	}
+	if _, err := os.Stat(filepath.Join(home, "ws", ".config")); !os.IsNotExist(err) {
+		t.Fatalf("stage-2 backups rotated into the roots parent dir: %v", err)
+	}
+}
+
+// copyFixtureLegacyHome materializes the committed pre-rename fixture
+// layout (testdata/legacy-home) with @HOME@ placeholders substituted.
+func copyFixtureLegacyHome(t *testing.T) string {
+	t.Helper()
+	home := t.TempDir()
+	if err := os.CopyFS(home, os.DirFS("testdata/legacy-home")); err != nil {
+		t.Fatal(err)
+	}
+	rep := func(rel string) {
+		p := filepath.Join(home, rel)
+		data, err := os.ReadFile(p)
+		if os.IsNotExist(err) {
+			return
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(strings.ReplaceAll(string(data), "@HOME@", home)), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rep(".config/oc-sandbox/projects.json")
+	rep(".config/oc-sandbox/global_config.json")
+	return home
+}
+
 func TestRunMigrates(t *testing.T) {
 	home, root := fixtureLegacy(t)
 	st, err := Run(home)
