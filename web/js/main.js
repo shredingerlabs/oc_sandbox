@@ -867,8 +867,6 @@
     );
   });
 
-    es.addEventListener("update", function (ev) { onUpdate(ev); });
-
   // Stub screen (#152 foundation): one Standard row, one advanced-only
   // row (stored value survives the Standard view — presets, not
   // pinning), and the presets hint. Per-screen tickets (#153,
