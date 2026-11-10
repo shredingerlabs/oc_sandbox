@@ -23,6 +23,9 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"time"
+
+	"github.com/shredingerlabs/oc-sandbox/internal/cmdrun"
 )
 
 // tokenRe matches the tokenized path prefix — the redaction pattern the
@@ -35,6 +38,8 @@ type Options struct {
 	BasePort int    // first port tried; 0 means "pick a free port" (tests)
 	Version  string // reported nowhere until a screen needs it
 	Home     string // the oc-sandbox home: ~/.config/oc-sandbox holds catalogs.json etc. and global_config.json (GET/POST /settings)
+	Runner   cmdrun.Runner // podman/script runner for start + access; nil → real execution
+	Now      func() time.Time // clock for relative last-used dates; nil → time.Now
 }
 
 // Server is one WebUI instance: a loopback listener with a per-launch
@@ -44,6 +49,7 @@ type Server struct {
 	opts    Options
 	token   string // hex, ≥128 bit of CSPRNG entropy
 	hub     *Hub
+	queue   *opQueue
 	srv     *http.Server
 	ln      net.Listener
 	url     string
@@ -58,6 +64,7 @@ func New(opts Options) *Server {
 		token: newToken(),
 		hub:   newHub(),
 	}
+	s.queue = newOpQueue(s.hub)
 	s.errSink = &redactingLog{next: &s.errLog}
 	return s
 }
@@ -127,6 +134,7 @@ func (s *Server) Start() error {
 	inner.HandleFunc("POST /catalogs/providers", s.handleProvidersPOST)
 	inner.HandleFunc("GET /settings", s.handleSettingsGet)
 	inner.HandleFunc("POST /settings", s.handleSettingsPost)
+	inner.HandleFunc("GET /workspaces", s.handleWorkspacesGET)
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", s.handleHealthz)
 	mux.Handle("/", s.auth(inner))
