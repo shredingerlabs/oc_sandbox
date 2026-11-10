@@ -912,3 +912,36 @@ func TestWsRemoveFromList(t *testing.T) {
 	}
 	close(release)
 }
+
+// --- frontend wiring (#157) -----------------------------------------------------
+
+// The shell script wires the settings screen: card settings icon jump,
+// menu entry (the name-less alias), the selector dropdown, the reactive
+// display-mode re-render, the setup-retry stub (#161) and both catalog
+// prefill selects.
+func TestFrontendWsSettingsWiring(t *testing.T) {
+	s := startTestServer(t)
+	js := body(t, get(t, s.URL()+"js/main.js"))
+	for _, want := range []string{
+		`workspace-settings`,  // the menu alias route
+		`/settings`,           // the per-workspace screen route
+		`ws-selector`,         // the dropdown drives the screen
+		`displaychange`,       // the matrix re-renders on a mode switch
+		`setup-retry`,         // the #161 link stub
+		`provider-prefill`,    // AI-Provider catalog prefill
+		`vcs-prefill`,         // VCS catalog prefill
+		`"settings"`,          // the card settings icon jump
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("main.js missing %q", want)
+		}
+	}
+	css := body(t, get(t, s.URL()+"css/main.css"))
+	for _, want := range []string{
+		`.wssettings`, `.avatar`, `.selrow`, `.confirm-block`,
+	} {
+		if !strings.Contains(css, want) {
+			t.Fatalf("main.css missing %q", want)
+		}
+	}
+}

@@ -77,6 +77,12 @@
         renderWorkspaces();
         return;
       }
+      // Workspace Settings (#157): the menu entry loads the name-less
+      // alias — the most recent workspace jumps in preselected.
+      if (nav === "set-ws" && window.htmx) {
+        renderWsSettings(null);
+        return;
+      }
       // Catalogs screen (#155): Settings → VCS Tracker / AI-Provider
       // both load GET /catalogs (one fragment, both sections).
       if ((nav === "set-vcs" || nav === "set-ai") && window.htmx) {
@@ -107,6 +113,58 @@
   }
   document.addEventListener("displaychange", renderWorkspaces);
 
+  // --- Workspace Settings screen (#157, spec §7): reachable from a
+  // card's settings icon and via the menu — the menu entry carries the
+  // letter-tinted workspace selector dropdown (running state shown);
+  // cards jump in preselected. loadScreen re-renders reactively from
+  // the SSE workspace events and the display-mode switch.
+  var settingsURL = null; // the loaded settings screen's URL
+  function setActiveNav(nav) {
+    document.querySelectorAll(".tree [data-nav]").forEach(function (b) {
+      b.classList.toggle("active", b.dataset.nav === nav);
+    });
+  }
+  function renderWsSettings(name) {
+    currentNav = "set-ws";
+    setActiveNav("set-ws");
+    settingsURL = name ? "workspaces/" + encodeURIComponent(name) + "/settings" : "workspace-settings";
+    loadScreen(settingsURL);
+  }
+  document.addEventListener("displaychange", function () {
+    if (currentNav === "set-ws" && settingsURL) loadScreen(settingsURL);
+  });
+
+  // Catalog prefill selects (#157): picking an entry prefills the form
+  // fields from the option's data-* attributes — free-form stays.
+  document.addEventListener("change", function (ev) {
+    var sel = ev.target;
+    if (!sel.matches) return;
+    if (sel.matches('[data-role="ws-selector"]')) { // the dropdown drives the screen
+      if (sel.value) renderWsSettings(sel.value);
+      return;
+    }
+    if (sel.matches('[data-role="provider-prefill"]') && sel.value) {
+      var f = sel.closest("form");
+      if (!f) return;
+      var opt = sel.options[sel.selectedIndex];
+      var nameIn = f.querySelector('[name="name"]');
+      var epIn = f.querySelector('[name="endpoint"]');
+      if (nameIn) nameIn.value = sel.value;
+      if (epIn) epIn.value = opt.getAttribute("data-endpoint") || "";
+      return;
+    }
+    if (sel.matches('[data-role="vcs-prefill"]') && sel.value) {
+      var f = sel.closest("form");
+      if (!f) return;
+      var opt = sel.options[sel.selectedIndex];
+      var kindIn = f.querySelector('[name="kind"]');
+      var hostIn = f.querySelector('[name="host"]');
+      if (kindIn) kindIn.value = opt.getAttribute("data-kind") || "";
+      if (hostIn) hostIn.value = opt.getAttribute("data-host") || "";
+      return;
+    }
+  });
+
   // Card actions: Open (Standard always web; Advanced honors the
   // configured start option), Web access (fresh pair link → new tab
   // under the click gesture), console/OpenCode host-terminal access,
@@ -116,6 +174,13 @@
     if (!btn || btn.closest("[data-action]") || btn.disabled) return;
     var card = btn.closest(".card");
     if (!card) return;
+
+    if (btn.dataset.act === "settings") {
+      // #157: the card settings icon jumps into the settings screen
+      // preselected.
+      renderWsSettings(card.dataset.ws);
+      return;
+    }
 
     if (btn.dataset.confirm === "stop" || btn.dataset.confirm === "delete") {
       showConfirmRow(card, btn.dataset.confirm);
@@ -159,6 +224,15 @@
         accessVariant(fresh, variant);
       });
     }
+  });
+
+  // First-run setup retry (#157): #161 owns POST …/setup/retry — the
+  // link is the stub until then.
+  screenEl.addEventListener("click", function (ev) {
+    var btn = ev.target.closest('[data-act="setup-retry"]');
+    if (!btn) return;
+    ev.preventDefault();
+    toast("First-run setup recovery arrives with the setup-recovery ticket (#161).", "warn");
   });
 
   // chainStart runs the start op (queued-not-refused on the shared

@@ -312,3 +312,33 @@ body { background:var(--bg); color:var(--ink);
 .optrow label { display:flex; gap:8px; align-items:center; }
 .inline { display:inline; }
 .dangerzone { border-color:var(--danger); }
+
+/* --- Workspace Settings screen (#157): letter-tinted selector avatar,
+   rows and the Keep/Replace confirm block --- */
+.wssettings .selrow { display:flex; gap:12px; align-items:center; }
+.wssettings .avatar { width:34px; height:34px; border-radius:9px; flex:none;
+  background:var(--ed-tint); color:var(--ed, var(--accent));
+  display:flex; align-items:center; justify-content:center; font-weight:700; }
+.wssettings .row { padding:10px 0; border-bottom:1px solid var(--hairline); }
+.wssettings .row:last-child { border-bottom:none; }
+.wssettings .rowhead { margin-bottom:6px; }
+.wssettings .rowhead .label { font-weight:700; }
+.wssettings .label.danger { color:var(--danger); }
+.wssettings .cell { color:var(--ink2); margin-right:8px; }
+.wssettings .entries { margin:8px 0; }
+.wssettings .entries .entry { background:var(--surface2); border-radius:8px;
+  padding:8px 12px; margin:6px 0; }
+.wssettings .entry-head { display:flex; gap:8px; align-items:center; font-weight:600; }
+.wssettings .entry-sub { color:var(--ink2); font-size:12.5px; }
+.wssettings .badge.warn { background:var(--warn); color:#1b2438; border-radius:999px;
+  font-size:11px; padding:1px 8px; }
+.wssettings .entry-edit { margin:6px 0; }
+.wssettings .entry-edit summary { cursor:pointer; color:var(--ink2); }
+.wssettings .add-form label, .wssettings .settings-form label { display:block; margin:6px 0; }
+.wssettings .settings-form .row { display:flex; align-items:center; gap:10px; }
+.wssettings .actions { display:flex; gap:8px; margin-top:10px; }
+.wssettings .confirm-block { background:var(--surface2); border:1px solid var(--warn);
+  border-radius:8px; padding:10px 14px; margin:10px 0; }
+.wssettings .confirm-block .warn { color:var(--warn); font-weight:700; margin:0 0 4px; }
+.wssettings .confirm-block .actions { display:flex; gap:8px; margin-top:8px; }
+.wssettings .danger-row { border-top:2px solid var(--hairline); margin-top:8px; }
