@@ -27,7 +27,7 @@ import (
 // deleting the registry entry only, and the first-run setup retry link
 // (#161 owns the route). The runner is faked; nothing external is touched.
 func checkWebUISettings(home, root string) Item {
-	p := newPhase("A14", "Workspace Settings screen: Standard/Advanced matrix rows (hidden rows render nowhere), next-start settings persistence with Standard↔Advanced cross-edit stickiness, VCS save (vector + vcs_tracking mirror + replace-credentials gate), provider add/edit/replace flows, remove-from-list registry-only delete, setup-retry link (#157)")
+	p := newPhase("A15", "Workspace Settings screen: Standard/Advanced matrix rows (hidden rows render nowhere), next-start settings persistence with Standard↔Advanced cross-edit stickiness, VCS save (vector + vcs_tracking mirror + replace-credentials gate), provider add/edit/replace flows, remove-from-list registry-only delete, setup-retry link (#157)")
 
 	// Fixture install: the edition registry fixture + two workspaces.
 	install := filepath.Join(home, ".oc-sandbox")
