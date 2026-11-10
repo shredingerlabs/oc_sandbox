@@ -37,7 +37,9 @@ func main() {
 			fmt.Fprintf(os.Stdout, "oc-sandbox %s\n", Version)
 			return
 		case "--help":
-			fmt.Fprintf(os.Stdout, "usage: oc-sandbox [--version|--smoke|--full-tui]  (no flags runs the minimal launcher)\n")
+			// --full-tui stays hidden from help (spec §14 parity gate):
+			// same binary, no menu entry, documented in the release README only.
+			fmt.Fprintf(os.Stdout, "usage: oc-sandbox [--version|--smoke]  (no flags runs the minimal launcher)\n")
 			return
 		case "--full-tui": // transitional parity gate (spec §14): the full TUI stays reachable until the flip
 			runTUI()
