@@ -20,7 +20,9 @@ import (
 // catalogsTemplate renders the catalogs fragments. P carries the
 // tokenized path prefix so hx-post targets stay absolute and correct
 // wherever the user is in the shell.
-var catalogsTemplate = template.Must(template.New("catalogs").Parse(`
+var catalogsTemplate = template.Must(template.New("catalogs").
+	Funcs(iconFuncs).
+	Parse(`
 {{define "trackers"}}
 {{template "trackers-body" .}}
 {{end}}
@@ -46,15 +48,23 @@ var catalogsTemplate = template.Must(template.New("catalogs").Parse(`
   <p class="catalog-hint">Reusable starting points for New Workspace — entries hold no tokens and never cascade into existing workspaces.</p>
   {{if .Error}}<p class="form-error" role="alert">{{.Error}}</p>{{end}}
   {{if .Entries}}
-  <ul class="entries">
+  <div class="plist">
     {{range .Entries}}
-    <li class="entry" data-name="{{.Name}}">
-      <div class="entry-head">
-        <strong class="entry-name">{{.Name}}</strong>
-        <span class="badge">{{.Kind}}</span>
-        {{if .Host}}<span class="entry-host">{{.Host}}</span>{{end}}
+    <div class="entry" data-name="{{.Name}}">
+      <div class="row">
+        <div class="ic">{{icon "git-branch"}}</div>
+        <div class="rl">
+          <div class="t"><strong class="entry-name">{{.Name}}</strong> <span class="badge">{{.Kind}}</span>{{if .Host}} <span class="entry-host">{{.Host}}</span>{{end}}</div>
+          {{if or .GitName .GitEmail}}<div class="s">git: {{.GitName}} &lt;{{.GitEmail}}&gt;</div>{{end}}
+        </div>
+        <div class="rc">
+          <form class="entry-remove" hx-post="{{$.P}}catalogs/trackers" hx-target="#catalogs-trackers" hx-swap="outerHTML">
+            <input type="hidden" name="action" value="remove">
+            <input type="hidden" name="orig" value="{{.Name}}">
+            <button type="submit" class="btn danger">Remove</button>
+          </form>
+        </div>
       </div>
-      {{if or .GitName .GitEmail}}<div class="entry-sub">git: {{.GitName}} &lt;{{.GitEmail}}&gt;</div>{{end}}
       <details class="entry-edit">
         <summary>Edit</summary>
         <form hx-post="{{$.P}}catalogs/trackers" hx-target="#catalogs-trackers" hx-swap="outerHTML">
@@ -72,14 +82,9 @@ var catalogsTemplate = template.Must(template.New("catalogs").Parse(`
           <button type="submit" class="btn">Save</button>
         </form>
       </details>
-      <form class="entry-remove" hx-post="{{$.P}}catalogs/trackers" hx-target="#catalogs-trackers" hx-swap="outerHTML">
-        <input type="hidden" name="action" value="remove">
-        <input type="hidden" name="orig" value="{{.Name}}">
-        <button type="submit" class="btn danger">Remove</button>
-      </form>
-    </li>
+    </div>
     {{end}}
-  </ul>
+  </div>
   {{else}}
   <p class="empty" data-empty="trackers">No tracker entries yet — “None” is the default.</p>
   {{end}}
@@ -106,13 +111,23 @@ var catalogsTemplate = template.Must(template.New("catalogs").Parse(`
   <p class="catalog-hint">Reusable starting points for New Workspace — entries hold no tokens and never cascade into existing workspaces.</p>
   {{if .Error}}<p class="form-error" role="alert">{{.Error}}</p>{{end}}
   {{if .Entries}}
-  <ul class="entries">
+  <div class="plist">
     {{range .Entries}}
-    <li class="entry" data-name="{{.Name}}">
-      <div class="entry-head">
-        <strong class="entry-name">{{.Name}}</strong>
+    <div class="entry" data-name="{{.Name}}">
+      <div class="row">
+        <div class="ic">{{icon "bot"}}</div>
+        <div class="rl">
+          <div class="t"><strong class="entry-name">{{.Name}}</strong></div>
+          <div class="s">{{.Endpoint}}</div>
+        </div>
+        <div class="rc">
+          <form class="entry-remove" hx-post="{{$.P}}catalogs/providers" hx-target="#catalogs-providers" hx-swap="outerHTML">
+            <input type="hidden" name="action" value="remove">
+            <input type="hidden" name="orig" value="{{.Name}}">
+            <button type="submit" class="btn danger">Remove</button>
+          </form>
+        </div>
       </div>
-      <div class="entry-sub">{{.Endpoint}}</div>
       <details class="entry-edit">
         <summary>Edit</summary>
         <form hx-post="{{$.P}}catalogs/providers" hx-target="#catalogs-providers" hx-swap="outerHTML">
@@ -125,14 +140,9 @@ var catalogsTemplate = template.Must(template.New("catalogs").Parse(`
           <button type="submit" class="btn">Save</button>
         </form>
       </details>
-      <form class="entry-remove" hx-post="{{$.P}}catalogs/providers" hx-target="#catalogs-providers" hx-swap="outerHTML">
-        <input type="hidden" name="action" value="remove">
-        <input type="hidden" name="orig" value="{{.Name}}">
-        <button type="submit" class="btn danger">Remove</button>
-      </form>
-    </li>
+    </div>
     {{end}}
-  </ul>
+  </div>
   {{else}}
   <p class="empty" data-empty="providers">No provider entries yet — “None” is the default.</p>
   {{end}}

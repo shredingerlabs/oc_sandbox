@@ -180,6 +180,19 @@ body { background:var(--bg); color:var(--ink);
 .rows { border-radius:13px; padding:6px 14px; margin:0; background:var(--surface);
   box-shadow:var(--shadow); }
 .rows:disabled { opacity:.55; pointer-events:none; }
+/* the wizard's fieldset plays the Workspace Settings panel: same
+   padding, rows hairline-separated (per segment, no outline) */
+.wizard .rows { padding:16px; }
+.wizard .rows .row { padding:10px 0; border-bottom:1px solid var(--hairline); }
+.wizard .rows .row:last-child { border-bottom:0; }
+/* the Modes and Search rows right-align their control clusters (switch
+   group / search-mode triad) like the prototype's row action column */
+.wizard .row[data-row="modes"], .wizard .row[data-row="search"] {
+  display:flex; align-items:center; flex-wrap:wrap; }
+.wizard .row[data-row="modes"] .swgroup,
+.wizard .row[data-row="search"] .edotsel { margin-left:auto; }
+.wizard .row[data-row="modes"] .sub,
+.wizard .row[data-row="search"] .sub { flex-basis:100%; }
 .wizard .rows input[type=text], .wizard .rows input:not([type]),
 .wizard .rows input[type=password], .wizard .rows select,
 .wizard .row input[type=text], .wizard .row input:not([type]),
@@ -199,7 +212,8 @@ body { background:var(--bg); color:var(--ink);
 .create-confirm h2 { margin:0 0 10px; font-size:15px; font-weight:800; }
 .create-confirm .summary { list-style:none; margin:0 0 14px; padding:0;
   font-family:ui-monospace,monospace; font-size:12.5px; }
-.create-confirm .summary li { padding:2px 0; }
+.create-confirm .summary li { padding:6px 0; border-bottom:1px solid var(--hairline); }
+.create-confirm .summary li:last-child { border-bottom:0; }
 [data-hidden="1"] { display:none; }
 [data-repo-only="1"] { display:none; }
 [data-pkm-pin] { display:none; } /* pkm pins the edition — the row hides */
@@ -247,28 +261,46 @@ body { background:var(--bg); color:var(--ink);
 .toast.ok { border-left-color:var(--ok); }
 .toast.warn { border-left-color:var(--danger); }
 
-/* #158 container/image screens: panels, units, markers, actions */
+/* #158 container/image screens: plist rows (icon tile + title/sub +
+   actions), markers, log pane. The former .units/.unit strips left
+   with the plist rewrite — both screens render .plist rows now. */
 .card-head { display:flex; align-items:center; gap:14px; margin-bottom:12px; }
 .panel .card-head { margin-bottom:12px; }
 .card-head h2 { margin:0; font-size:16px; font-weight:800; }
-.units { display:flex; flex-direction:column; gap:8px; }
-.unit { display:flex; align-items:center; gap:14px;
-  background:var(--surface2); border-radius:10px; padding:9px 14px; }
-.unit[data-busy] { opacity:.7; }
-.unit-main { display:flex; align-items:center; gap:10px; min-width:0; flex:1; }
-.unit-name { font-weight:800; }
-.unit-name.muted { color:var(--ink2); font-weight:700; }
 .unit-sub { color:var(--ink2); font-size:12px; font-family:ui-monospace, monospace; }
 .marker { font-size:12px; font-weight:700; white-space:nowrap; }
 .marker.st-running { color:var(--ok); }
 .marker.st-off { color:var(--ink2); }
 .marker.st-busy { color:var(--accent); }
-.unit .actions { display:flex; gap:8px; margin-left:auto; }
-.unit[data-danger] { color:var(--danger); }
 .empty { color:var(--ink2); font-size:13px; padding:8px 2px; }
 .inline-toast { background:var(--danger); color:#fff; border-radius:8px;
   padding:6px 12px; font-weight:700; font-size:13px; margin-bottom:12px; }
-.units + .logpane { margin-top:14px; max-height:280px; }
+.plist .logpane { margin:14px 16px 16px; max-height:280px; }
+
+/* prototype list rows (C .panel > .row), shared by the Images screen
+   and the catalogs: a panel whose segments are full-bleed rows — icon
+   tile on the edition/accent hue + title/sub + right actions, hairline
+   separated, no outline. (The Containers screen keeps the .unit strip.)
+   Declared after .panel so the plist variant drops its padding. */
+.plist { background:var(--surface); border-radius:13px; box-shadow:var(--shadow);
+  overflow:hidden; padding:0; margin:0 0 16px; }
+.plist .row { display:flex; gap:14px; align-items:center; padding:12px 16px; }
+.plist > .row { border-bottom:1px solid var(--hairline); }
+.plist .row > .ic { width:38px; height:38px; border-radius:10px; display:flex;
+  align-items:center; justify-content:center; flex-shrink:0; color:#fff;
+  background:var(--ed, var(--accent)); }
+.plist .row > .ic svg { width:20px; height:20px; }
+.plist .rl { flex:1; min-width:0; }
+.plist .rl .t { font-weight:700; font-size:13px; display:flex;
+  align-items:center; gap:8px; flex-wrap:wrap; }
+.plist .rl .s { font-size:11.5px; color:var(--ink2); margin-top:2px; line-height:1.4;
+  display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+.plist .rc { flex:1; display:flex; justify-content:flex-end; align-items:center;
+  gap:8px; flex-wrap:wrap; }
+/* leftover rows: muted container glyph + muted title */
+.plist .row > .ic.muted { background:var(--surface2); color:var(--ink2); }
+.plist .rl .t .muted { color:var(--ink2); }
+.plist .empty { padding:16px; }
 
 /* #159 settings screens: Import / Export-Restore / Uninstall */
 .pagehead { margin-bottom:16px; }
@@ -332,6 +364,7 @@ body { background:var(--bg); color:var(--ink);
 .wssettings .add-form label, .wssettings .settings-form label { display:block; margin:6px 0; }
 .wssettings .settings-form .row { display:flex; align-items:center; gap:10px; }
 .wssettings .actions { display:flex; gap:8px; margin-top:10px; }
+.wssettings .settings-form .row .switch { margin-left:auto; }
 .wssettings .confirm-block { background:var(--surface2); border-radius:8px;
   border:1px solid color-mix(in srgb,var(--warn) 40%, var(--hairline));
   padding:10px 14px; margin:10px 0; }
@@ -356,10 +389,26 @@ body { background:var(--bg); color:var(--ink);
 .edotsel label:has(input:checked) { background:var(--accent); color:var(--accent-ink); }
 .seg { display:inline-flex; }
 .wizard .seg { display:inline-flex; }
-.seg label { display:block; padding:5px 11px; border-radius:7px; font-size:12px; font-weight:700;
+.seg label { display:inline-flex; align-items:center; gap:7px; padding:5px 11px; border-radius:7px; font-size:12px; font-weight:700;
   color:var(--ink2); cursor:pointer; position:relative; }
 .seg label input { position:absolute; opacity:0; pointer-events:none; }
 .seg label:has(input:checked) { background:var(--surface); color:var(--ink); box-shadow:var(--shadow); }
+.seg label .ic { width:14px; height:14px; }
+
+/* on/off switch — the prototype's .switch carried onto the checkbox
+   input (no JS, form semantics stay): the <i> track + its ::after knob. */
+.swgroup { display:flex; flex-wrap:wrap; gap:8px 18px; align-items:center; }
+.switch { display:inline-flex; align-items:center; gap:8px; cursor:pointer;
+  position:relative; font-size:12px; font-weight:700; color:var(--ink2); }
+.switch input { position:absolute; opacity:0; pointer-events:none; }
+.switch i { width:36px; height:21px; border-radius:999px; background:var(--surface2);
+  position:relative; flex:none; transition:background .15s; }
+.switch i::after { content:""; position:absolute; width:15px; height:15px;
+  border-radius:50%; background:#fff; top:3px; left:3px;
+  box-shadow:0 1px 3px rgba(0,0,0,.25); transition:left .15s; }
+.switch input:checked + i { background:var(--accent); }
+.switch input:checked + i::after { left:18px; }
+.switch input:focus-visible + i { outline:2px solid var(--accent); outline-offset:1px; }
 
 /* catalogs screen (#155): Settings → VCS Tracker / AI-Provider.
    Server-rendered fragments; HTMX swaps the <section> per action. */
@@ -390,6 +439,20 @@ body { background:var(--bg); color:var(--ink);
   border:1px solid var(--hairline); border-radius:9px; padding:6px 10px;
   font:inherit; font-size:13px; min-width:160px; }
 .entry-remove button { margin-left:8px; }
+/* The catalog entries are the plist's rows now: the former entry cards
+   flatten onto the panel — the hairline separates, no per-row box.
+   Inline editing stays: the Edit toggle sits beside the row (grid col
+   2, next to the row's Remove button) and the open edit form wraps onto
+   its own hairline-separated line spanning the full row width. */
+.plist .entry { display:grid; grid-template-columns:1fr auto; align-items:center;
+  column-gap:8px; background:transparent; box-shadow:none; border-radius:0;
+  padding:0; border-bottom:1px solid var(--hairline); }
+.plist .entry:last-child { border-bottom:0; }
+.plist .entry > .row { grid-column:1; padding-right:0; }
+.plist .entry-edit { display:contents; }
+.plist .entry-edit summary { grid-column:2; grid-row:1; padding-right:16px; }
+.plist .entry-edit form { grid-column:1 / -1; border-top:1px solid var(--hairline);
+  padding:10px 16px 14px; margin-top:0; }
 /* The add form renders as a card like the surrounding .entry rows and
    the Import Workspace panel: the elevated surface, not a grey inset.
    (Workspace settings flattens it — see the .wssettings overrides.) */

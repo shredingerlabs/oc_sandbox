@@ -99,14 +99,15 @@ func (s *Server) imageRows() []imageRow {
 // renderImages renders the image screen: the Build all confirm button,
 // the edition rows each with their own Build/Rebuild button, and the
 // embedded log pane the build op streams into (Op.ID in data-op;
-// streamed lines ride the SSE `line` events). Buttons render always —
-// their disabled state carries the refusal (busy queue, delete on a
-// missing/in-use image). Toast (a refused confirm) rides at the top
-// when msg is non-empty.
+// streamed lines ride the SSE `line` events). Rows are prototype-style
+// panel rows (icon tile + title/sub + right actions); buttons render
+// always — their disabled state carries the refusal (busy queue,
+// delete on a missing/in-use image). Toast (a refused confirm) rides
+// at the top when msg is non-empty.
 func (s *Server) renderImages(msg string, opID int) string {
 	busy := s.queue.BusyKey(imagesKey)
 	var b strings.Builder
-	b.WriteString(`<section class="panel" data-screen="images">`)
+	b.WriteString(`<section class="panel plist" data-screen="images">`)
 	b.WriteString(`<div class="card-head"><h2>Images</h2>`)
 	if busy {
 		b.WriteString(`<button class="btn ghost" disabled title="an image operation is queued or running">Build all</button>`)
@@ -117,14 +118,19 @@ func (s *Server) renderImages(msg string, opID int) string {
 	if msg != "" {
 		b.WriteString(`<div class="inline-toast" data-toast>` + html.EscapeString(msg) + `</div>`)
 	}
-	b.WriteString(`<div class="units">`)
 	for _, row := range s.imageRows() {
-		b.WriteString(`<div class="unit" data-tag="` + html.EscapeString(row.Tag) + `"`)
+		b.WriteString(`<div class="row" data-tag="` + html.EscapeString(row.Tag) + `"`)
 		if row.Busy {
 			b.WriteString(` data-busy`)
 		}
-		b.WriteString(`><div class="unit-main">`)
-		b.WriteString(`<span class="unit-name">` + html.EscapeString(row.Edition) + `</span>`)
+		b.WriteString(`>`)
+		if hue := editionFor(row.Edition).Hue; hue != "" {
+			b.WriteString(`<div class="ic" style="--ed:` + hue + `">`)
+		} else {
+			b.WriteString(`<div class="ic">`)
+		}
+		b.WriteString(string(iconSVG("container")) + `</div>`)
+		b.WriteString(`<div class="rl"><div class="t">` + html.EscapeString(row.Edition) + `</div><div class="s">`)
 		if row.Built {
 			b.WriteString(`<span class="marker st-running">● built</span>`)
 			if row.Size != "" {
@@ -141,7 +147,7 @@ func (s *Server) renderImages(msg string, opID int) string {
 		if row.Busy {
 			b.WriteString(busyMarker())
 		}
-		b.WriteString(`</div><div class="actions">`)
+		b.WriteString(`</div></div><div class="rc">`)
 		// Per-image build/rebuild: one op per row on the shared images
 		// queue key (in-use images may rebuild — running containers keep
 		// the old image until they are replaced). While the queue holds,
@@ -177,7 +183,6 @@ func (s *Server) renderImages(msg string, opID int) string {
 			html.EscapeString(row.Tag) + `?" data-danger` + disabled + `>Delete</button>`)
 		b.WriteString(`</div></div>`)
 	}
-	b.WriteString(`</div>`)
 	b.WriteString(`<pre class="logpane" data-role="log" data-op="` + itoa(opID) + `"></pre>`)
 	b.WriteString(`</section>`)
 	return b.String()

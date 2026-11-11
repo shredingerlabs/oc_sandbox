@@ -273,7 +273,7 @@ var wsSettingsTemplate = template.Must(template.New("wssettings").
       <div class="row" data-row="proxy">
         <span class="label">Proxy</span>
         <span class="field-hint">use_proxy — route container traffic through the squid allowlist proxy</span>
-        <span class="edotsel"><label>use_proxy<input type="checkbox" name="proxy" value="yes" {{if .Proxy}}checked{{end}}></label></span>
+        <label class="switch">use_proxy<input type="checkbox" name="proxy" value="yes" {{if .Proxy}}checked{{end}}><i></i></label>
       </div>
       {{end}}
       {{if vis .Mode "search_mode"}}
@@ -291,21 +291,21 @@ var wsSettingsTemplate = template.Must(template.New("wssettings").
       <div class="row" data-row="offline">
         <span class="label">Offline</span>
         <span class="field-hint">--network=none: no web access, no provider APIs</span>
-        <span class="edotsel"><label>offline<input type="checkbox" name="offline" value="on" {{if .Offline}}checked{{end}}></label></span>
+        <label class="switch">offline<input type="checkbox" name="offline" value="on" {{if .Offline}}checked{{end}}><i></i></label>
       </div>
       {{end}}
       {{if vis .Mode "cbm_ui"}}
       <div class="row" data-row="cbm_ui">
         <span class="label">CBM-UI</span>
         <span class="field-hint">codebase-memory graph UI alongside the workspace (needs network)</span>
-        <span class="edotsel"><label>CBM-UI<input type="checkbox" name="cbm_ui" value="on" {{if .CBMUI}}checked{{end}}></label></span>
+        <label class="switch">CBM-UI<input type="checkbox" name="cbm_ui" value="on" {{if .CBMUI}}checked{{end}}><i></i></label>
       </div>
       {{end}}
       {{if vis .Mode "hil"}}
       <div class="row" data-row="hil">
         <span class="label">HIL</span>
-        <span class="field-hint">human-in-the-loop — every agent action gates (every edition, free toggle)</span>
-        <span class="edotsel"><label>HIL<input type="checkbox" name="hil" value="on" {{if .HIL}}checked{{end}}></label></span>
+        <span class="field-hint">hardware-in-the-loop — every agent action gates (every edition, free toggle)</span>
+        <label class="switch">HIL<input type="checkbox" name="hil" value="on" {{if .HIL}}checked{{end}}><i></i></label>
       </div>
       {{end}}
       <div class="actions"><button type="submit" class="btn">Save settings</button></div>

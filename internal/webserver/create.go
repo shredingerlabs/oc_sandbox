@@ -42,11 +42,13 @@ const wizardEditionDefault = "swdev"
 // P carries the tokenized path prefix so hx-* targets stay absolute.
 // Styling per the signed-off prototype (ws-new): a pagehead with the
 // Blank/From-Repo segment, .flabel/.sub rows, .edotsel chips for the
-// edition and Advanced toggles, "Add provider…" as the select's
-// inline-new option. The functional payload (field names, defaults,
-// hidden round-trip) is byte-for-byte the previous contract.
+// edition, .switch toggles for the Advanced booleans, "Add provider…"
+// as the select's inline-new option. The functional payload (field
+// names, defaults, hidden round-trip) is byte-for-byte the previous
+// contract.
 var wizardTemplate = template.Must(template.New("wizard").
 	Funcs(template.FuncMap{"hueFor": editionHue}).
+	Funcs(iconFuncs).
 	Parse(`
 {{define "wizard"}}
 <section class="wizard" id="new-workspace" data-screen="ws-new">
@@ -55,8 +57,8 @@ var wizardTemplate = template.Must(template.New("wizard").
   <div class="desc">Name, source, edition and provider are recorded once; later changes apply on next start.</div>
   </div>
   <span class="seg" role="group" aria-label="creation path">
-    <label>Blank Workspace<input type="radio" name="source" value="blank" form="new-workspace-form" {{if not .FromRepo}}checked{{end}}></label>
-    <label>From Repo<input type="radio" name="source" value="repo" form="new-workspace-form" {{if .FromRepo}}checked{{end}}></label>
+    <label>{{icon "file-plus"}}Blank Workspace<input type="radio" name="source" value="blank" form="new-workspace-form" {{if not .FromRepo}}checked{{end}}></label>
+    <label>{{icon "git-fork"}}From Repo<input type="radio" name="source" value="repo" form="new-workspace-form" {{if .FromRepo}}checked{{end}}></label>
   </span></div>
   {{if .Error}}<p class="form-error" role="alert">{{.Error}}</p>{{end}}
   {{if or .LogLines (gt .OpID 0)}}
@@ -96,8 +98,8 @@ var wizardTemplate = template.Must(template.New("wizard").
     <div class="row" data-row="image_build">
       <span class="label">Image build</span>
       <span class="seg">
-        <label>Build now<input type="radio" name="build" value="now" {{if not .BuildLater}}checked{{end}}></label>
-        <label>Build later<input type="radio" name="build" value="later" {{if .BuildLater}}checked{{end}}></label>
+        <label>{{icon "hammer"}}Build now<input type="radio" name="build" value="now" {{if not .BuildLater}}checked{{end}}></label>
+        <label>{{icon "clock"}}Build later<input type="radio" name="build" value="later" {{if .BuildLater}}checked{{end}}></label>
       </span>
       <span class="sub">the {{.Edition}} image is missing — Create runs the build, or the workspace registers deferred</span>
     </div>
@@ -147,18 +149,22 @@ var wizardTemplate = template.Must(template.New("wizard").
 
     <div class="row" data-row="modes" data-advanced-only>
       <span class="label">Modes</span>
-      <span class="edotsel">
-        <label>use_proxy<input type="checkbox" name="proxy" value="yes" {{if .Proxy}}checked{{end}}></label>
-        <label>offline<input type="checkbox" name="offline" value="on" {{if .Offline}}checked{{end}}></label>
-        <label>CBM-UI<input type="checkbox" name="cbm_ui" value="on" {{if .CBMUI}}checked{{end}}></label>
-        <label>HIL<input type="checkbox" name="hil" value="on" {{if .HIL}}checked{{end}}></label>
+      <span class="swgroup">
+        <label class="switch">use_proxy<input type="checkbox" name="proxy" value="yes" {{if .Proxy}}checked{{end}}><i></i></label>
+        <label class="switch">offline<input type="checkbox" name="offline" value="on" {{if .Offline}}checked{{end}}><i></i></label>
+        <label class="switch">CBM-UI<input type="checkbox" name="cbm_ui" value="on" {{if .CBMUI}}checked{{end}}><i></i></label>
+        <label class="switch">HIL<input type="checkbox" name="hil" value="on" {{if .HIL}}checked{{end}}><i></i></label>
       </span>
+      <div class="sub">start.sh flags — apply on next start (presets, not pinning: the stored config stays the truth).</div>
+    </div>
+    <div class="row" data-row="search" data-advanced-only>
+      <span class="label">Search</span>
       <span class="edotsel">
         <label>none<input type="radio" name="search_mode" value="none" {{if eq .SearchMode "none"}}checked{{end}}></label>
         <label>websearch<input type="radio" name="search_mode" value="websearch" {{if eq .SearchMode "websearch"}}checked{{end}}></label>
         <label>searxng<input type="radio" name="search_mode" value="searxng" {{if eq .SearchMode "searxng"}}checked{{end}}></label>
       </span>
-      <div class="sub">start.sh flags — apply on next start (presets, not pinning: the stored config stays the truth).</div>
+      <div class="sub">SearXNG runs as a companion service — searxng excludes the proxy and offline mode.</div>
     </div>
     <div class="row hint" data-row="presets">{{.PresetsHint}}</div>
 

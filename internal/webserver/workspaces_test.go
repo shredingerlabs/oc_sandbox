@@ -211,8 +211,10 @@ func TestWorkspacesCardActions(t *testing.T) {
 		strings.Contains(doc, `data-confirm="delete"`) {
 		t.Fatal("Open and stop/delete confirm rows left the cards")
 	}
-	if strings.Contains(doc, `data-act="console" data-advanced-only`) {
-		t.Fatal("start options are no longer advanced-gated")
+	if !strings.Contains(doc, `data-act="console" data-advanced-only`) ||
+		!strings.Contains(doc, `data-act="opencode" data-advanced-only`) ||
+		strings.Contains(doc, `data-act="web" data-advanced-only`) {
+		t.Fatal("OpenCode/Console start options must be advanced-gated, Web never")
 	}
 }
 

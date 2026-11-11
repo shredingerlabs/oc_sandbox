@@ -170,8 +170,8 @@ var wsTemplate = template.Must(template.New("ws").
   {{if .SetupRetry}}<div class="setup-retry"><button class="btn ghost" data-act="setup-retry">Run setup</button></div>{{end}}
   <div class="acts">
     <button class="btn" data-act="web" title="OpenCode web — fresh pair link in a new tab"{{if .SetupPending}} disabled title="refused — first-run setup session pending"{{end}}>Web</button>
-    <button class="btn ghost" data-act="opencode" title="OpenCode TUI in a host terminal window"{{if .SetupPending}} disabled title="refused — first-run setup session pending"{{end}}>OpenCode</button>
-    <button class="btn ghost" data-act="console" title="console session in a host terminal window"{{if .SetupPending}} disabled title="refused — first-run setup session pending"{{end}}>Console</button>
+    <button class="btn ghost" data-act="opencode" data-advanced-only title="OpenCode TUI in a host terminal window"{{if .SetupPending}} disabled title="refused — first-run setup session pending"{{end}}>OpenCode</button>
+    <button class="btn ghost" data-act="console" data-advanced-only title="console session in a host terminal window"{{if .SetupPending}} disabled title="refused — first-run setup session pending"{{end}}>Console</button>
   </div>
   <div class="confirms"></div>
   <div class="oplog" data-oplog hidden></div>

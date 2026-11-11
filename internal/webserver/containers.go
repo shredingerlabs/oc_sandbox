@@ -44,6 +44,7 @@ type unitRow struct {
 	Pod       bool
 	State     string // running / exited / created / missing
 	Busy      bool
+	Hue       string // edition hue of the workspace's tile ("" → accent)
 }
 
 // containerRows builds the one container list fresh per request (data
@@ -84,12 +85,20 @@ func (s *Server) containerRows() []unitRow {
 		} else {
 			registryContainers[cname] = true
 		}
+		// The row's tile tints with the workspace's edition hue (the
+		// prototype's set-containers letter tiles); an unreadable
+		// config keeps the accent default.
+		hue := ""
+		if cfg, err := readSandboxCfg(p.Path); err == nil {
+			hue = editionFor(cfg.ContainerEdition).Hue
+		}
 		rows = append(rows, unitRow{
 			Workspace: p.Name,
 			Unit:      cname,
 			Pod:       isPod,
 			State:     state,
 			Busy:      s.queue.BusyKey(cname),
+			Hue:       hue,
 		})
 	}
 	// leftovers: pods as units (their members ride the pod row),
@@ -127,34 +136,47 @@ func busyMarker() string {
 }
 
 // renderContainers renders the one container list (spec §7) with the
-// three actions per registry row and the delete-only leftovers. Toast
+// three actions per registry row and the delete-only leftovers, as
+// prototype-style plist rows (letter tile on the edition hue for
+// registry workspaces, a muted container glyph for leftovers). Toast
 // (a refused confirm) rides at the top when msg is non-empty.
 func (s *Server) renderContainers(msg string) string {
+	rows := s.containerRows()
 	var b strings.Builder
-	b.WriteString(`<section class="panel" data-screen="containers">`)
+	b.WriteString(`<section class="panel plist" data-screen="containers">`)
 	b.WriteString(`<div class="card-head"><h2>Containers</h2></div>`)
 	if msg != "" {
 		b.WriteString(`<div class="inline-toast" data-toast>` + html.EscapeString(msg) + `</div>`)
 	}
-	b.WriteString(`<div class="units">`)
-	for _, row := range s.containerRows() {
-		b.WriteString(`<div class="unit" data-unit="` + html.EscapeString(row.Unit) + `"`)
+	for _, row := range rows {
+		b.WriteString(`<div class="row" data-unit="` + html.EscapeString(row.Unit) + `"`)
 		if row.Busy {
 			b.WriteString(` data-busy`)
 		}
 		b.WriteString(`>`)
-		b.WriteString(`<div class="unit-main">`)
 		if row.Workspace != "" {
-			b.WriteString(`<span class="unit-name">` + html.EscapeString(row.Workspace) + `</span>`)
+			if row.Hue != "" {
+				b.WriteString(`<div class="ic" style="--ed:` + row.Hue + `">`)
+			} else {
+				b.WriteString(`<div class="ic">`)
+			}
+			b.WriteString(html.EscapeString(wsLetter(row.Workspace)) + `</div>`)
 		} else {
-			b.WriteString(`<span class="unit-name muted">leftover</span>`)
+			b.WriteString(`<div class="ic muted">` + string(iconSVG("container")) + `</div>`)
 		}
+		b.WriteString(`<div class="rl"><div class="t">`)
+		if row.Workspace != "" {
+			b.WriteString(html.EscapeString(row.Workspace))
+		} else {
+			b.WriteString(`<span class="muted">leftover</span>`)
+		}
+		b.WriteString(`</div><div class="s">`)
 		b.WriteString(`<span class="unit-sub">` + html.EscapeString(row.Unit) + `</span>`)
 		b.WriteString(stateMarker(row.State))
 		if row.Busy {
 			b.WriteString(busyMarker())
 		}
-		b.WriteString(`</div><div class="actions">`)
+		b.WriteString(`</div></div><div class="rc">`)
 		if row.Workspace != "" {
 			b.WriteString(`<button class="btn ghost" data-action="start" data-href="workspaces/` +
 				html.EscapeString(row.Workspace) + `/start">Start</button>`)
@@ -173,10 +195,10 @@ func (s *Server) renderContainers(msg string) string {
 		}
 		b.WriteString(`</div></div>`)
 	}
-	if len(s.containerRows()) == 0 {
+	if len(rows) == 0 {
 		b.WriteString(`<div class="empty">no oc-sandbox containers</div>`)
 	}
-	b.WriteString(`</div></section>`)
+	b.WriteString(`</section>`)
 	return b.String()
 }
 
