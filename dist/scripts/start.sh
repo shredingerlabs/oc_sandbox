@@ -647,6 +647,14 @@ if $START_WEB && ! $DETACH; then
   echo "OpenCode web: http://127.0.0.1:${WEB_HOST_PORT} (Ctrl+C stops the server)"
 fi
 
+# Service registration must land where exec clients find it: the detached
+# boot runs the daemon with HOME=/home/dev/workspace (CONTAINER_COMMAND
+# below), but every `podman exec` client (skills stage, pair, console TUI)
+# runs with HOME=/home/dev. Without this pin the daemon's registration is
+# written to workspace/.local/state/opencode/ while clients look in
+# /home/dev/.local/state/opencode/ — they see no running service, boot a
+# second one and abort on the pinned port 4096 ("Managed service port 4096
+# ... is already in use").
 podman run --rm "${RUN_MODE[@]}" \
   --name "$CONTAINER_NAME" \
   "${USERNS_ARGS[@]}" \
@@ -662,6 +670,7 @@ podman run --rm "${RUN_MODE[@]}" \
   -e TERM="${TERM:-xterm-256color}" \
   -e XDG_CONFIG_HOME="/home/dev/.config" \
   -e XDG_DATA_HOME="/home/dev/.local/share" \
+  -e XDG_STATE_HOME="/home/dev/.local/state" \
   -e GIT_CONFIG_GLOBAL="/home/dev/.git_local/gitconfig" \
   -e START_OPENCODE="${START_OPENCODE}" \
   -e START_WEB="${START_WEB_ENV}" \

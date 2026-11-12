@@ -75,8 +75,15 @@ the sandbox to v2 in one flip:
 - v2 writes `service.json` into `~/.config/opencode` (the mounted
   `.opencode_config/`); the dynamic host port stays unrecorded in
   sandbox_config.json/projects.json (smoke check intact). The service
-  registration in `~/.local/state/opencode/` is container-ephemeral —
-  harmless.
+  registration in the XDG state dir is container-ephemeral — harmless. The
+  registration's directory is pinned container-wide
+  (`-e XDG_STATE_HOME=/home/dev/.local/state`): the detached boot runs the
+  daemon with `HOME=/home/dev/workspace` (cwd/project-picker fix), while
+  every `podman exec` client (skills stage, `opencode pair`, console TUI)
+  runs with `HOME=/home/dev` — without the pin the daemon's registration is
+  invisible to exec clients, which boot a second service that collides on
+  the pinned port 4096 ("Managed service port 4096 ... is already in use").
+  Containers started before the pin need one restart to pick it up.
 - The web toast signs the browser in via one-time pair links (sessions
   then last 30 days); the foreground `serve` path shows the server
   password in its banner for direct URL sign-in.

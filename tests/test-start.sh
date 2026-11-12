@@ -130,6 +130,15 @@ if [[ "$run_line" != *'-c cd /home/dev/workspace && HOME=/home/dev/workspace ope
   printf 'plain detached start lost the v2 background service command: %s\n' "$run_line" >&2
   exit 1
 fi
+# Service-Registrierung fuer exec-Clients: der Daemon laeuft mit
+# HOME=/home/dev/workspace, aber `podman exec`-Clients (Skills-Stage, pair,
+# Konsolen-TUI) laufen mit HOME=/home/dev — ohne XDG_STATE_HOME-Pin landet die
+# Registrierung im Workspace-State und Clients booten einen Zweit-Service,
+# der an Port 4096 kollidiert ("Managed service port ... already in use").
+if ! grep -q -- '-e XDG_STATE_HOME=/home/dev/.local/state' <<<"$run_line"; then
+  printf 'start did not pin XDG_STATE_HOME into the container env: %s\n' "$run_line" >&2
+  exit 1
+fi
 grep -q -- '-e START_WEB=false' "$PODMAN_LOG"
 grep -q 'OpenCode web: http://127.0.0.1:4097' "$always_web_output"
 grep -q 'Sign-in (one-time pair link): podman exec -it opencode-sandbox-' "$always_web_output"
