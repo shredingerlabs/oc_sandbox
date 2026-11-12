@@ -461,6 +461,19 @@ body { background:var(--bg); color:var(--ink);
 .plist .entry-edit summary { grid-column:2; grid-row:1; padding-right:16px; }
 .plist .entry-edit form { grid-column:1 / -1; border-top:1px solid var(--hairline);
   padding:10px 16px 14px; margin-top:0; }
+/* Proxy screen allowlist editor (ADR 0034): a full-width block under its
+   workspace row — the heading above, the textarea spanning the card
+   (the provider entry-edit form's shape). */
+.plist .row[data-row^="allowlist-"] { display:block; padding:0; }
+.plist .allowlist-form { display:block; border-top:1px solid var(--hairline);
+  padding:12px 16px 14px; }
+.plist .allowlist-form .flabel { margin-bottom:8px; }
+.plist .allowlist-form textarea { width:100%; box-sizing:border-box; resize:vertical;
+  background:var(--surface2); color:var(--ink); border:1px solid var(--hairline);
+  border-radius:9px; padding:10px 12px;
+  font:12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.plist .allowlist-form textarea:focus { outline:2px solid var(--accent); outline-offset:-1px; }
+.plist .allowlist-form .actions { display:flex; gap:10px; margin-top:10px; }
 /* The add form renders as a card like the surrounding .entry rows and
    the Import Workspace panel: the elevated surface, not a grey inset.
    (Workspace settings flattens it — see the .wssettings overrides.) */
