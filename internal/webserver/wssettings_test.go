@@ -1108,6 +1108,10 @@ func TestFrontendWsSettingsWiring(t *testing.T) {
 	css := body(t, get(t, s.URL()+"css/main.css"))
 	for _, want := range []string{
 		`.wssettings`, `.avatar`, `.selrow`, `.confirm-block`,
+		// the Modes row's switch labels keep the global .switch rule
+		// (inline-flex) — the block-stacked label rule must exclude them
+		`label:not(.switch)`,
+		`.row[data-row="modes"] .swgroup { margin-left:auto; }`,
 	} {
 		if !strings.Contains(css, want) {
 			t.Fatalf("main.css missing %q", want)

@@ -361,7 +361,10 @@ body { background:var(--bg); color:var(--ink);
   font-size:11px; padding:1px 8px; }
 .wssettings .entry-edit { margin:6px 0; }
 .wssettings .entry-edit summary { cursor:pointer; color:var(--ink2); }
-.wssettings .add-form label, .wssettings .settings-form label { display:block; margin:6px 0; }
+/* block-stacked form labels — except .switch, whose inline-flex + gap
+   (the global switch rule) is what the Modes row copies from the wizard */
+.wssettings .add-form label:not(.switch),
+.wssettings .settings-form label:not(.switch) { display:block; margin:6px 0; }
 .wssettings .settings-form .row { display:flex; align-items:center; gap:10px; }
 .wssettings .actions { display:flex; gap:8px; margin-top:10px; }
 /* the Modes row carries the wizard's layout (one line, switch group
