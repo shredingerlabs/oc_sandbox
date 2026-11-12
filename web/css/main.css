@@ -168,7 +168,8 @@ body { background:var(--bg); color:var(--ink);
 /* Standard/Advanced display mode (#152, spec §6): presets, not pinning —
    advanced-only rows/chips hide the moment data-display flips to
    standard; the stored values stay (Advanced reveals them again). */
-[data-display="standard"] [data-advanced-only] { display:none; }
+[data-display="standard"] [data-advanced-only],
+[data-display="standard"] .wizard .row[data-advanced-only] { display:none; }
 .row.hint { color:var(--ink2); font-size:12.5px; font-style:italic; }
 .row { padding:6px 0; }
 .row .label { font-weight:600; margin-right:8px; }
