@@ -183,7 +183,7 @@ var wizardTemplate = template.Must(template.New("wizard").
   <ul class="summary">
     {{range .Lines}}<li>{{.}}</li>{{end}}
   </ul>
-  <form hx-post="{{.P}}workspaces" hx-target="#new-workspace" hx-swap="outerHTML">
+  <form hx-post="{{.P}}workspaces" hx-target="#create-confirm" hx-swap="outerHTML">
     {{range .Fields}}<input type="hidden" name="{{.Name}}" value="{{.Value}}">{{end}}
     <div class="actions">
       <button type="submit" class="btn" name="confirm" value="1">Create</button>
@@ -347,6 +347,10 @@ func (s *Server) handleWorkspacesPOST(w http.ResponseWriter, r *http.Request) {
 	}
 	f := s.parseWizardForm(r)
 	if r.PostFormValue("confirm") != "1" {
+		if r.PostForm.Has("confirm") { // the confirm popup's Back button —
+			s.renderWizard(w, f) // re-render the form with the entered values
+			return
+		}
 		if msg := s.validateWizard(r, f); msg != "" {
 			f.Error = msg
 			s.renderWizard(w, f)
