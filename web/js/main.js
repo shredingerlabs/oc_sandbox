@@ -745,6 +745,66 @@
     else if (ev.target.name === "provider") applyCatalogSelect(form, '[name="provider"]', '[data-row="provider_new"]', '[data-row="provider_token"]');
   });
 
+  // --- ADR-0026 exclusions live in the forms (openworkspace.applyOption
+  // parity): the mode switches and search radios auto-flip with a toast
+  // instead of refusing at save — the just-acted-on control wins. The
+  // server-side refusals (validateWizard, wssettings POST) stay as the
+  // backstop. Both forms carry the same rows: the wizard (#156) and the
+  // Workspace settings next-start form (#157); rows the §6 matrix hides
+  // (Standard, wssettings renders none at all) are simply absent, so
+  // every lookup tolerates null.
+  document.addEventListener("change", function (ev) {
+    var el = ev.target;
+    if (!el.matches) return;
+    var name = el.name;
+    if (name !== "proxy" && name !== "offline" && name !== "cbm_ui" && name !== "search_mode") return;
+    var form = el.closest("form");
+    if (!form) return;
+    function searxngRadio() { return q(form, '[name="search_mode"][value="searxng"]'); }
+    var staged, web, proxy, offlineBox;
+    // searxng chosen: the proxy turns off and offline drops (notice).
+    if (name === "search_mode") {
+      if (el.value !== "searxng" || !el.checked) return;
+      proxy = q(form, '[name="proxy"]');
+      if (proxy && proxy.checked) {
+        proxy.checked = false;
+        toast("SearXNG and the squid proxy are mutually exclusive — proxy turned off", "warn");
+      }
+      offlineBox = q(form, '[name="offline"]');
+      if (offlineBox && offlineBox.checked) {
+        offlineBox.checked = false;
+        toast("SearXNG needs network — offline mode dropped", "warn");
+      }
+      return;
+    }
+    if (name === "proxy") { // proxy on with searxng staged falls back one
+      if (!el.checked) return; // step to the proxy-compatible websearch
+      staged = searxngRadio();
+      if (staged && staged.checked) {
+        web = q(form, '[name="search_mode"][value="websearch"]');
+        if (web) web.checked = true;
+        toast("SearXNG and the squid proxy are mutually exclusive — search reset to websearch", "warn");
+      }
+      return;
+    }
+    if (!el.checked) return; // toggling a mode OFF carries no rules
+    if (name === "cbm_ui") { // offline and cbm_ui never stage together —
+      offlineBox = q(form, '[name="offline"]'); // silent, toggleMode parity
+      if (offlineBox) offlineBox.checked = false;
+      return;
+    }
+    if (name !== "offline") return;
+    // offline ON: cbm_ui drops (silent, toggleMode parity), and ADR 0026
+    // refuses the toggle next to a staged searxng — offline not available.
+    var cbmBox = q(form, '[name="cbm_ui"]');
+    if (cbmBox) cbmBox.checked = false;
+    staged = searxngRadio();
+    if (staged && staged.checked) {
+      el.checked = false;
+      toast("SearXNG needs network — offline mode not available", "warn");
+    }
+  });
+
   // onCreateWorkspace reacts to the create chain's terminal workspace
   // event ({op, state}): success swaps a fresh empty wizard (the TUI
   // resets the form too); failure wakes the form for a retry while the
