@@ -139,6 +139,29 @@ func TestShellAssets(t *testing.T) {
 	// are asserted on the rendered fragments in their screen tests.
 }
 
+// The wizard's live name derivation (#156): the workspace name derives
+// from the repo URL while From Repo is picked, until hand-edited — the
+// TUI's prefill rule. The source radios are form-attribute-associated
+// (pagehead placement), so the input handler's lookup must be
+// document-scoped; the pre-fix form-scoped query returned null and the
+// typed URL never derived the name.
+func TestFrontendWizardNameDerivationWiring(t *testing.T) {
+	s := startTestServer(t)
+	js := body(t, get(t, s.URL()+"js/main.js"))
+	for _, want := range []string{
+		`function deriveName(`, // the URL → basename rule
+		`repoSourceRadio()`,    // document-scoped lookup (radios ride form="")
+		`nameManual`,           // the hand-edit stop
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("main.js missing %q", want)
+		}
+	}
+	if strings.Contains(js, `q(form, '[name="source"][value="repo"]')`) {
+		t.Fatal("name derivation must not look up the source radio inside the form — the radios are form-attribute-associated")
+	}
+}
+
 // Auth grammar (#150): a tokenized URL is the capability. Missing and
 // wrong tokens refuse EVERY route — pages, assets, SSE, unsafe verbs —
 // with 404 (capability URLs don't advertise what exists behind them).

@@ -282,6 +282,16 @@ var wsSettingsTemplate = template.Must(template.New("wssettings").
       </div>
       {{end}}
       {{if vis .Mode "search_mode"}}
+      <div class="row" data-row="search_mode">
+        <span class="label">Search mode</span>
+        <span class="edotsel">
+          <label>none<input type="radio" name="search_mode" value="none" {{if eq .SearchMode "none"}}checked{{end}}></label>
+          <label>websearch<input type="radio" name="search_mode" value="websearch" {{if eq .SearchMode "websearch"}}checked{{end}}></label>
+          <label>searxng<input type="radio" name="search_mode" value="searxng" {{if eq .SearchMode "searxng"}}checked{{end}}></label>
+        </span>
+        <span class="field-hint">SearXNG runs as a companion service</span>
+      </div>
+      {{end}}
       <div class="actions"><button type="submit" class="btn">Save settings</button></div>
       <div class="field-hint">next-start apply — a running container is never reconfigured</div>
     </form>
@@ -308,7 +318,7 @@ var wsSettingsTemplate = template.Must(template.New("wssettings").
   </div>
 
   {{if or .LogLines (gt .OpID 0)}}
-  <div class="logpane" data-role="log" data-op-id="{{.OpID}}">{{range .LogLines}}<div class="logline">{{.}}</div>{{end}}</div>
+  <div class="logpane" data-role="log" data-op="{{.OpID}}">{{range .LogLines}}<div class="logline">{{.}}</div>{{end}}</div>
   {{end}}
 </section>
 {{end}}
@@ -847,7 +857,15 @@ func (s *Server) renderWsSettingsScreen(w http.ResponseWriter, name, errMsg stri
 	}
 
 	// In-flight op: the log pane rides the queue like the busy card's.
-	v.OpID = s.queue.CurrentOpID(registry.ContainerName(ws.ContainerID))
+	// With nothing in flight, the queue's last failure for this
+	// workspace renders as the flow's refusal (the async configure
+	// steps' error path — script die messages stream into the log pane
+	// while the op runs, and the outcome persists here after it ends).
+	key := registry.ContainerName(ws.ContainerID)
+	v.OpID = s.queue.CurrentOpID(key)
+	if v.Error == "" && v.OpID == 0 && !s.queue.BusyKey(key) {
+		v.Error = s.queue.LastError(key)
+	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := wsSettingsTemplate.ExecuteTemplate(w, "ws-settings", v); err != nil {

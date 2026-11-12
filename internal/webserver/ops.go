@@ -36,10 +36,15 @@ type opRunner struct {
 	nextID  int
 	pending []*webOp // launch order
 	running map[string]*webOp
+
+	// lastErr carries the most recent failed op's message per key —
+	// screens render it as the flow's refusal text (the TUI pane's aiErr
+	// path, #110). Cleared when the next op for the key launches.
+	lastErr map[string]string
 }
 
 func newOpRunner(hub *Hub) *opRunner {
-	return &opRunner{hub: hub, running: map[string]*webOp{}}
+	return &opRunner{hub: hub, running: map[string]*webOp{}, lastErr: map[string]string{}}
 }
 
 // Launch enqueues op and starts it at once when the queue rules allow
@@ -52,9 +57,23 @@ func (r *opRunner) Launch(op webOp) {
 	}
 	r.mu.Lock()
 	r.pending = append(r.pending, &op)
+	delete(r.lastErr, op.Key) // a new attempt supersedes the old failure
 	r.mu.Unlock()
-	r.hub.PublishWorkspace() // queued/running state changes re-render the busy markers (spec §9)
 	r.pump()
+	// Publish after pump: the first re-render must already see the op
+	// running (its log pane keyed) — a pre-start publish renders the
+	// screen without the busy state, and that stale render can land
+	// after the POST response's own swap.
+	r.hub.PublishWorkspace()
+}
+
+// LastError reports the most recent failed op's message for the key
+// ("" when the last op succeeded or none ran yet) — the settings
+// screen's rendered-refusal path for async configure flows (#110).
+func (r *opRunner) LastError(key string) string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.lastErr[key]
 }
 
 // BusyKey reports whether the key has an op queued or running — the
@@ -142,11 +161,25 @@ func (r *opRunner) Busy() bool {
 // Done — so a Done handler may launch again without deadlocking.
 func (r *opRunner) run(op *webOp) {
 	go func() {
+		lastLine := ""
 		err := op.Run(func(line string) {
+			lastLine = line
 			r.hub.PublishLine(op.ID, line)
 		})
 		r.mu.Lock()
 		delete(r.running, op.Key)
+		if err != nil {
+			// The failure text prefers the op's own last output line —
+			// script die messages name the cause; "exit status N" alone
+			// does not.
+			msg := err.Error()
+			if lastLine != "" {
+				msg = lastLine
+			}
+			r.lastErr[op.Key] = msg
+		} else {
+			delete(r.lastErr, op.Key)
+		}
 		r.mu.Unlock()
 		r.pump()
 		r.hub.PublishWorkspace() // the key freed / successor started: rows re-render

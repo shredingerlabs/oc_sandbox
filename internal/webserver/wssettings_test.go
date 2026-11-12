@@ -1,6 +1,7 @@
 package webserver
 
 import (
+	"errors"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -554,6 +555,118 @@ func waitForNoOp(t *testing.T, fx createFixture) {
 		time.Sleep(5 * time.Millisecond)
 	}
 	t.Fatal("op never drained")
+}
+
+// A failing add must be visible: the async configure steps stream their
+// output into the screen's log pane (keyed by data-op, the same
+// attribute the shell reads — data-op-id never matched it), and the
+// failure text persists as the screen's refusal after the op drains
+// (the TUI pane's aiErr path, #110). A silent failure reads exactly
+// like "the added provider does not show up".
+func TestWsProvidersAddFailureSurfaces(t *testing.T) {
+	fail := true
+	var root string
+	fx := newCreateFixture(t, func(name string, args []string) (string, error) {
+		if name != "bash" || len(args) < 2 || !strings.HasSuffix(args[0], "configure-workspace.sh") {
+			return "", nil
+		}
+		if fail {
+			return "mkdir: cannot create directory '/ws/.opencode_data': Permission denied\n", errors.New("exit status 1")
+		}
+		// The success path lands the credential + section on disk (the
+		// externally visible outcome the entry list reads back).
+		id, pName, endpoint, tok := "", "", "", ""
+		for i, a := range args {
+			switch a {
+			case "--name":
+				pName = args[i+1]
+				id = providerid.Slug(pName)
+			case "--endpoint":
+				endpoint = args[i+1]
+			case "--token":
+				tok = args[i+1]
+			}
+		}
+		if args[1] == "ai-provider" && tok != "" {
+			credDir := filepath.Join(root, ".opencode_data", "credentials")
+			if err := os.MkdirAll(credDir, 0o755); err != nil {
+				return "", err
+			}
+			if err := os.WriteFile(filepath.Join(credDir, id), []byte(tok), 0o644); err != nil {
+				return "", err
+			}
+		}
+		if args[1] == "opencode-config" {
+			seedProviderEntry(t, root, id, pName, endpoint, "")
+		}
+		return "provider configured\n", nil
+	})
+	root = seedWorkspace(t, fx.home, "alpha", "swdev", nil)
+
+	resp := postForm(t, fx.s.URL()+"workspaces/alpha/providers", map[string]string{
+		"action": "add", "name": "GWDG SAIA", "endpoint": "https://chat.gwdg.de/v1", "token": "tok123",
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d:\n%s", resp.StatusCode, body(t, resp))
+	}
+	waitForNoOp(t, fx)
+
+	doc := body(t, get(t, fx.s.URL()+"workspaces/alpha/settings"))
+	if !strings.Contains(doc, `form-error" role="alert">mkdir: cannot create directory`) {
+		t.Fatalf("the failed add must render its cause as the screen refusal:\n%s", doc)
+	}
+	if strings.Contains(doc, `data-entry="gwdg-saia"`) {
+		t.Fatal("nothing was written — the entry must not render")
+	}
+
+	// The next attempt supersedes the old failure: a successful add
+	// clears the refusal and renders the entry.
+	fail = false
+	resp = postForm(t, fx.s.URL()+"workspaces/alpha/providers", map[string]string{
+		"action": "add", "name": "GWDG SAIA", "endpoint": "https://chat.gwdg.de/v1", "token": "tok123",
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("retry status = %d:\n%s", resp.StatusCode, body(t, resp))
+	}
+	waitForNoOp(t, fx)
+	doc = body(t, get(t, fx.s.URL()+"workspaces/alpha/settings"))
+	if strings.Contains(doc, `form-error" role="alert">mkdir`) {
+		t.Fatalf("a successful add must clear the previous failure:\n%s", doc)
+	}
+	if !strings.Contains(doc, `data-entry="gwdg-saia"`) {
+		t.Fatalf("the retried entry must render:\n%s", doc)
+	}
+}
+
+// While a configure op runs, the settings screen's log pane carries the
+// data-op attribute the shell's line streaming matches (the busy card
+// and the create pane use data-op-id; the [data-role="log"] panes use
+// data-op — uninstall, images and settings alike).
+func TestWsSettingsLogPaneCarriesOpAttr(t *testing.T) {
+	release := make(chan struct{})
+	fx := newCreateFixture(t, func(name string, args []string) (string, error) {
+		if name == "bash" && len(args) > 0 && strings.HasSuffix(args[0], "configure-workspace.sh") {
+			<-release
+		}
+		return "", nil
+	})
+	root := seedWorkspace(t, fx.home, "alpha", "swdev", nil)
+	_ = root
+
+	postForm(t, fx.s.URL()+"workspaces/alpha/providers", map[string]string{
+		"action": "add", "name": "GWDG SAIA", "endpoint": "https://chat.gwdg.de/v1", "token": "tok123",
+	})
+	defer close(release)
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		doc := body(t, get(t, fx.s.URL()+"workspaces/alpha/settings"))
+		if strings.Contains(doc, `data-role="log" data-op="`) {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatal("the running configure op never rendered its keyed log pane")
 }
 
 // --- POST /workspaces/{name}/providers (§9: add|edit|remove) -------------------
