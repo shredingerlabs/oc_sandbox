@@ -612,6 +612,12 @@
     return null;
   }
   function q(form, sel) { return form.querySelector(sel); }
+  // repoSourceRadio: the source radios are form-attribute-associated
+  // (pagehead placement) — they are not descendants of the form, so the
+  // lookup must be document-scoped.
+  function repoSourceRadio() {
+    return document.querySelector('[data-screen="ws-new"] [name="source"][value="repo"]');
+  }
   function setHidden(el, hidden) {
     if (!el) return;
     if (hidden) el.setAttribute("data-hidden", "1");
@@ -624,16 +630,15 @@
     var form = wizardForm(ev.target);
     if (!form) return;
     if (ev.target.name === "name") form.dataset.nameManual = "1";
-    if (ev.target.name === "repo_url" && q(form, '[name="source"][value="repo"]').checked &&
+    var radio = repoSourceRadio();
+    if (ev.target.name === "repo_url" && radio && radio.checked &&
         !form.dataset.nameManual) {
       q(form, '[name="name"]').value = deriveName(ev.target.value);
     }
   });
 
   function applySource(form) {
-    // The source radios are form-attribute-associated (pagehead
-    // placement) — they are not descendants of the form.
-    var radio = document.querySelector('[data-screen="ws-new"] [name="source"][value="repo"]');
+    var radio = repoSourceRadio();
     if (!radio) return;
     var repo = radio.checked;
     var row = q(form, '[data-row="repo_url"]');
