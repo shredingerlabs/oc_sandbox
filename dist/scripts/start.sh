@@ -358,6 +358,15 @@ if $USE_PROXY; then
     -e HTTP_PROXY="http://127.0.0.1:3128"
     -e NO_PROXY="localhost,127.0.0.1,0.0.0.0"
   )
+  # Per-workspace allowlist (ADR 0034): when the workspace carries its
+  # own copy (.opencode_config/allowlist.txt, seeded from the shared
+  # proxy/allowlist.txt by the WebUI proxy screen), it wins over the
+  # image's baked-in copy — mounted read-only into the member.
+  PROXY_MOUNT_ARGS=()
+  if [[ -f "${CONFIG_DIR}/allowlist.txt" ]]; then
+    echo "==> Using the workspace allowlist: ${CONFIG_DIR}/allowlist.txt"
+    PROXY_MOUNT_ARGS=(-v "${CONFIG_DIR}/allowlist.txt:/etc/squid/allowlist.txt:Z")
+  fi
 fi
 if $OFFLINE; then
   PROXY_ENV=()
@@ -584,6 +593,7 @@ if ! $OFFLINE; then
     podman run -d \
       --pod "$POD_NAME" \
       --name "$PROXY_NAME" \
+      "${PROXY_MOUNT_ARGS[@]}" \
       oc-proxy
   fi
 else

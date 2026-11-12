@@ -60,6 +60,12 @@ func Path(projectRoot string) string {
 	return filepath.Join(projectRoot, ".opencode_config", "sandbox_config.json")
 }
 
+// AllowlistPath resolves the workspace allowlist location for a
+// workspace root (ADR 0034): alongside sandbox_config.json.
+func AllowlistPath(projectRoot string) string {
+	return filepath.Join(projectRoot, ".opencode_config", "allowlist.txt")
+}
+
 func readDoc(path string) (*jsonfmt.Doc, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {

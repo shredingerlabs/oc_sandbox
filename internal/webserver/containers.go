@@ -33,6 +33,13 @@ func (s *Server) wireRoutes(inner *http.ServeMux) {
 	inner.HandleFunc("GET /images", s.handleImages)
 	inner.HandleFunc("POST /images/build", s.handleImagesBuild)
 	inner.HandleFunc("POST /images/delete", s.handleImagesDelete)
+	// Proxy screen (ADR 0034): member lifecycle + the per-workspace
+	// allowlist editor; the ops share the workspace container-name key.
+	inner.HandleFunc("GET /proxy", s.handleProxyScreen)
+	inner.HandleFunc("POST /proxy/{name}/start", s.handleProxyMemberStart)
+	inner.HandleFunc("POST /proxy/{name}/stop", s.handleProxyMemberStop)
+	inner.HandleFunc("POST /proxy/{name}/rebuild", s.handleProxyMemberRebuild)
+	inner.HandleFunc("POST /proxy/{name}/allowlist", s.handleProxyAllowlist)
 }
 
 // unitRow is one row of the container list: a registry workspace's

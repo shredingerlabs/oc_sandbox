@@ -257,6 +257,36 @@ func AllContainers(run cmdrun.Runner) []ContainerState {
 	return all
 }
 
+// RunningProxyMembers lists the live squid proxy pod members (anchored
+// name filter `^oc-proxy-`; the sandbox ps filters exclude them).
+// Errors yield an empty list (podman-output based).
+func RunningProxyMembers(run cmdrun.Runner) []string {
+	out, err := run.Output("podman", "ps", "--format", "{{.Names}}", "--filter", "name=^oc-proxy-")
+	if err != nil {
+		return nil
+	}
+	return cmdrun.Lines(out)
+}
+
+// AllProxyMembers lists every squid proxy member in any state
+// (`podman ps -a`, anchored name filter; a stopped member persists —
+// the member run carries no --rm). Errors yield an empty list.
+func AllProxyMembers(run cmdrun.Runner) []ContainerState {
+	out, err := run.Output("podman", "ps", "-a", "--format", "{{.Names}}\t{{.State}}", "--filter", "name=^oc-proxy-")
+	if err != nil {
+		return nil
+	}
+	var all []ContainerState
+	for _, l := range cmdrun.Lines(out) {
+		name, state, ok := strings.Cut(l, "\t")
+		if !ok {
+			continue
+		}
+		all = append(all, ContainerState{Name: name, State: state})
+	}
+	return all
+}
+
 // PodState is one `podman pod ps` row: the pod name and its lifecycle
 // status ("running", "exited", …).
 type PodState struct {

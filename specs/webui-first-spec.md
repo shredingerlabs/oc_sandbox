@@ -345,6 +345,12 @@ control (§6), theme toggle (dark/bright), and the footer update banner (§12).
   and delete-as-danger per existing Container-center semantics (§9).
 - **Settings → Container: Start / Stop / Delete** — one list, three actions,
   popup on stop and delete (§9).
+- **Settings → Proxy (advanced-only)** — one card per workspace with `use_proxy`
+  (ADR 0034): the proxy pod member's state with Start / Stop (egress warning) /
+  Rebuild (member recreate with the current allowlist; the workspace keeps
+  running), and the inline workspace-allowlist editor with save-time `squid -k
+  parse` validation and Reset from shared; the shared `proxy/allowlist.txt`
+  renders read-only. Standard renders the pointer row alone.
 - **Settings → Uninstall** — wizard toggles + typed `uninstall` confirmation +
   confirm popup (§9).
 - **Workspace detail screen** — task/stream rows on the open workspace (start,
@@ -430,6 +436,9 @@ control (§6), theme toggle (dark/bright), and the footer update banner (§12).
   - Container center: `GET /containers` (+stop/delete mirrors); `GET /images`
     (existence markers + sizes via discovery); `POST /images/build`
     (build-container.sh, scaled to `all`); `POST /images/delete` (danger)
+  - Proxy screen (ADR 0034): `GET /proxy`; `POST /proxy/{name}/{start,stop,
+    rebuild}` (member lifecycle, workspace container-name queue key); `POST
+    /proxy/{name}/allowlist {content|action=reset}` (validated save + reset)
   - Global: `GET/POST /settings` (default workspace path, display mode →
     global_config.json); `GET /catalogs` + `POST
     /catalogs/{trackers,providers} {add|edit|remove}`; `GET /import` + `POST

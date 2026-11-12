@@ -78,6 +78,7 @@ func checkWebUI(home, root string) Item {
 		"workspace-settings",
 		"containers", "containers/mural/stop", "containers/mural/delete",
 		"images", "images/build", "images/delete",
+		"proxy", "proxy/mural/start", "proxy/mural/stop", "proxy/mural/rebuild", "proxy/mural/allowlist",
 		"import", "import-workspace", "import-register", "import-convert",
 		"config", "export-config", "restore-config",
 		"uninstall",

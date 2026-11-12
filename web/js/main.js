@@ -22,6 +22,7 @@
     "ws-open":       ["Workspace", "Open"],
     "ws-new":        ["Workspace", "New Workspace"],
     "set-ws":        ["Workspace › Settings", "Workspace Settings"],
+    "set-proxy":     ["Workspace › Settings", "Proxy"],
     "set-vcs":       ["Workspace › Settings", "VCS Tracker"],
     "set-ai":        ["Workspace › Settings", "AI-Provider"],
     "set-import":    ["Workspace › Settings", "Import Workspace"],
@@ -127,7 +128,7 @@
       // reactive workspace re-render; both show the spinner while the
       // (blocking) discovery fragment loads.
       if (screenPaths[nav]) {
-        loadScreen(screenPaths[nav], screenPaths[nav] === "containers" || screenPaths[nav] === "images");
+        loadScreen(screenPaths[nav], screenPaths[nav] === "containers" || screenPaths[nav] === "images" || screenPaths[nav] === "proxy");
         return;
       }
       renderStub(nav);
@@ -851,6 +852,7 @@
   // log pane's streamed lines live in JS memory, so the reactive
   // workspace re-renders never lose build output ---
   var screenPaths = { "set-containers": "containers", "set-images": "images",
+    "set-proxy": "proxy",
     // global settings screens (#159)
     "set-import": "import", "set-config": "config", "set-uninstall": "uninstall" };
   var currentScreen = null;

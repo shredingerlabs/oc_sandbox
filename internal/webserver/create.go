@@ -807,7 +807,7 @@ func (c *createChain) runSteps(s *Server, emit func(string)) error {
 	if err := sandboxcfg.Create(s.opts.Home, cfgPath, c.edition, c.modes, c.start, providerID, c.search); err != nil {
 		return fail("sandbox_config.json could not be created: " + err.Error())
 	}
-	if err := c.patchConfig(s.opts.Home, cfgPath); err != nil {
+	if err := c.patchConfig(s, s.opts.Home, cfgPath); err != nil {
 		return fail("sandbox_config.json could not be patched: " + err.Error())
 	}
 
@@ -858,7 +858,7 @@ func (c *createChain) runSteps(s *Server, emit func(string)) error {
 
 // patchConfig applies the field patches via the atomic paths
 // (newworkspace.patchConfig parity).
-func (c *createChain) patchConfig(home, cfgPath string) error {
+func (c *createChain) patchConfig(s *Server, home, cfgPath string) error {
 	source := "empty"
 	if c.fromRepo {
 		source = "cloned"
@@ -880,7 +880,13 @@ func (c *createChain) patchConfig(home, cfgPath string) error {
 		}
 	}
 	if c.proxy {
-		return sandboxcfg.PatchBool(home, cfgPath, "use_proxy", true)
+		if err := sandboxcfg.PatchBool(home, cfgPath, "use_proxy", true); err != nil {
+			return err
+		}
+		// Seed the workspace allowlist from shared (ADR 0034,
+		// best-effort — the member start re-seeds).
+		_ = s.seedWorkspaceAllowlist(c.root)
+		return nil
 	}
 	return nil
 }

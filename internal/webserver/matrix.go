@@ -43,6 +43,10 @@ var matrix = []Row{
 	{Screen: "ws-new", Key: "offline", Label: "Offline", AdvancedOnly: true},
 	{Screen: "ws-new", Key: "cbm_ui", Label: "CBM-UI", AdvancedOnly: true},
 	{Screen: "ws-new", Key: "hil", Label: "HIL", AdvancedOnly: true},
+	// Proxy screen (ADR 0034): member lifecycle + the per-workspace
+	// allowlist — advanced-only wholesale, the screen Standard renders
+	// as the pointer row alone.
+	{Screen: "proxy", Key: "proxy", Label: "Proxy", AdvancedOnly: true},
 }
 
 // ScreenRows returns the matrix rows of a screen in display order.

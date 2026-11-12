@@ -439,6 +439,12 @@ func (s *Server) handleWsSettingsPost(w http.ResponseWriter, r *http.Request) {
 		s.renderWsSettingsScreen(w, name, "sandbox_config.json could not be written: "+err.Error(), nil)
 		return
 	}
+	// Proxy enabled: seed the workspace allowlist from shared (ADR 0034,
+	// best-effort — the member start re-seeds; the shared file may not
+	// exist in test/dev layouts, then the member runs the image's copy).
+	if merged.UseProxy && !cfg.UseProxy {
+		_ = s.seedWorkspaceAllowlist(ws.Path)
+	}
 	// Cards carry the config chips — re-render them reactively (§9).
 	s.hub.PublishWorkspace()
 	s.renderWsSettingsScreen(w, name, "", nil)
