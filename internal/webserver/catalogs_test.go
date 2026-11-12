@@ -84,6 +84,45 @@ func TestCatalogsEmptyDefault(t *testing.T) {
 	}
 }
 
+// Removing a catalog entry arms the #159 confirm popup (the shared
+// data-confirm-popup grammar the htmx:confirm hook turns into the
+// popup): the entry-remove forms of both catalogs carry the per-action
+// copy asking whether the VCS-Tracker / AI-Provider entry should really
+// be deleted.
+func TestCatalogRemoveArmsConfirmPopup(t *testing.T) {
+	s := startCatalogServer(t)
+	postForm(t, s.URL()+"catalogs/trackers", map[string]string{
+		"action": "add", "name": "GitHub", "kind": "github",
+	})
+	postForm(t, s.URL()+"catalogs/providers", map[string]string{
+		"action": "add", "name": "OpenAI", "endpoint": "https://api.example.com/v1",
+	})
+
+	trDoc := body(t, get(t, s.URL()+"catalogs/trackers"))
+	for _, want := range []string{
+		`data-confirm-popup`,                          // the htmx:confirm hook's arm
+		`data-confirm-title="Remove tracker GitHub?"`, // per-entry copy
+		`data-confirm-question="Removes the catalog entry only`,
+		`data-confirm-label="Remove"`,
+	} {
+		if !strings.Contains(trDoc, want) {
+			t.Fatalf("tracker remove form missing %q:\n%s", want, trDoc)
+		}
+	}
+
+	prDoc := body(t, get(t, s.URL()+"catalogs/providers"))
+	for _, want := range []string{
+		`data-confirm-popup`,
+		`data-confirm-title="Remove provider OpenAI?"`,
+		`data-confirm-question="Removes the catalog entry only`,
+		`data-confirm-label="Remove"`,
+	} {
+		if !strings.Contains(prDoc, want) {
+			t.Fatalf("provider remove form missing %q:\n%s", want, prDoc)
+		}
+	}
+}
+
 // postForm issues a form POST against the server and returns the response.
 func postForm(t *testing.T, target string, form map[string]string) *http.Response {
 	t.Helper()

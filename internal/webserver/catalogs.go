@@ -58,7 +58,10 @@ var catalogsTemplate = template.Must(template.New("catalogs").
           {{if or .GitName .GitEmail}}<div class="s">git: {{.GitName}} &lt;{{.GitEmail}}&gt;</div>{{end}}
         </div>
         <div class="rc">
-          <form class="entry-remove" hx-post="{{$.P}}catalogs/trackers" hx-target="#catalogs-trackers" hx-swap="outerHTML">
+          <form class="entry-remove" hx-post="{{$.P}}catalogs/trackers" hx-target="#catalogs-trackers" hx-swap="outerHTML"
+                data-confirm-popup data-confirm-title="Remove tracker {{.Name}}?"
+                data-confirm-question="Removes the catalog entry only — existing workspaces keep their settings."
+                data-confirm-label="Remove">
             <input type="hidden" name="action" value="remove">
             <input type="hidden" name="orig" value="{{.Name}}">
             <button type="submit" class="btn danger">Remove</button>
@@ -121,7 +124,10 @@ var catalogsTemplate = template.Must(template.New("catalogs").
           <div class="s">{{.Endpoint}}</div>
         </div>
         <div class="rc">
-          <form class="entry-remove" hx-post="{{$.P}}catalogs/providers" hx-target="#catalogs-providers" hx-swap="outerHTML">
+          <form class="entry-remove" hx-post="{{$.P}}catalogs/providers" hx-target="#catalogs-providers" hx-swap="outerHTML"
+                data-confirm-popup data-confirm-title="Remove provider {{.Name}}?"
+                data-confirm-question="Removes the catalog entry only — existing workspaces keep their settings."
+                data-confirm-label="Remove">
             <input type="hidden" name="action" value="remove">
             <input type="hidden" name="orig" value="{{.Name}}">
             <button type="submit" class="btn danger">Remove</button>
