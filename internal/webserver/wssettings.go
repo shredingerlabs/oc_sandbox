@@ -273,7 +273,7 @@ var wsSettingsTemplate = template.Must(template.New("wssettings").
       <div class="row" data-row="modes">
         <span class="label">Modes</span>
         <span class="swgroup">
-          {{if vis .Mode "proxy"}}<label class="switch">use_proxy<input type="checkbox" name="proxy" value="yes" {{if .Proxy}}checked{{end}}><input type="hidden" name="proxy_present" value="1"><i></i></label>{{end}}
+          {{if vis .Mode "proxy"}}<label class="switch">use_proxy<input type="checkbox" name="proxy" value="yes" {{if .Proxy}}checked{{end}}><i></i><input type="hidden" name="proxy_present" value="1"></label>{{end}}
           {{if vis .Mode "offline"}}<label class="switch">offline<input type="checkbox" name="offline" value="on" {{if .Offline}}checked{{end}}><i></i></label>{{end}}
           {{if vis .Mode "cbm_ui"}}<label class="switch">CBM-UI<input type="checkbox" name="cbm_ui" value="on" {{if .CBMUI}}checked{{end}}><i></i></label>{{end}}
           {{if vis .Mode "hil"}}<label class="switch">HIL<input type="checkbox" name="hil" value="on" {{if .HIL}}checked{{end}}><i></i></label>{{end}}

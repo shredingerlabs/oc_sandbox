@@ -132,6 +132,28 @@ func TestWsSettingsScreenAdvanced(t *testing.T) {
 	}
 }
 
+// The switch CSS keys the track state on adjacency
+// (.switch input:checked + i, main.css): any element rendered between
+// the checkbox and the <i> track freezes the switch visually — the
+// proxy_present sentinel (the deactivation fix) must ride after the
+// track, not between checkbox and track.
+func TestWsSettingsProxySwitchTrackAdjacent(t *testing.T) {
+	fx := newCreateFixture(t, nil)
+	root := seedWorkspace(t, fx.home, "alpha", "swdev", nil)
+	if err := sandboxcfg.PatchBool(fx.home, sandboxcfg.Path(root), "use_proxy", true); err != nil {
+		t.Fatal(err)
+	}
+	postForm(t, fx.s.URL()+"settings", map[string]string{"display_mode": "advanced"})
+
+	doc := body(t, get(t, fx.s.URL()+"workspaces/alpha/settings"))
+	if !strings.Contains(doc, `name="proxy" value="yes" checked><i></i>`) {
+		t.Fatalf("proxy checkbox and <i> track not adjacent — the :checked + i rule is broken:\n%s", doc)
+	}
+	if !strings.Contains(doc, `name="proxy_present"`) {
+		t.Fatal("proxy_present sentinel missing — unchecked proxy would re-impose on save")
+	}
+}
+
 // The legacy read rule stays intact (§6): an absent search_mode key
 // reads websearch and renders selected — the screen never guesses
 // searxng from a preset, only from stored truth.
