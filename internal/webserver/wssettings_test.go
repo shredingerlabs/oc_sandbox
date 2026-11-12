@@ -86,9 +86,8 @@ func TestWsSettingsScreenStandard(t *testing.T) {
 		}
 	}
 	for _, hidden := range []string{
-		`data-row="edition"`, `data-row="start_option"`, `data-row="proxy"`,
-		`data-row="search_mode"`, `data-row="offline"`, `data-row="cbm_ui"`,
-		`data-row="hil"`,
+		`data-row="edition"`, `data-row="start_option"`, `data-row="modes"`,
+		`data-row="search_mode"`, `name="offline"`, `name="cbm_ui"`, `name="hil"`,
 	} {
 		if strings.Contains(doc, hidden) {
 			t.Fatalf("Standard must hide the Advanced row %s (matrix §6):\n%s", hidden, doc)
@@ -114,11 +113,8 @@ func TestWsSettingsScreenAdvanced(t *testing.T) {
 	for _, want := range []string{
 		`data-row="edition"`,           // switchable, next-start apply (chips)
 		`data-role="settings-edition"`, // the chip group the shell's .edopt clicks bind
-		`data-row="proxy"`,             // stored on
+		`data-row="modes"`,             // the wizard's one-line Modes row
 		`data-row="search_mode"`,       // the triad with searxng preselected
-		`data-row="offline"`,
-		`data-row="cbm_ui"`,
-		`data-row="hil"`,                      // HIL row for every edition
 		`name="edition" value="swdev"`,        // stored edition (chip payload)
 		`data-ed="swdev" aria-pressed="true"`, // the chip's pressed state
 		`name="proxy" value="yes" checked`,    // stored proxy checked

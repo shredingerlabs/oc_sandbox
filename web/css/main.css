@@ -364,7 +364,11 @@ body { background:var(--bg); color:var(--ink);
 .wssettings .add-form label, .wssettings .settings-form label { display:block; margin:6px 0; }
 .wssettings .settings-form .row { display:flex; align-items:center; gap:10px; }
 .wssettings .actions { display:flex; gap:8px; margin-top:10px; }
-.wssettings .settings-form .row .switch { margin-left:auto; }
+/* the Modes row carries the wizard's layout (one line, switch group
+   right-aligned, the hint wraps below — see .wizard .row[data-row=modes]) */
+.wssettings .settings-form .row[data-row="modes"] { flex-wrap:wrap; }
+.wssettings .settings-form .row[data-row="modes"] .swgroup { margin-left:auto; }
+.wssettings .settings-form .row[data-row="modes"] .field-hint { flex-basis:100%; }
 .wssettings .confirm-block { background:var(--surface2); border-radius:8px;
   border:1px solid color-mix(in srgb,var(--warn) 40%, var(--hairline));
   padding:10px 14px; margin:10px 0; }

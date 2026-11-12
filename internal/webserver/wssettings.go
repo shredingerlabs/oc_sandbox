@@ -269,45 +269,19 @@ var wsSettingsTemplate = template.Must(template.New("wssettings").
         <span class="field-hint">switchable — applies on next start</span>
       </div>
       {{end}}
-      {{if vis .Mode "proxy"}}
-      <div class="row" data-row="proxy">
-        <span class="label">Proxy</span>
-        <span class="field-hint">use_proxy — route container traffic through the squid allowlist proxy</span>
-        <label class="switch">use_proxy<input type="checkbox" name="proxy" value="yes" {{if .Proxy}}checked{{end}}><i></i></label>
+      {{if or (vis .Mode "proxy") (vis .Mode "offline") (vis .Mode "cbm_ui") (vis .Mode "hil")}}
+      <div class="row" data-row="modes">
+        <span class="label">Modes</span>
+        <span class="swgroup">
+          {{if vis .Mode "proxy"}}<label class="switch">use_proxy<input type="checkbox" name="proxy" value="yes" {{if .Proxy}}checked{{end}}><i></i></label>{{end}}
+          {{if vis .Mode "offline"}}<label class="switch">offline<input type="checkbox" name="offline" value="on" {{if .Offline}}checked{{end}}><i></i></label>{{end}}
+          {{if vis .Mode "cbm_ui"}}<label class="switch">CBM-UI<input type="checkbox" name="cbm_ui" value="on" {{if .CBMUI}}checked{{end}}><i></i></label>{{end}}
+          {{if vis .Mode "hil"}}<label class="switch">HIL<input type="checkbox" name="hil" value="on" {{if .HIL}}checked{{end}}><i></i></label>{{end}}
+        </span>
+        <div class="field-hint">start.sh flags — apply on next start (presets, not pinning: the stored config stays the truth).</div>
       </div>
       {{end}}
       {{if vis .Mode "search_mode"}}
-      <div class="row" data-row="search_mode">
-        <span class="label">Search mode</span>
-        <span class="edotsel">
-          <label>none<input type="radio" name="search_mode" value="none" {{if eq .SearchMode "none"}}checked{{end}}></label>
-          <label>websearch<input type="radio" name="search_mode" value="websearch" {{if eq .SearchMode "websearch"}}checked{{end}}></label>
-          <label>searxng<input type="radio" name="search_mode" value="searxng" {{if eq .SearchMode "searxng"}}checked{{end}}></label>
-        </span>
-        <span class="field-hint">SearXNG runs as a companion service</span>
-      </div>
-      {{end}}
-      {{if vis .Mode "offline"}}
-      <div class="row" data-row="offline">
-        <span class="label">Offline</span>
-        <span class="field-hint">--network=none: no web access, no provider APIs</span>
-        <label class="switch">offline<input type="checkbox" name="offline" value="on" {{if .Offline}}checked{{end}}><i></i></label>
-      </div>
-      {{end}}
-      {{if vis .Mode "cbm_ui"}}
-      <div class="row" data-row="cbm_ui">
-        <span class="label">CBM-UI</span>
-        <span class="field-hint">codebase-memory graph UI alongside the workspace (needs network)</span>
-        <label class="switch">CBM-UI<input type="checkbox" name="cbm_ui" value="on" {{if .CBMUI}}checked{{end}}><i></i></label>
-      </div>
-      {{end}}
-      {{if vis .Mode "hil"}}
-      <div class="row" data-row="hil">
-        <span class="label">HIL</span>
-        <span class="field-hint">hardware-in-the-loop — every agent action gates (every edition, free toggle)</span>
-        <label class="switch">HIL<input type="checkbox" name="hil" value="on" {{if .HIL}}checked{{end}}><i></i></label>
-      </div>
-      {{end}}
       <div class="actions"><button type="submit" class="btn">Save settings</button></div>
       <div class="field-hint">next-start apply — a running container is never reconfigured</div>
     </form>
