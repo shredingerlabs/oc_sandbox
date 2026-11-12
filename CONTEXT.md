@@ -282,3 +282,5 @@
 
 **switch** — The WebUI's on/off control for boolean rows: a 36×21 pill with a sliding knob (prototype variant C) that replaced the former checked-pill checkbox; implemented as pure CSS on the underlying checkbox, so form semantics stay. A tri-state choice (search mode) is not a switch — it keeps its segmented pills. _Avoid_: toggle button, checkbox pill, on/off selector.
 
+
+**sidebar count pill** — The small numeric pill at the right edge of five left-sidebar menu entries — Workspace › Open (registered workspaces), VCS Tracker (tracker catalog entries), AI-Provider (provider catalog entries), Containers (running sandbox containers), Images (built edition images, infra images never counted). Always rendered, 0 included; all five numbers ride one counts fetch per navigation. A count the server cannot produce fresh keeps the pill's last value rather than breaking the sidebar (unreadable workspace registry); the podman-backed counts read fresh-or-zero, exactly what their own screens render on the same failure. A count always mirrors what the entry's own screen would list. _Avoid_: badge (the footer update-available banner is a separate object), menu counter.

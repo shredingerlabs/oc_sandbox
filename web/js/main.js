@@ -593,13 +593,34 @@
       }
       searchFocus = null;
     }
-    var src = screenEl.querySelector("[data-count]");
-    if (src) {
-      var pill = document.querySelector('[data-role="ws-count"]');
-      if (pill) pill.textContent = src.getAttribute("data-count");
-    }
+    refreshCounts();
     document.querySelectorAll(".card[data-op-id]").forEach(applyCardLog);
   });
+
+  // --- sidebar count pills (#162): one GET /counts fragment fills all
+  // five pills — fetched after every navigation/op swap (the first
+  // screen's swap fires it too). A count the fragment omits (no fresh
+  // number) keeps the pill's value.
+  function refreshCounts() {
+    fetch(base + "counts", { referrerPolicy: "no-referrer" })
+      .then(function (r) { return r.text(); })
+      .then(function (html) {
+        var src = new DOMParser().parseFromString(html, "text/html")
+          .querySelector("[data-counts]");
+        if (!src) return;
+        [["ws-count", "data-ws"],
+         ["vcs-count", "data-trackers"],
+         ["ai-count", "data-providers"],
+         ["containers-count", "data-containers"],
+         ["images-count", "data-images"]].forEach(function (p) {
+          var v = src.getAttribute(p[1]);
+          if (v === null) return; // fail-soft: keep the last value
+          var pill = document.querySelector('[data-role="' + p[0] + '"]');
+          if (pill) pill.textContent = v;
+        });
+      })
+      .catch(function () { /* server may be gone; pills keep their value */ });
+  }
 
   function applyCardLog(card) {
     var lines = logLines[card.getAttribute("data-op-id")];
@@ -848,6 +869,7 @@
         currentScreen = name;
         screenEl.innerHTML = html;
         restoreLog();
+        refreshCounts(); // the count pills ride every screen load
         // htmx processes only its own swaps — a fragment landed through
         // raw innerHTML (the settings/config screens, SSE re-renders)
         // must be initialized explicitly or its hx-post forms submit
@@ -951,6 +973,7 @@
         .then(function (html) {
           screenEl.innerHTML = html;
           restoreLog();
+          refreshCounts(); // stop/delete/build/delete-image move the counts
           if (window.htmx) htmx.process(screenEl); // raw innerHTML swap: re-init hx-*
           var refused = screenEl.querySelector('[data-toast]');
           if (refused) toast(refused.textContent, "warn");

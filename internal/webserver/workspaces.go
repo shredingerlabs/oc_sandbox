@@ -118,7 +118,6 @@ type cardView struct {
 type wsScreenView struct {
 	P     string // tokenized path prefix
 	Query string // the ?q= value echoed back into the search input
-	Count int    // rendered card count (sidebar count pill)
 	Cards []cardView
 	Empty bool
 	Error string // registry read failure shown instead of a dead end
@@ -179,7 +178,7 @@ var wsTemplate = template.Must(template.New("ws").
 {{end}}
 
 {{define "ws-screen"}}
-<div class="ws-screen" id="ws-screen" data-count="{{.Count}}">
+<div class="ws-screen" id="ws-screen">
   <div class="pagehead">
     <h2>Registered workspaces</h2>
     <input class="ws-search" data-role="ws-search" type="search" name="q" placeholder="Search workspaces"
@@ -227,7 +226,6 @@ func (s *Server) handleWorkspacesGET(w http.ResponseWriter, r *http.Request) {
 	v := wsScreenView{
 		P:     s.pathPrefix(),
 		Query: q,
-		Count: len(cards),
 		Cards: cards,
 		Empty: errMsg == "" && len(cards) == 0, // missing registry reads as empty (first-run)
 		Error: errMsg,

@@ -179,6 +179,8 @@ func (s *Server) Start() error {
 	inner.HandleFunc("POST /update/run", s.handleUpdateRun)
 	inner.HandleFunc("GET /catalogs/trackers", s.handleTrackersPage)
 	inner.HandleFunc("GET /catalogs/providers", s.handleProvidersPage)
+	// The sidebar count pills' one fragment (five data attributes).
+	inner.HandleFunc("GET /counts", s.handleCounts)
 	inner.HandleFunc("POST /catalogs/trackers", s.handleTrackersPOST)
 	inner.HandleFunc("POST /catalogs/providers", s.handleProvidersPOST)
 	inner.HandleFunc("GET /settings", s.handleSettingsGet)
