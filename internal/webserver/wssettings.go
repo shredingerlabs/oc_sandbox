@@ -273,7 +273,7 @@ var wsSettingsTemplate = template.Must(template.New("wssettings").
       <div class="row" data-row="modes">
         <span class="label">Modes</span>
         <span class="swgroup">
-          {{if vis .Mode "proxy"}}<label class="switch">use_proxy<input type="checkbox" name="proxy" value="yes" {{if .Proxy}}checked{{end}}><i></i></label>{{end}}
+          {{if vis .Mode "proxy"}}<label class="switch">use_proxy<input type="checkbox" name="proxy" value="yes" {{if .Proxy}}checked{{end}}><input type="hidden" name="proxy_present" value="1"><i></i></label>{{end}}
           {{if vis .Mode "offline"}}<label class="switch">offline<input type="checkbox" name="offline" value="on" {{if .Offline}}checked{{end}}><i></i></label>{{end}}
           {{if vis .Mode "cbm_ui"}}<label class="switch">CBM-UI<input type="checkbox" name="cbm_ui" value="on" {{if .CBMUI}}checked{{end}}><i></i></label>{{end}}
           {{if vis .Mode "hil"}}<label class="switch">HIL<input type="checkbox" name="hil" value="on" {{if .HIL}}checked{{end}}><i></i></label>{{end}}
@@ -396,6 +396,12 @@ func (s *Server) handleWsSettingsPost(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		merged.UseProxy = v == "yes"
+	}
+	// An unchecked checkbox posts nothing: when the proxy row rendered
+	// (proxy_present), its absence reads as off — deactivation works
+	// (Standard-hidden rows still post nothing and never re-impose).
+	if r.PostFormValue("proxy_present") == "1" {
+		merged.UseProxy = r.PostFormValue("proxy") == "yes"
 	}
 	if v := r.PostFormValue("search_mode"); v != "" {
 		if !sandboxcfg.ValidSearchMode(v) {

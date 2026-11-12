@@ -233,6 +233,51 @@ func TestWsSettingsPostPersistsNextStart(t *testing.T) {
 	}
 }
 
+// An unchecked checkbox posts nothing: deactivating the proxy (the row
+// rendered, proxy_present, no proxy field) persists use_proxy=false —
+// the stored truth is never silently re-imposed. A form without the
+// proxy row (Standard-hidden) keeps the stored value.
+func TestWsSettingsPostProxyUnchecked(t *testing.T) {
+	fx := newCreateFixture(t, nil)
+	root := seedWorkspace(t, fx.home, "alpha", "swdev", nil)
+	postForm(t, fx.s.URL()+"settings", map[string]string{"display_mode": "advanced"})
+	// Enable first (the fixture seeds searxng search — proxy needs
+	// websearch, ADR-0026).
+	resp := postForm(t, fx.s.URL()+"workspaces/alpha/settings", map[string]string{"proxy": "yes", "search_mode": "websearch"})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("enable: status = %d, want 200", resp.StatusCode)
+	}
+	// The proxy row rendered but the checkbox is unchecked → off.
+	resp = postForm(t, fx.s.URL()+"workspaces/alpha/settings", map[string]string{"proxy_present": "1"})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("disable: status = %d, want 200", resp.StatusCode)
+	}
+	cfg, err := sandboxcfg.Read(sandboxcfg.Path(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.UseProxy {
+		t.Fatalf("unchecked checkbox must persist use_proxy=false: %+v", cfg)
+	}
+	// Enable again, then a Standard-shaped post (no proxy row at all)
+	// keeps the stored value — Standard hides, never re-imposes.
+	resp = postForm(t, fx.s.URL()+"workspaces/alpha/settings", map[string]string{"proxy": "yes", "search_mode": "websearch"})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("re-enable: status = %d, want 200", resp.StatusCode)
+	}
+	resp = postForm(t, fx.s.URL()+"workspaces/alpha/settings", map[string]string{})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("empty post: status = %d, want 200", resp.StatusCode)
+	}
+	cfg, err = sandboxcfg.Read(sandboxcfg.Path(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.UseProxy {
+		t.Fatalf("absent proxy row must keep the stored use_proxy: %+v", cfg)
+	}
+}
+
 // Validation refuses what start.sh would hard-exit on (ADR-0026):
 // searxng + proxy, searxng + offline, offline + cbm_ui — nothing is
 // written on a refusal. An unknown edition is refused too.
