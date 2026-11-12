@@ -565,7 +565,34 @@
 
   // The grid re-render keeps busy card logs and the sidebar count pill
   // in step with what streamed while the fragment was in flight.
+  // The swap destroys the focused ws-search input (it sits inside the
+  // swapped fragment), so keep focus in it across every swap: capture
+  // value + caret before, re-focus and restore after. A response that
+  // lands mid-typing echoes the request-time query — keep the live
+  // value instead so keystrokes are never clobbered.
+  var searchFocus = null; // {value, start, end} | null
+  screenEl.addEventListener("htmx:beforeSwap", function () {
+    var a = document.activeElement;
+    if (a && a.matches && a.matches('[data-role="ws-search"]')) {
+      searchFocus = { value: a.value, start: a.selectionStart, end: a.selectionEnd };
+    } else {
+      searchFocus = null;
+    }
+  });
   screenEl.addEventListener("htmx:afterSwap", function () {
+    if (searchFocus) {
+      var inp = screenEl.querySelector('[data-role="ws-search"]');
+      if (inp) {
+        if (inp.value !== searchFocus.value) inp.value = searchFocus.value;
+        inp.focus();
+        try {
+          inp.setSelectionRange(searchFocus.start, searchFocus.end);
+        } catch (e) {
+          inp.setSelectionRange(inp.value.length, inp.value.length);
+        }
+      }
+      searchFocus = null;
+    }
     var src = screenEl.querySelector("[data-count]");
     if (src) {
       var pill = document.querySelector('[data-role="ws-count"]');
