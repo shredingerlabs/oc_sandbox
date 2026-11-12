@@ -139,6 +139,18 @@ if ! grep -q -- '-e XDG_STATE_HOME=/home/dev/.local/state' <<<"$run_line"; then
   printf 'start did not pin XDG_STATE_HOME into the container env: %s\n' "$run_line" >&2
   exit 1
 fi
+# XDG_CACHE_HOME: ohne Pin leitet der Daemon (HOME=/home/dev/workspace) den
+# Cache-Default ($HOME/.cache) in den Workspace-Inhalt (workspace/) —
+# .cache/opencode (jeder detached Boot) und die CBM-DB (codebase-memory-mcp
+# als Daemon-Kind, opencode.json spawn ohne --cache-dir) landen in
+# workspace/. Der Pin haelt opencode im
+# Overlay (/home/dev/.cache/opencode, im Image vorangelegt) und CBM auf dem
+# .cbm_cache-Mount (/home/dev/.cache/codebase-memory-mcp), wo auch die
+# CBM-Stage (exec-Client) ihre Config schreibt.
+if ! grep -q -- '-e XDG_CACHE_HOME=/home/dev/.cache' <<<"$run_line"; then
+  printf 'start did not pin XDG_CACHE_HOME into the container env: %s\n' "$run_line" >&2
+  exit 1
+fi
 grep -q -- '-e START_WEB=false' "$PODMAN_LOG"
 grep -q 'OpenCode web: http://127.0.0.1:4097' "$always_web_output"
 grep -q 'Sign-in (one-time pair link): podman exec -it opencode-sandbox-' "$always_web_output"

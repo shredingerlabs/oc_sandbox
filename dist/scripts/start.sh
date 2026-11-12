@@ -671,6 +671,7 @@ podman run --rm "${RUN_MODE[@]}" \
   -e XDG_CONFIG_HOME="/home/dev/.config" \
   -e XDG_DATA_HOME="/home/dev/.local/share" \
   -e XDG_STATE_HOME="/home/dev/.local/state" \
+  -e XDG_CACHE_HOME="/home/dev/.cache" \
   -e GIT_CONFIG_GLOBAL="/home/dev/.git_local/gitconfig" \
   -e START_OPENCODE="${START_OPENCODE}" \
   -e START_WEB="${START_WEB_ENV}" \

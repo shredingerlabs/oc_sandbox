@@ -84,6 +84,14 @@ the sandbox to v2 in one flip:
   invisible to exec clients, which boot a second service that collides on
   the pinned port 4096 ("Managed service port 4096 ... is already in use").
   Containers started before the pin need one restart to pick it up.
+  The same daemon HOME pin also redirects every `$HOME/.cache`-resolved
+  path into the workspace, so the cache dir is pinned container-wide too
+  (`-e XDG_CACHE_HOME=/home/dev/.cache`): opencode's own cache stays in
+  the overlay (pre-created by the image), and the CBM server — spawned as
+  a daemon child without `--cache-dir` — lands on the `.cbm_cache` mount
+  (`/home/dev/.cache/codebase-memory-mcp`) where the CBM stage writes its
+  config; without the pin both wrote into `workspace/.cache/` and the
+  stage's config was invisible to the server.
 - The web toast signs the browser in via one-time pair links (sessions
   then last 30 days); the foreground `serve` path shows the server
   password in its banner for direct URL sign-in.
