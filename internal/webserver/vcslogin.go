@@ -59,10 +59,15 @@ type vcsLoginView struct {
 	URL  string // the verification URL (target=_blank)
 }
 
-// startVCSLogin registers a fresh device-flow state for the key.
+// startVCSLogin registers a fresh device-flow state for the key; nil
+// when a login is already in flight — a second launch must never
+// overwrite the first's state (the caller renders the busy refusal).
 func (s *Server) startVCSLogin(key string) *vcsLoginState {
 	s.vcsMu.Lock()
 	defer s.vcsMu.Unlock()
+	if st := s.vcsLogins[key]; st != nil && !st.cancelled {
+		return nil
+	}
 	st := &vcsLoginState{}
 	s.vcsLogins[key] = st
 	return st
@@ -117,26 +122,33 @@ func (s *Server) cancelVCSLogin(key string) {
 
 // vcsLoginSaw inspects one streamed CLI line for the device flow's
 // one-time code and verification URL; the first sight of each publishes
-// a workspace event so open tabs re-render the panel.
+// a workspace event so open tabs re-render the panel. The URL must
+// carry the verification path itself ("device") — an error line that
+// merely mentions device flow never populates the panel link.
 func (s *Server) vcsLoginSaw(key, line string) {
 	clean := vcsANSIRe.ReplaceAllString(line, "")
 	s.vcsMu.Lock()
-	defer s.vcsMu.Unlock()
 	st := s.vcsLogins[key]
 	if st == nil || st.cancelled {
+		s.vcsMu.Unlock()
 		return
 	}
+	publish := false
 	if st.code == "" {
 		if m := vcsCodeRe.FindStringSubmatch(clean); m != nil {
 			st.code = m[1]
-			s.hub.PublishWorkspace()
+			publish = true
 		}
 	}
-	if st.url == "" && strings.Contains(clean, "device") {
-		if u := vcsURLRe.FindString(clean); u != "" {
+	if st.url == "" {
+		if u := vcsDeviceURLRe.FindString(clean); u != "" && strings.Contains(u, "device") {
 			st.url = u
-			s.hub.PublishWorkspace()
+			publish = true
 		}
+	}
+	s.vcsMu.Unlock()
+	if publish {
+		s.hub.PublishWorkspace()
 	}
 }
 
@@ -147,9 +159,18 @@ var vcsANSIRe = regexp.MustCompile(`\x1b\[[0-9;?]*[ -/]*[@-~]`)
 // on stderr); glab the same line without prefix.
 var vcsCodeRe = regexp.MustCompile(`one-time code:\s*([A-Za-z0-9-]{4,})`)
 
-// Both verification URLs contain "device" (github.com/login/device,
-// gitlab.com/oauth/device) — that substring keeps unrelated URLs out.
-var vcsURLRe = regexp.MustCompile(`https://[^\s"'<>]+`)
+// The verification URLs carry "device" in the path
+// (github.com/login/device, gitlab.com/oauth/device).
+var vcsDeviceURLRe = regexp.MustCompile(`https://[^\s"'<>]+`)
+
+// vcsLoginHost resolves the login host: the hidden Host field posts
+// empty for the gitlab.com kind (the writer's default parity).
+func vcsLoginHost(kind, host string) string {
+	if kind == catalogs.KindGitLab {
+		return "gitlab.com"
+	}
+	return host
+}
 
 // vcsCLIFor maps a tracker kind onto its credential CLI ("" for kinds
 // without one — the custom host stays paste-only through the writer).
@@ -237,7 +258,10 @@ func (s *Server) handleVCSDeviceLogin(w http.ResponseWriter, ws registry.Workspa
 			return
 		}
 	}
-	s.launchVCSDeviceLogin(ws, kind, host, hasCreds)
+	if s.launchVCSDeviceLogin(ws, kind, host, hasCreds) == nil {
+		s.renderWsSettingsScreen(w, name, "A VCS login is already in progress for "+name+" — wait for it or cancel it first.", nil)
+		return
+	}
 	s.hub.PublishWorkspace()
 	s.renderWsSettingsScreen(w, name, "", nil)
 }
@@ -246,14 +270,15 @@ func (s *Server) handleVCSDeviceLogin(w http.ResponseWriter, ws registry.Workspa
 // prints code + URL (streamed, parsed into the panel state) and polls
 // until the user's browser authorizes — then the stored token is
 // extracted and the writer normalizes the credentials.
-func (s *Server) launchVCSDeviceLogin(ws registry.Workspace, kind, host string, replace bool) {
-	if kind == catalogs.KindGitLab {
-		host = "gitlab.com" // the hidden Host field posts empty (writer parity)
-	}
+func (s *Server) launchVCSDeviceLogin(ws registry.Workspace, kind, host string, replace bool) *vcsLoginState {
+	host = vcsLoginHost(kind, host)
 	key := registry.ContainerName(ws.ContainerID)
 	cli := vcsCLIFor(kind)
 	argv := vcsLoginArgv(cli, host, key, false)
 	st := s.startVCSLogin(key)
+	if st == nil {
+		return nil // a login is already in flight for this workspace
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), vcsDeviceTimeout)
 	s.vcsMu.Lock()
 	st.cancel = cancel
@@ -287,6 +312,7 @@ func (s *Server) launchVCSDeviceLogin(ws registry.Workspace, kind, host string, 
 		},
 		Done: func(err error) { s.endVCSLogin(key) },
 	})
+	return st
 }
 
 // reportCancelled emits the cancel line (the queue's rendered refusal
@@ -302,9 +328,7 @@ func (s *Server) reportCancelled(emit func(string)) error {
 // API — a rejection aborts before anything is written — then the writer
 // normalizes the credentials with the same token.
 func (s *Server) launchVCSCLILogin(ws registry.Workspace, kind, host, token string, replace bool) {
-	if kind == catalogs.KindGitLab {
-		host = "gitlab.com" // the hidden Host field posts empty (writer parity)
-	}
+	host = vcsLoginHost(kind, host)
 	key := registry.ContainerName(ws.ContainerID)
 	cli := vcsCLIFor(kind)
 	argv := vcsLoginArgv(cli, host, key, true)
@@ -327,9 +351,7 @@ func (s *Server) launchVCSCLILogin(ws registry.Workspace, kind, host, token stri
 // canonical hosts files + credential bridge for every path). A typed
 // token is reused; the device flow extracts what the CLI stored.
 func (s *Server) normalizeVCSLogin(ws registry.Workspace, kind, host, typedToken string, replace bool, emit func(string)) error {
-	if kind == catalogs.KindGitLab {
-		host = "gitlab.com" // the hidden Host field posts empty (writer parity)
-	}
+	host = vcsLoginHost(kind, host)
 	token := typedToken
 	if token == "" {
 		var err error
@@ -345,7 +367,11 @@ func (s *Server) normalizeVCSLogin(ws registry.Workspace, kind, host, typedToken
 	if args == nil {
 		return errors.New("no credential writer for tracker " + trackerLabel(kind))
 	}
-	return runScriptStep(s.runner(), s.deps.ConfigureScript, args, emit)
+	if err := runScriptStep(s.runner(), s.deps.ConfigureScript, args, emit); err != nil {
+		return err
+	}
+	emit("VCS credentials written for " + trackerLabel(kind) + ".")
+	return nil
 }
 
 // extractVCSToken reads the token the CLI stored during the device
