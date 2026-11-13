@@ -124,6 +124,37 @@ func TestFrontendSSEListenersStayInsideConnect(t *testing.T) {
 	}
 }
 
+// screenDirty guards the SSE-triggered re-render: while the loaded
+// screen holds user-modified form values the swap is skipped (the
+// 769c146 paste-path fix). HTMLSelectElement has no defaultValue
+// property, so the generic `el.value !== el.defaultValue` comparison
+// made every select read as modified — the re-render was permanently
+// skipped and a stopped container's login warning (disabled button +
+// hint) never re-rendered in. Guard: screenDirty compares selects
+// against their HTML default-selected option, not defaultValue.
+func TestFrontendScreenDirtyHandlesSelects(t *testing.T) {
+	s := startTestServer(t)
+	js := body(t, get(t, s.URL()+"js/main.js"))
+	start := strings.Index(js, "function screenDirty()")
+	if start < 0 {
+		t.Fatal("main.js has no screenDirty() guard")
+	}
+	end := strings.Index(js[start:], "\n  }")
+	if end < 0 {
+		t.Fatal("screenDirty() body not delimited")
+	}
+	body := js[start : start+end]
+	if !strings.Contains(body, `el.tagName === "SELECT"`) {
+		t.Fatal("screenDirty() must branch on SELECT before the defaultValue comparison")
+	}
+	if !strings.Contains(body, "option[selected]") {
+		t.Fatal("selects must compare against the default-selected option (HTMLSelectElement has no defaultValue)")
+	}
+	if strings.Contains(body, "el.defaultValue") && strings.Index(body, `el.tagName === "SELECT"`) > strings.Index(body, "el.defaultValue") {
+		t.Fatal("the defaultValue comparison must not run for selects — every select reads as dirty and the SSE re-render never lands")
+	}
+}
+
 // The busy card carries the op id so the streamed line events land in
 // the right card's log — across re-renders too (GET re-renders the op
 // id from the queue), and confirms refuse while an op is

@@ -884,6 +884,15 @@
       if (el.disabled || el.readOnly) continue;
       if (t === "checkbox" || t === "radio") {
         if (el.checked !== el.defaultChecked) return true;
+      } else if (el.tagName === "SELECT") {
+        // HTMLSelectElement has no defaultValue (a property of inputs
+        // and textareas only) — comparing against it made every select
+        // read as user-modified, so the SSE re-render was permanently
+        // skipped and a stopped container's warning never re-rendered
+        // in. The HTML default-selected rules: the option carrying
+        // selected, else the first option.
+        var def = el.querySelector("option[selected]");
+        if (def ? el.value !== def.value : el.selectedIndex !== 0) return true;
       } else if (el.value !== el.defaultValue) {
         return true;
       }
