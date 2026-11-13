@@ -673,6 +673,8 @@ podman run --rm "${RUN_MODE[@]}" \
   -e XDG_STATE_HOME="/home/dev/.local/state" \
   -e XDG_CACHE_HOME="/home/dev/.cache" \
   -e GIT_CONFIG_GLOBAL="/home/dev/.git_local/gitconfig" \
+  -e GH_CONFIG_DIR="/home/dev/.git_local/gh-cli" \
+  -e GLAB_CONFIG_DIR="/home/dev/.git_local/glab-cli" \
   -e START_OPENCODE="${START_OPENCODE}" \
   -e START_WEB="${START_WEB_ENV}" \
   "${WEBSEARCH_ENV[@]}" \

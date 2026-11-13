@@ -142,6 +142,21 @@ stop-first hint).
 registered project — including running containers. Changes are persisted to
 `sandbox_config.json` and apply on next container start, never live.
 
+### VCS login (re-login)
+
+**Workspace Settings → VCS Tracking** (WebUI) re-establishes a workspace's
+VCS credentials — expired/invalid token, switched account — without
+re-running the wizard: **Save** pastes a token (a running container
+validates it with the in-container `gh`/`glab` CLI first; a rejection
+leaves the stored credentials untouched), and **Login without a token**
+runs the browser device flow — the one-time code and verification link
+render inline while the container CLI polls until authorized
+(github/gitlab only; own-GitLab instances may need an admin OAuth app, in
+which case paste the token). Both paths end in the same host-side
+credential files (`gh-cli/hosts.yml`, `glab-cli/config.yml` or
+`vcs/hosts.yml`, plus the git credential bridge). Login needs a running
+container; pasting works while stopped. See ADR-0035.
+
 ### Update / Uninstall
 
 **Settings → Update** shows installed vs. latest release version, checks for

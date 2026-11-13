@@ -88,11 +88,12 @@ type wsSettingsView struct {
 	// VCS Tracking section (Standard row)
 	VCSCatalog    []catalogs.Tracker
 	TrackerKinds  []string
-	VCSKind       string // preselected kind (from stored vcs_tracking)
-	VCSHost       string // prefill (stored credential file host)
-	VCSHostful    bool   // the Host field renders visible (own GitLab / others)
-	VCSHasCreds   bool   // the tracker's host credential file exists
-	VCSTrackingSt string // stored vcs_tracking label
+	VCSKind       string        // preselected kind (from stored vcs_tracking)
+	VCSHost       string        // prefill (stored credential file host)
+	VCSHostful    bool          // the Host field renders visible (own GitLab / others)
+	VCSHasCreds   bool          // the tracker's host credential file exists
+	VCSTrackingSt string        // stored vcs_tracking label
+	VCSLogin      *vcsLoginView // in-flight device flow: inline code + URL panel (ADR 0035)
 
 	// Advanced rows (§6 matrix; hidden rows are not rendered)
 	Edition      string
@@ -248,9 +249,30 @@ var wsSettingsTemplate = template.Must(template.New("wssettings").
               data-confirm-question="Credentials for this tracker already exist — replace them with the typed token?"
               data-confirm-label="Replace"{{end}}>Save</button>
           {{if .VCSHasCreds}}<button type="submit" class="btn ghost" name="replace" value="keep">Keep credentials</button>{{end}}
+          <button type="submit" class="btn ghost" name="login" value="device"
+            {{if not .Running}}disabled{{end}}
+            {{if and .Running .VCSHasCreds}}data-confirm-popup data-confirm-title="Replace credentials?"
+              data-confirm-question="Credentials for this tracker already exist — replace them via the browser login?"
+              data-confirm-label="Login"{{end}}>Login without a token</button>
         </div>
         {{if .VCSHasCreds}}<div class="field-hint">credentials exist — Save replaces them after the confirm</div>{{end}}
+        {{if not .Running}}<div class="field-hint">login runs inside the container — start the workspace to log in (Save works while stopped)</div>{{end}}
       </form>
+      {{if .VCSLogin}}
+      <div class="confirm-block" data-role="vcs-login">
+        <p class="warn">VCS login in progress — waiting for browser authorization</p>
+        {{if .VCSLogin.Code}}
+        <div class="actions"><code class="cmd">{{.VCSLogin.Code}}</code>
+          <button type="button" class="btn ghost" data-act="copy-login-code" data-command="{{.VCSLogin.Code}}">Copy code</button></div>
+        {{else}}
+        <p class="field-hint">waiting for the one-time code…</p>
+        {{end}}
+        {{if .VCSLogin.URL}}<p><a href="{{.VCSLogin.URL}}" target="_blank" rel="noopener">{{.VCSLogin.URL}}</a></p>{{end}}
+        <form hx-post="{{.P}}workspaces/{{.Name}}/vcs-login/cancel" hx-target="#ws-settings" hx-swap="outerHTML">
+          <button type="submit" class="btn ghost">Cancel login</button>
+        </form>
+      </div>
+      {{end}}
     </div>
 
     {{if .SettingsForm}}
@@ -511,6 +533,13 @@ func (s *Server) handleWsVCSCredentialsPost(w http.ResponseWriter, r *http.Reque
 		workspacesettings.VCSHostFile(label, root) != "" &&
 		fileExists(workspacesettings.VCSHostFile(label, root))
 
+	// The device-flow login (login=device, ADR 0035) needs no token: it
+	// branches before the token validations.
+	if r.PostFormValue("login") == "device" {
+		s.handleVCSDeviceLogin(w, ws, kind, host, hasCreds)
+		return
+	}
+
 	// Validation: a credential write always needs a typed token (TUI
 	// parity — a fresh entry has nothing to keep).
 	writeCreds := token != "" && kind != "none" && (!hasCreds || replace == "1")
@@ -536,14 +565,22 @@ func (s *Server) handleWsVCSCredentialsPost(w http.ResponseWriter, r *http.Reque
 		}
 	}
 	if writeCreds {
-		args := vcsCredScriptArgs(kind, token, host, root, replace == "1" && hasCreds)
-		s.queue.Launch(webOp{
-			Key: key,
-			Run: func(emit func(string)) error {
-				return runScriptStep(s.runner(), s.deps.ConfigureScript, args, emit)
-			},
-			Done: func(err error) { s.hub.PublishWorkspace() },
-		})
+		// A running container validates the pasted token with the
+		// in-container CLI first (ADR 0035): a rejection aborts with the
+		// credentials untouched. Stopped workspaces and CLI-less kinds
+		// (custom host) write through the writer alone, as before.
+		if cli := vcsCLIFor(kind); cli != "" && ws.ContainerStatus == "running" {
+			s.launchVCSCLILogin(ws, kind, host, token, replace == "1" && hasCreds)
+		} else {
+			args := vcsCredScriptArgs(kind, token, host, root, replace == "1" && hasCreds)
+			s.queue.Launch(webOp{
+				Key: key,
+				Run: func(emit func(string)) error {
+					return runScriptStep(s.runner(), s.deps.ConfigureScript, args, emit)
+				},
+				Done: func(err error) { s.hub.PublishWorkspace() },
+			})
+		}
 	}
 	s.hub.PublishWorkspace()
 	s.renderWsSettingsScreen(w, name, "", nil)
@@ -878,6 +915,9 @@ func (s *Server) renderWsSettingsScreen(w http.ResponseWriter, name, errMsg stri
 	if v.Error == "" && v.OpID == 0 && !s.queue.BusyKey(key) {
 		v.Error = s.queue.LastError(key)
 	}
+	// The device flow's inline panel (ADR 0035): code + URL as parsed
+	// from the streamed CLI output; a cancelled login renders nothing.
+	v.VCSLogin = s.vcsLoginViewFor(key)
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := wsSettingsTemplate.ExecuteTemplate(w, "ws-settings", v); err != nil {

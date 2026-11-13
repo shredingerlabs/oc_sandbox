@@ -1,0 +1,18 @@
+# VCS login via in-container gh/glab CLI, normalized through the credential writer
+
+Re-login (VCS login, glossary: re-establishing a registered workspace's VCS credentials — expired/invalid token, switched token/host/account) previously meant pasting a token that was written into `.git_local/` unvalidated; `gh auth login` / `glab auth login` never ran in the product, so the no-PAT device flows the CLIs ship went unused. We add two login paths for the github/gitlab kinds, both run as background ops inside the running workspace container (WebUI-only, queue-serialized): paste token (+host) → `gh auth login --with-token` / `glab auth login --token`, which validates the token against the host API before anything is installed; device flow → `gh auth login --web` / `glab auth login --device`, showing the one-time code + verification URL inline in the WebUI so the user's browser completes the login while the container CLI polls itself to completion (cancel, and failure on code expiry). Both paths end identically: the token is extracted from the CLI and fed to the existing `configure-workspace.sh vcs-credentials` writer, so the hosts files and the credential bridge keep their canonical format and clone/push behave exactly as before; gh's "authenticate git" git-credential-helper offer is skipped. `start.sh` passes `GH_CONFIG_DIR`/`GLAB_CONFIG_DIR` for all editions so the CLIs write into the bind-mounted `.git_local/` (previously set only in the web edition image stage). Custom-host workspaces keep paste-only through the writer; creation-time credential capture is untouched.
+
+## Considered Options
+
+- **Let gh/glab own credentials** (their native config plus `gh auth setup-git` as git credential helper): rejected — two competing git credential mechanisms with unclear precedence, and the writer's canonical files (which in-container clone/push and first-run setup rely on) would no longer be authoritative.
+- **Host-side token validation** (curl/API ping from the host): rejected — duplicates auth logic the image's CLIs already implement, and diverges between providers.
+- **Auto-start a stopped container to allow login**: rejected — machinery for marginal benefit; paste (writer-only) remains available for stopped workspaces.
+- **Write the pasted token even when CLI validation rejects it**: rejected for the running path — installing a known-bad token silently breaks clone/push; aborting keeps the previous credentials usable.
+
+## Consequences
+
+- Validation is asymmetric by design: running containers validate pasted tokens (CLI failure aborts, credentials untouched); stopped workspaces and custom-host workspaces write unvalidated through the writer, as today.
+- Device login works out of the box for github (`.github.com` allowlist entry covers the OAuth polling endpoint) and gitlab.com; an own-GitLab instance needs admin setup (OAuth app with the `device_code` grant, GitLab 17.9+, `client_id`), and failures surface glab's error plus a paste-token hint.
+- No restart is involved: credentials propagate via the bind mount (git credential store, gh and glab read their files per invocation). Re-login is independent of first-run setup state; a failed clone can be retried with the existing setup retry afterwards.
+- Secrets never reach streamed logs or argv (token via stdin/file; ADR 0009/0010 discipline); success reports "Logged in as <user>", no active auth-status checks (passive only).
+- The existing "Replace credentials?" confirmation (ADR 0021) applies to both paths when credentials already exist.

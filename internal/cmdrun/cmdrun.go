@@ -3,7 +3,9 @@
 package cmdrun
 
 import (
+	"bufio"
 	"bytes"
+	"context"
 	"os/exec"
 	"strings"
 	"sync"
@@ -27,12 +29,47 @@ func (ExecRunner) Output(name string, args ...string) (string, error) {
 	return buf.String(), err
 }
 
+// Streamer runs an external command whose combined output matters
+// while it runs (the in-container VCS CLI logins): lines stream through
+// emit as they appear, stdin text feeds the process ("" = closed), and
+// ctx cancellation (the WebUI's cancel affordance) kills it.
+type Streamer interface {
+	Stream(ctx context.Context, name string, args []string, stdin string, emit func(string)) error
+}
+
+// StreamExec implements Streamer via os/exec.
+type StreamExec struct{}
+
+// Stream implements Streamer: merged stdout+stderr scans line by line,
+// stdin "" leaves the child reading EOF (the non-TTY device flow), and
+// ctx done kills the process — Wait reports the kill as the error.
+func (StreamExec) Stream(ctx context.Context, name string, args []string, stdin string, emit func(string)) error {
+	cmd := exec.CommandContext(ctx, name, args...)
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return err
+	}
+	cmd.Stderr = cmd.Stdout // merged into the one streamed pipe
+	if stdin != "" {
+		cmd.Stdin = strings.NewReader(stdin)
+	}
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	sc := bufio.NewScanner(stdout)
+	for sc.Scan() {
+		emit(sc.Text())
+	}
+	return cmd.Wait()
+}
+
 // Fake is a scriptable Runner for tests: every invocation is recorded in
 // Calls and answered by the Script function. It is goroutine-safe: views
 // query the runner both on the event loop and from background cmds.
 type Fake struct {
-	Calls  []Call
-	Script func(name string, args []string) (string, error)
+	Calls        []Call
+	Script       func(name string, args []string) (string, error)
+	StreamScript func(ctx context.Context, name string, args []string, stdin string, emit func(string)) error
 
 	mu sync.Mutex
 }
@@ -61,6 +98,19 @@ func (f *Fake) Output(name string, args ...string) (string, error) {
 		return "", nil
 	}
 	return script(name, append([]string(nil), args...))
+}
+
+// Stream implements Streamer: recorded like every call, answered by
+// StreamScript (nil = instant success, no output).
+func (f *Fake) Stream(ctx context.Context, name string, args []string, stdin string, emit func(string)) error {
+	f.mu.Lock()
+	f.Calls = append(f.Calls, Call{Name: name, Args: append([]string(nil), args...)})
+	script := f.StreamScript
+	f.mu.Unlock()
+	if script == nil {
+		return nil
+	}
+	return script(ctx, name, append([]string(nil), args...), stdin, emit)
 }
 
 // Lines splits runner output into non-empty trimmed lines.

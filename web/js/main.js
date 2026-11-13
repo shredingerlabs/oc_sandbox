@@ -327,6 +327,17 @@
     });
   });
 
+  // VCS login panel (ADR 0035): copy the one-time code — the card-grid
+  // copy-command handler is .card-scoped, the settings screen needs its
+  // own delegated copy.
+  screenEl.addEventListener("click", function (ev) {
+    var btn = ev.target.closest('[data-act="copy-login-code"]');
+    if (!btn || btn.disabled) return;
+    var code = btn.getAttribute("data-command") || "";
+    if (navigator.clipboard) navigator.clipboard.writeText(code);
+    btn.textContent = "copied";
+  });
+
   // chainStart runs the start op (queued-not-refused on the shared
   // opRunner) and continues the access chain once the workspace drains.
   // The requested access rides the POST (#154): a running container

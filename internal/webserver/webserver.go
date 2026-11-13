@@ -23,6 +23,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/shredingerlabs/oc-sandbox/internal/cmdrun"
@@ -76,16 +77,20 @@ type Server struct {
 
 	setups *setupState   // first-run setup sessions per workspace (#161)
 	closed chan struct{} // closed by Close — the setup relay pollers stop
+
+	vcsMu     sync.Mutex                // guards vcsLogins
+	vcsLogins map[string]*vcsLoginState // device-flow state per queue key (ADR 0035)
 }
 
 // New creates an unstarted server with a fresh per-launch token.
 func New(opts Options) *Server {
 	s := &Server{
-		opts:   opts,
-		token:  newToken(),
-		hub:    newHub(),
-		setups: &setupState{setups: map[string]*setupSession{}},
-		closed: make(chan struct{}),
+		opts:      opts,
+		token:     newToken(),
+		hub:       newHub(),
+		setups:    &setupState{setups: map[string]*setupSession{}},
+		closed:    make(chan struct{}),
+		vcsLogins: map[string]*vcsLoginState{},
 	}
 	s.deps = opts.Deps
 	s.errSink = &redactingLog{next: &s.errLog}
@@ -200,6 +205,7 @@ func (s *Server) Start() error {
 	inner.HandleFunc("GET /workspace-settings", s.handleWsSettingsMenu)
 	inner.HandleFunc("POST /workspaces/{name}/settings", s.handleWsSettingsPost)
 	inner.HandleFunc("POST /workspaces/{name}/vcs-credentials", s.handleWsVCSCredentialsPost)
+	inner.HandleFunc("POST /workspaces/{name}/vcs-login/cancel", s.handleVCSLoginCancel)
 	inner.HandleFunc("POST /workspaces/{name}/providers", s.handleWsProvidersPost)
 	inner.HandleFunc("POST /workspaces/{name}/remove-from-list", s.handleWsRemoveFromList)
 	if s.deps != nil {
