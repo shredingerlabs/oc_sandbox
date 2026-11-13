@@ -178,6 +178,29 @@ func cardOf(t *testing.T, s *Server, name string) string {
 	return doc[i : i+end]
 }
 
+// waitForSettledCard polls the card until the abort/failure/cancel end
+// state — recovery action back, setup slot gone. Never settle for the
+// intermediate "slot gone" frame: the card render reads the session
+// table and the recovery condition in separate locked reads
+// (workspaces.go), so a poll can catch a torn frame with the slot gone
+// and the retry row not yet settled; the relay's SSE push re-renders it
+// milliseconds later — invisible to a human, caught by this poll. The
+// deadline keeps a genuinely stuck relay a failure.
+func waitForSettledCard(t *testing.T, f *setupFixture, cause string) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		card := cardOf(t, f.s, "alpha")
+		if strings.Contains(card, `data-act="setup-retry"`) && !strings.Contains(card, `data-setup-slot`) {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("recovery action must reappear after %s, card:\n%s", cause, card)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
 // POST …/setup/retry (#161, spec §11): the machine runs start → clone →
 // CBM as streamed task lines; when the skills stage arrives the host
 // terminal window auto-opens running the exact podman-exec prompt
@@ -276,21 +299,10 @@ func TestSetupRelayExitTwoAbortsFlagFree(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	deadline := time.Now().Add(2 * time.Second)
-	var card string
-	for time.Now().Before(deadline) {
-		card = cardOf(t, f.s, "alpha")
-		if !strings.Contains(card, `data-setup-slot`) {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
+	waitForSettledCard(t, f, "abort")
 	waitFlag(t, f.root, "setup_skills_complete", false)
 	waitFlag(t, f.root, "setup_complete", false)
 	waitFlag(t, f.root, "setup_cbm_complete", true) // partial progress preserved
-	if !strings.Contains(card, `data-act="setup-retry"`) {
-		t.Fatalf("recovery action must reappear after abort, card:\n%s", card)
-	}
 }
 
 // Any other exit opens granular recovery: no flags, retry reappears.
@@ -304,20 +316,9 @@ func TestSetupRelayExitOtherRecovers(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	deadline := time.Now().Add(2 * time.Second)
-	var card string
-	for time.Now().Before(deadline) {
-		card = cardOf(t, f.s, "alpha")
-		if !strings.Contains(card, `data-setup-slot`) {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
+	waitForSettledCard(t, f, "failure")
 	waitFlag(t, f.root, "setup_skills_complete", false)
 	waitFlag(t, f.root, "setup_complete", false)
-	if !strings.Contains(card, `data-act="setup-retry"`) {
-		t.Fatalf("recovery action must reappear after failure, card:\n%s", card)
-	}
 }
 
 // Cancel setup marks a pending session abandoned: no flags, partial
@@ -335,21 +336,10 @@ func TestSetupCancelAbandonsAndIgnoresLateStatus(t *testing.T) {
 		t.Fatalf("setup/cancel status = %d, want 200", resp.StatusCode)
 	}
 
-	deadline := time.Now().Add(2 * time.Second)
-	var card string
-	for time.Now().Before(deadline) {
-		card = cardOf(t, f.s, "alpha")
-		if !strings.Contains(card, `data-setup-slot`) {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
+	waitForSettledCard(t, f, "cancel")
 	waitFlag(t, f.root, "setup_skills_complete", false)
 	waitFlag(t, f.root, "setup_complete", false)
 	waitFlag(t, f.root, "setup_cbm_complete", true)
-	if !strings.Contains(card, `data-act="setup-retry"`) {
-		t.Fatalf("recovery action must reappear after cancel, card:\n%s", card)
-	}
 
 	// the late status file for the cancelled session is ignored.
 	if err := os.WriteFile(statusFileOf(cmd), []byte("0"), 0o644); err != nil {
