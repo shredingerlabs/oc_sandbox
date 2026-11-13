@@ -170,3 +170,12 @@ func (r *opRunner) CurrentOpID(key string) int {
 	}
 	return 0
 }
+
+// LastOpID returns the key's most recent op's id (0 before the first
+// op) — the settings screen's log pane rides it after the op ends so
+// the streamed outcome stays on the screen (ADR 0035 follow-up).
+func (r *opRunner) LastOpID(key string) int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.lastOp[key]
+}

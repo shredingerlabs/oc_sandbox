@@ -41,10 +41,16 @@ type opRunner struct {
 	// screens render it as the flow's refusal text (the TUI pane's aiErr
 	// path, #110). Cleared when the next op for the key launches.
 	lastErr map[string]string
+
+	// lastOp carries the most recent op's id per key — the settings
+	// screen's log pane keeps it after the op ends, so the streamed
+	// outcome stays readable (the pane re-fills from the tab's line
+	// memory) instead of vanishing with the op.
+	lastOp map[string]int
 }
 
 func newOpRunner(hub *Hub) *opRunner {
-	return &opRunner{hub: hub, running: map[string]*webOp{}, lastErr: map[string]string{}}
+	return &opRunner{hub: hub, running: map[string]*webOp{}, lastErr: map[string]string{}, lastOp: map[string]int{}}
 }
 
 // Launch enqueues op and starts it at once when the queue rules allow
@@ -168,6 +174,7 @@ func (r *opRunner) run(op *webOp) {
 		})
 		r.mu.Lock()
 		delete(r.running, op.Key)
+		r.lastOp[op.Key] = op.ID
 		if err != nil {
 			// The failure text prefers the op's own last output line —
 			// script die messages name the cause; "exit status N" alone

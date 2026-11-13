@@ -870,6 +870,27 @@
   var logLines = {};   // op id → array of streamed lines
   var lastLineId = 0;  // SSE id dedupe across reconnect replay
 
+  // screenDirty reports user-modified form values on the loaded
+  // screen: typed text/password/textarea content, moved selects,
+  // toggled checkboxes. The SSE re-render yields to these (the
+  // loadScreen swap would replace the DOM wholesale) — a re-render is
+  // never worth the typed values it would discard.
+  function screenDirty() {
+    var els = screenEl.querySelectorAll("input, select, textarea");
+    for (var i = 0; i < els.length; i++) {
+      var el = els[i];
+      var t = el.type;
+      if (t === "hidden" || t === "submit" || t === "button" || t === "file") continue;
+      if (el.disabled || el.readOnly) continue;
+      if (t === "checkbox" || t === "radio") {
+        if (el.checked !== el.defaultChecked) return true;
+      } else if (el.value !== el.defaultValue) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   function loadScreen(name, spin) {
     if (spin) { // slow discovery screens answer the wait visibly
       currentScreen = name;
@@ -1134,7 +1155,13 @@
       try { d = JSON.parse(ev.data); } catch (e) {}
       if (d && d.state) onCreateWorkspace(d); // the create chain's terminal event (#156)
       else if (currentNav === "ws-open") renderWorkspaces(); // #153: reactive cards
-      else if (currentScreen) loadScreen(currentScreen);
+      // An op ending anywhere publishes one of these — a settings
+      // screen mid-edit must not be re-rendered under the cursor or
+      // the typed token/host values die before Save (the VCS login
+      // paste path died exactly here). While the form is dirty the
+      // screen just holds: the user's own next action (submit, nav)
+      // re-renders authoritatively, and a later publish catches up.
+      else if (currentScreen && !screenDirty()) loadScreen(currentScreen);
     });
     es.addEventListener("update", function (ev) { onUpdate(ev); });
     es.addEventListener("shutdown", function () {

@@ -109,7 +109,7 @@ type wsSettingsView struct {
 
 	PresetsHint string
 	SetupDone   bool // first-run setup flags (the retry link's context)
-	OpID        int  // in-flight op id — the log pane's data-op
+	OpID        int  // in-flight (or last) op id — the log pane's data-op
 	LogLines    []string
 }
 
@@ -910,9 +910,15 @@ func (s *Server) renderWsSettingsScreen(w http.ResponseWriter, name, errMsg stri
 	// workspace renders as the flow's refusal (the async configure
 	// steps' error path — script die messages stream into the log pane
 	// while the op runs, and the outcome persists here after it ends).
+	// The pane itself keeps the last op's id: the streamed lines stay
+	// readable after the op ends (client memory re-fill) instead of
+	// vanishing at the op's end.
 	key := registry.ContainerName(ws.ContainerID)
 	v.OpID = s.queue.CurrentOpID(key)
-	if v.Error == "" && v.OpID == 0 && !s.queue.BusyKey(key) {
+	if v.OpID == 0 {
+		v.OpID = s.queue.LastOpID(key)
+	}
+	if v.Error == "" && !s.queue.BusyKey(key) {
 		v.Error = s.queue.LastError(key)
 	}
 	// The device flow's inline panel (ADR 0035): code + URL as parsed
