@@ -323,6 +323,26 @@ fi
 # covers existing workspaces and post-update starts alike — init-workspace.sh
 # is creation-only and cannot (it hard-fails on non-empty roots).
 if $USE_STT; then
+  # Language pin (#168, D3): read the pinned language ONCE per start,
+  # BEFORE the write-if-absent seeding below (a just-seeded file mounts
+  # nothing new — its content is the member's own auto default anyway).
+  # jq-guarded like the v2 migration above; a missing jq or an absent/
+  # invalid file falls back to "auto" (the member's own default).
+  STT_LANG="auto"
+  STT_MOUNT_ARGS=()
+  if [[ -f "${CONFIG_DIR}/stt.json" ]]; then
+    if command -v jq >/dev/null 2>&1; then
+      STT_LANG="$(jq -r '.language // "auto"' "${CONFIG_DIR}/stt.json" 2>/dev/null || true)"
+    fi
+    STT_LANG="${STT_LANG//[[:space:]]/}"
+    if [[ -z "$STT_LANG" ]]; then
+      STT_LANG="auto"
+    fi
+    # ADR 0034 allowlist pattern: the settings file is the persistent
+    # record traveling with the workspace; mounted read-only into the
+    # member only when the file exists.
+    STT_MOUNT_ARGS=(-v "${CONFIG_DIR}/stt.json:/etc/stt/stt.json:ro")
+  fi
   # Workspace STT settings (spec story 26): the language pin lives in
   # stt.json, hand-editable. Write only if absent — a user's pinned
   # language must survive every start (the STT mount reads it later).
@@ -336,6 +356,30 @@ if $USE_STT; then
     rm -rf "${CONFIG_DIR}/plugins/dictation"
     mkdir -p "${CONFIG_DIR}/plugins"
     cp -r "${REPO_ROOT}/templates/opencode/plugins/dictation" "${CONFIG_DIR}/plugins/dictation"
+  fi
+  # Keybind freeing (D1): the stock `variant.cycle` chord defaults to
+  # ctrl+t and would shadow the dictation command. Seed cli.json with that
+  # one keybinding set to "none" (the voice-de cli.json pattern) — only
+  # this one key is ever written, and never over a value the user chose.
+  # variant.cycle stays reachable from the command palette; only the raw
+  # chord is freed.
+  CLI_JSON="${CONFIG_DIR}/cli.json"
+  if [[ ! -f "$CLI_JSON" ]]; then
+    printf '{\n  "$schema": "https://opencode.ai/v2/cli.json",\n  "keybinds": {\n    "variant.cycle": "none"\n  }\n}\n' > "$CLI_JSON"
+  elif command -v jq >/dev/null 2>&1; then
+    if ! jq -e '(.keybinds // {}) | has("variant.cycle")' "$CLI_JSON" >/dev/null 2>&1; then
+      # Merge only the missing key (a jq round-trip reformats whitespace,
+      # but every existing key/value is preserved untouched).
+      cli_tmp="$(mktemp "${CONFIG_DIR}/.cli.json.XXXXXX")"
+      if jq '.keybinds = ((.keybinds // {}) + {"variant.cycle": "none"})' "$CLI_JSON" > "$cli_tmp" 2>/dev/null; then
+        mv "$cli_tmp" "$CLI_JSON"
+      else
+        rm -f "$cli_tmp"
+        echo "Warning: could not free the ctrl+t keybind (cli.json merge failed) — dictation may shadow variant.cycle" >&2
+      fi
+    fi
+  else
+    echo "Warning: jq not found — cannot free the ctrl+t keybind in an existing cli.json (dictation may shadow variant.cycle)" >&2
   fi
 fi
 
@@ -712,9 +756,16 @@ if ! $OFFLINE; then
     fi
     STT_NAME="oc-stt-${SANDBOX_ID}"
     echo "==> Starting the oc-stt pod member (${STT_NAME}) ..."
+    # Language pin (next-start apply, #168): STT_LANG was read once per
+    # start above; the file is re-read only when the member is recreated
+    # with the pod — no live-apply of any kind. The member applies the
+    # language server-side (entrypoint --language); clients stay dumb
+    # (no client-side language parameter anywhere).
     podman run -d \
       --pod "$POD_NAME" \
       --name "$STT_NAME" \
+      -e "STT_LANG=${STT_LANG}" \
+      "${STT_MOUNT_ARGS[@]}" \
       oc-stt
   fi
 else
