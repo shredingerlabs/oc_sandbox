@@ -332,6 +332,28 @@ func TestE2ECreateSingleClickActivates(t *testing.T) {
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
+	// The registry write hands off to the setup flow, which keeps writing
+	// workspace state in the background (start stage → seeding, cbm/skills
+	// stages → opencode.json). Wait until the flow stops writing: either
+	// the start stage settled on its failure menu (no podman binary in
+	// this environment) or every stage ran through (setup_complete is
+	// patched LAST, machine.go finish) — TempDir cleanup must never race
+	// a live writer.
+	root := filepath.Join(home, "oc-sandbox", "singleproj")
+	deadline = time.Now().Add(30 * time.Second)
+	for {
+		b, err := os.ReadFile(filepath.Join(root, ".opencode_config", "sandbox_config.json"))
+		if err == nil && strings.Contains(string(b), `"setup_complete": true`) {
+			break
+		}
+		if strings.Contains(string(rec.contents()), "Starting container failed") {
+			break
+		}
+		if !time.Now().Before(deadline) {
+			t.Fatalf("setup flow never settled (no failure menu, no setup_complete); screen:\n%s", screenOf(t, rec))
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
 }
 
 // E2E: a stalled podman ps (rootless lock contention) must not freeze

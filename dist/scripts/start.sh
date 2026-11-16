@@ -17,6 +17,8 @@
 #
 # Flags:
 #   --use_proxy        starts the Squid egress-allowlist proxy and uses it
+#   --use_stt          starts the oc-stt pod member (local dictation,
+#                      whisper.cpp; never under --offline)
 #   --search_mode      web search: websearch (Exa/Parallel, default), none
 #                      or searxng (oc-searxng pod member + SearXNG MCP;
 #                      not combinable with --use_proxy, ADR 0026)
@@ -51,6 +53,7 @@ if [[ "$WORKSPACE_ROOT" == "--help" || "$WORKSPACE_ROOT" == "-h" ]]; then
   echo "Usage: $0 <workspace-root> --edition <edition> [Flags]"
   echo "  --edition          select the container edition (required)"
   echo "  --use_proxy        start and use the Squid egress-allowlist proxy"
+  echo "  --use_stt          start the oc-stt pod member (local dictation)"
   echo "  --search_mode <m>  web search: websearch (default), none, searxng"
   echo "  --offline          no network (--network=none)"
   echo "  --hil_mode         USB passthrough for oscilloscope and MCU devices"
@@ -62,11 +65,12 @@ if [[ "$WORKSPACE_ROOT" == "--help" || "$WORKSPACE_ROOT" == "-h" ]]; then
   exit 0
 fi
 if [[ -z "$WORKSPACE_ROOT" ]]; then
-  echo "Usage: $0 <workspace-root> --edition <edition> [--use_proxy] [--search_mode <none|websearch|searxng>] [--offline] [--hil_mode] [--cbm_ui] [--start_opencode] [--start_web] [--detach]" >&2
+  echo "Usage: $0 <workspace-root> --edition <edition> [--use_proxy] [--use_stt] [--search_mode <none|websearch|searxng>] [--offline] [--hil_mode] [--cbm_ui] [--start_opencode] [--start_web] [--detach]" >&2
   echo "" >&2
   echo "  <workspace-root>        path to the workspace root (see init-workspace.sh)" >&2
   echo "  --edition <edition>   select the container edition (required)" >&2
   echo "  --use_proxy           start and use the Squid egress-allowlist proxy" >&2
+  echo "  --use_stt             start the oc-stt pod member (local dictation)" >&2
   echo "  --search_mode <m>     web search: websearch (default), none, searxng" >&2
   echo "  --offline             no network (--network=none)" >&2
   echo "  --hil_mode            USB passthrough for oscilloscope + MCU devices" >&2
@@ -78,6 +82,7 @@ fi
 shift
 
 USE_PROXY=false
+USE_STT=false
 SEARCH_MODE="websearch"
 OFFLINE=false
 HIL_MODE=false
@@ -95,6 +100,7 @@ while [[ $# -gt 0 ]]; do
       shift 2
       ;;
     --use_proxy)        USE_PROXY=true; shift ;;
+    --use_stt)          USE_STT=true; shift ;;
     --search_mode)
       [[ $# -ge 2 ]] || { echo "--search_mode requires a value" >&2; exit 1; }
       SEARCH_MODE="$2"
@@ -113,7 +119,7 @@ while [[ $# -gt 0 ]]; do
       ;;
     *)
       echo "Unknown flag: $1" >&2
-      echo "Usage: $0 <workspace-root> --edition <edition> [--use_proxy] [--search_mode <none|websearch|searxng>] [--offline] [--hil_mode] [--cbm_ui] [--start_opencode] [--start_web] [--detach]" >&2
+      echo "Usage: $0 <workspace-root> --edition <edition> [--use_proxy] [--use_stt] [--search_mode <none|websearch|searxng>] [--offline] [--hil_mode] [--cbm_ui] [--start_opencode] [--start_web] [--detach]" >&2
       exit 1
       ;;
   esac
@@ -126,7 +132,7 @@ done
 # and the custom edition Dockerfile — no hardcoded whitelist.
 [[ -n "${EDITION:-}" ]] || {
   echo "Error: --edition <edition> is required." >&2
-  echo "Usage: $0 <workspace-root> --edition <edition> [--use_proxy] [--search_mode <none|websearch|searxng>] [--offline] [--hil_mode] [--cbm_ui] [--start_opencode] [--start_web] [--detach]" >&2
+  echo "Usage: $0 <workspace-root> --edition <edition> [--use_proxy] [--use_stt] [--search_mode <none|websearch|searxng>] [--offline] [--hil_mode] [--cbm_ui] [--start_opencode] [--start_web] [--detach]" >&2
   exit 1
 }
 
@@ -154,6 +160,13 @@ if $SEARCH_SEARXNG && $USE_PROXY; then
   echo "  the SearXNG MCP fetches arbitrary URLs; search and the egress allowlist" >&2
   echo "  exclude each other). Start without --use_proxy or use --search_mode websearch." >&2
   exit 1
+fi
+# Dictation + offline is NOT an error (unlike searxng/cbm_ui above): an
+# offline start of a dictation-enabled workspace just must not start the
+# STT member — silent skip (no member, no publish, no STT_URL; the pod
+# block below is guarded by ! $OFFLINE anyway).
+if $USE_STT && $OFFLINE; then
+  echo "Note: --offline excludes the STT member (dictation stays off for this run)" >&2
 fi
 
 if [[ ! "$EDITION" =~ ^[a-z0-9_-]+$ ]]; then
@@ -303,6 +316,27 @@ if [[ -f "${CONFIG_DIR}/opencode.json" ]] && command -v jq >/dev/null 2>&1; then
   # block the start.
   bash "${SCRIPT_DIR}/configure-workspace.sh" search-mode "$WORKSPACE_ROOT" --mode "$SEARCH_MODE" ||
     echo "Warning: applying search-mode to opencode.json failed — it retries on the next start." >&2
+fi
+
+# --- Dictation seeding (every start, idempotent) --------------------------------
+# Plain bash here (no jq needed): runs on EVERY start under --use_stt so it
+# covers existing workspaces and post-update starts alike — init-workspace.sh
+# is creation-only and cannot (it hard-fails on non-empty roots).
+if $USE_STT; then
+  # Workspace STT settings (spec story 26): the language pin lives in
+  # stt.json, hand-editable. Write only if absent — a user's pinned
+  # language must survive every start (the STT mount reads it later).
+  if [[ ! -f "${CONFIG_DIR}/stt.json" ]]; then
+    printf '{"language": "auto"}\n' > "${CONFIG_DIR}/stt.json"
+  fi
+  # Dictation plugin refresh: overwrite OUR OWN seeded files on every
+  # start (the update story — image/plugin updates land on the next
+  # start). Exactly this dir, nothing else in plugins/ is touched.
+  if [[ -d "${REPO_ROOT}/templates/opencode/plugins/dictation" ]]; then
+    rm -rf "${CONFIG_DIR}/plugins/dictation"
+    mkdir -p "${CONFIG_DIR}/plugins"
+    cp -r "${REPO_ROOT}/templates/opencode/plugins/dictation" "${CONFIG_DIR}/plugins/dictation"
+  fi
 fi
 
 # --- Proxy ----------------------------------------------------------------------
@@ -488,6 +522,28 @@ if $SEARCH_SEARXNG; then
   SEARXNG_ENV=(-e "SEARXNG_URL=http://127.0.0.1:8080")
 fi
 
+# --- STT member (dictation) -----------------------------------------------------
+# Per ADR 0029/0036 the whisper.cpp server runs as a per-pod member
+# (detached, oc-stt image, no publishings on the member, unique per-pod
+# name; started during pod creation below). In-pod port constant 8090 —
+# whisper.cpp's 8080 default collides with searxng's in-pod 8080, and
+# both members may coexist in one pod. The one loopback publish lives on
+# POD CREATE (web 4096 / CBM 9749 precedent, ADR 0029), never on the
+# member. --offline excludes the member entirely (silent skip above).
+STT_PORT_ARGS=()
+STT_ENV=()
+if $USE_STT && ! $OFFLINE; then
+  STT_HOST_PORT=$(select_free_host_port 8090 "the STT member")
+  if [[ "$STT_HOST_PORT" != "8090" ]]; then
+    echo "Note: host port 8090 is in use; the STT member is published at http://127.0.0.1:${STT_HOST_PORT}." >&2
+  fi
+  STT_PORT_ARGS=(-p "127.0.0.1:${STT_HOST_PORT}:8090")
+  # Bare pod-internal loopback constant on the workspace container —
+  # never the scanned host port (ADR 0029: scans are never persisted;
+  # `podman port` stays the truth).
+  STT_ENV=(-e "STT_URL=http://127.0.0.1:8090")
+fi
+
 # --- HIL devices ----------------------------------------------------------------
 #
 # Important: devices are NO longer bound as individual --device snapshots.
@@ -554,6 +610,56 @@ if $HIL_MODE; then
   done
 fi
 
+# --- Dictation audio: PulseAudio socket cascade (ADR 0036) -----------------------
+# parecord runs INSIDE the workspace container, so the mount + env go on
+# the workspace run vector below — never on the STT member. Detection
+# cascade, first existing socket wins:
+#   1) ${XDG_RUNTIME_DIR}/pulse/<default socket> ("native" first, then the
+#      first entry of the pulse dir — deterministic: the standard name
+#      wins, globs only cover non-standard default socket names),
+#   2) WSLg path — a start.sh VARIABLE so tests can stub it,
+#   3) WSLg runtime-dir fallback: ${XDG_RUNTIME_DIR}/../wslg/PulseServer.
+# No socket → empty arrays: no mount, no env — the STT member still runs
+# (the dictation sidecar works), only TUI recording degrades.
+STT_WSLG_PULSE="${STT_WSLG_PULSE:-/mnt/wslg/PulseServer}"
+STT_DEVICE_ARGS=()
+STT_AUDIO_ENV=()
+STT_PULSE_SOCKET=""
+if $USE_STT && ! $OFFLINE; then
+  if [[ -n "${XDG_RUNTIME_DIR:-}" ]]; then
+    shopt -s nullglob
+    for stt_pulse_cand in "${XDG_RUNTIME_DIR}/pulse/native" "${XDG_RUNTIME_DIR}/pulse/"*; do
+      if [[ -e "$stt_pulse_cand" ]]; then
+        STT_PULSE_SOCKET="$stt_pulse_cand"
+        break
+      fi
+    done
+    shopt -u nullglob
+  fi
+  if [[ -z "$STT_PULSE_SOCKET" && -e "$STT_WSLG_PULSE" ]]; then
+    STT_PULSE_SOCKET="$STT_WSLG_PULSE"
+  fi
+  if [[ -z "$STT_PULSE_SOCKET" && -n "${XDG_RUNTIME_DIR:-}" \
+       && -e "${XDG_RUNTIME_DIR}/../wslg/PulseServer" ]]; then
+    STT_PULSE_SOCKET="${XDG_RUNTIME_DIR}/../wslg/PulseServer"
+  fi
+  if [[ -n "$STT_PULSE_SOCKET" ]]; then
+    # Bind the first existing socket at the SAME path in the container
+    # (PULSE_SERVER=unix:<path> needs the socket at the path the client
+    # was told). SELinux note: a socket mount must not be relabeled —
+    # SELinux distros want `label=disable` appended here; the repo's
+    # other mounts use :Z, which would break pulse on those hosts
+    # (Ubuntu/AppArmor unaffected; real-SELinux behavior = manual
+    # matrix). Deliberately plain, no :Z, no :ro.
+    STT_DEVICE_ARGS=(-v "${STT_PULSE_SOCKET}:${STT_PULSE_SOCKET}")
+    STT_AUDIO_ENV=(-e "PULSE_SERVER=unix:${STT_PULSE_SOCKET}")
+  else
+    echo "Note: no PulseAudio socket found — dictation recording is" >&2
+    echo "  unavailable (side effect, not a blocker: the STT member still" >&2
+    echo "  runs; the dictation sidecar path works)." >&2
+  fi
+fi
+
 # --- One pod per workspace (ADR 0029) --------------------------------------------
 # Lifecycle decision: deterministic recreate on every start.
 # `podman pod create --replace` could not be verified on podman 4.9.3
@@ -570,7 +676,8 @@ if ! $OFFLINE; then
     --userns=keep-id \
     --network pasta:--ipv4-only \
     "${CBM_PORT_ARGS[@]}" \
-    "${WEB_PORT_ARGS[@]}"
+    "${WEB_PORT_ARGS[@]}" \
+    "${STT_PORT_ARGS[@]}"
   POD_ARGS=(--pod "$POD_NAME")
   CONTAINER_PORT_ARGS=()
   USERNS_ARGS=()
@@ -595,6 +702,20 @@ if ! $OFFLINE; then
       --name "$PROXY_NAME" \
       "${PROXY_MOUNT_ARGS[@]}" \
       oc-proxy
+  fi
+  if $USE_STT; then
+    # Lazy image build (searxng precedent): builds once on the host,
+    # whisper.cpp + model are baked into the image (no runtime download).
+    if ! podman image exists oc-stt 2>/dev/null; then
+      echo "==> Building the oc-stt image ..."
+      podman build --network host -t oc-stt -f "${REPO_ROOT}/stt/Dockerfile" "${REPO_ROOT}/stt/"
+    fi
+    STT_NAME="oc-stt-${SANDBOX_ID}"
+    echo "==> Starting the oc-stt pod member (${STT_NAME}) ..."
+    podman run -d \
+      --pod "$POD_NAME" \
+      --name "$STT_NAME" \
+      oc-stt
   fi
 else
   # Offline: no pod, no members — publishings stay (as before the change)
@@ -667,6 +788,7 @@ podman run --rm "${RUN_MODE[@]}" \
   "${CONTAINER_PORT_ARGS[@]}" \
   "${CBM_ENV_UI[@]}" \
   "${DEVICE_ARGS[@]}" \
+  "${STT_DEVICE_ARGS[@]}" \
   -e TERM="${TERM:-xterm-256color}" \
   -e XDG_CONFIG_HOME="/home/dev/.config" \
   -e XDG_DATA_HOME="/home/dev/.local/share" \
@@ -679,6 +801,8 @@ podman run --rm "${RUN_MODE[@]}" \
   -e START_WEB="${START_WEB_ENV}" \
   "${WEBSEARCH_ENV[@]}" \
   "${SEARXNG_ENV[@]}" \
+  "${STT_ENV[@]}" \
+  "${STT_AUDIO_ENV[@]}" \
   -v "${WORKSPACE_DIR}:/home/dev/workspace:Z" \
   -v "${CONFIG_DIR}:/home/dev/.config/opencode:Z" \
   -v "${DATA_DIR}:/home/dev/.local/share/opencode:Z" \

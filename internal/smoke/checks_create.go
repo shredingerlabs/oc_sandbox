@@ -143,7 +143,7 @@ func checkCreateChain(home, root string) Item {
 		p.reasonf("sandbox_config.json: %v", scErr)
 		return p.finish()
 	}
-	for _, want := range []string{`"start_option": "web"`, `"search_mode": "searxng"`, `"container_edition": "swdev"`} {
+	for _, want := range []string{`"start_option": "web"`, `"search_mode": "searxng"`, `"container_edition": "swdev"`, `"use_stt": true`} {
 		if !strings.Contains(string(sc), want) {
 			p.reasonf("sandbox_config.json misses %q", want)
 		}

@@ -507,6 +507,202 @@ if grep -q -- ':3128:3128' "$PODMAN_LOG"; then
 fi
 printf 'start proxy pod member tests passed\n'
 
+# --- Dictation engine (#164/#166): --use_stt --------------------------------------
+# use_stt startet den oc-stt Pod-Member (whisper.cpp, In-Pod-Konstante 8090,
+# != searxng 8080): Loopback-Publish haengt am POD CREATE (web/CBM-Prezedenz,
+# ADR 0029), nie am Member; der workspace container zeigt auf die bare
+# In-Pod-Konstante STT_URL=http://127.0.0.1:8090.
+if ! bash "$PROJECT_ROOT/dist/scripts/start.sh" --help | grep -q -- '--use_stt'; then
+  printf 'help text does not mention --use_stt\n' >&2
+  exit 1
+fi
+
+: > "$PODMAN_LOG"
+if ! bash "$PROJECT_ROOT/dist/scripts/start.sh" "$test_home" --edition swdev --use_stt --detach > /dev/null 2>&1; then
+  printf 'start script failed with mocked podman (use_stt)\n' >&2
+  exit 1
+fi
+pod_create_line="$(grep -m1 -- 'pod create --name opencode-sandbox-pod-' "$PODMAN_LOG")"
+if ! grep -q -- '-p 127.0.0.1:8090:8090' <<<"$pod_create_line"; then
+  printf 'use_stt start did not publish the STT loopback on pod create: %s\n' "$pod_create_line" >&2
+  exit 1
+fi
+stt_run_line="$(grep -m1 -- '--name oc-stt-' "$PODMAN_LOG" || true)"
+if [[ -z "$stt_run_line" ]]; then
+  printf 'no oc-stt pod member run\n' >&2
+  exit 1
+fi
+if [[ "$stt_run_line" != *'run -d --pod opencode-sandbox-pod-'*' --name oc-stt-'* ]]; then
+  printf 'stt member run missing --pod or per-pod name: %s\n' "$stt_run_line" >&2
+  exit 1
+fi
+if [[ "$stt_run_line" == *' -p '* ]]; then
+  printf 'stt member run carries a publish (publish lives on pod create, ADR 0029): %s\n' "$stt_run_line" >&2
+  exit 1
+fi
+if [[ "$stt_run_line" == *'--network'* ]]; then
+  printf 'stt member run carries --network (pod members inherit the pod netns): %s\n' "$stt_run_line" >&2
+  exit 1
+fi
+# Bare In-Pod-Konstante auf dem workspace container (nie der gescannte
+# Host-Port, ADR 0029) — und ohne 8080-Kollision mit SEARXNG_URL.
+grep -q -- 'STT_URL=http://127.0.0.1:8090' "$PODMAN_LOG"
+! grep -q -- 'STT_URL=http://127.0.0.1:8080' "$PODMAN_LOG"
+if grep -q -- 'PULSE_SERVER' "$PODMAN_LOG"; then
+  printf 'use_stt start without any PulseAudio socket grew a PULSE_SERVER env\n' >&2
+  exit 1
+fi
+# Kein STT-irgendwas ohne --use_stt.
+: > "$PODMAN_LOG"
+bash "$PROJECT_ROOT/dist/scripts/start.sh" "$test_home" --edition swdev --detach > /dev/null 2>&1
+if grep -q -- 'oc-stt\|STT_URL\|8090:8090' "$PODMAN_LOG"; then
+  printf 'plain start grew STT artifacts (opt-in flag must gate everything)\n' >&2
+  exit 1
+fi
+printf 'start stt member tests passed\n'
+
+# --- Dictation + searxng coexistence ----------------------------------------------
+# Beide Member koexistieren in einem Pod ohne Port-Konflikt (8090 vs 8080).
+: > "$PODMAN_LOG"
+if ! bash "$PROJECT_ROOT/dist/scripts/start.sh" "$test_home" --edition swdev --search_mode searxng --use_stt --detach > /dev/null 2>&1; then
+  printf 'start script failed with mocked podman (searxng + use_stt)\n' >&2
+  exit 1
+fi
+grep -q -- '--name oc-searxng-' "$PODMAN_LOG"
+grep -q -- '--name oc-stt-' "$PODMAN_LOG"
+grep -q -- 'SEARXNG_URL=http://127.0.0.1:8080' "$PODMAN_LOG"
+grep -q -- 'STT_URL=http://127.0.0.1:8090' "$PODMAN_LOG"
+pod_create_line="$(grep -m1 -- 'pod create --name opencode-sandbox-pod-' "$PODMAN_LOG")"
+if ! grep -q -- '-p 127.0.0.1:8090:8090' <<<"$pod_create_line"; then
+  printf 'coexistence lost the STT publish on pod create: %s\n' "$pod_create_line" >&2
+  exit 1
+fi
+# Der STT-Client-URL fehlt der SearXNG-Port (getrennte In-Pod-Konstanten).
+! grep -q -- 'STT_URL=http://127.0.0.1:8080' "$PODMAN_LOG"
+printf 'start stt searxng coexistence tests passed\n'
+
+# --- Dictation offline: SILENT SKIP, kein Fehler ------------------------------------
+# --offline + --use_stt: kein Member, kein Publish, kein STT_URL — der Start
+# bleibt ohne harten Exit stehen (Notiz statt ADR-0026-Abbruch).
+: > "$PODMAN_LOG"
+offline_stt_output="$test_home/offline-stt-output"
+if ! bash "$PROJECT_ROOT/dist/scripts/start.sh" "$test_home" --edition swdev --use_stt --offline --detach > "$offline_stt_output" 2>&1; then
+  printf 'start script failed for offline + use_stt (must be a silent skip, not an error)\n' >&2
+  cat "$offline_stt_output" >&2
+  exit 1
+fi
+if grep -q -- '--name oc-stt-' "$PODMAN_LOG"; then
+  printf 'offline start grew an oc-stt member\n' >&2
+  exit 1
+fi
+if grep -q -- 'STT_URL\|8090:8090' "$PODMAN_LOG"; then
+  printf 'offline start published/announced STT\n' >&2
+  exit 1
+fi
+grep -q 'offline excludes the STT member' "$offline_stt_output"
+printf 'start stt offline skip tests passed\n'
+
+# --- Dictation audio: PulseAudio-Socket-Kaskade (ADR 0036) --------------------------
+# 1) XDG_RUNTIME_DIR-Pulse-Socket, 2) WSLg-Pfad (start.sh-Variable, stubbar),
+# 3) WSLg-Runtime-Dir-Fallback. Erster existierender Socket gewinnt -> Bind-Mount
+# am selben Pfad + PULSE_SERVER=unix:<Pfad> am workspace container; kein Socket
+# -> kein Mount, kein Env, Member laeuft trotzdem.
+ws_run_line() {
+  grep -m1 -- '--rm -d --name opencode-sandbox-' "$PODMAN_LOG"
+}
+xdg_dir="$test_home/xdg"
+mkdir -p "$xdg_dir/pulse"
+printf 'socket' > "$xdg_dir/pulse/native"
+: > "$PODMAN_LOG"
+if ! XDG_RUNTIME_DIR="$xdg_dir" STT_WSLG_PULSE="$test_home/does-not-exist" \
+  bash "$PROJECT_ROOT/dist/scripts/start.sh" "$test_home" --edition swdev --use_stt --detach > /dev/null 2>&1; then
+  printf 'start script failed with mocked podman (use_stt, XDG pulse socket)\n' >&2
+  exit 1
+fi
+xdg_run_line="$(ws_run_line)"
+if ! grep -q -- "-v ${xdg_dir}/pulse/native:${xdg_dir}/pulse/native" <<<"$xdg_run_line"; then
+  printf 'XDG pulse socket not bind-mounted at the same path: %s\n' "$xdg_run_line" >&2
+  exit 1
+fi
+if ! grep -q -- "-e PULSE_SERVER=unix:${xdg_dir}/pulse/native" <<<"$xdg_run_line"; then
+  printf 'XDG pulse socket did not set PULSE_SERVER: %s\n' "$xdg_run_line" >&2
+  exit 1
+fi
+
+# WSLg-Zweig: kein XDG-Socket, aber die stubbare STT_WSLG_PULSE-Variable zeigt
+# auf eine existierende Datei.
+wslg_socket="$test_home/wslg/PulseServer"
+mkdir -p "$test_home/wslg"
+printf 'socket' > "$wslg_socket"
+: > "$PODMAN_LOG"
+if ! XDG_RUNTIME_DIR="$test_home/xdg-empty" STT_WSLG_PULSE="$wslg_socket" \
+  bash "$PROJECT_ROOT/dist/scripts/start.sh" "$test_home" --edition swdev --use_stt --detach > /dev/null 2>&1; then
+  printf 'start script failed with mocked podman (use_stt, WSLg socket stub)\n' >&2
+  exit 1
+fi
+wslg_run_line="$(ws_run_line)"
+if ! grep -q -- "-v $wslg_socket:$wslg_socket" <<<"$wslg_run_line"; then
+  printf 'WSLg pulse socket not bind-mounted: %s\n' "$wslg_run_line" >&2
+  exit 1
+fi
+if ! grep -q -- "-e PULSE_SERVER=unix:$wslg_socket" <<<"$wslg_run_line"; then
+  printf 'WSLg pulse socket did not set PULSE_SERVER: %s\n' "$wslg_run_line" >&2
+  exit 1
+fi
+
+# Kein Socket: kein Mount, kein Env — der Member laeuft trotzdem (Sidecar-Pfad).
+: > "$PODMAN_LOG"
+if ! XDG_RUNTIME_DIR="$test_home/xdg-empty" STT_WSLG_PULSE="$test_home/does-not-exist" \
+  bash "$PROJECT_ROOT/dist/scripts/start.sh" "$test_home" --edition swdev --use_stt --detach > /dev/null 2>&1; then
+  printf 'start script failed with mocked podman (use_stt, no socket)\n' >&2
+  exit 1
+fi
+nosocket_run_line="$(ws_run_line)"
+if grep -q -- 'PULSE_SERVER\|pulse/native' <<<"$nosocket_run_line"; then
+  printf 'no-socket start grew a pulse mount/env: %s\n' "$nosocket_run_line" >&2
+  exit 1
+fi
+if ! grep -q -- '--name oc-stt-' "$PODMAN_LOG"; then
+  printf 'no-socket start skipped the STT member (member must still run)\n' >&2
+  exit 1
+fi
+printf 'start stt socket cascade tests passed\n'
+
+# --- Dictation seeding: stt.json + Plugin-Dir, idempotent bei jedem Start -----------
+stt_json="$test_home/.opencode_config/stt.json"
+dictation_plugin_dir="$test_home/.opencode_config/plugins/dictation"
+rm -f "$stt_json"
+rm -rf "$test_home/.opencode_config/plugins"
+: > "$PODMAN_LOG"
+if ! bash "$PROJECT_ROOT/dist/scripts/start.sh" "$test_home" --edition swdev --use_stt --detach > /dev/null 2>&1; then
+  printf 'start script failed with mocked podman (use_stt seeding)\n' >&2
+  exit 1
+fi
+[[ "$(cat "$stt_json")" == '{"language": "auto"}' ]]
+[[ -f "$dictation_plugin_dir/index.ts" ]]
+[[ -f "$dictation_plugin_dir/tui.tsx" ]]
+# Write-if-absent: Hand-Edits (Language-Pin, #168) ueberleben jeden Start.
+touch -d "2026-01-02" "$stt_json"
+bash "$PROJECT_ROOT/dist/scripts/start.sh" "$test_home" --edition swdev --use_stt --detach > /dev/null 2>&1
+[[ "$(stat -c '%y' "$stt_json")" == "2026-01-02 00:00:00.000000000 +0000" ]]
+# Plugin-Refresh: unsere eigenen Dateien werden bei jedem Start überschrieben
+# (Update-Story), fremde Dateien in plugins/ bleiben unangetastet.
+printf 'stale' > "$dictation_plugin_dir/tui.tsx"
+printf 'keepme' > "$test_home/.opencode_config/plugins/foreign.txt"
+bash "$PROJECT_ROOT/dist/scripts/start.sh" "$test_home" --edition swdev --use_stt --detach > /dev/null 2>&1
+[[ "$(cat "$dictation_plugin_dir/tui.tsx")" != "stale" ]]
+[[ "$(cat "$test_home/.opencode_config/plugins/foreign.txt")" == "keepme" ]]
+# Kein Seeding ohne --use_stt.
+rm -f "$stt_json"
+rm -rf "$test_home/.opencode_config/plugins"
+bash "$PROJECT_ROOT/dist/scripts/start.sh" "$test_home" --edition swdev --detach > /dev/null 2>&1
+if [[ -e "$stt_json" || -e "$test_home/.opencode_config/plugins" ]]; then
+  printf 'plain start seeded STT files (opt-in flag must gate seeding)\n' >&2
+  exit 1
+fi
+printf 'start stt seeding tests passed\n'
+
+
 # --- 7: Offline-Userns (#125-Regression) ---------------------------------------
 # Offline gibt es keinen Pod: der workspace container laeuft solo und behaelt
 # --userns=keep-id (+ keep-groups). Der Pod-Pfad (oben) traegt es dagegen
