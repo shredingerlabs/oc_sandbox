@@ -51,7 +51,12 @@ RUN mkdir -p /models \
 # --- Runtime stage: server binary + baked model, nothing else -----------------
 FROM alpine:3.21
 
-RUN apk add --no-cache libstdc++ libgcc
+# libgomp: whisper.cpp compiles with OpenMP enabled (GGML_OPENMP defaults
+# ON; the build stage's build-base gcc brings libgomp along) — the runtime
+# stage must carry it too, or whisper-server dies on start with
+# "Error loading shared library libgomp.so.1" (found in the first live
+# member start; verification row 1 covered the build, not the run).
+RUN apk add --no-cache libstdc++ libgcc libgomp
 
 COPY --from=build /src/whisper.cpp/build/bin/whisper-server /usr/local/bin/whisper-server
 COPY --from=build /models/ggml-small.bin /models/ggml-small.bin

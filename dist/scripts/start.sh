@@ -357,12 +357,13 @@ if $USE_STT; then
     mkdir -p "${CONFIG_DIR}/plugins"
     cp -r "${REPO_ROOT}/templates/opencode/plugins/dictation" "${CONFIG_DIR}/plugins/dictation"
   fi
-  # Keybind note (ADR 0036, D1): dictation binds ctrl+shift+s — verified
-  # free against the shipped stock keybind defaults, so no cli.json is
-  # seeded and no stock keybind is touched. (The earlier ctrl+t
-  # variant.cycle freeing was retired with the chord switch; a cli.json
-  # seeded by an older build keeps its variant.cycle entry, which only
-  # moves that command to the command palette.)
+  # Keybind note (ADR 0036, D1): dictation binds ctrl+alt+s — verified
+  # free against the shipped stock keybind defaults and legacy-decodable
+  # (the earlier ctrl+t and ctrl+shift+s chords were retired: the latter
+  # collapses to the swallowed 0x13 byte on terminals that do not report
+  # modifiers), so no cli.json is seeded and no stock keybind is touched.
+  # (A cli.json seeded by an older build keeps its variant.cycle entry,
+  # which only moves that command to the command palette.)
 fi
 
 # --- Proxy ----------------------------------------------------------------------

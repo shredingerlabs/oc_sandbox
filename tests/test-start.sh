@@ -703,7 +703,8 @@ fi
 printf 'start stt seeding tests passed\n'
 
 # --- Dictation keybind: no cli.json seeding (D1 chord switch) -----------------------
-# dictation binds ctrl+shift+s (verified free against the stock defaults),
+# dictation binds ctrl+alt+s (verified free against the stock defaults and
+# legacy-decodable, ADR 0036 D1 second amendment),
 # so start.sh writes NO cli.json — with and without --use_stt.
 cli_json="$test_home/.opencode_config/cli.json"
 rm -rf "$test_home/.opencode_config"
