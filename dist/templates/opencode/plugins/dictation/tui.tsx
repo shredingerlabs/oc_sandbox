@@ -63,19 +63,36 @@ export default Plugin.define({
       child.stderr?.on("data", (data: Buffer) => {
         if (stderr.length < 2048) stderr += data.toString()
       })
+      let killEscalation: ReturnType<typeof setTimeout> | undefined
       const done = new Promise<{ code: number; stderr: string }>((resolve, reject) => {
         child.once("error", (error: Error) => reject(error)) // spawn failure (ENOENT etc.)
-        child.once("close", (code?: number) => resolve({ code: code ?? -1, stderr }))
+        child.once("close", (code?: number) => {
+          if (killEscalation) clearTimeout(killEscalation)
+          resolve({ code: code ?? -1, stderr })
+        })
       })
       return {
         path: wavPath,
         done,
         kill: () => {
+          // SIGTERM, not SIGKILL: parecord writes the WAV via libsndfile and
+          // only its exit path (signal handler → sf_close) patches the RIFF
+          // and data chunk size fields. SIGKILL leaves them unfinalized and
+          // whisper-server's decoder rejects the file → HTTP 400 on every
+          // transcription. Grace escalation to SIGKILL covers a kill arriving
+          // before parecord installs its signal handler.
           try {
-            child.kill("SIGKILL") // raw WAV: losing the tail is irrelevant
+            child.kill("SIGTERM")
           } catch {
             // already gone
           }
+          killEscalation = setTimeout(() => {
+            try {
+              child.kill("SIGKILL")
+            } catch {
+              // already gone
+            }
+          }, 2000)
         },
         audioBytes: () => {
           try {
