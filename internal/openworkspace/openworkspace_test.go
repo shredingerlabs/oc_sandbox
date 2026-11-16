@@ -1002,6 +1002,69 @@ func TestUnknownFieldSurvivesWholeConfigRewrite(t *testing.T) {
 	}
 }
 
+// The dictation row (#167, D8): the TUI has no display-mode gating —
+// the row shows unconditionally, staged from the stored truth (the
+// Create default ON included), and the yes/no flip persists via Save.
+func TestSettingsPaneSttToggle(t *testing.T) {
+	e := newEnv(t, nil)
+	const h = 46 // the Dictation section rides low — give the pane room
+	lines := bodyOf(t, e.m, bodyW, h)
+	pane := paneOf(t, e.m, lines, "alpha")
+	if !someLine(pane, "Dictation") {
+		t.Fatalf("dictation section missing from the settings pane:\n%s", strings.Join(pane, "\n"))
+	}
+	if !someLine(pane, "● yes") {
+		t.Fatalf("dictation must show the Create default (use_stt seeded true):\n%s", strings.Join(pane, "\n"))
+	}
+
+	// Flip OFF through the pane row under the Dictation label, then save.
+	clickPaneRowUnder(t, e, h, "Dictation", "no")
+	if e.m.staged.stt {
+		t.Fatal("dictation flip did not stage stt=false")
+	}
+	goToPaneRow(t, e, "Save Settings")
+	e.step(keyMsg("enter"))
+	e.finishOps()
+	cfg, err := sandboxcfg.Read(sandboxcfg.Path(e.roots["alpha"]))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.UseStt {
+		t.Fatalf("save must persist use_stt=false: %+v", cfg)
+	}
+
+	// Flip back ON and save.
+	clickPaneRowUnder(t, e, h, "Dictation", "yes")
+	if !e.m.staged.stt {
+		t.Fatal("dictation flip back did not stage stt=true")
+	}
+	goToPaneRow(t, e, "Save Settings")
+	e.step(keyMsg("enter"))
+	e.finishOps()
+	cfg, err = sandboxcfg.Read(sandboxcfg.Path(e.roots["alpha"]))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.UseStt {
+		t.Fatalf("save must persist use_stt=true: %+v", cfg)
+	}
+}
+
+// Offline interplay in the TUI (silent skip, not an error): staging
+// offline while dictation is staged on keeps BOTH staged and surfaces
+// an informational toast in the existing toast pattern — nothing flips.
+func TestSttOfflineStagingToast(t *testing.T) {
+	e := newEnv(t, nil)
+	bodyOf(t, e.m, bodyW, bodyH)
+	clickPaneRowByText(t, e, "offline")
+	if !hasMode(e.m.staged.modes, "offline") || !e.m.staged.stt {
+		t.Fatalf("offline+stt must stage together: modes %v stt %v", e.m.staged.modes, e.m.staged.stt)
+	}
+	if !someLine(bodyOf(t, e.m, bodyW, bodyH), "dictation") {
+		t.Fatal("offline+stt info toast missing")
+	}
+}
+
 // --- validation ---
 
 func TestOfflineCBMComboRejectedOnSaveAndStart(t *testing.T) {
@@ -1187,4 +1250,33 @@ func clickPaneRowByText(t *testing.T, e *env, needle string) {
 		e.step(keyMsg("down"))
 	}
 	t.Fatalf("click target %q not on screen", needle)
+}
+
+// clickPaneRowUnder clicks the first navigable row below a section
+// label (its rendered text contains label) whose text contains needle —
+// disambiguates the yes/no rows shared with other sections (Proxy).
+func clickPaneRowUnder(t *testing.T, e *env, h int, label, needle string) {
+	t.Helper()
+	lines := bodyOf(t, e.m, bodyW, h)
+	labelY := -1
+	for i, l := range lines {
+		if strings.Contains(l, label) {
+			labelY = shell.BodyTop + i
+			break
+		}
+	}
+	if labelY < 0 {
+		t.Fatalf("pane label %q not on screen", label)
+	}
+	rects := e.m.NavRects()
+	for _, r := range rects {
+		if r.W == 0 || r.Y <= labelY {
+			continue
+		}
+		if strings.Contains(paneRowText(lines, r), needle) {
+			e.step(clickAt(r.X+2, r.Y))
+			return
+		}
+	}
+	t.Fatalf("click target %q under %q not on screen", needle, label)
 }

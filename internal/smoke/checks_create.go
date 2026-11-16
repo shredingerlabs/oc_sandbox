@@ -159,6 +159,44 @@ func checkCreateChain(home, root string) Item {
 		p.reasonf("registry entry = %+v", ws)
 	}
 
+	// The wizard's dictation patch semantics (D9, second chain): a
+	// Standard-shaped post without use_stt fields never writes false —
+	// the Create default (use_stt: true) survives (asserted above). An
+	// Advanced post with the row rendered but unchecked writes false.
+	form2 := map[string]string{
+		"source": "blank", "name": "smoke-ws-off", "agent": "code", "edition": "swdev",
+		"vcs": "Smoke GitHub", "vcs_token": "smoke-vcs-token", "provider": "none",
+		"use_stt_present": "1", // row rendered, checkbox absent = unchecked
+	}
+	form2["confirm"] = "1"
+	resp, body = post(s.URL()+"workspaces", form2)
+	if resp == nil || resp.StatusCode != http.StatusOK || !strings.Contains(body, `data-role="create-log"`) {
+		p.reasonf("second launch (use_stt off) missing the log pane")
+		return p.finish()
+	}
+	_ = body
+	var wsOff *registry.Workspace
+	deadline2 := time.Now().Add(30 * time.Second)
+	for time.Now().Before(deadline2) {
+		if w, err := reg.ByName("smoke-ws-off"); err == nil {
+			wsOff = &w
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	if wsOff == nil {
+		p.reasonf("second workspace never registered")
+		return p.finish()
+	}
+	offRaw, err := os.ReadFile(filepath.Join(wsOff.Path, ".opencode_config", "sandbox_config.json"))
+	if err != nil {
+		p.reasonf("second sandbox_config.json: %v", err)
+		return p.finish()
+	}
+	if !strings.Contains(string(offRaw), `"use_stt": false`) {
+		p.reasonf("unchecked wizard dictation must write use_stt=false: %s", offRaw)
+	}
+
 	// From Repo + a catalog tracker materialize the credential order:
 	// the vcs-credentials step wrote the gh host file into the real root.
 	hosts, err := os.ReadFile(filepath.Join(wsRoot, ".git_local", "gh-cli", "hosts.yml"))

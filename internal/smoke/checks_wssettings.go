@@ -139,19 +139,20 @@ func checkWebUISettings(home, root string) Item {
 			p.reasonf("Standard settings screen missing %q", want)
 		}
 	}
-	for _, hidden := range []string{`data-row="edition"`, `data-row="start_option"`, `data-row="proxy"`, `data-row="hil"`} {
+	for _, hidden := range []string{`data-row="edition"`, `data-row="start_option"`, `data-row="proxy"`, `data-row="hil"`, `data-row="stt"`} {
 		if strings.Contains(stdBody, hidden) {
 			p.reasonf("Standard must hide %s (matrix §6)", hidden)
 		}
 	}
 
 	// Next-start persistence (Advanced): edition switch, modes incl. HIL,
-	// proxy, search — one atomic write into the stored sandbox_config.json
-	// (the start_option row is retired, ADR-0033).
+	// proxy, search, dictation — one atomic write into the stored
+	// sandbox_config.json (the start_option row is retired, ADR-0033).
 	post(s.URL()+"settings", map[string]string{"display_mode": "advanced"})
 	resp, _ := post(s.URL()+"workspaces/mural/settings", map[string]string{
 		"edition": "embedded", "proxy": "yes",
 		"search_mode": "none", "modes_present": "1", "offline": "on", "hil": "on",
+		"use_stt": "on", "use_stt_present": "1",
 	})
 	if resp == nil || resp.StatusCode != http.StatusOK {
 		p.reasonf("settings POST: want 200, got %v", respStatusCT(resp))
@@ -163,7 +164,7 @@ func checkWebUISettings(home, root string) Item {
 	}
 	if cfg.ContainerEdition != "embedded" ||
 		!cfg.UseProxy || cfg.SearchMode != "none" ||
-		len(cfg.ContainerModes) != 2 {
+		len(cfg.ContainerModes) != 2 || !cfg.UseStt {
 		p.reasonf("next-start values not persisted: %+v", cfg)
 	}
 
@@ -180,13 +181,13 @@ func checkWebUISettings(home, root string) Item {
 	if !strings.Contains(adv2, `value="none" checked`) {
 		p.reasonf("Advanced edits of Standard-hidden options must stay sticky")
 	}
-	resp, _ = post(s.URL()+"workspaces/mural/settings", map[string]string{"cbm_ui": "on", "modes_present": "1"})
+	resp, _ = post(s.URL()+"workspaces/mural/settings", map[string]string{"cbm_ui": "on", "modes_present": "1", "use_stt_present": "1"})
 	if resp == nil || resp.StatusCode != http.StatusOK {
 		p.reasonf("second advanced edit: want 200, got %v", respStatusCT(resp))
 	}
 	cfg, _ = sandboxcfg.Read(sandboxcfg.Path(rootA))
-	if cfg.SearchMode != "none" || !cfg.UseProxy {
-		p.reasonf("second edit lost the first edit's values: %+v", cfg)
+	if cfg.SearchMode != "none" || !cfg.UseProxy || cfg.UseStt {
+		p.reasonf("second edit lost the first edit's values (or re-imposed stt): %+v", cfg)
 	}
 
 	// Validation refusals write nothing (the ADR-0026 exclusions start.sh

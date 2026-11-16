@@ -154,6 +154,7 @@ var wizardTemplate = template.Must(template.New("wizard").
         <label class="switch">offline<input type="checkbox" name="offline" value="on" {{if .Offline}}checked{{end}}><i></i></label>
         <label class="switch">CBM-UI<input type="checkbox" name="cbm_ui" value="on" {{if .CBMUI}}checked{{end}}><i></i></label>
         <label class="switch">HIL<input type="checkbox" name="hil" value="on" {{if .HIL}}checked{{end}}><i></i></label>
+        <label class="switch">dictation<input type="checkbox" name="use_stt" value="on" {{if .STT}}checked{{end}}><i></i><input type="hidden" name="use_stt_present" value="1"></label>
       </span>
       <div class="sub">start.sh flags — apply on next start (presets, not pinning: the stored config stays the truth).</div>
     </div>
@@ -226,6 +227,8 @@ type wizardForm struct {
 	Offline     bool
 	CBMUI       bool
 	HIL         bool
+	STT         bool
+	STTPresent  bool // the row rendered (use_stt_present) — gates the patch
 
 	Trackers     []catalogs.Tracker
 	Providers    []catalogs.Provider
@@ -264,6 +267,7 @@ func wizardDefaults() wizardForm {
 		Provider:     "none",
 		StartOption:  "web",
 		SearchMode:   "searxng",
+		STT:          true, // dictation preset ON (the sandboxcfg.Create default)
 		TrackerKinds: catalogs.TrackerKinds,
 	}
 }
@@ -549,6 +553,8 @@ func (s *Server) parseWizardForm(r *http.Request) wizardForm {
 	f.Offline = r.PostFormValue("offline") == "on"
 	f.CBMUI = r.PostFormValue("cbm_ui") == "on"
 	f.HIL = r.PostFormValue("hil") == "on"
+	f.STT = r.PostFormValue("use_stt") == "on" // absent (row hidden AND stripped) keeps the ON default
+	f.STTPresent = r.PostFormValue("use_stt_present") == "1"
 	return f
 }
 
@@ -654,7 +660,12 @@ type createChain struct {
 	start  string
 	search string
 	proxy  bool
-	build  bool // Build now decision (the row only drives visibility)
+	stt    bool // the dictation preset (use_stt, NOT a container mode)
+	// sttPresent carries the wizard row's rendered sentinel (D9): the
+	// patch writes use_stt only when the row rendered, so a Standard
+	// post without the fields keeps the Create default (never re-imposes).
+	sttPresent bool
+	build      bool // Build now decision (the row only drives visibility)
 }
 
 // newCreateChain captures the confirmed payload (fresh image/edition
@@ -682,6 +693,8 @@ func (s *Server) newCreateChain(r *http.Request, f wizardForm) *createChain {
 		start:            f.StartOption,
 		search:           f.SearchMode,
 		proxy:            f.Proxy,
+		stt:              f.STT,
+		sttPresent:       f.STTPresent,
 	}
 	c.build = !discovery.ImageExists(s.runner(), c.edition) && !f.BuildLater
 	// resolve catalog entries (picked or the inline "New…" — the entry
@@ -880,6 +893,14 @@ func (c *createChain) patchConfig(s *Server, home, cfgPath string) error {
 	}
 	if kind := agentKind(c.agent); kind != "" { // kind recorded once, never re-applied
 		if err := sandboxcfg.PatchString(home, cfgPath, "workspace_kind", kind); err != nil {
+			return err
+		}
+	}
+	// Dictation (#167, D9): the Create payload seeds use_stt true; the
+	// wizard's patch runs only when the row rendered — a Standard post
+	// without the fields never re-imposes (and never pins false).
+	if c.sttPresent {
+		if err := sandboxcfg.PatchBool(home, cfgPath, "use_stt", c.stt); err != nil {
 			return err
 		}
 	}

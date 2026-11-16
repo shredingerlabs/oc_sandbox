@@ -354,8 +354,9 @@ func (m *Model) keys(t int) []string {
 		if m.discovErr != "" {
 			return nil
 		}
-		// the SearXNG infra image is a build row of its own (non-edition)
-		return append(append([]string{}, m.editions...), discovery.SearxngImageTag)
+		// the SearXNG and STT infra images are build rows of their own
+		// (non-edition)
+		return append(append([]string{}, m.editions...), discovery.SearxngImageTag, discovery.SttImageTag)
 	case TabImages:
 		tags := make([]string, 0, len(m.images))
 		for _, img := range m.images {
@@ -393,7 +394,9 @@ func (m *Model) refreshEditions() {
 	}
 	m.discovErr = ""
 	m.editions = eds
-	clampSel(&m.buildChk, len(m.editions))
+	// keys(TabBuild) = editions + infra rows (searxng, oc-stt); the
+	// cursor may legitimately sit on an infra row across a re-discovery.
+	clampSel(&m.buildChk, len(m.keys(TabBuild)))
 }
 
 // refreshImageStatus checks every discovered edition's image-existence
@@ -412,6 +415,8 @@ func (m *Model) refreshImageStatus() tea.Cmd {
 		// the shared SearXNG infra image rides the Build tab as a
 		// non-edition row (its own Dockerfile, fixed tag)
 		out[discovery.SearxngImageTag] = discovery.ImageExistsTag(run, discovery.SearxngImageTag)
+		// the shared STT (dictation) infra image likewise (#167)
+		out[discovery.SttImageTag] = discovery.ImageExistsTag(run, discovery.SttImageTag)
 		return ImageStatusMsg(out)
 	}
 }
@@ -448,7 +453,7 @@ func (m *Model) imageRefs() []string {
 	if !slices.Contains(refs, discovery.BaseImageRef) {
 		refs = append(refs, discovery.BaseImageRef)
 	}
-	return append(refs, discovery.ProxyImageTag, discovery.SearxngImageTag)
+	return append(refs, discovery.ProxyImageTag, discovery.SearxngImageTag, discovery.SttImageTag)
 }
 
 // refreshImageRefs lists the image references that pin images in use,
@@ -733,7 +738,7 @@ func (m *Model) startBuild() tea.Cmd {
 	}
 	lines := make([]string, 0, len(eds))
 	for _, ed := range eds {
-		if ed == discovery.SearxngImageTag {
+		if ed == discovery.SearxngImageTag || ed == discovery.SttImageTag {
 			lines = append(lines, "image: "+ed)
 		} else {
 			lines = append(lines, "edition: "+ed)
@@ -1436,6 +1441,11 @@ func (m *Model) rows(t, width int) []chkRow {
 		rows = append(rows, chkRow{key: discovery.SearxngImageTag,
 			main: shell.StyleFieldLabel.Render("SearXNG") + m.imageMarker(discovery.SearxngImageTag),
 			sub:  shell.StyleMutedAlt.Render("shared SearXNG web search (workspaces with search mode searxng)"),
+		})
+		// the shared STT infra image: non-edition row (#167), same rules
+		rows = append(rows, chkRow{key: discovery.SttImageTag,
+			main: shell.StyleFieldLabel.Render("STT") + m.imageMarker(discovery.SttImageTag),
+			sub:  shell.StyleMutedAlt.Render("local speech-to-text (dictation), whisper.cpp server"),
 		})
 		return rows
 	case TabImages:

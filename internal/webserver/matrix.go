@@ -47,6 +47,11 @@ var matrix = []Row{
 	// allowlist — advanced-only wholesale, the screen Standard renders
 	// as the pointer row alone.
 	{Screen: "proxy", Key: "proxy", Label: "Proxy", AdvancedOnly: true},
+	// Dictation (#167): the use_stt toggle beside use_proxy — an
+	// advanced-only option row on both the wizard and the settings
+	// screen (Standard hides it and silently records the ON preset).
+	{Screen: "ws-settings", Key: "stt", Label: "Dictation", AdvancedOnly: true},
+	{Screen: "ws-new", Key: "stt", Label: "Dictation", AdvancedOnly: true},
 }
 
 // ScreenRows returns the matrix rows of a screen in display order.

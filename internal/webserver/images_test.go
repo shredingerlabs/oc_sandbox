@@ -33,8 +33,10 @@ func TestImagesScreen(t *testing.T) {
 		`data-screen="images"`,
 		`data-tag="opencode-sandbox-swdev"`, // edition row from the Dockerfile stages
 		`data-tag="oc-searxng"`,             // shared SearXNG infra row
+		`data-tag="oc-stt"`,                 // shared STT (dictation) infra row (#167)
 		"swdev",
 		"SearXNG",
+		">STT<",
 		"1.2 GB", // size via discovery
 		`<span class="marker st-running">● built</span>`,      // built marker
 		`<span class="marker st-off">○ missing</span>`,        // missing marker (the other stages)
@@ -106,10 +108,39 @@ func TestImagesBuildInvokesScriptAll(t *testing.T) {
 	}
 }
 
+// The infra tags ride the per-image build allowlist (#167): oc-stt
+// builds alone exactly like oc-searxng — `bash <script> oc-stt`.
+func TestImagesBuildSttTagAllowlist(t *testing.T) {
+	reg, _ := fixtureRegistry(t)
+	buildCalls := &syncList{}
+	run := fakePodman(nil, nil, nil, nil, nil)
+	base := run.Script
+	run.Script = func(name string, args []string) (string, error) {
+		if name == "bash" && len(args) > 0 && args[0] == "/opt/oc-sandbox/scripts/build-container.sh" {
+			buildCalls.add(args[1])
+			return "building oc-stt", nil
+		}
+		return base(name, args)
+	}
+	s := depsServer(t, run, reg)
+
+	resp := post(t, s.URL()+"images/build", "tag=oc-stt")
+	doc := body(t, resp)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	if strings.Contains(doc, "unknown image") {
+		t.Fatalf("oc-stt must be an allowed build tag:\n%s", doc)
+	}
+	waitFor(t, "build call", func() bool { return len(buildCalls.snapshot()) == 1 })
+	if got := buildCalls.snapshot()[0]; got != "oc-stt" {
+		t.Fatalf("build-container.sh arg = %q, want %q", got, "oc-stt")
+	}
+}
+
 // POST /images/build refuses while an image op is queued or running
 // (confirms refuse while an op is queued/running, §9).
-func TestImagesBuildRefusesWhileBusy(t *testing.T) {
-	reg, _ := fixtureRegistry(t)
+func TestImagesBuildRefusesWhileBusy(t *testing.T) {	reg, _ := fixtureRegistry(t)
 	release := make(chan struct{})
 	run := fakePodman(nil, nil, nil, nil, nil)
 	base := run.Script

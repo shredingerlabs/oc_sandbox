@@ -89,9 +89,49 @@ func TestWsSettingsScreenStandard(t *testing.T) {
 	for _, hidden := range []string{
 		`data-row="edition"`, `data-row="start_option"`, `data-row="modes"`,
 		`data-row="search_mode"`, `name="offline"`, `name="cbm_ui"`, `name="hil"`,
+		`data-row="stt"`, `name="use_stt"`,
 	} {
 		if strings.Contains(doc, hidden) {
 			t.Fatalf("Standard must hide the Advanced row %s (matrix §6):\n%s", hidden, doc)
+		}
+	}
+}
+
+// The dictation row (#167): a standalone advanced-only row mirroring the
+// proxy switch — the use_stt checkbox with the use_stt_present sentinel
+// after the <i> track (the .switch :checked + i adjacency rule), the
+// checked state read from the stored truth (absent use_stt — pre-feature
+// workspaces — reads OFF).
+func TestWsSettingsScreenSttRow(t *testing.T) {
+	fx := newCreateFixture(t, nil)
+	root := seedWorkspace(t, fx.home, "alpha", "swdev", nil)
+	postForm(t, fx.s.URL()+"settings", map[string]string{"display_mode": "advanced"})
+
+	doc := body(t, get(t, fx.s.URL()+"workspaces/alpha/settings"))
+	if !strings.Contains(doc, `data-row="stt"`) {
+		t.Fatalf("Advanced settings screen missing the dictation row:\n%s", doc)
+	}
+	if !strings.Contains(doc, `name="use_stt" value="on" checked`) {
+		t.Fatalf("Create-seeded use_stt must read ON in Advanced:\n%s", doc)
+	}
+	if err := sandboxcfg.PatchBool(fx.home, sandboxcfg.Path(root), "use_stt", false); err != nil {
+		t.Fatal(err)
+	}
+	doc = body(t, get(t, fx.s.URL()+"workspaces/alpha/settings"))
+	if strings.Contains(doc, `name="use_stt" value="on" checked`) {
+		t.Fatalf("use_stt false (pre-feature workspace) must read OFF:\n%s", doc)
+	}
+	if err := sandboxcfg.PatchBool(fx.home, sandboxcfg.Path(root), "use_stt", true); err != nil {
+		t.Fatal(err)
+	}
+	doc = body(t, get(t, fx.s.URL()+"workspaces/alpha/settings"))
+	for _, want := range []string{
+		`data-row="stt"`,
+		`name="use_stt" value="on" checked><i></i>`, // checkbox ↔ track adjacency
+		`name="use_stt_present"`,                    // the deactivation sentinel
+	} {
+		if !strings.Contains(doc, want) {
+			t.Fatalf("Advanced settings screen missing %q:\n%s", want, doc)
 		}
 	}
 }
@@ -297,6 +337,77 @@ func TestWsSettingsPostProxyUnchecked(t *testing.T) {
 	}
 	if !cfg.UseProxy {
 		t.Fatalf("absent proxy row must keep the stored use_proxy: %+v", cfg)
+	}
+}
+
+// The dictation toggle's POST merge (#167): the same deactivation
+// pattern as the proxy row — when the row rendered (use_stt_present),
+// an unchecked checkbox persists use_stt=false; an absent row (Standard
+// mode) keeps the stored truth. use_stt + offline is a silent SKIP at
+// start time, never a refusal (no ADR-0026 exit for it anywhere).
+func TestWsSettingsPostSttMerge(t *testing.T) {
+	fx := newCreateFixture(t, nil)
+	root := seedWorkspace(t, fx.home, "alpha", "swdev", nil)
+	postForm(t, fx.s.URL()+"settings", map[string]string{"display_mode": "advanced"})
+
+	// The Create default (use_stt seeded true) survives a post that
+	// carries no use_stt fields at all (Standard hides, never re-imposes).
+	resp := postForm(t, fx.s.URL()+"workspaces/alpha/settings", map[string]string{"search_mode": "websearch"})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("no-stt post: status = %d, want 200", resp.StatusCode)
+	}
+	cfg, err := sandboxcfg.Read(sandboxcfg.Path(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.UseStt {
+		t.Fatalf("absent use_stt row must keep the seeded true: %+v", cfg)
+	}
+
+	// The row rendered but the checkbox is unchecked → off.
+	resp = postForm(t, fx.s.URL()+"workspaces/alpha/settings", map[string]string{"use_stt_present": "1"})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("disable: status = %d, want 200", resp.StatusCode)
+	}
+	cfg, err = sandboxcfg.Read(sandboxcfg.Path(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.UseStt {
+		t.Fatalf("unchecked use_stt must persist false: %+v", cfg)
+	}
+
+	// Re-enable with the checked post.
+	resp = postForm(t, fx.s.URL()+"workspaces/alpha/settings", map[string]string{"use_stt": "on", "use_stt_present": "1"})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("enable: status = %d, want 200", resp.StatusCode)
+	}
+	cfg, err = sandboxcfg.Read(sandboxcfg.Path(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.UseStt {
+		t.Fatalf("checked use_stt must persist true: %+v", cfg)
+	}
+
+	// Offline + dictation stages together (silent skip, not an error —
+	// start.sh leaves the member out under --offline).
+	resp = postForm(t, fx.s.URL()+"workspaces/alpha/settings", map[string]string{
+		"use_stt": "on", "use_stt_present": "1",
+		"modes_present": "1", "offline": "on",
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("offline+stt: status = %d, want 200", resp.StatusCode)
+	}
+	if doc := body(t, resp); strings.Contains(doc, `role="alert"`) {
+		t.Fatalf("offline+stt must not refuse:\n%s", doc)
+	}
+	cfg, err = sandboxcfg.Read(sandboxcfg.Path(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.UseStt || !slices.Contains(cfg.ContainerModes, "offline") {
+		t.Fatalf("offline+stt must persist both: %+v", cfg)
 	}
 }
 

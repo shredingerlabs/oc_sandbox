@@ -84,6 +84,7 @@ type staged struct {
 	vcs         string // stored VCS tracking — passed through untouched by this reduced save (#113)
 	ai          string // stored legacy ai_provider — passed through untouched by this reduced save (#113)
 	proxy       bool
+	stt         bool // dictation toggle (use_stt) — no display-mode gating (D8)
 	searchMode  string
 	editionGone bool   // stored edition vanished from live discovery
 	cfgErr      string // sandbox_config.json unreadable
@@ -295,6 +296,7 @@ func (m *Model) loadStaged() {
 		vcs:         cfg.VCSTracking,
 		ai:          cfg.AIProvider,
 		proxy:       cfg.UseProxy,
+		stt:         cfg.UseStt,
 		searchMode:  cfg.SearchMode,
 		editionGone: edErr != nil || !hasString(editions, cfg.ContainerEdition),
 	}
@@ -574,6 +576,8 @@ func (m *Model) cycleOption(forward bool) {
 		opts = startOptions
 	case "proxy":
 		opts = []string{"no", "yes"}
+	case "stt":
+		opts = []string{"no", "yes"}
 	case "search":
 		opts = sandboxcfg.SearchModes
 	}
@@ -585,6 +589,12 @@ func (m *Model) cycleOption(forward bool) {
 		cur = m.staged.start
 	case "proxy":
 		if m.staged.proxy {
+			cur = "yes"
+		} else {
+			cur = "no"
+		}
+	case "stt":
+		if m.staged.stt {
 			cur = "yes"
 		} else {
 			cur = "no"
@@ -643,6 +653,12 @@ func (m *Model) applyOption(section, value string) {
 					m.toast = "SearXNG needs network — offline mode not available"
 					return
 				}
+				// #167: offline+dictation is a silent SKIP at start time
+				// (no member under --offline), not an error — both stay
+				// staged, the notice surfaces the skip.
+				if s.stt {
+					m.toast = "Offline mode skips the dictation member — dictation stays on"
+				}
 			case "cbm_ui":
 				s.modes = withoutMode(s.modes, "offline")
 			}
@@ -660,6 +676,8 @@ func (m *Model) applyOption(section, value string) {
 			s.searchMode = sandboxcfg.SearchWebsearch
 			m.toast = "SearXNG and the squid proxy are mutually exclusive — search reset to websearch"
 		}
+	case "stt":
+		s.stt = value == "yes"
 	case "search":
 		s.searchMode = value
 		// Same exclusion, picked from the other side: SearXNG chosen
@@ -1303,6 +1321,7 @@ func (m *Model) save() tea.Cmd {
 		VCS:         s.vcs,
 		AIProvider:  s.ai,
 		UseProxy:    s.proxy,
+		UseStt:      s.stt,
 		SearchMode:  s.searchMode,
 	}
 	return m.applySettings(p.Path, settings)
@@ -1442,6 +1461,10 @@ func (m *Model) settingsRows(paneW int, loginBlock []string) []paneRow {
 	addSection("Modes", "modes", modes, modeErr, func(o string) bool { return hasMode(s.modes, o) }, id)
 	addSection("Start option", "start", startOptions, nil, func(o string) bool { return s.start == o }, id)
 	addSection("Proxy", "proxy", []string{"no", "yes"}, nil, func(o string) bool { return (o == "yes") == s.proxy }, id)
+	// #167 (D8): the dictation row shows unconditionally — the TUI has
+	// no Standard/Advanced gating; the row is "advanced-only like every
+	// other option row" by virtue of there being no hidden TUI rows.
+	addSection("Dictation", "stt", []string{"no", "yes"}, nil, func(o string) bool { return (o == "yes") == s.stt }, id)
 	// ADR 0026: the Search row carries the wanted search tooling with the
 	// searxng/proxy and searxng/offline conflicts resolved live in
 	// applyOption.

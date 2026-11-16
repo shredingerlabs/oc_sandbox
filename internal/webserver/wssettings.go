@@ -104,6 +104,7 @@ type wsSettingsView struct {
 	Offline      bool
 	CBMUI        bool
 	HIL          bool
+	STT          bool
 
 	SettingsForm bool // ≥1 advanced row visible → the next-start form renders
 
@@ -303,6 +304,15 @@ var wsSettingsTemplate = template.Must(template.New("wssettings").
         <div class="field-hint">start.sh flags — apply on next start (presets, not pinning: the stored config stays the truth).</div>
       </div>
       {{end}}
+      {{if vis .Mode "stt"}}
+      <div class="row" data-row="stt">
+        <span class="label">Modes</span>
+        <span class="swgroup">
+          <label class="switch">dictation<input type="checkbox" name="use_stt" value="on" {{if .STT}}checked{{end}}><i></i><input type="hidden" name="use_stt_present" value="1"></label>
+        </span>
+        <div class="field-hint">local speech-to-text (dictation) — the whisper.cpp member starts with the pod; offline runs skip it.</div>
+      </div>
+      {{end}}
       {{if vis .Mode "search_mode"}}
       <div class="row" data-row="search_mode">
         <span class="label">Search mode</span>
@@ -395,6 +405,7 @@ func (s *Server) handleWsSettingsPost(w http.ResponseWriter, r *http.Request) {
 		VCS:         cfg.VCSTracking,
 		AIProvider:  cfg.AIProvider,
 		UseProxy:    cfg.UseProxy,
+		UseStt:      cfg.UseStt,
 		SearchMode:  cfg.SearchMode,
 	}
 	if v := r.PostFormValue("edition"); v != "" {
@@ -424,6 +435,12 @@ func (s *Server) handleWsSettingsPost(w http.ResponseWriter, r *http.Request) {
 	// (Standard-hidden rows still post nothing and never re-impose).
 	if r.PostFormValue("proxy_present") == "1" {
 		merged.UseProxy = r.PostFormValue("proxy") == "yes"
+	}
+	// Same deactivation pattern for the dictation toggle (#167): the
+	// row's presence sentinel, not the checkbox, decides whether the
+	// stored use_stt flips.
+	if r.PostFormValue("use_stt_present") == "1" {
+		merged.UseStt = r.PostFormValue("use_stt") == "on"
 	}
 	if v := r.PostFormValue("search_mode"); v != "" {
 		if !sandboxcfg.ValidSearchMode(v) {
@@ -835,6 +852,7 @@ func (s *Server) renderWsSettingsScreen(w http.ResponseWriter, name, errMsg stri
 		v.SearchMode = cfg.SearchMode
 		v.VCSTrackingSt = cfg.VCSTracking
 		v.Running = ws.ContainerStatus == "running"
+		v.STT = cfg.UseStt
 		for _, m := range cfg.ContainerModes {
 			switch m {
 			case "offline":
@@ -873,7 +891,7 @@ func (s *Server) renderWsSettingsScreen(w http.ResponseWriter, name, errMsg stri
 	// Advanced rows: the edition list comes fresh from the Dockerfile
 	// registry (discovery, never cached); the image marker mirrors the
 	// next-start rules (unchanged — the start op refuses a missing image).
-	for _, k := range []string{"edition", "start_option", "proxy", "search_mode", "offline", "cbm_ui", "hil"} {
+	for _, k := range []string{"edition", "start_option", "proxy", "search_mode", "offline", "cbm_ui", "hil", "stt"} {
 		if visRow(mode, k) {
 			v.SettingsForm = true
 			if k == "edition" {

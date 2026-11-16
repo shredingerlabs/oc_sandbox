@@ -288,7 +288,8 @@ func checkWebUIScreens(home, root string) Item {
 	if resp == nil || resp.StatusCode != http.StatusOK {
 		p.reasonf("GET /images: want 200, got %v", resp)
 	} else {
-		for _, want := range []string{"swdev", "1.2 GB", "● built", "○ missing", `data-confirm="Build all images?`, `data-danger`} {
+		for _, want := range []string{"swdev", "1.2 GB", "● built", "○ missing", `data-confirm="Build all images?`, `data-danger`,
+			`data-tag="oc-stt"`, ">STT<"} { // #167: the STT infra row renders
 			if !strings.Contains(body, want) {
 				p.reasonf("GET /images missing %q (tail: %.700s)", want, body[len(body)-700:])
 			}
@@ -327,6 +328,33 @@ func checkWebUIScreens(home, root string) Item {
 		p.reasonf("SSE line streaming during build: %v", err)
 	}
 	waitIdle("build")
+
+	// Per-image build of the STT infra tag (#167): the allowlist routes
+	// `tag=oc-stt` straight to build-container.sh as its arg.
+	mu.Lock()
+	beforeBuilds := len(buildCalls)
+	mu.Unlock()
+	resp, body = get("POST", s.URL()+"images/build", "tag=oc-stt")
+	if resp == nil || resp.StatusCode != http.StatusOK {
+		p.reasonf("POST images/build tag=oc-stt: want 200, got %v", resp)
+	}
+	if strings.Contains(body, "unknown image") {
+		p.reasonf("oc-stt must be an allowed per-image build tag:\n%s", body)
+	}
+	waitFor("oc-stt build call", func() bool {
+		_, b, _, _, _ := muState()
+		return b == beforeBuilds+1
+	})
+	mu.Lock()
+	ocSttArg := ""
+	if len(buildCalls) > beforeBuilds {
+		ocSttArg = buildCalls[len(buildCalls)-1]
+	}
+	mu.Unlock()
+	if ocSttArg != "oc-stt" {
+		p.reasonf("build-container.sh arg for tag=oc-stt = %q, want %q", ocSttArg, "oc-stt")
+	}
+	waitIdle("oc-stt build")
 
 	// Free image delete after the build: the fake's ref list still
 	// pins swdev only while a container runs — none run now.

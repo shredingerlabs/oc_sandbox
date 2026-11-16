@@ -226,10 +226,10 @@ func TestBuildTabDiscoveryErrorShownLoudly(t *testing.T) {
 }
 
 // imageExists scripts the podman image checks: editions named in
-// missing have no image, the rest exist (oc-searxng counts built too —
-// the Build tab's non-edition row).
+// missing have no image, the rest exist (oc-searxng and oc-stt count
+// built too — the Build tab's non-edition rows).
 func imageExists(fake *cmdrun.Fake, missing ...string) {
-	built := map[string]bool{"base": true, "web": true, "mycustom": true, "oc-searxng": true}
+	built := map[string]bool{"base": true, "web": true, "mycustom": true, "oc-searxng": true, "oc-stt": true}
 	for _, ed := range missing {
 		delete(built, ed)
 	}
@@ -261,11 +261,14 @@ func TestBuildTabImageMarkers(t *testing.T) {
 	}
 	runCmds(t, m, m.refreshImageStatus())
 	got := body(m)
-	if strings.Count(got, "● built") != 3 {
-		t.Errorf("want 3 built markers:\n%s", got)
+	if strings.Count(got, "● built") != 4 {
+		t.Errorf("want 4 built markers (3 editions + oc-searxng + oc-stt minus mycustom):\n%s", got)
 	}
 	if strings.Count(got, "○ missing") != 1 {
 		t.Errorf("missing marker not shown for mycustom:\n%s", got)
+	}
+	if !strings.Contains(got, "whisper.cpp server") {
+		t.Errorf("oc-stt build row missing the dictation sub text:\n%s", got)
 	}
 	// render and row keys stay podman-cheap: the cache serves them
 	before := callsMatching(fake, "podman", "exists")
@@ -280,7 +283,7 @@ func TestActivateRefreshesImageCache(t *testing.T) {
 	m, fake, _, _ := newFixture(t)
 	imageExists(fake, "mycustom")
 	runCmds(t, m, m.Activate())
-	if strings.Count(body(m), "● built") != 3 ||
+	if strings.Count(body(m), "● built") != 4 ||
 		strings.Count(body(m), "○ missing") != 1 {
 		t.Fatalf("activation did not populate the image cache:\n%s", body(m))
 	}
@@ -288,7 +291,7 @@ func TestActivateRefreshesImageCache(t *testing.T) {
 
 func TestBuildOpRefreshesImageCache(t *testing.T) {
 	m, fake, _, _ := newFixture(t)
-	built := map[string]bool{"base": true, "web": true, "oc-searxng": true} // mycustom missing
+	built := map[string]bool{"base": true, "web": true, "oc-searxng": true, "oc-stt": true} // mycustom missing
 	imageExistsMap(fake, built)
 	imgCheck := fake.Script
 	fake.Script = func(n string, args []string) (string, error) {
@@ -319,7 +322,7 @@ func TestBuildOpRefreshesImageCache(t *testing.T) {
 		m.Update(msg)
 	}
 	runCmd(t, m, post) // op completion re-checks fresh
-	if strings.Count(body(m), "● built") != 4 {
+	if strings.Count(body(m), "● built") != 5 {
 		t.Errorf("cache not refreshed after the build op:\n%s", body(m))
 	}
 }
@@ -328,8 +331,8 @@ func TestBuildRowClickTogglesThenButtonBuilds(t *testing.T) {
 	m, fake, _, _ := newFixture(t)
 	psList(fake, "", "") // nothing running; image exists default = exists
 	m.Body(80, 22)       // stores hit rects
-	if len(m.rowRects) != 4 {
-		t.Fatalf("row rects = %d, want 3", len(m.rowRects))
+	if len(m.rowRects) != 5 {
+		t.Fatalf("row rects = %d, want 5", len(m.rowRects))
 	}
 	r := m.rowRects[1] // web
 	m.Update(mousePress(r.X+2, r.Y))
@@ -350,12 +353,12 @@ func TestBuildSelectAllThenButtonBuildsAll(t *testing.T) {
 	psList(fake, "", "")
 	m.Body(80, 22)
 	m.Update(mousePress(m.selAll.X, m.selAll.Y))
-	if got := body(m); strings.Count(got, "☒") != 5 { // select-all + 4 rows
+	if got := body(m); strings.Count(got, "☒") != 6 { // select-all + 5 rows
 		t.Fatalf("select-all did not check every row:\n%s", got)
 	}
 	cmd := m.Update(mousePress(m.opBtn.X+2, m.opBtn.Y)) // popup (ADR-0021)
 	got := shell.StripANSI(m.confirm.Overlay(80, 22, shell.BodyTop))
-	if !m.confirm.IsOpen() || !strings.Contains(got, "Build 4 image(s)?") {
+	if !m.confirm.IsOpen() || !strings.Contains(got, "Build 5 image(s)?") {
 		t.Fatalf("popup missing: %q", got)
 	}
 	for _, ed := range []string{"base", "web", "mycustom"} {
@@ -366,9 +369,12 @@ func TestBuildSelectAllThenButtonBuildsAll(t *testing.T) {
 	if !strings.Contains(got, "image: oc-searxng") {
 		t.Fatalf("popup missing infra image oc-searxng:\n%s", got)
 	}
+	if !strings.Contains(got, "image: oc-stt") {
+		t.Fatalf("popup missing infra image oc-stt:\n%s", got)
+	}
 	cmd = confirmPopup(m)
 	runCmds(t, m, cmd)
-	targets := []string{"base", "web", "mycustom", "oc-searxng"}
+	targets := []string{"base", "web", "mycustom", "oc-searxng", "oc-stt"}
 	for _, ed := range targets {
 		if callsMatching(fake, "bash", ed) != 1 {
 			t.Fatalf("edition %s not built exactly once: %v", ed, fake.Calls)
@@ -1346,28 +1352,29 @@ func TestImagesNoSelectionToasts(t *testing.T) {
 }
 
 // TestImagesInfraUseFollowsEditions pins the infra-family rule: base
-// (parent stage per the Dockerfile registry), oc-proxy and oc-searxng
-// are in use only while an edition image is in use — a container in
-// any state referencing an edition pins the whole sandbox family,
+// (parent stage per the Dockerfile registry), oc-proxy, oc-searxng and
+// oc-stt are in use only while an edition image is in use — a container
+// in any state referencing an edition pins the whole sandbox family,
 // while existing child images alone pin nothing.
 func TestImagesInfraUseFollowsEditions(t *testing.T) {
 	rows := "localhost/opencode-sandbox-base:latest\t300 MB\n" +
 		"localhost/opencode-sandbox-web:latest\t1.23 GB\n" +
 		"localhost/oc-proxy:latest\t500 MB\n" +
-		"oc-searxng\t400 MB\n"
+		"oc-searxng\t400 MB\n" +
+		"oc-stt\t250 MB\n"
 
 	m, fake, _, _ := newFixture(t)
 	imageList(fake, rows, "") // no containers: whole family unused
 	runCmds(t, m, m.Update(shell.SubTabMsg{Index: TabImages}))
 	if got := body(m); strings.Count(got, "● in use") != 0 ||
-		strings.Count(got, "○ unused") != 4 {
+		strings.Count(got, "○ unused") != 5 {
 		t.Errorf("existing child images alone must not pin the family:\n%s", got)
 	}
 
 	m, fake, _, _ = newFixture(t)
 	imageList(fake, rows, "opencode-sandbox-web\n") // one edition pin
 	runCmds(t, m, m.Update(shell.SubTabMsg{Index: TabImages}))
-	if got := body(m); strings.Count(got, "● in use") != 4 ||
+	if got := body(m); strings.Count(got, "● in use") != 5 ||
 		strings.Count(got, "○ unused") != 0 {
 		t.Errorf("edition containers must pin the whole family:\n%s", got)
 	}
@@ -1378,7 +1385,7 @@ func TestImagesInfraUseFollowsEditions(t *testing.T) {
 	m, fake, _, _ = newFixture(t)
 	imageList(fake, rows, "opencode-sandbox-ghost\n")
 	runCmds(t, m, m.Update(shell.SubTabMsg{Index: TabImages}))
-	if got := body(m); strings.Count(got, "● in use") != 3 ||
+	if got := body(m); strings.Count(got, "● in use") != 4 ||
 		strings.Count(got, "○ unused") != 1 {
 		t.Errorf("an unknown edition container must still pin the family:\n%s", got)
 	}

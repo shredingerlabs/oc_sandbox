@@ -54,7 +54,7 @@ func (s *Server) imageRefs() []string {
 	if !slices.Contains(refs, discovery.BaseImageRef) {
 		refs = append(refs, discovery.BaseImageRef)
 	}
-	return append(refs, discovery.ProxyImageTag, discovery.SearxngImageTag)
+	return append(refs, discovery.ProxyImageTag, discovery.SearxngImageTag, discovery.SttImageTag)
 }
 
 // imageRows builds the image screen rows fresh per request: every
@@ -86,6 +86,16 @@ func (s *Server) imageRows() []imageRow {
 	tag := discovery.SearxngImageTag
 	rows = append(rows, imageRow{
 		Edition: "SearXNG",
+		Tag:     tag,
+		Infra:   true,
+		Built:   discovery.ImageExistsTag(d.Run, tag),
+		Size:    sizes[tag],
+		InUse:   discovery.ImageInUse(refs, tag),
+		Busy:    busy,
+	})
+	tag = discovery.SttImageTag
+	rows = append(rows, imageRow{
+		Edition: "STT",
 		Tag:     tag,
 		Infra:   true,
 		Built:   discovery.ImageExistsTag(d.Run, tag),
@@ -222,7 +232,7 @@ func (s *Server) handleImagesBuild(w http.ResponseWriter, r *http.Request) {
 		// implicitly builds parents first) or an infra tag. Unknown
 		// args re-render with the refusal.
 		var arg string
-		if tag == discovery.ProxyImageTag || tag == discovery.SearxngImageTag {
+		if tag == discovery.ProxyImageTag || tag == discovery.SearxngImageTag || tag == discovery.SttImageTag {
 			arg = tag
 		} else if ed := discovery.EditionFromImage(tag); ed != "" {
 			arg = ed

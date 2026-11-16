@@ -173,6 +173,8 @@ func TestNewWorkspaceFormStandard(t *testing.T) {
 		`data-advanced-only`,    // #152 machinery: advanced-only rows marked
 		PresetsHint,             // "presets, see Advanced" pointer
 		`data-field="host" hidden`, // New… tracker: Host hides for github (the kind default)
+		`name="use_stt" value="on" checked`, // #167: dictation preset ON (Create default)
+		`name="use_stt_present"`,            // the deactivation sentinel inside the row
 	} {
 		if !strings.Contains(doc, want) {
 			t.Errorf("wizard fragment misses %q", want)
@@ -343,6 +345,9 @@ func TestCreateChainBlank(t *testing.T) {
 		len(cfg.ContainerModes) != 0 {
 		t.Fatalf("presets not recorded: %+v", cfg)
 	}
+	if !cfg.UseStt {
+		t.Fatalf("Create default ON must survive a post without use_stt fields: %+v", cfg)
+	}
 
 	// the registry entry (workspaces.json, registered stopped)
 	reg := &registry.Registry{Home: f.home}
@@ -352,6 +357,57 @@ func TestCreateChainBlank(t *testing.T) {
 	}
 	if ws.Path != root || ws.ContainerStatus != "stopped" || ws.GitTracking != "none" || ws.RepoURL != "" {
 		t.Fatalf("registry entry = %+v", ws)
+	}
+}
+
+// The wizard's dictation checkbox (#167, D9 patch semantics): the patch
+// runs only when the row rendered (use_stt_present) — a Standard-shaped
+// post without the fields keeps the Create default, a checked Advanced
+// post writes true (no-op on the default), an unchecked Advanced post
+// writes false. use_stt never joins container_modes and offline+stt
+// refuses nowhere (silent skip at start time).
+func TestCreateChainSttPatchSemantics(t *testing.T) {
+	// Advanced, unchecked → false lands.
+	f := newCreateFixture(t, imageExistsScript(true))
+	sse := sseReader(t, f.s)
+	vals := f.blankForm()
+	vals["search_mode"] = "websearch" // searxng+offline would refuse — not the point here
+	vals["offline"] = "on"            // dictation next to offline stays silent (no refusal)
+	vals["use_stt_present"] = "1"     // the row rendered, checkbox absent = unchecked
+	f.confirm(t, vals)
+	waitDone(t, sse)
+	root := registry.CanonicalPath(f.home + "/ws/demo")
+	cfg, err := sandboxcfg.Read(sandboxcfg.Path(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.UseStt {
+		t.Fatalf("unchecked wizard checkbox must write use_stt=false: %+v", cfg)
+	}
+	if len(cfg.ContainerModes) != 1 || cfg.ContainerModes[0] != "offline" {
+		t.Fatalf("use_stt must not join container_modes; modes = %v", cfg.ContainerModes)
+	}
+
+	// Advanced, checked (or a Standard browser's default-checked row) →
+	// true written explicitly; offline + dictation refuses nowhere.
+	f2 := newCreateFixture(t, imageExistsScript(true))
+	sse2 := sseReader(t, f2.s)
+	vals2 := f2.blankForm()
+	vals2["search_mode"] = "websearch"
+	vals2["offline"] = "on"
+	vals2["use_stt"] = "on"
+	vals2["use_stt_present"] = "1"
+	f2.confirm(t, vals2)
+	if state, _ := waitDone(t, sse2); state != "done" {
+		t.Fatal("offline+stt wizard post must not refuse")
+	}
+	root2 := registry.CanonicalPath(f2.home + "/ws/demo")
+	cfg2, err := sandboxcfg.Read(sandboxcfg.Path(root2))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg2.UseStt {
+		t.Fatalf("checked wizard checkbox must write use_stt=true: %+v", cfg2)
 	}
 }
 
