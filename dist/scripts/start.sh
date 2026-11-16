@@ -323,6 +323,26 @@ fi
 # covers existing workspaces and post-update starts alike — init-workspace.sh
 # is creation-only and cannot (it hard-fails on non-empty roots).
 if $USE_STT; then
+  # Language pin (#168, D3): read the pinned language ONCE per start,
+  # BEFORE the write-if-absent seeding below (a just-seeded file mounts
+  # nothing new — its content is the member's own auto default anyway).
+  # jq-guarded like the v2 migration above; a missing jq or an absent/
+  # invalid file falls back to "auto" (the member's own default).
+  STT_LANG="auto"
+  STT_MOUNT_ARGS=()
+  if [[ -f "${CONFIG_DIR}/stt.json" ]]; then
+    if command -v jq >/dev/null 2>&1; then
+      STT_LANG="$(jq -r '.language // "auto"' "${CONFIG_DIR}/stt.json" 2>/dev/null || true)"
+    fi
+    STT_LANG="${STT_LANG//[[:space:]]/}"
+    if [[ -z "$STT_LANG" ]]; then
+      STT_LANG="auto"
+    fi
+    # ADR 0034 allowlist pattern: the settings file is the persistent
+    # record traveling with the workspace; mounted read-only into the
+    # member only when the file exists.
+    STT_MOUNT_ARGS=(-v "${CONFIG_DIR}/stt.json:/etc/stt/stt.json:ro")
+  fi
   # Workspace STT settings (spec story 26): the language pin lives in
   # stt.json, hand-editable. Write only if absent — a user's pinned
   # language must survive every start (the STT mount reads it later).
@@ -736,9 +756,16 @@ if ! $OFFLINE; then
     fi
     STT_NAME="oc-stt-${SANDBOX_ID}"
     echo "==> Starting the oc-stt pod member (${STT_NAME}) ..."
+    # Language pin (next-start apply, #168): STT_LANG was read once per
+    # start above; the file is re-read only when the member is recreated
+    # with the pod — no live-apply of any kind. The member applies the
+    # language server-side (entrypoint --language); clients stay dumb
+    # (no client-side language parameter anywhere).
     podman run -d \
       --pod "$POD_NAME" \
       --name "$STT_NAME" \
+      -e "STT_LANG=${STT_LANG}" \
+      "${STT_MOUNT_ARGS[@]}" \
       oc-stt
   fi
 else

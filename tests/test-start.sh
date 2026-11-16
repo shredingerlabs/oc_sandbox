@@ -751,6 +751,77 @@ if [[ -e "$cli_json" ]]; then
 fi
 printf 'start stt cli.json seeding tests passed\n'
 
+# --- Dictation language pin: stt.json-Mount + STT_LANG-Env (#168) -------------------
+# Der Member-Run-Vektor traegt BEIDES: den ADR-0034-Mount (persistenter
+# Datensatz, reist mit dem Workspace) und -e STT_LANG (der Member wendet die
+# Sprache serverseitig an — Clients bleiben dumm, kein Client-seitiger
+# Sprachparameter). Re-Read nur bei der Member-Neuanlage mit dem Pod
+# (next-start apply, kein Live-Apply). Fehlende Datei -> kein Mount,
+# Member-Default auto.
+config_dir="$test_home/.opencode_config"
+stt_json="$test_home/.opencode_config/stt.json"
+stt_member_line() {
+  grep -m1 -- '--name oc-stt-' "$PODMAN_LOG"
+}
+run_stt_start() {
+  : > "$PODMAN_LOG"
+  if ! bash "$PROJECT_ROOT/dist/scripts/start.sh" "$test_home" --edition swdev --use_stt --detach > /dev/null 2>&1; then
+    printf 'start script failed with mocked podman (use_stt language pin)\n' >&2
+    exit 1
+  fi
+}
+
+# Gepinnte Sprache: Mount UND -e STT_LANG=de am Member-Run-Vektor.
+printf '{"language": "de"}\n' > "$stt_json"
+run_stt_start
+stt_pin_line="$(stt_member_line)"
+if [[ "$stt_pin_line" != *" -v ${config_dir}/stt.json:/etc/stt/stt.json:ro"* ]]; then
+  printf 'pinned stt.json not bind-mounted into the member (ADR 0034 pattern): %s\n' "$stt_pin_line" >&2
+  exit 1
+fi
+if [[ "$stt_pin_line" != *' -e STT_LANG=de'* ]]; then
+  printf 'pinned language de missing from the member run vector: %s\n' "$stt_pin_line" >&2
+  exit 1
+fi
+
+# Geseedeter Default: STT_LANG=auto (Datei existiert -> Mount bleibt).
+printf '{"language": "auto"}\n' > "$stt_json"
+run_stt_start
+if [[ "$(stt_member_line)" != *' -e STT_LANG=auto'* ]]; then
+  printf 'seeded default did not yield STT_LANG=auto on the member run: %s\n' "$(stt_member_line)" >&2
+  exit 1
+fi
+
+# Fehlende Datei: KEIN stt.json-Mount, STT_LANG faellt auf auto zurueck,
+# Member laeuft trotzdem.
+rm -f "$stt_json"
+run_stt_start
+stt_absent_line="$(stt_member_line)"
+if grep -q -- 'stt.json:/etc/stt/stt.json' <<<"$stt_absent_line"; then
+  printf 'absent stt.json was mounted: %s\n' "$stt_absent_line" >&2
+  exit 1
+fi
+if [[ "$stt_absent_line" != *' -e STT_LANG=auto'* ]]; then
+  printf 'absent stt.json did not default STT_LANG to auto: %s\n' "$stt_absent_line" >&2
+  exit 1
+fi
+
+# Next-start apply + Write-if-absent: Hand-Edit zwischen zwei Starts -> der
+# zweite Start traegt den neuen Wert am Member, aber die Datei selbst wird
+# vom Start NICHT ueberschrieben (Hand-Edit ueberlebt, #166-Vertrag).
+printf '{"language": "fr"}\n' > "$stt_json"
+run_stt_start
+if [[ "$(stt_member_line)" != *' -e STT_LANG=fr'* ]]; then
+  printf 'hand-edited language fr did not apply on the next start: %s\n' "$(stt_member_line)" >&2
+  exit 1
+fi
+if ! jq -e '.language == "fr"' "$stt_json" >/dev/null; then
+  printf 'start overwrote the hand-edited stt.json (write-if-absent contract): %s\n' "$(cat "$stt_json")" >&2
+  exit 1
+fi
+
+printf 'start stt language pin tests passed\n'
+
 
 # --- 7: Offline-Userns (#125-Regression) ---------------------------------------
 # Offline gibt es keinen Pod: der workspace container laeuft solo und behaelt
