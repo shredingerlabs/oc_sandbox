@@ -12,9 +12,6 @@ package launcher
 
 import (
 	"fmt"
-	"io"
-	"os/exec"
-	"runtime"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -23,13 +20,15 @@ import (
 	"github.com/shredingerlabs/oc-sandbox/internal/cmdrun"
 	"github.com/shredingerlabs/oc-sandbox/internal/containerview"
 	"github.com/shredingerlabs/oc-sandbox/internal/discovery"
+	"github.com/shredingerlabs/oc-sandbox/internal/opener"
 	"github.com/shredingerlabs/oc-sandbox/internal/registry"
 )
 
 // Options carries the launcher's wiring. Open defaults to the platform
-// browser opener (§3: xdg-open / open / cmd start); Busy is the
-// guarded-exit check (nil = never busy); Runner + Registry feed the
-// containers prompt and the graceful stop (nil Runner = nothing can run).
+// browser opener (§3: xdg-open / open / cmd start; WSL-aware, the
+// opener package); Busy is the guarded-exit check (nil = never busy);
+// Runner + Registry feed the containers prompt and the graceful stop
+// (nil Runner = nothing can run).
 type Options struct {
 	URL      string // full tokenized URL, "" when the server is not running
 	Open     func(url string) error
@@ -68,7 +67,7 @@ type Model struct {
 // New builds the launcher face.
 func New(opts Options) Model {
 	if opts.Open == nil {
-		opts.Open = platformOpen
+		opts.Open = opener.Browser
 	}
 	return Model{opts: opts}
 }
@@ -113,7 +112,7 @@ func (m *Model) FinalSummary() string {
 
 // OpenBrowser opens the platform browser (§3 opener) — the launch-time
 // auto-open rides it alongside the Open WebUI button.
-func OpenBrowser(url string) error { return platformOpen(url) }
+func OpenBrowser(url string) error { return opener.Browser(url) }
 
 // openDoneMsg carries the browser-open outcome back through Update (the
 // cmd goroutine never touches the model directly — no races).
@@ -394,24 +393,3 @@ var (
 	idleStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
 	warnStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("220"))
 )
-
-// platformOpen is the §3 browser opener: xdg-open / macOS open /
-// Windows cmd start. Failures surface through OpenFailed — the URL
-// stays visible for manual copy.
-func platformOpen(url string) error {
-	var cmd *exec.Cmd
-	switch runtime.GOOS {
-	case "darwin":
-		cmd = exec.Command("open", url)
-	case "windows":
-		cmd = exec.Command("cmd", "/c", "start", "", url)
-	default:
-		cmd = exec.Command("xdg-open", url)
-	}
-	cmd.Stdout, cmd.Stderr = io.Discard, io.Discard
-	if err := cmd.Start(); err != nil {
-		return err
-	}
-	go func() { _ = cmd.Wait() }() // no zombies across repeated opens
-	return nil
-}

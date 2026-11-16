@@ -201,13 +201,19 @@ documented release-docs item (§12), not a lock.
   override, else probe `x-terminal-emulator`, `kitty`, `gnome-terminal`, `konsole`,
   `xfce4-terminal`, `foot`, `xterm` via `exec.LookPath`, launch detached. macOS:
   `osascript` `do script` on Terminal.app (iTerm2 optional). Windows/WSL: `wt.exe`
-  preferred via `cmd.exe /c wt.exe` interop with path translation. **Single
+  preferred via `cmd.exe /c wt.exe` interop with path translation — under WSL (a
+  Linux-GOOS binary on a Windows host) the interop outranks the Linux probe list
+  and runs the command through `wsl.exe --exec bash <script>` inside the distro
+  (default distro, the Start-menu shortcut's assumption — ADR 0015); without the
+  interop pair the probe list runs and the override always wins. **Single
   decisive fallback when no window can open** (SSH, headless, none offered): the
   WebUI renders the exact copyable command and the session stays pending — no
   in-browser terminal.
 - **Browser opener**: platform opener (`xdg-open` / macOS `open` / Windows
-  `cmd /c start`); on failure the full tokenized URL is always visible in the
-  launcher's URL/status line for manual copy.
+  `cmd /c start`; WSL: `wslview` first, else the `cmd.exe` interop start —
+  `xdg-open` only as the no-interop fallback, WSLg); on failure the full
+  tokenized URL is always visible in the launcher's URL/status line for manual
+  copy.
 
 ### 4. Minimal TUI launcher (§2.1) — decided in [Grilling: Minimal TUI launcher behavior](https://github.com/shredingerlabs/oc_sandbox/issues/138)
 

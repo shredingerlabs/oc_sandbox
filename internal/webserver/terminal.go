@@ -10,10 +10,12 @@
 // loses its shell meaning: the operators ride as literal args and the
 // in-container command errors out instantly. macOS: osascript
 // `do script` on Terminal.app. Windows/WSL: wt.exe via cmd.exe interop
-// with path translation. The single decisive fallback when no window
-// can open (SSH, headless, none offered) renders the exact copyable
-// command in the WebUI — the session stays pending; no in-browser
-// terminal.
+// with path translation. On WSL (a Linux-GOOS binary on a Windows host)
+// the wt.exe interop outranks the probe list, running the command
+// through wsl.exe inside the distro. The single decisive fallback when
+// no window can open (SSH, headless, none offered) renders the exact
+// copyable command in the WebUI — the session stays pending; no
+// in-browser terminal.
 package webserver
 
 import (
@@ -22,6 +24,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+
+	"github.com/shredingerlabs/oc-sandbox/internal/wsl"
 )
 
 // linuxTerminals is the §3 probe list, in order.
@@ -47,9 +51,50 @@ func spawnTerminal(command string) error {
 		return spawnDarwin(command)
 	case "windows":
 		return spawnWindows(command)
-	default:
+	default: // linux — plain or WSL
+		// WSL (a Linux-GOOS binary on a Windows host): the Windows
+		// Terminal interop outranks the Linux probe list — a WSL
+		// distro usually offers no GUI terminal, while wt.exe is the
+		// host's window. The explicit OC_SANDBOX_TERMINAL override
+		// still wins (spawnLinux owns it, WSLg terminals included);
+		// without the interop pair the probe list runs and its empty
+		// result stays the decisive no-window signal.
+		if wsl.IsWSL() && os.Getenv("OC_SANDBOX_TERMINAL") == "" && wslTerminalAvailable() {
+			return spawnWSL(command)
+		}
 		return spawnLinux(command)
 	}
+}
+
+// wslTerminalAvailable reports whether the §3 Windows Terminal interop
+// pair is offered: wt.exe needs cmd.exe to launch (the same interop
+// shape as the GOOS=windows path); wsl.exe rides System32 with it.
+func wslTerminalAvailable() bool {
+	for _, bin := range []string{"cmd.exe", "wt.exe"} {
+		if _, err := exec.LookPath(bin); err != nil {
+			return false
+		}
+	}
+	return true
+}
+
+// spawnWSL opens a Windows Terminal window via cmd.exe interop running
+// the command inside the WSL distro: wt.exe wsl.exe --exec bash
+// <script>. The temp bash script is the Linux-probe-list machinery —
+// the Linux path is native to wsl.exe (no wslpath translation), and
+// --exec runs it without shell-quoting. wsl.exe targets the default
+// distro, the same assumption the Start-menu shortcut makes (ADR 0015).
+func spawnWSL(command string) error {
+	script, err := writeTerminalScript(command)
+	if err != nil {
+		return err
+	}
+	cmd := exec.Command("cmd.exe", "/c", "wt.exe", "wsl.exe", "--exec", "bash", script)
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	go func() { _ = cmd.Wait() }() // detached: reap the interop process
+	return nil
 }
 
 // terminalArgv builds the per-emulator argv for script (a temp .sh file

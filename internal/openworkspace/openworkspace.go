@@ -13,7 +13,6 @@ package openworkspace
 import (
 	"fmt"
 	"os/exec"
-	"runtime"
 	"strings"
 	"time"
 
@@ -23,6 +22,7 @@ import (
 
 	"github.com/shredingerlabs/oc-sandbox/internal/cmdrun"
 	"github.com/shredingerlabs/oc-sandbox/internal/discovery"
+	"github.com/shredingerlabs/oc-sandbox/internal/opener"
 	"github.com/shredingerlabs/oc-sandbox/internal/registry"
 	"github.com/shredingerlabs/oc-sandbox/internal/sandboxcfg"
 	"github.com/shredingerlabs/oc-sandbox/internal/shell"
@@ -404,18 +404,11 @@ func (m *Model) openLogin() tea.Cmd {
 	return m.deps.Exec(openBrowser(m.loginLink), func(err error) tea.Msg { return loginDoneMsg{Err: err} })
 }
 
-// openBrowser returns the platform opener for a URL (Linux xdg-open,
-// macOS open, Windows cmd start) — the pair link opens as a new
-// tab/window in the default browser.
+// openBrowser returns the platform opener for a URL (the §3 opener —
+// xdg-open / open / cmd start, WSL-aware via the opener package) — the
+// pair link opens as a new tab/window in the default browser.
 func openBrowser(url string) *exec.Cmd {
-	switch runtime.GOOS {
-	case "darwin":
-		return exec.Command("open", url)
-	case "windows":
-		return exec.Command("cmd", "/c", "start", "", url)
-	default:
-		return exec.Command("xdg-open", url)
-	}
+	return opener.Cmd(url)
 }
 
 // expireLogin hides the pinned Login WEB button when its container
