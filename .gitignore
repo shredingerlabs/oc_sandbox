@@ -13,3 +13,6 @@ prototypes/
 dist/bin/
 .temp/
 .tmp/
+voice-de/
+.cache/
+.npm/
