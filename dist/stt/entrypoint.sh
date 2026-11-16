@@ -1,5 +1,5 @@
 #!/bin/sh
-# STT member entrypoint (decisions.md D2/D3): one process — the
+# STT member entrypoint (ADR 0036, D2/D3): one process — the
 # whisper.cpp server itself.
 # --host 0.0.0.0 is REQUIRED: the server default is loopback, which the
 # pod publish could not reach.

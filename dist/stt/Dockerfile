@@ -10,7 +10,7 @@
 # static mount serves /srv/stt/public/index.html at `/` (dictation
 # sidecar page; ticket #170 ships the real assets).
 #
-# In-pod port constant: 8090 (decisions.md D2) — whisper.cpp's 8080
+# In-pod port constant: 8090 (ADR 0036, D2) — whisper.cpp's 8080
 # default collides with searxng's in-pod 127.0.0.1:8080, and both pod
 # members may coexist in one pod.
 
@@ -59,7 +59,7 @@ COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 COPY public/ /srv/stt/public/
 
 # In-pod constant: 8090 — NOT searxng's in-pod 8080, both members may
-# coexist in one pod (decisions.md D2).
+# coexist in one pod (ADR 0036, D2).
 EXPOSE 8090
 
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]

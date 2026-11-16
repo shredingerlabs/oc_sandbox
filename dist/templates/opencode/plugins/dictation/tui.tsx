@@ -214,7 +214,7 @@ export default Plugin.define({
     })
 
     // --- keybind command ---------------------------------------------------------
-    // ctrl+t (D1): the stock `variant.cycle` chord is freed via the seeded
+    // ctrl+t (ADR 0036, D1): the stock `variant.cycle` chord is freed via the seeded
     // cli.json — start.sh writes keybinds.variant.cycle = "none" on every
     // --use_stt start, never over a user-chosen value.
     ctx.keymap.layer(() => ({

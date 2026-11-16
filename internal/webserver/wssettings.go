@@ -292,7 +292,7 @@ var wsSettingsTemplate = template.Must(template.New("wssettings").
         <span class="field-hint">switchable — applies on next start</span>
       </div>
       {{end}}
-      {{if or (vis .Mode "proxy") (vis .Mode "offline") (vis .Mode "cbm_ui") (vis .Mode "hil")}}
+      {{if or (vis .Mode "proxy") (vis .Mode "offline") (vis .Mode "cbm_ui") (vis .Mode "hil") (vis .Mode "stt")}}
       <div class="row" data-row="modes">
         <span class="label">Modes</span>
         <span class="swgroup">
@@ -300,17 +300,9 @@ var wsSettingsTemplate = template.Must(template.New("wssettings").
           {{if vis .Mode "offline"}}<label class="switch">offline<input type="checkbox" name="offline" value="on" {{if .Offline}}checked{{end}}><i></i></label>{{end}}
           {{if vis .Mode "cbm_ui"}}<label class="switch">CBM-UI<input type="checkbox" name="cbm_ui" value="on" {{if .CBMUI}}checked{{end}}><i></i></label>{{end}}
           {{if vis .Mode "hil"}}<label class="switch">HIL<input type="checkbox" name="hil" value="on" {{if .HIL}}checked{{end}}><i></i></label>{{end}}
+          {{if vis .Mode "stt"}}<label class="switch">dictation<input type="checkbox" name="use_stt" value="on" {{if .STT}}checked{{end}}><i></i><input type="hidden" name="use_stt_present" value="1"></label>{{end}}
         </span>
         <div class="field-hint">start.sh flags — apply on next start (presets, not pinning: the stored config stays the truth).</div>
-      </div>
-      {{end}}
-      {{if vis .Mode "stt"}}
-      <div class="row" data-row="stt">
-        <span class="label">Modes</span>
-        <span class="swgroup">
-          <label class="switch">dictation<input type="checkbox" name="use_stt" value="on" {{if .STT}}checked{{end}}><i></i><input type="hidden" name="use_stt_present" value="1"></label>
-        </span>
-        <div class="field-hint">local speech-to-text (dictation) — the whisper.cpp member starts with the pod; offline runs skip it.</div>
       </div>
       {{end}}
       {{if vis .Mode "search_mode"}}

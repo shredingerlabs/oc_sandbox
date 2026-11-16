@@ -89,7 +89,7 @@ func TestWsSettingsScreenStandard(t *testing.T) {
 	for _, hidden := range []string{
 		`data-row="edition"`, `data-row="start_option"`, `data-row="modes"`,
 		`data-row="search_mode"`, `name="offline"`, `name="cbm_ui"`, `name="hil"`,
-		`data-row="stt"`, `name="use_stt"`,
+		`name="use_stt"`,
 	} {
 		if strings.Contains(doc, hidden) {
 			t.Fatalf("Standard must hide the Advanced row %s (matrix §6):\n%s", hidden, doc)
@@ -97,19 +97,19 @@ func TestWsSettingsScreenStandard(t *testing.T) {
 	}
 }
 
-// The dictation row (#167): a standalone advanced-only row mirroring the
-// proxy switch — the use_stt checkbox with the use_stt_present sentinel
-// after the <i> track (the .switch :checked + i adjacency rule), the
-// checked state read from the stored truth (absent use_stt — pre-feature
-// workspaces — reads OFF).
+// The dictation switch (#167): inside the Modes row (as in the wizard),
+// mirroring the proxy switch — the use_stt checkbox with the
+// use_stt_present sentinel after the <i> track (the .switch :checked + i
+// adjacency rule), the checked state read from the stored truth (absent
+// use_stt — pre-feature workspaces — reads OFF).
 func TestWsSettingsScreenSttRow(t *testing.T) {
 	fx := newCreateFixture(t, nil)
 	root := seedWorkspace(t, fx.home, "alpha", "swdev", nil)
 	postForm(t, fx.s.URL()+"settings", map[string]string{"display_mode": "advanced"})
 
 	doc := body(t, get(t, fx.s.URL()+"workspaces/alpha/settings"))
-	if !strings.Contains(doc, `data-row="stt"`) {
-		t.Fatalf("Advanced settings screen missing the dictation row:\n%s", doc)
+	if !strings.Contains(doc, `>dictation<`) {
+		t.Fatalf("Advanced settings screen missing the dictation switch:\n%s", doc)
 	}
 	if !strings.Contains(doc, `name="use_stt" value="on" checked`) {
 		t.Fatalf("Create-seeded use_stt must read ON in Advanced:\n%s", doc)
@@ -126,7 +126,7 @@ func TestWsSettingsScreenSttRow(t *testing.T) {
 	}
 	doc = body(t, get(t, fx.s.URL()+"workspaces/alpha/settings"))
 	for _, want := range []string{
-		`data-row="stt"`,
+		`>dictation<`,
 		`name="use_stt" value="on" checked><i></i>`, // checkbox ↔ track adjacency
 		`name="use_stt_present"`,                    // the deactivation sentinel
 	} {

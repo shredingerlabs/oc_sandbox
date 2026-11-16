@@ -40,7 +40,7 @@
 //   timers {set, clear}       → optional injectable clock for the cap.
 //   onPhase(phase)            → optional phase callback (footer status).
 
-export const RECORDING_CAP_MS = 300_000 // ~5 min auto-stop (D4: constant)
+export const RECORDING_CAP_MS = 300_000 // ~5 min auto-stop (ADR 0036, D4: constant)
 // WAV header (44 B) + 1 s of 16 kHz mono s16le. Below that the capture is
 // "empty" — the first-attempt capture health check (spec stories 7/25).
 export const MIN_CAPTURE_BYTES = 44 + 32_000

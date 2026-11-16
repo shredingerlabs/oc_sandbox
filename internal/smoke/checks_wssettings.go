@@ -139,7 +139,7 @@ func checkWebUISettings(home, root string) Item {
 			p.reasonf("Standard settings screen missing %q", want)
 		}
 	}
-	for _, hidden := range []string{`data-row="edition"`, `data-row="start_option"`, `data-row="proxy"`, `data-row="hil"`, `data-row="stt"`} {
+	for _, hidden := range []string{`data-row="edition"`, `data-row="start_option"`, `data-row="proxy"`, `data-row="hil"`, `>dictation<`} {
 		if strings.Contains(stdBody, hidden) {
 			p.reasonf("Standard must hide %s (matrix §6)", hidden)
 		}

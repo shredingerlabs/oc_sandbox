@@ -9,7 +9,7 @@
 // import this file (tests/dictation/sidecar.test.mjs); all DOM access
 // happens inside init(), which only runs in a browser.
 
-// Recording cap (decisions.md D4): constant, not a settings key.
+// Recording cap (ADR 0036, D4): constant, not a settings key.
 const MAX_RECORD_SECONDS = 300
 
 // POST target of the whisper.cpp server (entrypoint.sh --inference-path).
@@ -205,10 +205,11 @@ async function toggleRecording(state) {
     }
     recorder.start()
     state.recorder = recorder
-    $("error").hidden = true
+    const errEl = $("error")
+    if (errEl) errEl.hidden = true
     const status = $("status")
     if (status) status.textContent = "Recording … (press again to stop)"
-    // Runaway-recording cap (decisions.md D4): auto-stop after 5 minutes.
+    // Runaway-recording cap (ADR 0036, D4): auto-stop after 5 minutes.
     state.capTimer = setTimeout(() => {
       if (recorder.state === "recording") recorder.stop()
     }, MAX_RECORD_SECONDS * 1000)

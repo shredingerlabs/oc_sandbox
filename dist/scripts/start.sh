@@ -323,7 +323,7 @@ fi
 # covers existing workspaces and post-update starts alike — init-workspace.sh
 # is creation-only and cannot (it hard-fails on non-empty roots).
 if $USE_STT; then
-  # Language pin (#168, D3): read the pinned language ONCE per start,
+  # Language pin (#168, ADR 0036 D3): read the pinned language ONCE per start,
   # BEFORE the write-if-absent seeding below (a just-seeded file mounts
   # nothing new — its content is the member's own auto default anyway).
   # jq-guarded like the v2 migration above; a missing jq or an absent/
