@@ -1,6 +1,6 @@
 /** @jsxImportSource @opentui/solid */
 //
-// Dictation TUI plugin (ticket #169, spec #164) — ctrl+t to dictate.
+// Dictation TUI plugin (ticket #169, spec #164) — ctrl+shift+s to dictate.
 //
 // Recording runs parecord in the workspace container (the PulseAudio socket
 // is bind-mounted by start.sh, PULSE_SERVER set accordingly) into a temp
@@ -207,16 +207,16 @@ export default Plugin.define({
       append: "prompt.footer.status",
       render: () => {
         const p = phase()
-        if (p === "recording") return <text>🔴 REC · ctrl+t stops</text>
+        if (p === "recording") return <text>🔴 REC · ctrl+shift+s stops</text>
         if (p === "transcribing") return <text>🟡 Transcribing…</text>
-        return <text>🎤 ctrl+t dictates</text>
+        return <text>🎤 ctrl+shift+s dictates</text>
       },
     })
 
     // --- keybind command ---------------------------------------------------------
-    // ctrl+t (ADR 0036, D1): the stock `variant.cycle` chord is freed via the seeded
-    // cli.json — start.sh writes keybinds.variant.cycle = "none" on every
-    // --use_stt start, never over a user-chosen value.
+    // ctrl+shift+s (ADR 0036, D1): verified free against the shipped
+    // stock keybind defaults — no stock keybind is touched and the
+    // workspace cli.json is left alone.
     ctx.keymap.layer(() => ({
       mode: "global",
       commands: [
@@ -226,7 +226,7 @@ export default Plugin.define({
           description:
             "Record with the workspace microphone, transcribe via the local STT member, review and submit.",
           group: "Dictation",
-          bind: "ctrl+t",
+          bind: "ctrl+shift+s",
           palette: true,
           slash: { name: "dictate" },
           run: () => {

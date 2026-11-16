@@ -244,9 +244,9 @@ Dictation is governed by a per-workspace toggle (`use_stt` in
 A running `oc-stt` member uses ~≤1.5 GB RAM (the baked model); it starts and
 stops with the workspace pod like every other pod member.
 
-### In the OpenCode TUI (`ctrl+t`)
+### In the OpenCode TUI (`ctrl+shift+s`)
 
-Press `ctrl+t` once to start recording, again to stop (recordings stop and
+Press `ctrl+shift+s` once to start recording, again to stop (recordings stop and
 transcribe automatically after ~5 minutes). The transcript opens in an
 editable review dialog:
 
@@ -261,10 +261,11 @@ editable review dialog:
 
 The command is also reachable as **`/dictate`** from the palette/slash UI.
 
-**Keybind note:** `ctrl+t` claims the chord by freeing the stock
-`variant.cycle` keybind via the workspace's seeded `cli.json`
-(`"variant.cycle": "none"`; the voice-de pattern). The command itself stays
-reachable from the palette — only the raw chord moves to dictation.
+**Keybind note:** `ctrl+shift+s` is verified free against the shipped
+opencode keybind defaults — no stock keybind is touched and the workspace's
+`cli.json` is left alone. You can rebind the command there
+(`"keybinds": {"dictation.toggle": "..."}`); the `/dictate` palette entry
+stays.
 
 **Clipboard paste is the failure fallback only:** if the dialog route cannot
 deliver (plugin-API drift after an update, or a terminal send failure), the

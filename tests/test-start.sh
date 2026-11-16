@@ -702,54 +702,23 @@ if [[ -e "$stt_json" || -e "$test_home/.opencode_config/plugins" ]]; then
 fi
 printf 'start stt seeding tests passed\n'
 
-# --- Dictation cli.json keybind freeing (D1) ---------------------------------------
-# ctrl+t ist der Stock-Chord von variant.cycle (v2.2.6-Binaries + Doku). Das
-# Seeding schreibt cli.json genau fuer diesen EINEN Key auf "none" (voice-de-
-# Muster), idempotent, und ueberschreibt NIE einen von Hand gesetzten Wert.
+# --- Dictation keybind: no cli.json seeding (D1 chord switch) -----------------------
+# dictation binds ctrl+shift+s (verified free against the stock defaults),
+# so start.sh writes NO cli.json — with and without --use_stt.
 cli_json="$test_home/.opencode_config/cli.json"
 rm -rf "$test_home/.opencode_config"
 : > "$PODMAN_LOG"
-if ! bash "$PROJECT_ROOT/dist/scripts/start.sh" "$test_home" --edition swdev --use_stt --detach > /dev/null 2>&1; then
-  printf 'start script failed with mocked podman (use_stt cli.json seeding)\n' >&2
-  exit 1
-fi
-[[ -f "$cli_json" ]]
-if ! jq -e '.keybinds["variant.cycle"] == "none"' "$cli_json" >/dev/null; then
-  printf 'seeded cli.json does not free variant.cycle: %s\n' "$(cat "$cli_json")" >&2
-  exit 1
-fi
-# Idempotent: zweiter Start laesst den Inhalt unveraendert (gleiche Bytes).
-cp "$cli_json" "$test_home/cli.json.before"
 bash "$PROJECT_ROOT/dist/scripts/start.sh" "$test_home" --edition swdev --use_stt --detach > /dev/null 2>&1
-if ! cmp -s "$cli_json" "$test_home/cli.json.before"; then
-  printf 'second start rewrote the seeded cli.json content\n' >&2
+if [[ -e "$cli_json" ]]; then
+  printf 'stt start seeded a cli.json (chord is free — no seeding expected)\n' >&2
   exit 1
 fi
-# Merge, nie clobber: eine von Hand gesetzte variant.cycle-Bindung ueberlebt
-# jeden Start, und alle anderen Keys bleiben unangetastet.
-printf '{"$schema":"https://opencode.ai/v2/cli.json","keybinds":{"variant.cycle":"ctrl+shift+v","other.cmd":"ctrl+q"}}\n' > "$cli_json"
-bash "$PROJECT_ROOT/dist/scripts/start.sh" "$test_home" --edition swdev --use_stt --detach > /dev/null 2>&1
-if ! jq -e '.keybinds["variant.cycle"] == "ctrl+shift+v"' "$cli_json" >/dev/null; then
-  printf 'seed clobbered a hand-set variant.cycle value: %s\n' "$(cat "$cli_json")" >&2
-  exit 1
-fi
-if ! jq -e '.keybinds["other.cmd"] == "ctrl+q"' "$cli_json" >/dev/null; then
-  printf 'cli.json merge dropped a foreign key: %s\n' "$(cat "$cli_json")" >&2
-  exit 1
-fi
-# Fehlender Key in vorhandener Datei: wird ergaenzt, fremde Keys bleiben.
-printf '{"keybinds":{"other.cmd":"ctrl+q"}}\n' > "$cli_json"
-bash "$PROJECT_ROOT/dist/scripts/start.sh" "$test_home" --edition swdev --use_stt --detach > /dev/null 2>&1
-jq -e '.keybinds["variant.cycle"] == "none"' "$cli_json" >/dev/null
-jq -e '.keybinds["other.cmd"] == "ctrl+q"' "$cli_json" >/dev/null
-# Kein cli.json ohne --use_stt.
-rm -f "$cli_json"
 bash "$PROJECT_ROOT/dist/scripts/start.sh" "$test_home" --edition swdev --detach > /dev/null 2>&1
 if [[ -e "$cli_json" ]]; then
   printf 'plain start seeded cli.json (opt-in flag must gate seeding)\n' >&2
   exit 1
 fi
-printf 'start stt cli.json seeding tests passed\n'
+printf 'start stt cli.json tests passed\n'
 
 # --- Dictation language pin: stt.json-Mount + STT_LANG-Env (#168) -------------------
 # Der Member-Run-Vektor traegt BEIDES: den ADR-0034-Mount (persistenter

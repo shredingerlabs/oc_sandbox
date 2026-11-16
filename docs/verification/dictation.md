@@ -20,7 +20,7 @@ already wired into the repo suites and listed at the bottom.
 | 2 | Transcription round-trip | Run a workspace with dictation on; `curl -F file=@16k-mono.wav -F response_format=json http://127.0.0.1:8090/inference` returns `{"text": …}` | pending |
 | 3 | Sidecar page | Open `http://127.0.0.1:8090/` in a browser; the dictation page is served by the member (same port) | pending |
 | 4 | Plugin auto-loads | Start a dictation workspace; the TUI shows the seeded plugin (palette: "Dictate: start/stop recording", `/dictate` slash). Probes whether the shipped opencode resolves `@opencode/plugin/tui` without an npm install in the config dir | pending |
-| 5 | ctrl+t toggle + recording | `ctrl+t` starts recording (🔴 REC footer), second press stops and transcribes; parecord flags work in the real container (16 kHz mono s16 WAV) | pending |
+| 5 | ctrl+shift+s toggle + recording | `ctrl+shift+s` starts recording (🔴 REC footer), second press stops and transcribes; parecord flags work in the real container (16 kHz mono s16 WAV) | pending |
 | 6 | ~5-min cap | Leave a recording running; it auto-stops and transcribes at ~5 minutes | pending |
 | 7 | Review dialog + submit | Dialog opens (large, centered, cursor at end); edit the text; `ctrl+enter` submits it to the session (the `session.prompt` probe, D7); `esc` discards; empty text closes silently | pending |
 | 8 | Home-route bootstrap | From the home route, dictation creates a session and lands the dialog in it (like typing a prompt on the start screen) | pending |

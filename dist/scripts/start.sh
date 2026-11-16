@@ -357,30 +357,12 @@ if $USE_STT; then
     mkdir -p "${CONFIG_DIR}/plugins"
     cp -r "${REPO_ROOT}/templates/opencode/plugins/dictation" "${CONFIG_DIR}/plugins/dictation"
   fi
-  # Keybind freeing (D1): the stock `variant.cycle` chord defaults to
-  # ctrl+t and would shadow the dictation command. Seed cli.json with that
-  # one keybinding set to "none" (the voice-de cli.json pattern) — only
-  # this one key is ever written, and never over a value the user chose.
-  # variant.cycle stays reachable from the command palette; only the raw
-  # chord is freed.
-  CLI_JSON="${CONFIG_DIR}/cli.json"
-  if [[ ! -f "$CLI_JSON" ]]; then
-    printf '{\n  "$schema": "https://opencode.ai/v2/cli.json",\n  "keybinds": {\n    "variant.cycle": "none"\n  }\n}\n' > "$CLI_JSON"
-  elif command -v jq >/dev/null 2>&1; then
-    if ! jq -e '(.keybinds // {}) | has("variant.cycle")' "$CLI_JSON" >/dev/null 2>&1; then
-      # Merge only the missing key (a jq round-trip reformats whitespace,
-      # but every existing key/value is preserved untouched).
-      cli_tmp="$(mktemp "${CONFIG_DIR}/.cli.json.XXXXXX")"
-      if jq '.keybinds = ((.keybinds // {}) + {"variant.cycle": "none"})' "$CLI_JSON" > "$cli_tmp" 2>/dev/null; then
-        mv "$cli_tmp" "$CLI_JSON"
-      else
-        rm -f "$cli_tmp"
-        echo "Warning: could not free the ctrl+t keybind (cli.json merge failed) — dictation may shadow variant.cycle" >&2
-      fi
-    fi
-  else
-    echo "Warning: jq not found — cannot free the ctrl+t keybind in an existing cli.json (dictation may shadow variant.cycle)" >&2
-  fi
+  # Keybind note (ADR 0036, D1): dictation binds ctrl+shift+s — verified
+  # free against the shipped stock keybind defaults, so no cli.json is
+  # seeded and no stock keybind is touched. (The earlier ctrl+t
+  # variant.cycle freeing was retired with the chord switch; a cli.json
+  # seeded by an older build keeps its variant.cycle entry, which only
+  # moves that command to the command palette.)
 fi
 
 # --- Proxy ----------------------------------------------------------------------
