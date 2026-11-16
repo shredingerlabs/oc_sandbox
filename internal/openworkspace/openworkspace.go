@@ -897,7 +897,7 @@ func (m *Model) launchStart(p registry.Workspace, cfg sandboxcfg.Config, variant
 	m.log = shell.NewLogPane().Run(true)
 	m.busyID++
 	m.busyKey = p.ContainerID
-	args := StartArgs(p.Path, cfg.ContainerEdition, p.ContainerID, cfg.ContainerModes, variant, cfg.UseProxy, cfg.SearchMode)
+	args := StartArgs(p.Path, cfg.ContainerEdition, p.ContainerID, cfg.ContainerModes, variant, cfg.UseProxy, cfg.UseStt, cfg.SearchMode)
 	run, script := m.deps.Runner, m.deps.StartScript
 	op := Op{
 		ID:    m.busyID,
@@ -1049,7 +1049,7 @@ func (m *Model) launchSwitch(p registry.Workspace, cfg sandboxcfg.Config, varian
 	m.busyKey = p.ContainerID
 	pid, path, edition := p.ContainerID, p.Path, cfg.ContainerEdition
 	name := registry.ContainerName(pid)
-	args := StartArgs(p.Path, edition, pid, cfg.ContainerModes, variant, cfg.UseProxy, cfg.SearchMode)
+	args := StartArgs(p.Path, edition, pid, cfg.ContainerModes, variant, cfg.UseProxy, cfg.UseStt, cfg.SearchMode)
 	run, script, reg := m.deps.Runner, m.deps.StartScript, m.reg
 	op := Op{
 		ID:    m.busyID,

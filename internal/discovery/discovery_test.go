@@ -106,8 +106,9 @@ func TestModesFromRealHelpOutput(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Reserved flags (edition, use_proxy, start_opencode, start_web, detach,
-	// container-id, help) excluded; first-seen order kept.
+	// Reserved flags (edition, use_proxy, use_stt, start_opencode,
+	// start_web, detach, container-id, help) excluded; first-seen order
+	// kept.
 	want := []string{"offline", "hil_mode", "cbm_ui"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("modes = %v, want %v", got, want)

@@ -825,7 +825,7 @@ func TestStartRunsStoredConfig(t *testing.T) {
 	runCmds(t, m, cmd)
 	want := []string{filepath.Join(filepath.Dir(m.Dockerfile), "alpha"), "--edition", "web",
 		"--container-id", strings.TrimPrefix(name, "opencode-sandbox-"),
-		"--skills", "--hil_mode", "--search_mode", "websearch", "--detach"}
+		"--skills", "--hil_mode", "--use_stt", "--search_mode", "websearch", "--detach"}
 	found := false
 	for _, c := range fake.Calls {
 		if c.Name == "bash" && c.Args[0] == startScript &&

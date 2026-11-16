@@ -138,6 +138,7 @@ var reservedModes = map[string]bool{
 	"container-id":   true,
 	"help":           true,
 	"use_proxy":      true,
+	"use_stt":        true,
 	"search_mode":    true,
 }
 

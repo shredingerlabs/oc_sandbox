@@ -16,16 +16,19 @@ var (
 // StartArgs rebuilds the start.sh argument vector from stored fields
 // (data-map §3, bash start_container): the workspace root first, then
 // --edition, --container-id, one --<mode> flag per stored mode,
-// --use_proxy, --search_mode <m>, --start_web for the web start option
-// (the TUI always starts detached, so --start_opencode and the
-// foreground --start_web env path never fire), and --detach last.
-func StartArgs(projectPath, edition, containerID string, modes []string, startOption string, useProxy bool, searchMode string) []string {
+// --use_proxy, --use_stt, --search_mode <m>, --start_web for the web
+// start option (the TUI always starts detached, so --start_opencode and
+// the foreground --start_web env path never fire), and --detach last.
+func StartArgs(projectPath, edition, containerID string, modes []string, startOption string, useProxy, useStt bool, searchMode string) []string {
 	args := []string{projectPath, "--edition", edition, "--container-id", containerID}
 	for _, mode := range modes {
 		args = append(args, "--"+mode)
 	}
 	if useProxy {
 		args = append(args, "--use_proxy")
+	}
+	if useStt {
+		args = append(args, "--use_stt")
 	}
 	args = append(args, "--search_mode", searchMode)
 	if startOption == "web" {

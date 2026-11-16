@@ -283,7 +283,7 @@ func checkWebUIStopAdopt(home, root string) Item {
 		p.reasonf("bare podman stop calls = %v, want [%s] (the switch's container stop)", stopCalls, cname)
 	}
 	want := []string{rootA, "--edition", "swdev", "--container-id", id, "--hil_mode",
-		"--search_mode", "searxng", "--start_web", "--detach"}
+		"--use_stt", "--search_mode", "searxng", "--start_web", "--detach"}
 	if oneStart && !argsTailMatch(got, want) {
 		p.reasonf("switch start.sh args = %v, want tail %v", got, want)
 	}

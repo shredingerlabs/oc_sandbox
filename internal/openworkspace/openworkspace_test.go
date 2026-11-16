@@ -580,6 +580,9 @@ func TestStartArgsRebuiltFromStoredFields(t *testing.T) {
 	if err := sandboxcfg.PatchBool(e.home, sandboxcfg.Path(e.roots["alpha"]), "use_proxy", true); err != nil {
 		t.Fatal(err)
 	}
+	if err := sandboxcfg.PatchBool(e.home, sandboxcfg.Path(e.roots["alpha"]), "use_stt", true); err != nil {
+		t.Fatal(err)
+	}
 	e.rebuild(t)
 	bodyOf(t, e.m, bodyW, bodyH)
 	e.step(keyMsg("enter"))
@@ -590,7 +593,7 @@ func TestStartArgsRebuiltFromStoredFields(t *testing.T) {
 	}
 	want := []string{
 		e.roots["alpha"], "--edition", "base", "--container-id", e.ids["alpha"],
-		"--skills", "--use_proxy", "--search_mode", "websearch", "--detach",
+		"--skills", "--use_proxy", "--use_stt", "--search_mode", "websearch", "--detach",
 	}
 	if strings.Join(calls[0], " ") != strings.Join(want, " ") {
 		t.Errorf("start.sh args = %v, want %v", calls[0], want)

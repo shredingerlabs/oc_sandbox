@@ -24,8 +24,8 @@ import (
 
 // configFingerprint hashes the start-relevant sandbox_config.json
 // fields: the edition, the mode list (order-normalized), the proxy
-// flag and the search mode. VCS/provider edits are not start-critical
-// inputs and never enter the fingerprint.
+// flag, the dictation flag and the search mode. VCS/provider edits are
+// not start-critical inputs and never enter the fingerprint.
 func configFingerprint(cfg sandboxcfg.Config) string {
 	modes := slices.Clone(cfg.ContainerModes)
 	sort.Strings(modes)
@@ -33,6 +33,7 @@ func configFingerprint(cfg sandboxcfg.Config) string {
 		"edition=" + cfg.ContainerEdition,
 		"modes=" + strings.Join(modes, ","),
 		"proxy=" + bool01(cfg.UseProxy),
+		"stt=" + bool01(cfg.UseStt),
 		"search=" + cfg.SearchMode,
 	}, "\x00")
 	sum := sha256.Sum256([]byte(canonical))

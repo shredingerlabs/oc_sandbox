@@ -225,7 +225,7 @@ func validateStartCfg(cfg sandboxcfg.Config) error {
 // other access variants explicitly.
 func startScriptArgs(root, containerID string, cfg sandboxcfg.Config) []string {
 	return openworkspace.StartArgs(root, cfg.ContainerEdition, containerID,
-		cfg.ContainerModes, "web", cfg.UseProxy, cfg.SearchMode)
+		cfg.ContainerModes, "web", cfg.UseProxy, cfg.UseStt, cfg.SearchMode)
 }
 
 func errImageMissing(edition string) error {

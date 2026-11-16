@@ -159,6 +159,9 @@ func (p *PipelineStager) startContainer(emit func(string)) error {
 	if config.UseProxy {
 		args = append(args, "--use_proxy")
 	}
+	if config.UseStt {
+		args = append(args, "--use_stt")
+	}
 	args = append(args, "--search_mode", config.SearchMode)
 	if config.StartOption == "web" {
 		args = append(args, "--start_web")

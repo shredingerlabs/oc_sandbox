@@ -122,6 +122,11 @@ func TestConfigFingerprint(t *testing.T) {
 	if configFingerprint(base) == configFingerprint(proxy) {
 		t.Fatal("proxy flip must change the fingerprint")
 	}
+	stt := base
+	stt.UseStt = true
+	if configFingerprint(base) == configFingerprint(stt) {
+		t.Fatal("stt flip must change the fingerprint")
+	}
 	search := base
 	search.SearchMode = "websearch"
 	if configFingerprint(base) == configFingerprint(search) {

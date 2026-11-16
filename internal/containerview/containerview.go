@@ -825,7 +825,7 @@ func (m *Model) startStart() tea.Cmd {
 				return fmt.Errorf("image opencode-sandbox-%s is not built yet", cfg.ContainerEdition)
 			}
 			emit("==> " + name)
-			args := openworkspace.StartArgs(p.Path, cfg.ContainerEdition, p.ContainerID, cfg.ContainerModes, cfg.StartOption, cfg.UseProxy, cfg.SearchMode)
+			args := openworkspace.StartArgs(p.Path, cfg.ContainerEdition, p.ContainerID, cfg.ContainerModes, cfg.StartOption, cfg.UseProxy, cfg.UseStt, cfg.SearchMode)
 			out, err := run.Output("bash", append([]string{script}, args...)...)
 			for _, l := range cmdrun.Lines(out) {
 				emit(l)

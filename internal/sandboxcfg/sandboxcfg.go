@@ -35,7 +35,8 @@ func ValidSearchMode(v string) bool {
 
 // Config is the read view of sandbox_config.json. Absent optional fields
 // fall back exactly like the bash jq reads: vcs_tracking // "none",
-// use_proxy // false, search_mode // "websearch", setup_* // false.
+// use_proxy // false, use_stt // false, search_mode // "websearch",
+// setup_* // false.
 type Config struct {
 	ContainerEdition    string
 	ContainerModes      []string
@@ -47,6 +48,7 @@ type Config struct {
 	RepoURL             string
 	VCSTracking         string
 	UseProxy            bool
+	UseStt              bool
 	SearchMode          string
 	SetupCloneComplete  bool
 	SetupCBMComplete    bool
@@ -99,6 +101,7 @@ func Read(path string) (Config, error) {
 		RepoURL:             doc.GetString("repo_url", ""),
 		VCSTracking:         doc.GetString("vcs_tracking", "none"),
 		UseProxy:            doc.GetBool("use_proxy", false),
+		UseStt:              doc.GetBool("use_stt", false),
 		SearchMode:          doc.GetString("search_mode", SearchWebsearch),
 		SetupCloneComplete:  doc.GetBool("setup_clone_complete", false),
 		SetupCBMComplete:    doc.GetBool("setup_cbm_complete", false),
@@ -133,6 +136,9 @@ func Create(home, path, edition string, modes []string, startOption, aiProvider,
 		{Key: "workspace_source", Val: "empty"},
 		{Key: "repo_url", Val: ""},
 		{Key: "search_mode", Val: searchMode},
+		// Dictation is preselected ON at creation (spec story 15); the
+		// advanced-only settings row patches it back to false on opt-out.
+		{Key: "use_stt", Val: true},
 		{Key: "setup_clone_complete", Val: false},
 		{Key: "setup_cbm_complete", Val: false},
 		{Key: "setup_skills_complete", Val: false},
@@ -172,6 +178,7 @@ type Settings struct {
 	VCS         string
 	AIProvider  string
 	UseProxy    bool
+	UseStt      bool
 	SearchMode  string
 }
 
@@ -193,6 +200,7 @@ func Rewrite(home, path string, s Settings) error {
 	doc.Set("vcs_tracking", s.VCS)
 	doc.Set("ai_provider", s.AIProvider)
 	doc.Set("use_proxy", s.UseProxy)
+	doc.Set("use_stt", s.UseStt)
 	doc.Set("search_mode", s.SearchMode)
 	return config.AtomicWrite(home, path, jsonfmt.Marshal(doc))
 }

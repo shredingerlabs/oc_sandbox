@@ -25,6 +25,7 @@ const goldenCreate = `{
   "workspace_source": "empty",
   "repo_url": "",
   "search_mode": "websearch",
+  "use_stt": true,
   "setup_clone_complete": false,
   "setup_cbm_complete": false,
   "setup_skills_complete": false,
@@ -150,6 +151,25 @@ func TestPatchStringAppendsNewKeyAtEndAndKeepsOrder(t *testing.T) {
 	}
 }
 
+// Dictation toggle (#164/#166): Create preselects ON (spec story 15);
+// pre-feature workspaces without the key read OFF.
+func TestUseSttCreateOnAbsentOff(t *testing.T) {
+	home, cfgPath := setupProject(t)
+	if err := Create(home, cfgPath, "swdev", nil, "console", "none", SearchWebsearch); err != nil {
+		t.Fatal(err)
+	}
+	if c, err := Read(cfgPath); err != nil || !c.UseStt {
+		t.Fatalf("Create must record use_stt true: %+v err %v", c, err)
+	}
+	legacy := filepath.Join(t.TempDir(), "legacy.json")
+	if err := os.WriteFile(legacy, []byte("{\"container_edition\": \"web\"}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if c, err := Read(legacy); err != nil || c.UseStt {
+		t.Fatalf("absent use_stt must read as false: %+v err %v", c, err)
+	}
+}
+
 func TestPatchBoolWritesLowercaseTrue(t *testing.T) {
 	home, cfgPath := setupProject(t)
 	if err := Create(home, cfgPath, "swdev", nil, "console", "none", SearchWebsearch); err != nil {
@@ -199,6 +219,7 @@ func TestRewriteIsOneAtomicWrite(t *testing.T) {
 		VCS:         "gitlab.com",
 		AIProvider:  "gwdg-saia",
 		UseProxy:    true,
+		UseStt:      false,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -213,6 +234,7 @@ func TestRewriteIsOneAtomicWrite(t *testing.T) {
 		`"vcs_tracking": "gitlab.com"`,
 		`"ai_provider": "gwdg-saia"`,
 		`"use_proxy": true`,
+		`"use_stt": false`,
 		`"container_modes": [`,
 		`"cbm_ui"`,
 		`"workspace_source": "cloned"`,

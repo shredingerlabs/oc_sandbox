@@ -184,7 +184,7 @@ func checkWebUIWorkspaces(home, root string) Item {
 	release <- struct{}{} // finish alpha #1 — the queued alpha op reuses
 	want := []string{rootA, "--edition", "swdev",
 		"--container-id", registry.ContainerIdentity(rootA),
-		"--search_mode", "searxng", "--start_web", "--detach"}
+		"--use_stt", "--search_mode", "searxng", "--start_web", "--detach"}
 	waitForBashCount(p, &mu, &bashArgs, 1, "alpha start.sh call")
 	got := bashArgsSnapshot(&mu, &bashArgs)
 	if !argsTailMatch(got[0], want) {

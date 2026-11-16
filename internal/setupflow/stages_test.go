@@ -99,6 +99,34 @@ func TestStartStageRunsStartShWithRebuiltArgs(t *testing.T) {
 	}
 }
 
+// #166: the dictation toggle rides the setup flow's inline start vector
+// exactly like the proxy toggle (parity with sandboxcfg.StartArgs).
+func TestStartStageCarriesUseStt(t *testing.T) {
+	p, fake, root := stageFixture(t)
+	podmanStates(fake) // nothing running
+
+	if err := sandboxcfg.PatchBool(p.Home, sandboxcfg.Path(root), "use_stt", true); err != nil {
+		t.Fatal(err)
+	}
+
+	var emitted []string
+	if err := p.Run(StageStart, func(l string) { emitted = append(emitted, l) }); err != nil {
+		t.Fatalf("start stage failed: %v", err)
+	}
+	found := false
+	for _, c := range fake.Calls {
+		if c.Name == "bash" && len(c.Args) > 0 && c.Args[0] == p.StartScript {
+			found = true
+			if !strings.Contains(strings.Join(c.Args, " "), "--use_stt") {
+				t.Fatalf("start args missing --use_stt: %v", c.Args)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("start.sh not invoked: %v", fake.Calls)
+	}
+}
+
 func TestStartStageReusesRunningContainer(t *testing.T) {
 	p, fake, root := stageFixture(t)
 	name := containerPrefix + "idonotexist"

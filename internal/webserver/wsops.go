@@ -291,7 +291,7 @@ func (s *Server) adoptOp(ws registry.Workspace, cfg sandboxcfg.Config, variant s
 	return func(emit func(string)) error {
 		cname := registry.ContainerName(ws.ContainerID)
 		args := openworkspace.StartArgs(ws.Path, cfg.ContainerEdition, ws.ContainerID,
-			cfg.ContainerModes, variant, cfg.UseProxy, cfg.SearchMode)
+			cfg.ContainerModes, variant, cfg.UseProxy, cfg.UseStt, cfg.SearchMode)
 		// 1. Stop the old container, verify gone (fresh ps), registry
 		// → stopped only after verification.
 		out, err := d.Run.Output("podman", "stop", cname)

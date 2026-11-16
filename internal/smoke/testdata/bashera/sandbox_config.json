@@ -11,6 +11,7 @@
   "workspace_source": "empty",
   "repo_url": "",
   "search_mode": "websearch",
+  "use_stt": true,
   "setup_clone_complete": false,
   "setup_cbm_complete": false,
   "setup_skills_complete": false,
