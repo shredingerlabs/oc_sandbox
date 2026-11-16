@@ -339,6 +339,12 @@ type SandboxImage struct {
 // never offered as a workspace edition.
 const SearxngImageTag = "oc-searxng"
 
+// SttImageTag is the fixed tag of the shared speech-to-text (dictation)
+// image: the whisper.cpp server with a baked small ggml model, an infra
+// image like oc-searxng, built from dist/stt/Dockerfile and never
+// offered as a workspace edition (ADR 0036).
+const SttImageTag = "oc-stt"
+
 // ProxyImageTag is the fixed tag of the shared squid proxy image: an
 // infra image like oc-searxng, built from proxy/Dockerfile and never
 // offered as a workspace edition.
@@ -351,8 +357,8 @@ const ProxyImageTag = "oc-proxy"
 const BaseImageRef = "opencode-sandbox-base"
 
 // infraImage reports whether an image reference is one of the shared
-// infra images (oc-proxy, oc-searxng): its last path segment (tag/
-// digest suffix stripped) is that name.
+// infra images (oc-proxy, oc-searxng, oc-stt): its last path segment
+// (tag/digest suffix stripped) is that name.
 func infraImage(ref string) bool {
 	if i := strings.LastIndex(ref, "/"); i >= 0 {
 		ref = ref[i+1:]
@@ -360,13 +366,13 @@ func infraImage(ref string) bool {
 	if j := strings.IndexAny(ref, ":@"); j >= 0 {
 		ref = ref[:j]
 	}
-	return ref == ProxyImageTag || ref == SearxngImageTag
+	return ref == ProxyImageTag || ref == SearxngImageTag || ref == SttImageTag
 }
 
 // SandboxImageTag reports whether a podman image reference belongs to
 // the sandbox family: tagged `opencode-sandbox-<edition>` (any registry
 // prefix, tag/digest suffix) or one of the infra images (oc-proxy,
-// oc-searxng).
+// oc-searxng, oc-stt).
 func SandboxImageTag(ref string) bool {
 	return EditionFromImage(ref) != "" || infraImage(ref)
 }
@@ -405,7 +411,7 @@ func ContainerImageRefs(run cmdrun.Runner) []string {
 // ImageInUse reports whether any container image reference matches a
 // sandbox-family tag: edition images match on the edition suffix (the
 // container's ref carries no registry prefix or tag), infra images
-// (oc-proxy, oc-searxng) by name.
+// (oc-proxy, oc-searxng, oc-stt) by name.
 func ImageInUse(refs []string, tag string) bool {
 	if ed := EditionFromImage(tag); ed != "" {
 		return slices.ContainsFunc(refs, func(ref string) bool {
