@@ -1,4 +1,32 @@
 <!doctype html>
-<title>dictation sidecar</title>
-<p>Dictation sidecar placeholder — static serving works.</p>
-<p>POST 16 kHz mono WAV to /inference (multipart `file`, `response_format=json`).</p>
+<!-- Dictation sidecar (spec #164 / ticket #170). Served by the whisper.cpp
+     server's static mount; POSTs 16 kHz mono WAV to /inference. Codec note:
+     prefers webm/opus (Chrome/Firefox), falls back to mp4/AAC (Safari) via
+     pickCodec/MediaRecorder.isTypeSupported — see app.js. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dictation</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 40rem; margin: 3rem auto; padding: 0 1rem; }
+  button { font-size: 1rem; padding: 0.5rem 1.25rem; cursor: pointer; }
+  button:disabled { opacity: 0.5; cursor: default; }
+  #status { margin-left: 0.75rem; color: #555; }
+  #error { color: #b00020; margin: 1rem 0; }
+  #transcript { width: 100%; min-height: 8rem; margin-top: 1rem; }
+</style>
+</head>
+<body>
+<h1>Dictation</h1>
+<p>Record with your browser microphone, then copy the transcript into the web composer.</p>
+<p>
+  <button id="record" type="button">Record</button>
+  <span id="status"></span>
+</p>
+<div id="error" hidden></div>
+<textarea id="transcript" placeholder="Your transcript appears here …" readonly></textarea>
+<p><button id="copy" type="button">Copy transcript</button></p>
+<script type="module" src="app.js"></script>
+</body>
+</html>
