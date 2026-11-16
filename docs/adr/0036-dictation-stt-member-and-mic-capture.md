@@ -25,3 +25,14 @@ Dictation (speak-into-prompt, local STT) needs a microphone the workspace contai
 - The member carries the first pod member with a host port publish; loopback-only, following the web (4096)/CBM (9749) precedent.
 - `ctrl+t` is claimed by our plugin via the keymap layer; no stock keybind is overridden and the seeded cli.json stays untouched.
 - `!` shell commands (and our TUI plugin) execute outside the agent tool permission flow — an upstream property, noted here because dictation adds an in-container component users may not think of as privileged.
+
+## Amended 2026-11-16 (implementation)
+
+Build-time decisions made while implementing #165–#170 (decisions.md in the #164 working notes), plus fact corrections to the pre-implementation wording above:
+
+- **Keybind — `ctrl+t` is not default-free**: the stock `variant.cycle` keybind defaults to `ctrl+t` (verified against the opencode v2.2.6 binary), so the spec's "chosen from default-free keys — no stock keybind overridden" was factually wrong. Decision (the requester's voice-de pattern): dictation claims `ctrl+t`; the stock `variant.cycle` **chord is freed via the seeded `cli.json`** (`"variant.cycle": "none"`, merged, never clobbering user values — start.sh seeding). `variant.cycle` stays reachable from the command palette; no other stock keybind is touched. The "seeded cli.json untouched" consequence line above is superseded by this amendment.
+- **Port constant: 8090** (not the whisper.cpp 8080 default, which would collide with searxng's in-pod `127.0.0.1:8080`) — verified against whisper.cpp's server: `--port`, `--host` (the server default is loopback, so `--host 0.0.0.0` is required for the pod publish), `--public PATH` static serving, `--inference-path` default `/inference`. Request shape verified against the pinned server README: `POST /inference` multipart (`file=@audio.wav`, `response_format=json`) → `{"text": "..."}`. The `--public` static mount serves the dictation sidecar from the same port — no front server, one process per member.
+- **whisper.cpp pinned v1.9.5** (build-time `git clone --branch`); small multilingual model `ggml-small` (~466 MB) baked at build with sha256 verification — zero runtime downloads.
+- **Offline + dictation is a silent skip, not a hard exclusion**: `--use_stt --offline` starts normally without the member (a note is logged); unlike searxng/CBM there is no validation error. The earlier "excluded under `--offline` like SearXNG (ADR 0026)" wording reads too strictly.
+- **The TUI has no display-mode matrix**: the Standard/Advanced presentation matrix exists only in the WebUI (Go TUI has no display-mode mechanism), so the TUI wizard/settings show the dictation row unconditionally — "advanced-only like the other option rows" holds there by virtue of there being no hidden TUI rows (D8).
+- **Recording cap: 300 s constant** (`RECORDING_CAP_MS`), not a settings key (D4). Sidecar silence-trimming: none in v1 (D5).

@@ -17,6 +17,9 @@ A multi-edition development sandbox running OpenCode in rootless Podman containe
   search in every mode
 - **Hardware in Loop (HIL) mode** — USB oscilloscope (PicoScope) and
   microcontroller device passthrough for HIL tests
+- **Dictation** — speak a prompt into the OpenCode TUI: per-workspace local
+  whisper.cpp server (`oc-stt`), transcript review before anything is sent,
+  browser sidecar page for web sessions
 - **Project & git handling** — project wizard with VCS setup (GitHub, GitLab,
   custom host), hidden token storage, git identity, in-container cloning
 - **Prepared skills** — first-run setup installs an engineering skill set for
@@ -130,7 +133,7 @@ by a verified `--start_web` restart (auto-adopt).
 ### Images and containers
 
 The container center's **Build Images** tab builds any edition (plus the
-optional `oc-proxy` and `oc-searxng` images); **Delete Images** lists the
+optional `oc-proxy`, `oc-searxng`, and `oc-stt` images); **Delete Images** lists the
 sandbox family with sizes and refuses in-use images. Containers can be
 stopped (graceful) and deleted (running containers are refused with a
 stop-first hint).
@@ -215,6 +218,94 @@ container. Note: the whole USB bus of the scope is mounted, not just the one
 device (libusb limitation); serial devices may appear as `nobody:nogroup`
 — see [troubleshooting](#troubleshooting).
 
+## Dictation
+
+Dictation lets you speak a prompt instead of typing it. Every dictation-enabled
+workspace runs its own local speech-to-text server — the `oc-stt` pod member,
+a whisper.cpp server with the small multilingual ggml model baked into the
+image (no runtime downloads, no cloud services). Audio is persisted nowhere
+beyond the transcription request, and transcription happens entirely on your
+own machine. See ADR-0036.
+
+### The dictation toggle
+
+Dictation is governed by a per-workspace toggle (`use_stt` in
+`sandbox_config.json`), like the proxy toggle:
+
+- **Preselected ON for new workspaces** — the wizard row is advanced-only
+  (WebUI Standard display mode hides it and silently records the preset; the
+  TUI shows it like every other row).
+- **OFF for pre-feature workspaces** — enable it once in workspace settings;
+  this keeps their next start from silently growing RAM usage.
+- **Applies on next container start**, never live.
+- **Offline runs exclude the member**: `--offline` starts no `oc-stt` member
+  and publishes nothing (a silent skip, not an error).
+
+A running `oc-stt` member uses ~≤1.5 GB RAM (the baked model); it starts and
+stops with the workspace pod like every other pod member.
+
+### In the OpenCode TUI (`ctrl+t`)
+
+Press `ctrl+t` once to start recording, again to stop (recordings stop and
+transcribe automatically after ~5 minutes). The transcript opens in an
+editable review dialog:
+
+- **`ctrl+enter` submits** the edited text to your session.
+- **`esc` discards** — nothing is ever submitted without that explicit confirm.
+- **Empty text closes the dialog silently.**
+- **A failed send keeps the dialog open** with your edited text and an error
+  toast; submit again to retry (never auto-retried).
+- From the **home route**, dictation creates a session first (exactly like
+  typing a prompt there); on any other route the transcript is discarded with
+  a warning toast.
+
+The command is also reachable as **`/dictate`** from the palette/slash UI.
+
+**Keybind note:** `ctrl+t` claims the chord by freeing the stock
+`variant.cycle` keybind via the workspace's seeded `cli.json`
+(`"variant.cycle": "none"`; the voice-de pattern). The command itself stays
+reachable from the palette — only the raw chord moves to dictation.
+
+**Clipboard paste is the failure fallback only:** if the dialog route cannot
+deliver (plugin-API drift after an update, or a terminal send failure), the
+transcript is copied to your clipboard (OSC52) with a paste toast instead.
+Nothing is auto-sent in either route.
+
+### Web sessions (dictation sidecar)
+
+For OpenCode web sessions, the `oc-stt` member serves a small local page
+(the dictation sidecar) on its published loopback port — default
+`http://127.0.0.1:8090` (the start log names the actual port if 8090 was
+busy; `podman port opencode-sandbox-pod-<id>` shows it). Record with the
+browser microphone and copy the transcript into the web composer. Chrome and
+Firefox record webm/opus, Safari falls back to mp4/AAC; recordings stay
+in-memory. The sidecar is reachable only from your own machine (loopback
+publish).
+
+### Degradation matrix
+
+| Situation | Behavior |
+| --------- | -------- |
+| No microphone / headless machine | The `oc-stt` member still runs (the sidecar path works); recording in the TUI toasts "no audio input". |
+| WSL2 (WSLg) | The WSLg PulseAudio server is auto-detected (`/mnt/wslg/PulseServer`) — no manual setup. |
+| Audio session died since boot | The first transcription attempt doubles as a health check and toasts "no audio input" instead of yielding an empty transcript. |
+| `--offline` run | The STT member is excluded entirely (silent skip). |
+| STT member down / unreachable | A clear "STT member unreachable" toast; transcription is skipped. |
+| SELinux distro | The PulseAudio socket mount is deliberately plain — on SELinux hosts append `label=disable` to the socket bind mount (Ubuntu/AppArmor unaffected). |
+
+### Operations notes
+
+- The `oc-stt` image joins **Build Images** and **Delete Images** like
+  `oc-searxng` (it is built lazily on the first dictation-enabled start too).
+- The OpenCode install stays floating latest (ADR-0024): an image rebuild can
+  silently change plugin/keybind behavior — **re-verify dictation after image
+  rebuilds** (ADR-0036).
+- **Language pinning**: edit the workspace's `.opencode_config/stt.json`
+  (`{"language": "auto"}` by default; e.g. `"de"`), then restart the
+  container — the value applies on next start only.
+- The `stt.json` file and the dictation plugin are re-seeded on every start
+  (update-safe; a pinned language is never overwritten).
+
 ## Legacy
 
 The TUI covers everything. If you prefer calling the scripts directly
@@ -267,6 +358,7 @@ echo "$(id -un):20:1" | sudo tee -a /etc/subgid
   syntax is validated on save, and the `oc-proxy` image is rebuilt on every
   proxied start); `--offline` for no-network runs
 - HIL mode uses bus-level passthrough (only the scope's USB bus, never `/dev/bus/usb` entirely)
+- Dictation audio never leaves the machine: the per-workspace `oc-stt` member transcribes locally, audio is persisted nowhere beyond the transcription request, and the STT port is published on loopback only
 - Config backups contain no VCS or AI credentials; restores validate JSON and replace one file atomically
 
 ## Releases

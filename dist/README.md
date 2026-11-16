@@ -20,6 +20,10 @@ dist/
 │   ├── Dockerfile                <- Separates Squid-Proxy-Image
 │   ├── squid.conf
 │   └── allowlist.txt
+├── stt/
+│   ├── Dockerfile                <- Separates STT-Image (whisper.cpp v1.9.5, ggml-small-Modell eingebacken)
+│   ├── entrypoint.sh             <- Startet den whisper-Server (Port 8090, --language aus STT_LANG)
+│   └── public/                   <- Dictation-Sidecar-Seite (index.html, app.js)
 ├── udev/
 │   └── 99-hil.rules              <- udev-Regeln für HIL-Geräte
 ├── icons/                        <- Icon-Material für Desktop-Shortcuts
@@ -36,7 +40,9 @@ dist/
     │   ├── opencode-basic.json
     │   ├── AGENTS.md
     │   ├── AGENTS_chat.md
-    │   └── skills/
+    │   ├── skills/
+    │   └── plugins/
+    │       └── dictation/        <- TUI-Diktier-Plugin (index.ts, tui.tsx, dictation.mjs)
     └── pkm/
         ├── AGENTS.md
         ├── .gitignore
