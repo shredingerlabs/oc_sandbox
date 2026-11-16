@@ -247,16 +247,16 @@ var wsSettingsTemplate = template.Must(template.New("wssettings").
           <button type="submit" class="btn" name="replace" value="1"
             {{if .VCSHasCreds}}data-confirm-popup data-confirm-title="Replace credentials?"
               data-confirm-question="Credentials for this tracker already exist — replace them with the typed token?"
-              data-confirm-label="Replace"{{end}}>Save</button>
-          {{if .VCSHasCreds}}<button type="submit" class="btn ghost" name="replace" value="keep">Keep credentials</button>{{end}}
+              data-confirm-label="Replace"{{end}}>New token login</button>
+          {{if .VCSHasCreds}}<button type="submit" class="btn ghost" name="replace" value="keep">Re-login</button>{{end}}
           <button type="submit" class="btn ghost" name="login" value="device"
             {{if not .Running}}disabled{{end}}
             {{if and .Running .VCSHasCreds}}data-confirm-popup data-confirm-title="Replace credentials?"
               data-confirm-question="Credentials for this tracker already exist — replace them via the browser login?"
-              data-confirm-label="Login"{{end}}>Login without a token</button>
+              data-confirm-label="Login"{{end}}>Web login</button>
         </div>
-        {{if .VCSHasCreds}}<div class="field-hint">credentials exist — Save replaces them after the confirm</div>{{end}}
-        {{if not .Running}}<div class="field-hint">login runs inside the container — start the workspace to log in (Save works while stopped)</div>{{end}}
+        {{if .VCSHasCreds}}<div class="field-hint">credentials exist — New token login replaces them after the confirm; Re-login keeps them</div>{{end}}
+        {{if not .Running}}<div class="field-hint">login runs inside the container — start the workspace to log in (New token login works while stopped)</div>{{end}}
       </form>
       {{if .VCSLogin}}
       <div class="confirm-block" data-role="vcs-login">

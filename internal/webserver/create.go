@@ -125,10 +125,10 @@ var wizardTemplate = template.Must(template.New("wizard").
       <label>Git e-mail <input name="vcs_git_email" value="{{.VCSGitMail}}"></label>
       <label>Tracker kind
         <select name="vcs_kind">
-          {{range .TrackerKinds}}<option value="{{.}}">{{.}}</option>{{end}}
+          {{range .TrackerKinds}}<option value="{{.}}" {{if eq . $.VCSKind}}selected{{end}}>{{.}}</option>{{end}}
         </select>
       </label>
-      <label>Host <input name="vcs_host" value="{{.VCSHost}}" placeholder="gitlab.example.com"></label>
+      <label data-field="host"{{if not (or (eq .VCSKind "gitlab_self") (eq .VCSKind "other"))}} hidden{{end}}>Host <input name="vcs_host" value="{{.VCSHost}}" placeholder="gitlab.example.com"></label>
     </div>
 
     <div class="row" data-row="provider">

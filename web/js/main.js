@@ -206,9 +206,11 @@
     }
     // VCS Tracker: the Host field only applies to gitlab_self / other
     // kinds — github / gitlab trackers are hostless and "none" tracks
-    // nothing. The field hides (value kept); the initial hidden state
-    // renders server-side (Catalog menu and Workspace settings alike).
-    if (sel.matches('select[name="kind"]')) {
+    // nothing (the wizard's New… tracker select carries the same rule
+    // under its vcs_kind name). The field hides (value kept); the
+    // initial hidden state renders server-side (Catalog menu, wizard
+    // and Workspace settings alike).
+    if (sel.matches('select[name="kind"], select[name="vcs_kind"]')) {
       var f = sel.closest("form");
       var host = f && f.querySelector('[data-field="host"]');
       if (host) host.hidden = sel.value === "github" || sel.value === "gitlab" || sel.value === "none";

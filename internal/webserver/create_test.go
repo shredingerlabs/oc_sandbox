@@ -172,10 +172,46 @@ func TestNewWorkspaceFormStandard(t *testing.T) {
 		`name="provider_token"`, // token input for the selected provider
 		`data-advanced-only`,    // #152 machinery: advanced-only rows marked
 		PresetsHint,             // "presets, see Advanced" pointer
+		`data-field="host" hidden`, // New… tracker: Host hides for github (the kind default)
 	} {
 		if !strings.Contains(doc, want) {
 			t.Errorf("wizard fragment misses %q", want)
 		}
+	}
+}
+
+// The wizard's New… tracker block renders the Host field under the same
+// rule as Workspace settings and the catalog menu: visible (and
+// re-selected) only for gitlab_self / others — github / gitlab hide it,
+// the blank default included.
+func TestWizardHostVisibility(t *testing.T) {
+	f := newCreateFixture(t, imageExistsScript(true))
+
+	// refused payload redisplay: the entered kind survives the re-render
+	// (selected option + visible Host field for a hostful kind).
+	vals := f.blankForm()
+	vals["name"] = "bad name!" // the name refusal re-renders with the values
+	vals["vcs"] = "new"
+	vals["vcs_name"] = "Own GitLab"
+	vals["vcs_kind"] = "gitlab_self"
+	vals["vcs_host"] = "git.example.org"
+	doc := readAll(t, f.postForm(t, vals))
+	for _, want := range []string{
+		`value="gitlab_self" selected`,
+		`data-field="host">Host`, // visible, no hidden attribute
+		`value="git.example.org"`,
+	} {
+		if !strings.Contains(doc, want) {
+			t.Errorf("gitlab_self redisplay misses %q:\n%s", want, doc)
+		}
+	}
+
+	// the hostless kinds hide it on redisplay as well
+	vals["vcs_kind"] = "github"
+	delete(vals, "vcs_host")
+	doc = readAll(t, f.postForm(t, vals))
+	if !strings.Contains(doc, `data-field="host" hidden`) {
+		t.Errorf("github redisplay must hide the Host field:\n%s", doc)
 	}
 }
 

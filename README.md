@@ -146,9 +146,10 @@ registered project — including running containers. Changes are persisted to
 
 **Workspace Settings → VCS Tracking** (WebUI) re-establishes a workspace's
 VCS credentials — expired/invalid token, switched account — without
-re-running the wizard: **Save** pastes a token (a running container
+re-running the wizard: **New token login** pastes a token (a running container
 validates it with the in-container `gh`/`glab` CLI first; a rejection
-leaves the stored credentials untouched), and **Login without a token**
+leaves the stored credentials untouched), **Re-login** keeps the stored
+credentials while the tracker moves, and **Web login**
 runs the browser device flow — the one-time code and verification link
 render inline while the container CLI polls until authorized
 (github/gitlab only; own-GitLab instances may need an admin OAuth app, in

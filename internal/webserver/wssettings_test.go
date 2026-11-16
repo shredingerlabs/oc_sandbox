@@ -1167,6 +1167,7 @@ func TestFrontendWsSettingsWiring(t *testing.T) {
 		`provider-prefill`,   // AI-Provider catalog prefill
 		`vcs-prefill`,        // VCS catalog prefill
 		`"settings"`,         // the card settings icon jump
+		`vcs_kind`,           // the wizard's New… tracker Host toggle
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("main.js missing %q", want)
