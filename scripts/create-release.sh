@@ -329,9 +329,11 @@ create_release() {
     # Belt and braces: clear ?? leftovers BEFORE the dist move — the moved
     # dist/bin (gitignored on the source branch) must not look like one,
     # and the orphan tree has no .gitignore of its own to hide anything.
+    # Everything under dist/ is the release payload itself: never swept.
     git status --porcelain | awk '$1 == "??" {print}' | while IFS= read -r entry; do
         leftover="${entry#?? }"
         leftover="${leftover//\"/}"
+        case "$leftover" in dist|dist/*) continue ;; esac
         rm -rf "./$leftover"
     done
 
