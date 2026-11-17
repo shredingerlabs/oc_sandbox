@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/shredingerlabs/oc-sandbox/internal/config"
 	"github.com/shredingerlabs/oc-sandbox/internal/registry"
 	"github.com/shredingerlabs/oc-sandbox/internal/sandboxcfg"
 )
@@ -506,6 +507,63 @@ func TestWorkspacesSttMicButton(t *testing.T) {
 	}
 	if strings.Contains(idleCard, `data-act="stt"`) {
 		t.Fatal("stopped card must not render the mic button")
+	}
+}
+
+// The star glyph reads stored registry truth (#174): a favorited
+// workspace's card carries the filled/accent marker, an unfavorited one
+// renders the outline — never disabled, in both display modes.
+func TestWorkspacesStarButton(t *testing.T) {
+	home := t.TempDir()
+	seedFavoriteRegistry(t, home,
+		struct {
+			name, lastUsed, status string
+			favorite               bool
+		}{"zeta", "2026-01-05T12:00:00Z", "stopped", true},
+		struct {
+			name, lastUsed, status string
+			favorite               bool
+		}{"alpha", "2026-01-05T13:00:00Z", "stopped", false},
+	)
+
+	s := startFixtureServer(t, home)
+	doc := body(t, get(t, s.URL()+"workspaces"))
+	var favCard, plainCard string
+	for _, card := range strings.Split(doc, "<article")[1:] {
+		if strings.Contains(card, `data-ws="zeta"`) {
+			favCard = card
+		}
+		if strings.Contains(card, `data-ws="alpha"`) {
+			plainCard = card
+		}
+	}
+	if favCard == "" || plainCard == "" {
+		t.Fatalf("cards missing:\n%s", doc)
+	}
+	iStar := strings.Index(favCard, `title="remove from favorites"`)
+	if iStar < 0 {
+		t.Fatalf("favorited card must carry the favorite star:\n%s", favCard)
+	}
+	// Never disabled — the flag works from any workspace state (#172).
+	if strings.Contains(favCard[iStar:], "disabled") {
+		t.Fatalf("star must never render disabled:\n%s", favCard)
+	}
+	if !strings.Contains(favCard, `data-favorite="true"`) {
+		t.Fatalf("favorited star must carry the filled/accent marker:\n%s", favCard)
+	}
+	if strings.Contains(plainCard, `title="remove from favorites"`) ||
+		strings.Contains(plainCard, `data-favorite="true"`) {
+		t.Fatalf("unfavorited card must render the outline star:\n%s", plainCard)
+	}
+
+	// Both display modes show the same glyph truth (Standard hides
+	// terminal concepts — the star is not one of them).
+	if err := config.SetDisplayMode(home, config.DisplayAdvanced); err != nil {
+		t.Fatalf("set advanced: %v", err)
+	}
+	doc = body(t, get(t, s.URL()+"workspaces"))
+	if !strings.Contains(doc, `data-favorite="true"`) || !strings.Contains(doc, `title="add to favorites"`) {
+		t.Fatalf("advanced mode must render both star states:\n%s", doc)
 	}
 }
 
