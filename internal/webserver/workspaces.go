@@ -93,6 +93,7 @@ type cardView struct {
 	LastUsed   string // relative date ("2h ago"), "never used" when unset
 	Advanced   bool   // display mode: reveals the stored value chips
 	Busy       bool   // an op is queued/running for this workspace
+	Favorite   bool   // star glyph truth (#174): stored registry favorite flag
 
 	// First-run setup (#161, spec §11): the skills slot renders while a
 	// session holds; the recovery row reappears for an incomplete setup.
@@ -130,6 +131,9 @@ var wsTemplate = template.Must(template.New("ws").
     {{if .Stt}}<button class="btn icon"{{if .SetupPending}} disabled title="refused — first-run setup session pending"{{else}} title="dictation sidecar — record audio, copy the transcript"{{end}} data-act="stt">
       <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/></svg>
     </button>{{end}}
+    {{if .Favorite}}<button class="btn icon" data-favorite="true" title="remove from favorites">{{else}}<button class="btn icon" title="add to favorites">{{end}}
+      <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M11.525 2.295a.53.53 0 0 1 .95 0l2.31 4.679a2.12 2.12 0 0 0 1.595 1.16l5.166.756a.53.53 0 0 1 .294.904l-3.736 3.638a2.12 2.12 0 0 0-.611 1.878l.882 5.14a.53.53 0 0 1-.771.56l-4.618-2.428a2.12 2.12 0 0 0-1.973 0L6.396 21.01a.53.53 0 0 1-.77-.56l.881-5.139a2.12 2.12 0 0 0-.611-1.879L2.16 9.795a.53.53 0 0 1 .294-.906l5.165-.755a2.12 2.12 0 0 0 1.597-1.16z"/></svg>
+    </button>
     <button class="btn icon" title="workspace settings" data-act="settings">
       <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z"/></svg>
     </button>
@@ -255,6 +259,7 @@ func (s *Server) cardFor(e registry.Workspace, mode string) cardView {
 		LastUsed: relativeLastUsed(e.LastUsed, s.now()),
 		Advanced: mode == config.DisplayAdvanced,
 		Busy:     s.queue.BusyKey(registry.ContainerName(e.ContainerID)),
+		Favorite: e.Favorite,
 	}
 	if c.Busy {
 		c.OpID = s.queue.CurrentOpID(registry.ContainerName(e.ContainerID))

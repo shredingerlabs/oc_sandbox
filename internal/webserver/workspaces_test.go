@@ -449,8 +449,9 @@ func TestWorkspacesCardActions(t *testing.T) {
 func wantB(doc, want string) bool { return strings.Contains(doc, want) }
 
 // The dictation mic button: rendered for a running dictation-enabled
-// workspace (stored truth: Running && use_stt), left of the settings
-// gear — never on stopped cards or dictation-off workspaces.
+// workspace (stored truth: Running && use_stt), left of the favorite
+// star, left of the settings gear — the icon contract is mic · star ·
+// gear (#174); never on stopped cards or dictation-off workspaces.
 func TestWorkspacesSttMicButton(t *testing.T) {
 	home := t.TempDir()
 	live := seedWorkspace(t, home, "alpha", "swdev", nil)
@@ -484,12 +485,21 @@ func TestWorkspacesSttMicButton(t *testing.T) {
 		t.Fatalf("cards missing:\n%s", doc)
 	}
 	iMic := strings.Index(liveCard, `data-act="stt"`)
+	iStar := strings.Index(liveCard, `title="add to favorites"`)
 	iGear := strings.Index(liveCard, `title="workspace settings"`)
-	if iMic < 0 || iGear < 0 || iMic > iGear {
-		t.Fatalf("running dictation card must carry the mic left of the settings gear:\n%s", liveCard)
+	if iMic < 0 || iStar < 0 || iGear < 0 || !(iMic < iStar && iStar < iGear) {
+		t.Fatalf("running dictation card must carry mic · star · gear in order:\n%s", liveCard)
 	}
 	if !strings.Contains(liveCard, `title="dictation sidecar — record audio, copy the transcript"`) {
 		t.Fatal("mic button missing its tooltip")
+	}
+	// Cards without a mic anchor the star immediately left of the gear.
+	for _, c := range []struct{ name, card string }{{"dark", darkCard}, {"idle", idleCard}} {
+		iStar := strings.Index(c.card, `title="add to favorites"`)
+		iGear := strings.Index(c.card, `title="workspace settings"`)
+		if iStar < 0 || iGear < 0 || iStar > iGear {
+			t.Fatalf("%s card must render the star immediately left of the settings gear:\n%s", c.name, c.card)
+		}
 	}
 	if strings.Contains(darkCard, `data-act="stt"`) {
 		t.Fatal("dictation-off card must not render the mic button")
