@@ -195,7 +195,7 @@ erhalten.
 
 ```bash
 sudo apt-get update
-sudo apt-get install -y podman pasta fuse-overlayfs git curl jq
+sudo apt-get install -y podman pasta fuse-overlayfs git curl jq slirp4netns
 
 # Podman rootless prüfen
 podman info --format '{{.Host.Security.Rootless}}'   # sollte "true" liefern

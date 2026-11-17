@@ -699,15 +699,66 @@ fi
 # recycling them. The pod-level publishings (web UI 4096 scan, CBM UI
 # 9749 scan, collected above) live on the pod; the workspace container
 # joins with --pod.
-if ! $OFFLINE; then
-  echo "==> Creating pod ${POD_NAME} (recreate) ..."
+create_workspace_pod() {
+  local network="$1"
+
   podman pod rm -f "$POD_NAME" >/dev/null 2>&1 || true
   podman pod create --name "$POD_NAME" \
     --userns=keep-id \
-    --network pasta:--ipv4-only \
+    --network "$network" \
     "${CBM_PORT_ARGS[@]}" \
     "${WEB_PORT_ARGS[@]}" \
     "${STT_PORT_ARGS[@]}"
+}
+
+# start_workspace_pod starts the pod's infra container — the step that
+# actually sets up the rootless network. `podman pod create` only records
+# it, so a host-network limitation surfaces on the first member start;
+# doing it here lets the fallback below retry before any member exists.
+start_workspace_pod() {
+  local err
+  if err="$(podman pod start "$POD_NAME" 2>&1)"; then
+    return 0
+  fi
+  POD_START_ERR="$err"
+  return 1
+}
+
+if ! $OFFLINE; then
+  echo "==> Creating pod ${POD_NAME} (recreate) ..."
+  POD_START_ERR=""
+  create_workspace_pod "pasta:--ipv4-only"
+  if ! start_workspace_pod; then
+    # pasta aborts with "External interface not usable" when the host has
+    # no interface it can derive an address/gateway from: a VPN or other
+    # tunnel holds the default route (no MAC), the laptop is offline, or
+    # there is no IPv4 route. --ipv4-only also hides a usable IPv6 route,
+    # so retry dual-stack pasta before giving up on it.
+    if [[ "$POD_START_ERR" == *"External interface not usable"* ]]; then
+      echo "Warning: pasta cannot use a host network interface (VPN/tunnel default route," >&2
+      echo "         offline host, or no IPv4 route) — retrying with dual-stack pasta." >&2
+      create_workspace_pod "pasta"
+      if ! start_workspace_pod; then
+        # slirp4netns runs its own NAT and does not depend on a usable
+        # host interface (the documented pasta fallback on Podman < 6;
+        # Podman 6 removed it, in which case the error below is the hint).
+        echo "Note: retrying the sandbox network with slirp4netns." >&2
+        if ! create_workspace_pod "slirp4netns" || ! start_workspace_pod; then
+          printf '%s\n' "$POD_START_ERR" >&2
+          echo "Error: podman could not set up the sandbox network (pasta and slirp4netns failed)." >&2
+          echo "       Reconnect the host network (a VPN/tunnel can hide the usable interface)," >&2
+          echo "       install slirp4netns for the fallback (Podman < 6), or use offline mode." >&2
+          echo "       Podman 6 removed slirp4netns — there pasta needs a usable host interface." >&2
+          podman pod rm -f "$POD_NAME" >/dev/null 2>&1 || true
+          exit 1
+        fi
+      fi
+    else
+      printf '%s\n' "$POD_START_ERR" >&2
+      podman pod rm -f "$POD_NAME" >/dev/null 2>&1 || true
+      exit 1
+    fi
+  fi
   POD_ARGS=(--pod "$POD_NAME")
   CONTAINER_PORT_ARGS=()
   USERNS_ARGS=()

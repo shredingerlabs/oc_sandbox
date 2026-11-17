@@ -905,3 +905,114 @@ fi
 printf 'start offline userns tests passed\n'
 
 printf 'start searxng recreate tests passed\n'
+
+# --- 8: Host-network fallback (pasta "External interface not usable") -----------
+# The pod infra start is the step that sets up the rootless network. On a
+# host where pasta cannot derive an interface/gateway (VPN or other tun
+# default route, offline laptop, no IPv4 route) the start retries dual-stack
+# pasta and then slirp4netns instead of dying with the raw libpod error.
+cat > "$fake_bin/podman" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "${PODMAN_LOG}"
+if [[ "$1 $2" == "pod start" ]]; then
+  if [[ "${FAKE_POD_START_FAIL:-}" == "port" ]]; then
+    echo 'time="..." level=error msg="Starting some container dependencies"' >&2
+    echo 'time="..." level=error msg="pasta failed with exit code 1: Failed to bind port 4102"' >&2
+    exit 125
+  fi
+  last_create="$(grep 'pod create' "${PODMAN_LOG}" | tail -n1)"
+  if [[ "$last_create" == *"--network pasta:--ipv4-only"* ]]; then
+    : # always fails (IPv4 route unusable)
+  elif [[ "${FAKE_PASTA_IPV6:-}" == "1" && "$last_create" == *"--network pasta"* ]]; then
+    printf 'pod-started\n'
+    exit 0
+  elif [[ "$last_create" == *"--network slirp4netns"* ]]; then
+    printf 'pod-started\n'
+    exit 0
+  fi
+  echo 'time="..." level=error msg="Starting some container dependencies"' >&2
+  echo 'time="..." level=error msg="\"pasta failed with exit code 1:\\nExternal interface not usable\\n\""' >&2
+  exit 125
+fi
+exit 0
+EOF
+chmod +x "$fake_bin/podman"
+: > "$PODMAN_LOG"
+fallback_output="$test_home/network-fallback-output"
+if ! bash "$PROJECT_ROOT/dist/scripts/start.sh" "$test_home" --edition swdev --search_mode searxng --detach > "$fallback_output" 2>&1; then
+  printf 'start script died instead of falling back from pasta\n' >&2
+  cat "$fallback_output" >&2
+  exit 1
+fi
+if ! grep -q -- '--network pasta:--ipv4-only' "$PODMAN_LOG"; then
+  printf 'network fallback lost the primary pasta:--ipv4-only pod\n' >&2
+  exit 1
+fi
+if ! grep -qE 'pod create .*(--network pasta)( |$)' "$PODMAN_LOG"; then
+  printf 'network fallback did not retry dual-stack pasta\n' >&2
+  exit 1
+fi
+if ! grep -q -- '--network slirp4netns' "$PODMAN_LOG"; then
+  printf 'network fallback did not retry slirp4netns\n' >&2
+  exit 1
+fi
+if [[ "$(grep -c -- 'pod create' "$PODMAN_LOG")" != "3" ]]; then
+  printf 'network fallback pod create count = %s, want 3\n' "$(grep -c -- 'pod create' "$PODMAN_LOG")" >&2
+  exit 1
+fi
+if ! grep -q -- 'run -d.*--pod opencode-sandbox-pod-.*--name oc-searxng-' "$PODMAN_LOG"; then
+  printf 'network fallback skipped the oc-searxng member\n' >&2
+  exit 1
+fi
+if ! grep -q -- '--rm -d --name opencode-sandbox-' "$PODMAN_LOG"; then
+  printf 'network fallback skipped the workspace container\n' >&2
+  exit 1
+fi
+grep -q -- 'retrying with dual-stack pasta' "$fallback_output" || {
+  printf 'network fallback did not announce the dual-stack retry\n' >&2
+  exit 1
+}
+grep -q -- 'retrying the sandbox network with slirp4netns' "$fallback_output" || {
+  printf 'network fallback did not announce slirp4netns\n' >&2
+  exit 1
+}
+
+# A host with a usable IPv6 route but no IPv4 route is rescued by the
+# dual-stack retry alone (no slirp downgrade).
+: > "$PODMAN_LOG"
+ipv6_output="$test_home/network-ipv6-output"
+if ! FAKE_PASTA_IPV6=1 bash "$PROJECT_ROOT/dist/scripts/start.sh" "$test_home" --edition swdev --detach > "$ipv6_output" 2>&1; then
+  printf 'start script did not use the dual-stack pasta retry\n' >&2
+  cat "$ipv6_output" >&2
+  exit 1
+fi
+if [[ "$(grep -c -- 'pod create' "$PODMAN_LOG")" != "2" ]]; then
+  printf 'dual-stack retry pod create count = %s, want 2\n' "$(grep -c -- 'pod create' "$PODMAN_LOG")" >&2
+  exit 1
+fi
+if grep -q -- '--network slirp4netns' "$PODMAN_LOG"; then
+  printf 'dual-stack success still fell through to slirp4netns\n' >&2
+  exit 1
+fi
+grep -q -- 'retrying with dual-stack pasta' "$ipv6_output" || {
+  printf 'dual-stack retry was not announced\n' >&2
+  exit 1
+}
+
+# A pod-start failure that is not the pasta interface error (e.g. a port
+# bind race) is surfaced, not silently retried on another network stack.
+: > "$PODMAN_LOG"
+port_fail_output="$test_home/network-port-fail-output"
+if FAKE_POD_START_FAIL=port bash "$PROJECT_ROOT/dist/scripts/start.sh" "$test_home" --edition swdev --detach > "$port_fail_output" 2>&1; then
+  printf 'start script swallowed a non-interface pod-start failure\n' >&2
+  exit 1
+fi
+if grep -q -- 'slirp4netns' "$PODMAN_LOG"; then
+  printf 'non-interface pod-start failure triggered the network fallback\n' >&2
+  exit 1
+fi
+if ! grep -q -- 'Failed to bind port 4102' "$port_fail_output"; then
+  printf 'non-interface pod-start failure error was not surfaced\n' >&2
+  exit 1
+fi
+printf 'start host-network fallback tests passed\n'

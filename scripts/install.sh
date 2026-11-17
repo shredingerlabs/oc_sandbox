@@ -1211,7 +1211,7 @@ main() {
   echo ""
   echo "Nächste Schritte:"
   echo "  1. Podman installieren (falls noch nicht vorhanden):"
-  echo "     sudo apt-get install -y podman pasta fuse-overlayfs"
+  echo "     sudo apt-get install -y podman pasta fuse-overlayfs slirp4netns"
   echo ""
   echo "  2. Interaktive TUI starten:"
   echo "     über Startmenu  -> OC Sandbox"

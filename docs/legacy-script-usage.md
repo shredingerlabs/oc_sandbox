@@ -160,6 +160,10 @@ dist/scripts/start.sh ~/projects/customer-x --edition swdev     # C/C++, Java, R
 | `--search_mode searxng`  | pasta   | no              | –                          | SearXNG web search (per-project pod member, no proxy) |
 | `--start_web --detach`   | pasta   | no              | –                          | OpenCode web UI (port 4096)        |
 
+`pasta` is the primary rootless network mode; when the host has no usable pasta
+interface (VPN/tunnel default route, offline, or IPv4-less) the start retries
+dual-stack pasta and then `slirp4netns` (see the README troubleshooting entry).
+
 Further single flags (not in the table): `--start_opencode` opens an OpenCode
 TUI session in the container directly; `--detach` starts the container in the
 background — every detached start runs the OpenCode v2 background service as

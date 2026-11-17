@@ -98,15 +98,24 @@ ahead of any podman interaction.
   its own (broken) entry first; /etc/hosts resolves on first match.
 - **Pass pasta map options** (`--map-host-loopback`): unavailable in noble's
   passt snapshot; would pin the whole host fleet to a pasta version floor.
-- **slirp4netns networking**: rejected — deprecated in some distros.
+- **slirp4netns as the primary network**: rejected — deprecated in some
+  distros, and Podman 6 removed it. It is accepted only as a runtime fallback:
+  pasta needs a host interface with an address, gateway and MAC, which a
+  VPN/tunnel default route, an offline laptop, or an IPv4-less host cannot
+  provide ("External interface not usable"). AMENDED 2026-11-17: start.sh
+  retries dual-stack pasta, then slirp4netns; when neither works the start
+  fails with an actionable error (Podman 6 has no slirp fallback).
 - **SearXNG inside the project image**: rejected for image bloat across all
   editions (out of scope in the pod-per-project spec).
 
 ## Consequences
 
-- Companions work regardless of podman version or host network topology;
-  their addresses are constants and can never go stale. Two searxng projects
-  run concurrently with per-pod instances and no port conflicts.
+- Companions work regardless of podman version or host network topology on
+  healthy hosts, and addresses are constants that can never go stale. The
+  rootless network setup is pasta, with a dual-stack retry and then a
+  slirp4netns fallback when the host has no usable pasta interface (VPN/tunnel
+  default route without MAC, offline host, or no IPv4 route). Two searxng
+  projects run concurrently with per-pod instances and no port conflicts.
 - `NO_PROXY` must cover `0.0.0.0` (the web-pinned `service.json` hostname,
   ADR 0024): opencode v2 derives managed-service URLs verbatim from that
   hostname, and a probe bent through the squid allowlist is answered with a

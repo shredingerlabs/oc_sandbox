@@ -41,7 +41,7 @@ Prerequisites (Ubuntu 24.04 or similar):
 
 ```bash
 sudo apt-get update
-sudo apt-get install -y git curl podman passt fuse-overlayfs jq
+sudo apt-get install -y git curl podman passt fuse-overlayfs jq slirp4netns
 podman info --format '{{.Host.Security.Rootless}}'   # should print "true"
 ```
 
@@ -339,6 +339,23 @@ manually, then log out and back in:
 echo "$(id -un):$(id -u):1" | sudo tee -a /etc/subuid
 echo "$(id -un):$(id -g):1" | sudo tee -a /etc/subgid
 ```
+
+### Start fails with `pasta failed ... External interface not usable`
+
+```
+Error: starting some containers: internal libpod error
+time="..." level=error msg="\"pasta failed with exit code 1:\nExternal interface not usable\n\""
+```
+
+Pasta needs a host interface it can copy an address and gateway from. A VPN
+or other tunnel (WireGuard, OpenVPN, Tailscale) that owns the default route
+without a MAC, an offline laptop, or a host with only an IPv6 route can make
+every start fail this way. The start now retries dual-stack pasta and then
+`slirp4netns` automatically (`slirp4netns` must be installed; Podman 6 removed
+it). If both fail: reconnect the host network, install `slirp4netns` (Podman
+< 6), or use the workspace's offline mode. A plain
+`podman run --rm alpine true` failing with the same message confirms the host,
+not the sandbox, is the problem.
 
 ### HIL: USB device has no permissions in container (nobody:nogroup)
 
