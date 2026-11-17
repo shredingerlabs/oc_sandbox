@@ -33,47 +33,18 @@ func seedWorkspace(t *testing.T, home, name, edition string, modes []string) str
 	return root
 }
 
-// seedRegistry pins registry entries with exact stored fields (byte
-// shape per registry.AddWorkspace) — for deterministic last_used reads.
-func seedRegistry(t *testing.T, home string, entries ...struct{ name, lastUsed, status string }) string {
-	t.Helper()
-	roots := make([]string, len(entries))
-	items := make([]string, len(entries))
-	for i, e := range entries {
-		root := t.TempDir()
-		roots[i] = root
-		items[i] = fmt.Sprintf(`        {
-            "name": %q,
-            "path": %q,
-            "container_id": %q,
-            "last_used": %q,
-            "container_status": %q,
-            "git_tracking": "none",
-            "repo_url": ""
-        }`, e.name, root, registry.ContainerIdentity(root), e.lastUsed, e.status)
-	}
-	body := fmt.Sprintf(`{
-    "workspaces": [
-%s
-    ],
-    "version": "1.0"
-}`, strings.Join(items, ",\n"))
-	if err := os.MkdirAll(filepath.Join(home, ".config", "oc-sandbox"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(home, ".config", "oc-sandbox", "workspaces.json"), []byte(body), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	return roots[0]
-}
-
-// seedFavoriteRegistry pins registry entries with exact stored fields
-// plus the optional favorite flag (#173) — hand-written workspaces.json
-// for deterministic ordering and section reads.
-func seedFavoriteRegistry(t *testing.T, home string, entries ...struct {
+// seedEntry is one hand-written registry row: the exact stored fields
+// the card fixtures pin — favorite absent reads false (#173).
+type seedEntry struct {
 	name, lastUsed, status string
 	favorite               bool
-}) []string {
+}
+
+// seedRegistry pins registry entries with exact stored fields (byte
+// shape per registry.AddWorkspace; the optional favorite flag rides
+// #173) — hand-written workspaces.json for deterministic last_used,
+// ordering and section reads.
+func seedRegistry(t *testing.T, home string, entries ...seedEntry) string {
 	t.Helper()
 	roots := make([]string, len(entries))
 	items := make([]string, len(entries))
@@ -106,7 +77,7 @@ func seedFavoriteRegistry(t *testing.T, home string, entries ...struct {
 	if err := os.WriteFile(filepath.Join(home, ".config", "oc-sandbox", "workspaces.json"), []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	return roots
+	return roots[0]
 }
 
 // Two disjoint sections on Workspace › Open (#173): favorites render
@@ -116,15 +87,9 @@ func seedFavoriteRegistry(t *testing.T, home string, entries ...struct {
 // workspace appears exactly once overall.
 func TestWorkspacesFavoriteSections(t *testing.T) {
 	home := t.TempDir()
-	seedFavoriteRegistry(t, home,
-		struct {
-			name, lastUsed, status string
-			favorite               bool
-		}{"zeta", "2026-01-05T12:00:00Z", "stopped", true},
-		struct {
-			name, lastUsed, status string
-			favorite               bool
-		}{"alpha", "2026-01-05T13:00:00Z", "stopped", false},
+	seedRegistry(t, home,
+		seedEntry{"zeta", "2026-01-05T12:00:00Z", "stopped", true},
+		seedEntry{"alpha", "2026-01-05T13:00:00Z", "stopped", false},
 	)
 
 	s := startFixtureServer(t, home)
@@ -157,11 +122,8 @@ func TestWorkspacesFavoriteSections(t *testing.T) {
 func TestWorkspacesSectionHeadingsVisibility(t *testing.T) {
 	// None favorited: only the Registered section renders.
 	home := t.TempDir()
-	seedFavoriteRegistry(t, home,
-		struct {
-			name, lastUsed, status string
-			favorite               bool
-		}{"alpha", "2026-01-05T13:00:00Z", "stopped", false},
+	seedRegistry(t, home,
+		seedEntry{"alpha", "2026-01-05T13:00:00Z", "stopped", false},
 	)
 	s := startFixtureServer(t, home)
 	doc := body(t, get(t, s.URL()+"workspaces"))
@@ -174,11 +136,8 @@ func TestWorkspacesSectionHeadingsVisibility(t *testing.T) {
 
 	// All favorited: only the Favorite section renders.
 	home = t.TempDir()
-	seedFavoriteRegistry(t, home,
-		struct {
-			name, lastUsed, status string
-			favorite               bool
-		}{"zeta", "2026-01-05T12:00:00Z", "stopped", true},
+	seedRegistry(t, home,
+		seedEntry{"zeta", "2026-01-05T12:00:00Z", "stopped", true},
 	)
 	s2 := startFixtureServer(t, home)
 	doc = body(t, get(t, s2.URL()+"workspaces"))
@@ -209,27 +168,12 @@ func TestWorkspacesSectionHeadingsVisibility(t *testing.T) {
 // favorite's stamp never rearranges it out of the favorites section.
 func TestWorkspacesSectionOrder(t *testing.T) {
 	home := t.TempDir()
-	seedFavoriteRegistry(t, home,
-		struct {
-			name, lastUsed, status string
-			favorite               bool
-		}{"fav-new", "2026-01-05T12:00:00Z", "stopped", true},
-		struct {
-			name, lastUsed, status string
-			favorite               bool
-		}{"fav-never", "", "stopped", true},
-		struct {
-			name, lastUsed, status string
-			favorite               bool
-		}{"fav-old", "2026-01-05T11:00:00Z", "stopped", true},
-		struct {
-			name, lastUsed, status string
-			favorite               bool
-		}{"reg-new", "2026-01-05T13:00:00Z", "stopped", false},
-		struct {
-			name, lastUsed, status string
-			favorite               bool
-		}{"reg-never", "", "stopped", false},
+	seedRegistry(t, home,
+		seedEntry{"fav-new", "2026-01-05T12:00:00Z", "stopped", true},
+		seedEntry{"fav-never", "", "stopped", true},
+		seedEntry{"fav-old", "2026-01-05T11:00:00Z", "stopped", true},
+		seedEntry{"reg-new", "2026-01-05T13:00:00Z", "stopped", false},
+		seedEntry{"reg-never", "", "stopped", false},
 	)
 
 	s := startFixtureServer(t, home)
@@ -253,19 +197,10 @@ func TestWorkspacesSectionOrder(t *testing.T) {
 // the query hides its heading even while a query is active.
 func TestWorkspacesQueryFiltersWithinSections(t *testing.T) {
 	home := t.TempDir()
-	seedFavoriteRegistry(t, home,
-		struct {
-			name, lastUsed, status string
-			favorite               bool
-		}{"fav-alpha", "2026-01-05T12:00:00Z", "stopped", true},
-		struct {
-			name, lastUsed, status string
-			favorite               bool
-		}{"reg-alpha", "2026-01-05T13:00:00Z", "stopped", false},
-		struct {
-			name, lastUsed, status string
-			favorite               bool
-		}{"reg-beta", "2026-01-05T11:00:00Z", "stopped", false},
+	seedRegistry(t, home,
+		seedEntry{"fav-alpha", "2026-01-05T12:00:00Z", "stopped", true},
+		seedEntry{"reg-alpha", "2026-01-05T13:00:00Z", "stopped", false},
+		seedEntry{"reg-beta", "2026-01-05T11:00:00Z", "stopped", false},
 	)
 
 	s := startFixtureServer(t, home)
@@ -369,7 +304,7 @@ func TestWorkspacesHILChip(t *testing.T) {
 // server time — hours, days, else the date; never a raw timestamp.
 func TestWorkspacesRelativeLastUsed(t *testing.T) {
 	home := t.TempDir()
-	seedRegistry(t, home, struct{ name, lastUsed, status string }{"alpha", "2026-01-05T10:00:00Z", "stopped"})
+	seedRegistry(t, home, seedEntry{"alpha", "2026-01-05T10:00:00Z", "stopped", false})
 	now := time.Date(2026, 1, 5, 12, 0, 0, 0, time.UTC)
 
 	s := New(Options{BasePort: 0, Home: home, Now: func() time.Time { return now }})
@@ -392,8 +327,8 @@ func TestWorkspacesRelativeLastUsed(t *testing.T) {
 func TestWorkspacesRunningDot(t *testing.T) {
 	home := t.TempDir()
 	seedRegistry(t, home,
-		struct{ name, lastUsed, status string }{"alpha", "2026-01-05T10:00:00Z", "running"},
-		struct{ name, lastUsed, status string }{"beta", "2026-01-05T09:00:00Z", "stopped"},
+		seedEntry{"alpha", "2026-01-05T10:00:00Z", "running", false},
+		seedEntry{"beta", "2026-01-05T09:00:00Z", "stopped", false},
 	)
 
 	s := startFixtureServer(t, home)
@@ -450,6 +385,25 @@ func TestWorkspacesCardActions(t *testing.T) {
 
 func wantB(doc, want string) bool { return strings.Contains(doc, want) }
 
+// starButton slices a rendered card to the star's <button> element —
+// the never-disabled assertion reads the markup between the star's
+// title and its closing tag, not the whole card; "" when no star
+// renders (either glyph state).
+func starButton(card string) string {
+	i := strings.Index(card, `title="remove from favorites"`)
+	if i < 0 {
+		i = strings.Index(card, `title="add to favorites"`)
+	}
+	if i < 0 {
+		return ""
+	}
+	star := card[i:]
+	if iEnd := strings.Index(star, "</button>"); iEnd >= 0 {
+		star = star[:iEnd]
+	}
+	return star
+}
+
 // The dictation mic button: rendered for a running dictation-enabled
 // workspace (stored truth: Running && use_stt), left of the favorite
 // star, left of the settings gear — the icon contract is mic · star ·
@@ -489,18 +443,23 @@ func TestWorkspacesSttMicButton(t *testing.T) {
 	iMic := strings.Index(liveCard, `data-act="stt"`)
 	iStar := strings.Index(liveCard, `title="add to favorites"`)
 	iGear := strings.Index(liveCard, `title="workspace settings"`)
-	if iMic < 0 || iStar < 0 || iGear < 0 || !(iMic < iStar && iStar < iGear) {
-		t.Fatalf("running dictation card must carry mic · star · gear in order:\n%s", liveCard)
+	iRestart := strings.Index(liveCard, `data-confirm="restart"`)
+	if iMic < 0 || iStar < 0 || iGear < 0 || iRestart < 0 ||
+		!(iMic < iStar && iStar < iGear && iGear < iRestart) {
+		t.Fatalf("running dictation card must carry mic · star · gear · restart in order:\n%s", liveCard)
 	}
 	if !strings.Contains(liveCard, `title="dictation sidecar — record audio, copy the transcript"`) {
 		t.Fatal("mic button missing its tooltip")
 	}
-	// Cards without a mic anchor the star immediately left of the gear.
+	// Cards without a mic anchor the star immediately left of the gear,
+	// and the row still reads star · gear · restart.
 	for _, c := range []struct{ name, card string }{{"dark", darkCard}, {"idle", idleCard}} {
 		iStar := strings.Index(c.card, `title="add to favorites"`)
 		iGear := strings.Index(c.card, `title="workspace settings"`)
-		if iStar < 0 || iGear < 0 || iStar > iGear {
-			t.Fatalf("%s card must render the star immediately left of the settings gear:\n%s", c.name, c.card)
+		iRestart := strings.Index(c.card, `data-confirm="restart"`)
+		if iStar < 0 || iGear < 0 || iRestart < 0 ||
+			!(iStar < iGear && iGear < iRestart) {
+			t.Fatalf("%s card must render star · gear · restart in order:\n%s", c.name, c.card)
 		}
 	}
 	if strings.Contains(darkCard, `data-act="stt"`) {
@@ -516,15 +475,9 @@ func TestWorkspacesSttMicButton(t *testing.T) {
 // renders the outline — never disabled, in both display modes.
 func TestWorkspacesStarButton(t *testing.T) {
 	home := t.TempDir()
-	seedFavoriteRegistry(t, home,
-		struct {
-			name, lastUsed, status string
-			favorite               bool
-		}{"zeta", "2026-01-05T12:00:00Z", "stopped", true},
-		struct {
-			name, lastUsed, status string
-			favorite               bool
-		}{"alpha", "2026-01-05T13:00:00Z", "stopped", false},
+	seedRegistry(t, home,
+		seedEntry{"zeta", "2026-01-05T12:00:00Z", "stopped", true},
+		seedEntry{"alpha", "2026-01-05T13:00:00Z", "stopped", false},
 	)
 
 	s := startFixtureServer(t, home)
@@ -546,11 +499,7 @@ func TestWorkspacesStarButton(t *testing.T) {
 		t.Fatalf("favorited card must carry the favorite star:\n%s", favCard)
 	}
 	// Never disabled — the flag works from any workspace state (#172).
-	starBtn := favCard[iStar:]
-	if iEnd := strings.Index(starBtn, "</button>"); iEnd >= 0 {
-		starBtn = starBtn[:iEnd]
-	}
-	if strings.Contains(starBtn, "disabled") {
+	if starBtn := starButton(favCard); strings.Contains(starBtn, "disabled") {
 		t.Fatalf("star must never render disabled:\n%s", favCard)
 	}
 	if !strings.Contains(favCard, `data-favorite="true"`) {
@@ -624,15 +573,9 @@ func TestWorkspacesStarOnEveryCard(t *testing.T) {
 	}
 	f.waitSpawn(t)
 	pendingCard := cardOf(t, f.s, "alpha")
-	iStar := strings.Index(pendingCard, `title="add to favorites"`)
-	if iStar < 0 {
+	if starBtn := starButton(pendingCard); starBtn == "" {
 		t.Fatalf("setup-pending card must render the star:\n%s", pendingCard)
-	}
-	starBtn := pendingCard[iStar:]
-	if iEnd := strings.Index(starBtn, "</button>"); iEnd >= 0 {
-		starBtn = starBtn[:iEnd]
-	}
-	if strings.Contains(starBtn, "disabled") {
+	} else if strings.Contains(starBtn, "disabled") {
 		t.Fatalf("star must stay enabled during a pending setup:\n%s", pendingCard)
 	}
 	for _, marker := range []string{`data-confirm="restart"`} {
