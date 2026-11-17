@@ -80,6 +80,23 @@ func TestFrontendCardStyles(t *testing.T) {
 	}
 }
 
+// The card star's click delegation (#175): the favorite POST rides the
+// card-action family's post/render path — one click flips the flag, the
+// workspace SSE event re-renders the sections (no confirmation, no
+// toast).
+func TestFrontendFavoriteToggleWiring(t *testing.T) {
+	s := startTestServer(t)
+	js := body(t, get(t, s.URL()+"js/main.js"))
+	for _, want := range []string{
+		`btn.dataset.act === "favorite"`,   // the star's click branch
+		`runWorkspaceOp(card, "favorite")`, // the action family's post/render path
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("main.js missing %q (favorite toggle)", want)
+		}
+	}
+}
+
 // The frontend wiring of the workspace ops (ADR-0033 cards): the
 // restart confirm row posts the real restart op, the start chain
 // carries the variant and handles the mismatch verdict, and the

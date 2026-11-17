@@ -131,7 +131,7 @@ var wsTemplate = template.Must(template.New("ws").
     {{if .Stt}}<button class="btn icon"{{if .SetupPending}} disabled title="refused — first-run setup session pending"{{else}} title="dictation sidecar — record audio, copy the transcript"{{end}} data-act="stt">
       <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/></svg>
     </button>{{end}}
-    {{if .Favorite}}<button class="btn icon" data-favorite="true" title="remove from favorites">{{else}}<button class="btn icon" title="add to favorites">{{end}}
+    {{if .Favorite}}<button class="btn icon" data-favorite="true" data-act="favorite" title="remove from favorites">{{else}}<button class="btn icon" data-act="favorite" title="add to favorites">{{end}}
       <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M11.525 2.295a.53.53 0 0 1 .95 0l2.31 4.679a2.12 2.12 0 0 0 1.595 1.16l5.166.756a.53.53 0 0 1 .294.904l-3.736 3.638a2.12 2.12 0 0 0-.611 1.878l.882 5.14a.53.53 0 0 1-.771.56l-4.618-2.428a2.12 2.12 0 0 0-1.973 0L6.396 21.01a.53.53 0 0 1-.77-.56l.881-5.139a2.12 2.12 0 0 0-.611-1.879L2.16 9.795a.53.53 0 0 1 .294-.906l5.165-.755a2.12 2.12 0 0 0 1.597-1.16z"/></svg>
     </button>
     <button class="btn icon" title="workspace settings" data-act="settings">

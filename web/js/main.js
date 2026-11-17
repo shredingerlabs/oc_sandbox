@@ -263,6 +263,14 @@
       return;
     }
 
+    if (btn.dataset.act === "favorite") {
+      // #175: one click flips the stored favorite flag — the workspace
+      // SSE event re-renders the screen and the card's section move is
+      // the feedback (no confirmation, no toast).
+      runWorkspaceOp(card, "favorite");
+      return;
+    }
+
     if (btn.dataset.confirm === "restart") {
       showRestartConfirm(card);
       return;
