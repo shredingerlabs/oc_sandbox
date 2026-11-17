@@ -143,10 +143,12 @@ fi
 # Cache-Default ($HOME/.cache) in den Workspace-Inhalt (workspace/) —
 # .cache/opencode (jeder detached Boot) und die CBM-DB (codebase-memory-mcp
 # als Daemon-Kind, opencode.json spawn ohne --cache-dir) landen in
-# workspace/. Der Pin haelt opencode im
-# Overlay (/home/dev/.cache/opencode, im Image vorangelegt) und CBM auf dem
-# .cbm_cache-Mount (/home/dev/.cache/codebase-memory-mcp), wo auch die
-# CBM-Stage (exec-Client) ihre Config schreibt.
+# workspace/. Der Pin haelt opencode unter /home/dev/.cache/opencode; dieser
+# Pfad ist aus .opencode_data/cache/opencode gemountet, damit der npm-Install
+# des models-discovery-Plugins die Container-Neuanlage ueberlebt (sonst 503
+# auf /api/* beim ersten Client). CBM landet auf dem .cbm_cache-Mount
+# (/home/dev/.cache/codebase-memory-mcp), wo auch die CBM-Stage
+# (exec-Client) ihre Config schreibt.
 if ! grep -q -- '-e XDG_CACHE_HOME=/home/dev/.cache' <<<"$run_line"; then
   printf 'start did not pin XDG_CACHE_HOME into the container env: %s\n' "$run_line" >&2
   exit 1
@@ -163,6 +165,89 @@ if grep -rq '4097' "$test_home/.opencode_config" "$test_home/.opencode_data"; th
   exit 1
 fi
 printf 'start always-on web detached tests passed\n'
+
+# --- Service readiness gate ------------------------------------------------------
+# Der v2-Service antwortet waehrend des Plugin-Installs/Ladens (models-
+# discovery, npm) mit 503 auf /api/provider|model|agent. Ohne Gate kehrt ein
+# detached Start zurueck, bevor der erste TUI/Web-Client Modelle sieht — der
+# Client rendert eine leere Liste und erst das erneute Oeffnen funktioniert.
+# Zwei Zusagen: der npm-Plugin-Cache liegt auf dem persistenten Data-Mount,
+# und der Start pollt den authentifizierten /api/model-Endpunkt (Passwort aus
+# der gemounteten service.json), begrenzt auf OC_SANDBOX_SERVICE_READY_TRIES.
+ws_run_line="$(grep -m1 -- '--rm -d --name opencode-sandbox-' "$PODMAN_LOG")"
+if ! grep -q -- "-v ${test_home}/.opencode_data/cache/opencode:/home/dev/.cache/opencode:Z" <<<"$ws_run_line"; then
+  printf 'detached start did not persist the opencode plugin cache: %s\n' "$ws_run_line" >&2
+  exit 1
+fi
+[[ -d "$test_home/.opencode_data/cache/opencode" ]]
+if ! grep -q -- '^exec opencode-sandbox-' "$PODMAN_LOG"; then
+  printf 'detached start did not gate on service readiness\n' >&2
+  exit 1
+fi
+grep -q -- '/home/dev/.config/opencode/service.json' "$PODMAN_LOG"
+grep -q -- '/api/model' "$PODMAN_LOG"
+
+# Retry bis Erfolg (2x 503/exec-Fehler, dann bereit) — Start bleibt exit 0.
+cat > "$fake_bin/podman" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "${PODMAN_LOG}"
+case "$*" in
+  *"/api/model"*)
+    n=$(cat "${EXEC_COUNT_FILE}" 2>/dev/null || echo 0)
+    n=$((n + 1))
+    printf '%s' "$n" > "${EXEC_COUNT_FILE}"
+    [[ "$n" -gt "${EXEC_FAIL_TIMES:-0}" ]] && exit 0
+    exit 1
+    ;;
+esac
+exit 0
+EOF
+chmod +x "$fake_bin/podman"
+: > "$PODMAN_LOG"
+rm -f "$test_home/readiness-count"
+retry_output="$test_home/readiness-retry-output"
+if ! EXEC_COUNT_FILE="$test_home/readiness-count" EXEC_FAIL_TIMES=2 \
+  OC_SANDBOX_SERVICE_READY_TRIES=5 \
+  bash "$PROJECT_ROOT/dist/scripts/start.sh" "$test_home" --edition swdev --detach > "$retry_output" 2>&1; then
+  printf 'start script failed while retrying service readiness\n' >&2
+  cat "$retry_output" >&2
+  exit 1
+fi
+if [[ "$(cat "$test_home/readiness-count")" != "3" ]]; then
+  printf 'readiness gate did not retry until success (calls: %s)\n' "$(cat "$test_home/readiness-count")" >&2
+  exit 1
+fi
+if grep -q 'was not ready' "$retry_output"; then
+  printf 'readiness gate warned despite reaching a ready service\n' >&2
+  exit 1
+fi
+
+# Begrenzter Timeout: nie bereit -> Warnung statt Fehlschlag, Start bleibt
+# exit 0 (der Container ist hoch; ein spaeteres Oeffnen funktioniert).
+: > "$PODMAN_LOG"
+rm -f "$test_home/readiness-count"
+timeout_output="$test_home/readiness-timeout-output"
+if ! EXEC_COUNT_FILE="$test_home/readiness-count" EXEC_FAIL_TIMES=999 \
+  OC_SANDBOX_SERVICE_READY_TRIES=2 \
+  bash "$PROJECT_ROOT/dist/scripts/start.sh" "$test_home" --edition swdev --detach > "$timeout_output" 2>&1; then
+  printf 'start script failed on readiness timeout (must warn only)\n' >&2
+  cat "$timeout_output" >&2
+  exit 1
+fi
+if [[ "$(cat "$test_home/readiness-count")" != "2" ]]; then
+  printf 'readiness gate did not honor OC_SANDBOX_SERVICE_READY_TRIES=2 (calls: %s)\n' "$(cat "$test_home/readiness-count")" >&2
+  exit 1
+fi
+grep -q 'Warning: OpenCode service was not ready after 2s' "$timeout_output"
+grep -q 'OpenCode web: http://127.0.0.1:4097' "$timeout_output"
+
+cat > "$fake_bin/podman" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "${PODMAN_LOG}"
+exit 0
+EOF
+chmod +x "$fake_bin/podman"
+printf 'start service readiness gate tests passed\n'
 
 # Foreground ohne --start_web: Vertrag unveraendert (ADR 0024) — kein
 # Web-Publishing, kein Service-Kommando, kein Web-Echo.
@@ -182,6 +267,10 @@ if grep -q -- 'opencode service start' "$PODMAN_LOG"; then
 fi
 if grep -q 'OpenCode web:' "$fg_plain_output"; then
   printf 'plain foreground start echoed a web URL\n' >&2
+  exit 1
+fi
+if grep -q -- '/api/model' "$PODMAN_LOG"; then
+  printf 'foreground start gated on a background service it does not boot\n' >&2
   exit 1
 fi
 printf 'start always-on web foreground-exempt tests passed\n'

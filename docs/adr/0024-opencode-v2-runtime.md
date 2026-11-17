@@ -92,6 +92,16 @@ the sandbox to v2 in one flip:
   (`/home/dev/.cache/codebase-memory-mcp`) where the CBM stage writes its
   config; without the pin both wrote into `workspace/.cache/` and the
   stage's config was invisible to the server.
+  The opencode plugin cache itself (`$XDG_CACHE_HOME/opencode`, where the
+  models-discovery npm tree is installed) is mounted from the persistent
+  data dir (`.opencode_data/cache/opencode`) so a container re-creation
+  keeps the install; only the very first boot pays the (tens of seconds)
+  npm install. Detached starts additionally gate on the authenticated
+  `GET /api/model` (password from the mounted `service.json`) for up to
+  `OC_SANDBOX_SERVICE_READY_TRIES` seconds (default 90) and warn instead
+  of failing on timeout: before the plugins are loaded the API answers
+  503, and a TUI/web client opened in that window cached an empty model
+  list until it was reopened.
 - The web toast signs the browser in via one-time pair links (sessions
   then last 30 days); the foreground `serve` path shows the server
   password in its banner for direct URL sign-in.

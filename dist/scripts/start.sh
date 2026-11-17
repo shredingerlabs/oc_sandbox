@@ -10,7 +10,7 @@
 #   <WORKSPACE_ROOT>/
 #     workspace/          <- repo, mounted at /home/dev/workspace
 #     .opencode_config/    <- OpenCode config, persistent per workspace
-#     .opencode_data/       <- OpenCode data incl. auth/credentials
+#     .opencode_data/       <- OpenCode data incl. auth/credentials and plugin cache
 #     .ssh_local/           <- SSH keys + config for this workspace
 #     .git_local/           <- git identity/settings + optional credentials
 #     .cbm_cache/           <- CBM graph database (persistent)
@@ -220,7 +220,7 @@ GIT_DIR="${WORKSPACE_ROOT}/.git_local"
 CBM_DIR="${WORKSPACE_ROOT}/.cbm_cache"
 BASH_DIR="${WORKSPACE_ROOT}/.bash_local"
 
-mkdir -p "$WORKSPACE_DIR" "$CONFIG_DIR" "$DATA_DIR" "$SSH_DIR" "$GIT_DIR" "$GIT_DIR/gh-cli" "$GIT_DIR/glab-cli" "$CBM_DIR"
+mkdir -p "$WORKSPACE_DIR" "$CONFIG_DIR" "$DATA_DIR" "$DATA_DIR/cache/opencode" "$SSH_DIR" "$GIT_DIR" "$GIT_DIR/gh-cli" "$GIT_DIR/glab-cli" "$CBM_DIR"
 chmod 700 "$SSH_DIR" "$GIT_DIR"
 
 # OpenCode web needs a git repo as worktree: without .git in workspace/
@@ -813,6 +813,12 @@ fi
 # /home/dev/.local/state/opencode/ — they see no running service, boot a
 # second one and abort on the pinned port 4096 ("Managed service port 4096
 # ... is already in use").
+# Plugin cache persistence: the models-discovery plugin is installed from
+# npm into $XDG_CACHE_HOME/opencode/npm on load. On a cold (ephemeral)
+# cache that install takes tens of seconds while /api/provider, /api/model
+# and /api/agent answer 503 — the first TUI/web client then renders no
+# models until it is reopened. Mount the cache from the persistent data
+# dir so only the very first boot pays the install cost.
 podman run --rm "${RUN_MODE[@]}" \
   --name "$CONTAINER_NAME" \
   "${USERNS_ARGS[@]}" \
@@ -843,11 +849,36 @@ podman run --rm "${RUN_MODE[@]}" \
   -v "${WORKSPACE_DIR}:/home/dev/workspace:Z" \
   -v "${CONFIG_DIR}:/home/dev/.config/opencode:Z" \
   -v "${DATA_DIR}:/home/dev/.local/share/opencode:Z" \
+  -v "${DATA_DIR}/cache/opencode:/home/dev/.cache/opencode:Z" \
   -v "${SSH_DIR}:/home/dev/.ssh:Z,ro" \
   -v "${GIT_DIR}:/home/dev/.git_local:Z" \
   -v "${CBM_DIR}:/home/dev/.cache/codebase-memory-mcp:Z" \
   -v "${BASH_DIR}/bash_profile:/home/dev/.bash_profile:Z" \
   "$IMAGE" "${CONTAINER_COMMAND[@]}"
+
+# Detached starts must not report success before the v2 service has loaded
+# config/plugins. During plugin load the API answers 503, so a client that
+# opens immediately (TUI/web pair flow) caches an empty model list. Poll
+# the authenticated model endpoint — the service password lives in the
+# mounted service.json. Bounded: a slow/broken service only warns (the
+# container is up; reopening the client later still works).
+if $DETACH; then
+  ready_tries="${OC_SANDBOX_SERVICE_READY_TRIES:-90}"
+  ready=false
+  for ((try = 1; try <= ready_tries; try++)); do
+    if podman exec "$CONTAINER_NAME" bash -c '
+      pw="$(jq -r ".password // empty" /home/dev/.config/opencode/service.json 2>/dev/null)"
+      [ -n "$pw" ] && curl -fsS -u "opencode:$pw" http://127.0.0.1:4096/api/model >/dev/null 2>&1
+    ' >/dev/null 2>&1; then
+      ready=true
+      break
+    fi
+    sleep 1
+  done
+  if ! $ready; then
+    printf 'Warning: OpenCode service was not ready after %ss; the first client may show no models until the plugin cache is warm.\n' "$ready_tries" >&2
+  fi
+fi
 
 if $DETACH && ! $OFFLINE; then
   # Always-on web echo (spec §10): every detached start announces the live
