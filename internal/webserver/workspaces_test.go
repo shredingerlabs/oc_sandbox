@@ -201,6 +201,51 @@ func TestWorkspacesSectionHeadingsVisibility(t *testing.T) {
 	}
 }
 
+// Ordering within sections (#173): both sections follow the registry's
+// existing last-used order — most recent first, and a never-stamped
+// (legacy) workspace sinks within whichever section it belongs to; a
+// favorite's stamp never rearranges it out of the favorites section.
+func TestWorkspacesSectionOrder(t *testing.T) {
+	home := t.TempDir()
+	seedFavoriteRegistry(t, home,
+		struct {
+			name, lastUsed, status string
+			favorite               bool
+		}{"fav-new", "2026-01-05T12:00:00Z", "stopped", true},
+		struct {
+			name, lastUsed, status string
+			favorite               bool
+		}{"fav-never", "", "stopped", true},
+		struct {
+			name, lastUsed, status string
+			favorite               bool
+		}{"fav-old", "2026-01-05T11:00:00Z", "stopped", true},
+		struct {
+			name, lastUsed, status string
+			favorite               bool
+		}{"reg-new", "2026-01-05T13:00:00Z", "stopped", false},
+		struct {
+			name, lastUsed, status string
+			favorite               bool
+		}{"reg-never", "", "stopped", false},
+	)
+
+	s := startFixtureServer(t, home)
+	doc := body(t, get(t, s.URL()+"workspaces"))
+	order := []string{"fav-new", "fav-old", "fav-never", "reg-new", "reg-never"}
+	last := -1
+	for _, name := range order {
+		i := strings.Index(doc, `data-ws="`+name+`"`)
+		if i < 0 {
+			t.Fatalf("card %q missing:\n%s", name, doc)
+		}
+		if i < last {
+			t.Fatalf("MRU order broken at %q — most recent first, never-stamped sinks:\n%s", name, doc)
+		}
+		last = i
+	}
+}
+
 // startFixtureServer starts a test server pointed at a fake home.
 func startFixtureServer(t *testing.T, home string) *Server {
 	t.Helper()
