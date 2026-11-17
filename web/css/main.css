@@ -94,6 +94,9 @@ body { background:var(--bg); color:var(--ink);
    left accent bar + solid --ed tile, muted sub row, neutral chips,
    footrow actions, streamed op log, confirm rows. */
 .ws-screen { max-width:1150px; }
+/* In-flow section headings (#173): "Favorite workspaces" / "Registered
+   workspaces", rendered only when their section has cards. */
+.ws-screen h2 { margin:18px 0 10px; font-size:15px; font-weight:800; }
 .pagehead { display:flex; align-items:center; justify-content:space-between;
   gap:16px; margin-bottom:15px; }
 .pagehead h2 { margin:0; font-size:15px; font-weight:800; }

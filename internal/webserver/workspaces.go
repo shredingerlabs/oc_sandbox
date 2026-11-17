@@ -102,13 +102,16 @@ type cardView struct {
 	SetupRetry   bool   // setup incomplete, no session — recovery action row
 }
 
-// wsScreenView is the template data of the whole screen fragment.
+// wsScreenView is the template data of the whole screen fragment. The
+// favorites split (#173) is view-side: the registry's comparator stays
+// untouched, the handler splits its ordered read into the two sections.
 type wsScreenView struct {
-	P     string // tokenized path prefix
-	Query string // the ?q= value echoed back into the search input
-	Cards []cardView
-	Empty bool
-	Error string // registry read failure shown instead of a dead end
+	P          string // tokenized path prefix
+	Query      string // the ?q= value echoed back into the search input
+	Favorites  []cardView
+	Registered []cardView
+	Empty      bool
+	Error      string // registry read failure shown instead of a dead end
 }
 
 const wsEmptyText = "No workspaces registered"
@@ -170,7 +173,6 @@ var wsTemplate = template.Must(template.New("ws").
 {{define "ws-screen"}}
 <div class="ws-screen" id="ws-screen">
   <div class="pagehead">
-    <h2>Registered workspaces</h2>
     <input class="ws-search" data-role="ws-search" type="search" name="q" placeholder="Search workspaces"
            value="{{.Query}}" autocomplete="off"
            hx-get="workspaces" hx-trigger="input changed delay:300ms, search" hx-target="#ws-screen" hx-swap="outerHTML">
@@ -179,9 +181,16 @@ var wsTemplate = template.Must(template.New("ws").
   {{if .Empty}}
   <p class="empty" data-empty="workspaces">No workspaces registered</p>
   {{else}}
+  {{if .Favorites}}<h2>Favorite workspaces</h2>
   <div class="grid">
-    {{range .Cards}}{{template "card" .}}{{end}}
+    {{range .Favorites}}{{template "card" .}}{{end}}
   </div>
+  {{end}}
+  {{if .Registered}}<h2>Registered workspaces</h2>
+  <div class="grid">
+    {{range .Registered}}{{template "card" .}}{{end}}
+  </div>
+  {{end}}
   {{end}}
 </div>
 {{end}}
@@ -196,7 +205,6 @@ func (s *Server) handleWorkspacesGET(w http.ResponseWriter, r *http.Request) {
 
 	reg := &registry.Registry{Home: s.opts.Home}
 	entries, err := reg.AllOrdered()
-	var cards []cardView
 	errMsg := ""
 	if err != nil && err != registry.ErrNotFound {
 		errMsg = "registry unreadable — fix ~/.config/oc-sandbox/workspaces.json"
@@ -210,15 +218,25 @@ func (s *Server) handleWorkspacesGET(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// MRU order comes straight from the registry (bash sort_by|reverse
+	// parity); the ?q= filter keeps it. The favorites split (#173) is
+	// view-side — favorites lead, the rest follows, both in MRU order.
+	favs := make([]cardView, 0, len(filtered))
+	rest := make([]cardView, 0, len(filtered))
 	for _, e := range filtered {
-		cards = append(cards, s.cardFor(e, mode))
+		if e.Favorite {
+			favs = append(favs, s.cardFor(e, mode))
+		} else {
+			rest = append(rest, s.cardFor(e, mode))
+		}
 	}
 	v := wsScreenView{
-		P:     s.pathPrefix(),
-		Query: q,
-		Cards: cards,
-		Empty: errMsg == "" && len(cards) == 0, // missing registry reads as empty (first-run)
-		Error: errMsg,
+		P:          s.pathPrefix(),
+		Query:      q,
+		Favorites:  favs,
+		Registered: rest,
+		Empty:      errMsg == "" && len(favs)+len(rest) == 0, // missing registry reads as empty (first-run)
+		Error:      errMsg,
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := wsTemplate.ExecuteTemplate(w, "ws-screen", v); err != nil {

@@ -65,6 +65,89 @@ func seedRegistry(t *testing.T, home string, entries ...struct{ name, lastUsed, 
 	return roots[0]
 }
 
+// seedFavoriteRegistry pins registry entries with exact stored fields
+// plus the optional favorite flag (#173) — hand-written workspaces.json
+// for deterministic ordering and section reads.
+func seedFavoriteRegistry(t *testing.T, home string, entries ...struct {
+	name, lastUsed, status string
+	favorite               bool
+}) []string {
+	t.Helper()
+	roots := make([]string, len(entries))
+	items := make([]string, len(entries))
+	for i, e := range entries {
+		root := t.TempDir()
+		roots[i] = root
+		fav := ""
+		if e.favorite {
+			fav = ",\n            \"favorite\": true"
+		}
+		items[i] = fmt.Sprintf(`        {
+            "name": %q,
+            "path": %q,
+            "container_id": %q,
+            "last_used": %q,
+            "container_status": %q,
+            "git_tracking": "none",
+            "repo_url": ""%s
+        }`, e.name, root, registry.ContainerIdentity(root), e.lastUsed, e.status, fav)
+	}
+	body := fmt.Sprintf(`{
+    "workspaces": [
+%s
+    ],
+    "version": "1.0"
+}`, strings.Join(items, ",\n"))
+	if err := os.MkdirAll(filepath.Join(home, ".config", "oc-sandbox"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, ".config", "oc-sandbox", "workspaces.json"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return roots
+}
+
+// Two disjoint sections on Workspace › Open (#173): favorites render
+// under "Favorite workspaces" at the top, everything else under
+// "Registered workspaces" — sentence-case headings, the page head keeps
+// only the search input (the h2 leaves it), and every registered
+// workspace appears exactly once overall.
+func TestWorkspacesFavoriteSections(t *testing.T) {
+	home := t.TempDir()
+	seedFavoriteRegistry(t, home,
+		struct {
+			name, lastUsed, status string
+			favorite               bool
+		}{"zeta", "2026-01-05T12:00:00Z", "stopped", true},
+		struct {
+			name, lastUsed, status string
+			favorite               bool
+		}{"alpha", "2026-01-05T13:00:00Z", "stopped", false},
+	)
+
+	s := startFixtureServer(t, home)
+	doc := body(t, get(t, s.URL()+"workspaces"))
+
+	iSearch := strings.Index(doc, `data-role="ws-search"`)
+	iFavHead := strings.Index(doc, "<h2>Favorite workspaces</h2>")
+	iRegHead := strings.Index(doc, "<h2>Registered workspaces</h2>")
+	iZeta := strings.Index(doc, `data-ws="zeta"`)
+	iAlpha := strings.Index(doc, `data-ws="alpha"`)
+	if iSearch < 0 || iFavHead < 0 || iRegHead < 0 || iZeta < 0 || iAlpha < 0 {
+		t.Fatalf("sections/search missing:\n%s", doc)
+	}
+	if !(iSearch < iFavHead && iFavHead < iZeta && iZeta < iRegHead && iRegHead < iAlpha) {
+		t.Fatalf("favorites must lead, sections disjoint:\n%s", doc)
+	}
+	if strings.Count(doc, `data-ws="zeta"`) != 1 || strings.Count(doc, `data-ws="alpha"`) != 1 {
+		t.Fatalf("every registered workspace must render exactly once:\n%s", doc)
+	}
+	// The h2 leaves the page head: the search input renders before any h2.
+	if iSearch > strings.Index(doc, "<h2>") {
+		t.Fatalf("page head must keep the search input, not the h2:\n%s", doc)
+	}
+}
+
 // startFixtureServer starts a test server pointed at a fake home.
 func startFixtureServer(t *testing.T, home string) *Server {
 	t.Helper()
