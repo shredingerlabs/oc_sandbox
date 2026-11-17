@@ -39,7 +39,7 @@ already wired into the repo suites and listed at the bottom.
 | 21    | Language pinning                | Set `stt.json` `{"language": "de"}`, restart → member args carry `--language de`, transcription honors it; the hand-edited file survives re-seeding                                                                                     | pending |
 | 22    | Toggle surfaces                 | WebUI wizard row (default-checked, advanced-only; Standard hides + records ON); ws-settings row POSTs both ways (next-start apply, restart always available); TUI settings row toggles                                                   | pending |
 | 23    | Recordings persist nowhere      | During/after dictation: no WAV files left in the workspace container (`/tmp` clean), no server-side storage                                                                                                                             | pending |
-| 24    | Card mic button                 | Workspace → Open: a running dictation-enabled workspace shows the mic left of the settings gear; the click opens the sidecar in a new tab (live port); stopped or dictation-off cards show none                                          | pending |
+| 24    | Card mic button                 | Workspace → Open: a running dictation-enabled workspace shows the mic, then the star, then the settings gear (the star marks the stored favorite flag — #174); the click opens the sidecar in a new tab (live port); stopped or dictation-off cards show none                                          | pending |
 
 ## Machine-verified (already in the repo suites)
 
@@ -48,7 +48,7 @@ already wired into the repo suites and listed at the bottom.
 | build-container `oc-stt` target argv (direct + edition after-run + refusal)                                                                                                              | `bash tests/test-build-container.sh`             | pass (12 sections) |
 | start.sh member run vector, pod-create publish, STT_URL, offline skip, socket cascade (all branches), seeding idempotence (stt.json, plugins, cli.json), language pin (mount + STT_LANG) | `bash tests/test-start.sh`                       | pass               |
 | Config semantics (Create ON, absent OFF), `--use_stt` argv carriers, restart-fingerprint flip, wizard preset + settings POST + matrix visibility, image rows                             | `go test ./...` (smoke + unit)                   | pass               |
-| Card mic button render (running && use_stt, left of the gear) + stt-link live-port resolution and not-running refusal                                                                | `go test ./...` (webserver)                      | pass               |
+| Card mic button render (running && use_stt, mic · star · gear order) + stt-link live-port resolution and not-running refusal                                                                | `go test ./...` (webserver)                      | pass               |
 | Dictation controller state machine, cap, health check, error mapping, delivery flow (dialog open/submit/discard/retain/fallback, home-route session-create)                              | `node --test tests/dictation/dictation.test.mjs` | pass (26)          |
 | Sidecar pure seam: WAV encoder (header from the actual sample rate, mono downmix), codec pick (webm/opus, mp4/AAC, none)                                                                 | `node --test tests/dictation/sidecar.test.mjs`   | pass (9)           |
 
