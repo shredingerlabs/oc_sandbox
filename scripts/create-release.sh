@@ -326,14 +326,15 @@ create_release() {
     # commit via `git add .` — make them writable first.
     find . -maxdepth 1 -not -name '.' -not -name '..' -not -name 'dist' -not -name '.git' -exec chmod -R u+w {} + 2>/dev/null || true
     find . -maxdepth 1 -not -name '.' -not -name '..' -not -name 'dist' -not -name '.git' -exec rm -rf {} + 2>/dev/null || true
-    # Belt and braces: `git add .` below must never see worktree leftovers
-    # from the pre-orphan checkout (no .gitignore exists on this tree).
+    # Belt and braces: clear ?? leftovers BEFORE the dist move — the moved
+    # dist/bin (gitignored on the source branch) must not look like one,
+    # and the orphan tree has no .gitignore of its own to hide anything.
     git status --porcelain | awk '$1 == "??" {print}' | while IFS= read -r entry; do
         leftover="${entry#?? }"
         leftover="${leftover//\"/}"
         rm -rf "./$leftover"
     done
-    
+
     # Move dist contents to root level
     success "Moving dist/ contents to root level"
     if ! mv dist/* . 2>/dev/null; then
