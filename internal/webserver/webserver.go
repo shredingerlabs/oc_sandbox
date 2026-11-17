@@ -209,6 +209,9 @@ func (s *Server) Start() error {
 	inner.HandleFunc("POST /workspaces/{name}/access", s.handleAccess)
 	inner.HandleFunc("POST /workspaces/{name}/pair-link", s.handlePairLink)
 	inner.HandleFunc("GET /workspaces/{name}/stt-link", s.handleSttLink)
+	// The card star's toggle (#175): flips the display-only favorite
+	// flag in workspaces.json.
+	inner.HandleFunc("POST /workspaces/{name}/favorite", s.handleWsFavorite)
 	// Workspace Settings screen (#157): the per-workspace settings —
 	// the card settings icon jumps in preselected, the menu entry is
 	// the name-less alias (MRU workspace preselected).

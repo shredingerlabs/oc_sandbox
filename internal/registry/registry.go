@@ -244,6 +244,13 @@ func (r *Registry) UpdateRepoURL(path, repoURL string) error {
 	return r.updateWorkspace(path, func(d *jsonfmt.Doc) { d.Set("repo_url", repoURL) })
 }
 
+// SetFavorite writes the display-only favorite flag (#172) — registry
+// metadata in the same class as last_used: it dies with the entry on
+// RemoveWorkspace and influences nothing else.
+func (r *Registry) SetFavorite(path string, favorite bool) error {
+	return r.updateWorkspace(path, func(d *jsonfmt.Doc) { d.Set("favorite", favorite) })
+}
+
 // RemoveWorkspace deletes one workspace entry (by container identity of the
 // canonical path): registry metadata only — files, configs and the
 // container are out of scope. Unknown paths fail loudly; unknown top-level

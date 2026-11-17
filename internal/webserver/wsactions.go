@@ -121,6 +121,26 @@ func (s *Server) handleSttLink(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write([]byte(jsonMarshal(v)))
 }
 
+// handleWsFavorite serves POST /workspaces/{name}/favorite (#175) —
+// the card star's toggle: one click flips the display-only flag and
+// writes the registry through the atomic write (no confirmation, no
+// toast — the card's section move is the feedback). A plain registry
+// write has no op, so the workspace SSE event publishes straight from
+// the handler and open tabs re-render the sections.
+func (s *Server) handleWsFavorite(w http.ResponseWriter, r *http.Request) {
+	ws, err := s.lookupWorkspace(r.PathValue("name"))
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	if err := s.regView().SetFavorite(ws.Path, !ws.Favorite); err != nil {
+		refuseSidecar(w, "favorite toggle failed — the registry is unchanged: "+err.Error())
+		return
+	}
+	s.hub.PublishWorkspace()
+	okSidecar(w, 0)
+}
+
 // validVariant is the shared console/opencode/web triad check — the
 // one validation the access verbs, the adopt confirm, the variant
 // start POST and the workspace-settings start_option row enforce.
