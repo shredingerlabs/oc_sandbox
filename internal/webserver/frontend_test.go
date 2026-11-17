@@ -194,14 +194,18 @@ func TestCardFragmentCarriesOpID(t *testing.T) {
 	postMap(t, s.URL()+"workspaces/alpha/start", nil)
 	waitForBusyCard(t, s, "alpha")
 
-	// A GET render (SSE workspace event path) carries the op id, and
-	// the restart confirm refuses while the op is queued/running.
+	// A GET render (SSE workspace event path) carries the op id; the
+	// restart stays accessible while the op is queued/running
+	// (ADR-0037 — the server's busy refusal is the gate).
 	doc := body(t, get(t, s.URL()+"workspaces"))
 	if !strings.Contains(doc, `data-op-id="`) {
 		t.Fatal("busy card lost its op id")
 	}
-	if !strings.Contains(doc, `data-confirm="restart" disabled`) {
-		t.Fatal("confirms must refuse while an op is queued/running")
+	if !strings.Contains(doc, `data-confirm="restart" title="Restart this workspace"`) {
+		t.Fatal("restart must stay accessible while an op is queued/running")
+	}
+	if strings.Contains(doc, `data-confirm="restart" disabled`) {
+		t.Fatal("restart must not disable while an op is queued/running")
 	}
 	close(release)
 }

@@ -1,5 +1,7 @@
 # Container restart (WebUI) — confirmed stop → fresh-start replacement of a running workspace container
 
+Status: activation rule ("When it activates") superseded by ADR-0037 — the confirmed replacement chain stands.
+
 The WebUI previously forbade replacing a running container outside the adopt confirm: the docs read "a running container is never killed/replaced" (start container, delete container _Avoid_ entries; "no in-WebUI restart" in the update card copy). With the workspace cards' stop/delete confirms gone and the Open button retired, the cards need a way to apply changed settings to an already-running workspace — the one state no other action reaches. The Restart button fills it, and for that reason it reverses the old blanket rule.
 
 **Decided shape**: Restart is an explicit, confirmed op (ADR-0021 popup, danger label) that runs the verified replacement chain — pod-aware stop, verified gone, registry flips to `stopped`, then start.sh with args rebuilt from the current `sandbox_config.json`, registry `running` only after a fresh-`ps` verification, `last_used` bump. It shares the workspace's container-name queue key, so it refuses across all of the workspace's other ops; a pending first-run setup session holds it; and it refuses outright when the fresh state reads not-running (the access buttons are the recovery path — restart is never "start with extra steps"). Failure after the stop leaves the workspace stopped with the error streamed — no rollback (the same no-rollback rule as the edition-mismatch switch).

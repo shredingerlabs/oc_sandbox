@@ -260,7 +260,7 @@
     }
 
     if (btn.dataset.confirm === "restart") {
-      showConfirmRow(card, "restart");
+      showRestartConfirm(card);
       return;
     }
     if (btn.dataset.act === "confirm-restart") {
@@ -598,18 +598,21 @@
     log.innerHTML = '<div class="row note-row">' + html + '</div>' + log.innerHTML;
   }
 
-  // Confirm rows (§9 confirm set): the Restart confirm-gate ask before
-  // acting — Confirm posts the workspace op, Cancel restores the plain
-  // card (stop/delete left the cards; Container center owns them).
-  function showConfirmRow(card, kind) {
+  // Restart confirm row (§9 confirm set): the confirm-gate ask before
+  // acting — the question on its own line, Confirm/Cancel underneath
+  // (ADR-0037 layout). Confirm posts the workspace op, Cancel restores
+  // the plain card (stop/delete left the cards; Container center owns
+  // them).
+  function showRestartConfirm(card) {
     var box = card.querySelector(".confirms");
     if (!box) return;
-    var label = kind === "restart" ? "Restart this workspace?" : kind;
     box.innerHTML =
-      '<span class="card-confirm" data-confirm-row="' + kind + '">' +
-      '<span class="card-confirm-label">' + label + '</span>' +
-      '<button class="btn danger" data-act="confirm-' + kind + '">Confirm</button>' +
+      '<span class="card-confirm" data-confirm-row="restart">' +
+      '<span class="card-confirm-label">Restart this workspace?</span>' +
+      '<span class="card-confirm-acts">' +
+      '<button class="btn danger" data-act="confirm-restart">Confirm</button>' +
       '<button class="btn ghost" data-act="cancel-confirm">Cancel</button>' +
+      '</span>' +
       '</span>';
   }
 

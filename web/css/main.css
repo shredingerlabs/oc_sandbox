@@ -146,9 +146,10 @@ body { background:var(--bg); color:var(--ink);
 
 .confirms { display:flex; gap:8px; }
 .confirms:empty { display:none; }
-.card-confirm { display:flex; align-items:center; gap:8px; background:var(--surface2);
-  border-radius:8px; padding:6px 10px; flex-wrap:wrap; }
+.card-confirm { display:flex; flex-direction:column; align-items:flex-start; gap:6px;
+  background:var(--surface2); border-radius:8px; padding:6px 10px; }
 .card-confirm-label { font-size:13px; font-weight:700; }
+.card-confirm-acts { display:flex; gap:8px; }
 .busy { color:var(--ink2); font-size:12.5px; font-style:italic; }
 .setup-slot { border:1px dashed var(--hairline); border-radius:8px; padding:8px 10px;
   display:flex; flex-direction:column; gap:7px; margin:2px 0; }

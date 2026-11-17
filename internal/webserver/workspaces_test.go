@@ -181,8 +181,9 @@ func TestWorkspacesRunningDot(t *testing.T) {
 
 // Card start options (ADR-0033 cards): all three accesses render on
 // every card in the Web · OpenCode · Console order — the stop/delete
-// confirms left the cards (Container center owns them), and the Restart
-// confirm gates the running-container replacement.
+// confirms left the cards (Container center owns them), and the
+// Restart confirm gates the running-container replacement (ADR-0037:
+// always accessible).
 func TestWorkspacesCardActions(t *testing.T) {
 	home := t.TempDir()
 	root := seedWorkspace(t, home, "alpha", "swdev", nil)

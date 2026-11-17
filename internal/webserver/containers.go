@@ -9,7 +9,6 @@ import (
 	"github.com/shredingerlabs/oc-sandbox/internal/cmdrun"
 	"github.com/shredingerlabs/oc-sandbox/internal/discovery"
 	"github.com/shredingerlabs/oc-sandbox/internal/registry"
-	"github.com/shredingerlabs/oc-sandbox/internal/sandboxcfg"
 )
 
 // containers.go serves the Container center (spec §7/#158): one
@@ -355,8 +354,7 @@ func (s *Server) handleWorkspaceStart(w http.ResponseWriter, r *http.Request) {
 // the rest run start.sh with the values from the workspace's
 // sandbox_config.json (openworkspace.StartArgs, --detach); the registry
 // receives "running" only after the container is verified live against
-// a fresh podman ps, and the started-config evidence refreshes so the
-// restart staleness reads current (ADR-0033).
+// a fresh podman ps.
 func (s *Server) startOp(name string) func(emit func(string)) error {
 	d := s.deps
 	return func(emit func(string)) error {
@@ -368,18 +366,18 @@ func (s *Server) startOp(name string) func(emit func(string)) error {
 		if slices.Contains(discovery.RunningContainers(d.Run), cname) {
 			emit("already running — reusing " + cname)
 		} else {
-			if _, err := s.freshStart(ws, emit); err != nil {
+			if err := s.freshStart(ws, emit); err != nil {
 				return err
 			}
 		}
-		return s.finishVerifiedStart(ws, emit)
+		return s.finishVerifiedStart(ws)
 	}
 }
 
 // finishVerifiedStart closes any started container flow: verified live
-// before any write (data map §3), registry → running, started-config
-// evidence refresh (ADR-0033), last_used bump (the start is a use).
-func (s *Server) finishVerifiedStart(ws registry.Workspace, emit func(string)) error {
+// before any write (data map §3), registry → running, last_used bump
+// (the start is a use).
+func (s *Server) finishVerifiedStart(ws registry.Workspace) error {
 	d := s.deps
 	cname := registry.ContainerName(ws.ContainerID)
 	if !slices.Contains(discovery.RunningContainers(d.Run), cname) {
@@ -389,34 +387,22 @@ func (s *Server) finishVerifiedStart(ws registry.Workspace, emit func(string)) e
 		return err
 	}
 	// The Open action is a use: the registry's last_used updates (#153).
-	if err := d.Registry.UpdateLastUsed(ws.Path); err != nil {
-		return err
-	}
-	cfg, err := readSandboxCfg(ws.Path)
-	if err != nil {
-		emit("started-config evidence not written: " + err.Error())
-		return nil
-	}
-	if err := s.recordStartedEvidence(ws, cfg); err != nil {
-		emit("started-config evidence not written: " + err.Error())
-	}
-	return nil
+	return d.Registry.UpdateLastUsed(ws.Path)
 }
 
 // freshStart runs the non-reuse start branch: the current stored config,
 // pre-start validations, the edition image check, then start.sh with
-// fully rebuilt args. Returns the config the start consumed (the restart
-// and start flows record started-config evidence off it).
-func (s *Server) freshStart(ws registry.Workspace, emit func(string)) (sandboxcfg.Config, error) {
+// fully rebuilt args.
+func (s *Server) freshStart(ws registry.Workspace, emit func(string)) error {
 	cfg, err := readSandboxCfg(ws.Path)
 	if err != nil {
-		return cfg, err
+		return err
 	}
 	if err := validateStartCfg(cfg); err != nil {
-		return cfg, err
+		return err
 	}
 	if !discovery.ImageExists(s.deps.Run, cfg.ContainerEdition) {
-		return cfg, errImageMissing(cfg.ContainerEdition)
+		return errImageMissing(cfg.ContainerEdition)
 	}
 	cname := registry.ContainerName(ws.ContainerID)
 	emit("==> " + cname)
@@ -425,7 +411,7 @@ func (s *Server) freshStart(ws registry.Workspace, emit func(string)) (sandboxcf
 	for _, l := range cmdrun.Lines(out) {
 		emit(l)
 	}
-	return cfg, err
+	return err
 }
 
 // stopOp mirrors the TUI Container-center stop (containerview

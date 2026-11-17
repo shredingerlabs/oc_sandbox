@@ -52,15 +52,6 @@ func editionFor(name string) editionMeta {
 	return editionMeta{Hue: "", Label: name}
 }
 
-// cardDisabled is a template func: the disabled attribute + explanatory
-// title of an inactive card action, "" when active.
-func cardDisabled(title string) template.HTMLAttr {
-	if title == "" {
-		return ""
-	}
-	return template.HTMLAttr(` disabled title="` + template.HTMLEscapeString(title) + `"`)
-}
-
 // editionGlyph carries the inline SVG markup of one Lucide edition glyph
 // from the embedded assets. Inlined (not <img>) so stroke="currentColor"
 // resolves against the card's CSS --ed hue, exactly like the signed-off
@@ -103,10 +94,6 @@ type cardView struct {
 	Advanced   bool   // display mode: reveals the stored value chips
 	Busy       bool   // an op is queued/running for this workspace
 
-	// Restart (ADR-0033): active only for a running workspace whose
-	// started-config evidence is stale; the title explains the refusal.
-	RestartTitle string
-
 	// First-run setup (#161, spec §11): the skills slot renders while a
 	// session holds; the recovery row reappears for an incomplete setup.
 	SetupPending bool   // the skills stage awaits the status-file relay
@@ -127,7 +114,6 @@ type wsScreenView struct {
 const wsEmptyText = "No workspaces registered"
 
 var wsTemplate = template.Must(template.New("ws").
-	Funcs(template.FuncMap{"restartDisabled": cardDisabled}).
 	Funcs(glyphFuncs).
 	Parse(`
 {{define "card"}}
@@ -144,7 +130,7 @@ var wsTemplate = template.Must(template.New("ws").
     <button class="btn icon" title="workspace settings" data-act="settings">
       <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z"/></svg>
     </button>
-    <button class="btn icon" data-confirm="restart"{{restartDisabled .RestartTitle}}{{if not .RestartTitle}} title="Restart this workspace"{{end}}>
+    <button class="btn icon" data-confirm="restart"{{if .SetupPending}} disabled title="refused — first-run setup session pending"{{else}} title="Restart this workspace"{{end}}>
       <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
     </button>
   </div>
@@ -254,33 +240,14 @@ func (s *Server) cardFor(e registry.Workspace, mode string) cardView {
 	}
 	if c.Busy {
 		c.OpID = s.queue.CurrentOpID(registry.ContainerName(e.ContainerID))
-		c.RestartTitle = "refused — an op is queued or running for this workspace"
 	}
 	hasSession := s.setups.sessionFor(e.Name) != nil
 	cfg, err := sandboxcfg.Read(sandboxcfg.Path(e.Path))
 	if err != nil {
 		// Unreadable sandbox_config must not dead-end the card: base
-		// tile, no chips, restart disabled (its running state carries
-		// the unreadability reason).
-		if !c.Busy {
-			if c.Running {
-				c.RestartTitle = "sandbox_config.json unreadable — restart disabled"
-			} else {
-				c.RestartTitle = "stopped — restart starts nothing; use the start options"
-			}
-		}
+		// tile, no chips — the restart POST refuses with the read
+		// error (ADR-0037: the server is the gate).
 		return c
-	}
-	// Restart (ADR-0033): active only for a running workspace whose
-	// started-config evidence is stale — or absent (pre-feature runs).
-	if !c.Busy {
-		if !c.Running {
-			c.RestartTitle = "stopped — restart starts nothing; use the start options"
-		} else if workspaceStale(s.runnerSeam(), e, cfg) {
-			c.RestartTitle = ""
-		} else {
-			c.RestartTitle = "config is current — no restart needed"
-		}
 	}
 	// The first-run setup slot (#161): one setup session per workspace —
 	// the pending skills stage renders the slot, a session (running op
@@ -289,7 +256,6 @@ func (s *Server) cardFor(e registry.Workspace, mode string) cardView {
 		c.SetupPending = true
 		c.SetupWindow = window
 		c.SetupCommand = command
-		c.RestartTitle = "refused — first-run setup session pending"
 		if opID != 0 {
 			c.OpID = opID // the relay's outcome lines find the card log
 		}
