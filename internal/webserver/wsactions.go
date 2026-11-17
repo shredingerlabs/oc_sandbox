@@ -8,6 +8,7 @@ package webserver
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 
@@ -122,8 +123,10 @@ func (s *Server) handleSttLink(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleWsFavorite serves POST /workspaces/{name}/favorite (#175) —
-// the card star's toggle: one click flips the display-only flag and
-// writes the registry through the atomic write (no confirmation, no
+// the card star's toggle: one click flips the display-only flag
+// through ToggleFavorite (the flip reads the stored flag inside the
+// registry's single read-modify-write, so concurrent POSTs cannot
+// lost-update) and answers the {ok} sidecar (no confirmation, no
 // toast — the card's section move is the feedback). A plain registry
 // write has no op, so the workspace SSE event publishes straight from
 // the handler and open tabs re-render the sections.
@@ -133,7 +136,11 @@ func (s *Server) handleWsFavorite(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	if err := s.regView().SetFavorite(ws.Path, !ws.Favorite); err != nil {
+	if _, err := s.regView().ToggleFavorite(ws.Path); err != nil {
+		if errors.Is(err, registry.ErrWorkspaceNotFound) {
+			http.NotFound(w, r)
+			return
+		}
 		refuseSidecar(w, "favorite toggle failed — the registry is unchanged: "+err.Error())
 		return
 	}

@@ -244,11 +244,30 @@ func (r *Registry) UpdateRepoURL(path, repoURL string) error {
 	return r.updateWorkspace(path, func(d *jsonfmt.Doc) { d.Set("repo_url", repoURL) })
 }
 
-// SetFavorite writes the display-only favorite flag (#172) — registry
-// metadata in the same class as last_used: it dies with the entry on
-// RemoveWorkspace and influences nothing else.
-func (r *Registry) SetFavorite(path string, favorite bool) error {
-	return r.updateWorkspace(path, func(d *jsonfmt.Doc) { d.Set("favorite", favorite) })
+// ToggleFavorite flips the display-only favorite flag (#172) and
+// returns the new value — registry metadata in the same class as
+// last_used: it dies with the entry on RemoveWorkspace and influences
+// nothing else. The flip reads the stored flag inside the same
+// read-modify-write that persists it, so the handler never passes a
+// stale complement and concurrent toggles cannot lost-update. Unknown
+// paths fail loudly and leave the file untouched.
+func (r *Registry) ToggleFavorite(path string) (bool, error) {
+	doc, err := r.readDoc()
+	if err != nil {
+		return false, err
+	}
+	id := ContainerIdentity(path)
+	for _, v := range workspacesArray(doc) {
+		d, ok := v.(*jsonfmt.Doc)
+		if !ok || d.GetString("container_id", "") != id {
+			continue
+		}
+		fav := !d.GetBool("favorite", false)
+		d.Set("favorite", fav)
+		doc.Set("workspaces", workspacesArray(doc))
+		return fav, r.writeDoc(doc)
+	}
+	return false, ErrWorkspaceNotFound
 }
 
 // RemoveWorkspace deletes one workspace entry (by container identity of the

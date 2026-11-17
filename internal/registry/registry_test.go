@@ -371,6 +371,61 @@ func TestFavoriteFlagReadsAndRoundTrips(t *testing.T) {
 	}
 }
 
+// ToggleFavorite flips the display-only favorite flag (#172) and returns
+// the new value — the flip reads the stored flag inside the same
+// read-modify-write that persists it, so the handler never passes a
+// stale complement and concurrent toggles cannot lost-update. Unknown
+// paths fail loudly and leave the file untouched.
+func TestToggleFavoriteFlipsAndReturnsNewValue(t *testing.T) {
+	r := newTestRegistry(t)
+	if err := r.CreateWorkspacesFile(); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.AddWorkspace(AddRequest{Name: "alpha", Path: "/x/alpha"}); err != nil {
+		t.Fatal(err)
+	}
+	fav, err := r.ToggleFavorite("/x/alpha")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !fav {
+		t.Fatal("first toggle must return the new value true")
+	}
+	w, err := r.ByName("alpha")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !w.Favorite {
+		t.Fatal("first toggle must persist favorite=true")
+	}
+	fav, err = r.ToggleFavorite("/x/alpha")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fav {
+		t.Fatal("second toggle must return the new value false")
+	}
+	if w, _ := r.ByName("alpha"); w.Favorite {
+		t.Fatal("second toggle must persist favorite=false")
+	}
+
+	// Unknown paths fail loudly and leave the file untouched.
+	before, err := os.ReadFile(config.Paths{Home: r.Home}.WorkspacesPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.ToggleFavorite("/x/nope"); err != ErrWorkspaceNotFound {
+		t.Fatalf("unknown path: err = %v, want ErrWorkspaceNotFound", err)
+	}
+	after, err := os.ReadFile(config.Paths{Home: r.Home}.WorkspacesPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(before) != string(after) {
+		t.Fatalf("refused toggle must not write the file:\n%s", after)
+	}
+}
+
 func TestIsPodName(t *testing.T) {
 	for name, want := range map[string]bool{
 		PodName("abc123"):            true,
