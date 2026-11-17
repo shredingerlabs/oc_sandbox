@@ -321,7 +321,18 @@ create_release() {
     
     # Remove everything except dist folder
     success "Removing non-dist files from orphan branch"
+    # Read-only leftovers (e.g. a local go/pkg module cache with 0555 dirs)
+    # would make the sweep's rm fail silently and leak into the release
+    # commit via `git add .` — make them writable first.
+    find . -maxdepth 1 -not -name '.' -not -name '..' -not -name 'dist' -not -name '.git' -exec chmod -R u+w {} + 2>/dev/null || true
     find . -maxdepth 1 -not -name '.' -not -name '..' -not -name 'dist' -not -name '.git' -exec rm -rf {} + 2>/dev/null || true
+    # Belt and braces: `git add .` below must never see worktree leftovers
+    # from the pre-orphan checkout (no .gitignore exists on this tree).
+    git status --porcelain | awk '$1 == "??" {print}' | while IFS= read -r entry; do
+        leftover="${entry#?? }"
+        leftover="${leftover//\"/}"
+        rm -rf "./$leftover"
+    done
     
     # Move dist contents to root level
     success "Moving dist/ contents to root level"
