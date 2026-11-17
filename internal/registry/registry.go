@@ -28,6 +28,7 @@ type Workspace struct {
 	ContainerStatus string
 	GitTracking     string
 	RepoURL         string
+	Favorite        bool // display-only flag (#172); absent reads false — no migration
 }
 
 // Registry operates on workspaces.json under Home. Now is injectable for
@@ -169,6 +170,7 @@ func toWorkspace(v any) (Workspace, bool) {
 		ContainerStatus: d.GetString("container_status", ""),
 		GitTracking:     d.GetString("git_tracking", "none"),
 		RepoURL:         d.GetString("repo_url", ""),
+		Favorite:        d.GetBool("favorite", false),
 	}, true
 }
 

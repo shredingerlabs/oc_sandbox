@@ -1,6 +1,7 @@
 package registry
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -310,6 +311,63 @@ func TestAddProjectPreservesUnknownFieldsSemantically(t *testing.T) {
 	b, _ := os.ReadFile(path)
 	if !strings.Contains(string(b), `"extra": "keep"`) {
 		t.Fatalf("unknown top-level field dropped: %s", b)
+	}
+}
+
+// The favorite flag (#173): entries read favorite (absent reads false,
+// no migration), and a registry write preserves the flag in the written
+// shape — it lives with the entry, so removing the entry drops it.
+func TestFavoriteFlagReadsAndRoundTrips(t *testing.T) {
+	r := newTestRegistry(t)
+	path := config.Paths{Home: r.Home}.WorkspacesPath()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(fmt.Sprintf(`{"workspaces":[
+        {"name":"fav","path":"/x/fav","container_id":%q,"last_used":"2020-01-02T03:04:05Z","container_status":"stopped","favorite":true},
+        {"name":"plain","path":"/x/plain","container_id":%q,"last_used":"2020-01-02T03:03:05Z","container_status":"stopped"}
+    ],"version":"2.0"}`, ContainerIdentity("/x/fav"), ContainerIdentity("/x/plain"))), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	projs, err := r.AllOrdered()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(projs) != 2 {
+		t.Fatalf("entries = %d, want 2", len(projs))
+	}
+	if !projs[0].Favorite || projs[0].Name != "fav" {
+		t.Fatalf("favorite: true must read back: %+v", projs[0])
+	}
+	if projs[1].Favorite {
+		t.Fatalf("absent favorite must read false: %+v", projs[1])
+	}
+
+	// The flag survives a registry write (the existing atomic write with
+	// backup rotation) — present in the written shape, not dropped.
+	if err := r.UpdateLastUsed("/x/fav"); err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), `"favorite": true`) {
+		t.Fatalf("favorite flag dropped by a registry write: %s", b)
+	}
+
+	// The flag dies with the entry: removing the favorited workspace
+	// leaves no favorite trace behind.
+	if err := r.RemoveWorkspace("/x/fav"); err != nil {
+		t.Fatal(err)
+	}
+	b, _ = os.ReadFile(path)
+	if strings.Contains(string(b), "favorite") {
+		t.Fatalf("removed entry's favorite must not linger: %s", b)
+	}
+	projs, _ = r.AllOrdered()
+	if len(projs) != 1 || projs[0].Name != "plain" {
+		t.Fatalf("unexpected survivors: %+v", projs)
 	}
 }
 
