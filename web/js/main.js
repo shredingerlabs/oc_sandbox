@@ -1054,11 +1054,6 @@
       if (!d) continue;
       var applied = false;
       var present = false; // a stored control exists here, changed or not
-      // Drop a strip left from an earlier render before re-adding one.
-      var oldStrips = screenEl.querySelectorAll("[data-draft-strip]");
-      for (var si = 0; si < oldStrips.length; si++) {
-        if (oldStrips[si].getAttribute("data-draft-strip") === key) oldStrips[si].remove();
-      }
       Object.keys(d.fields).forEach(function (name) {
         var controls = namedControls(form, name);
         if (controls.length) present = true;
@@ -1103,13 +1098,6 @@
       }
       if (!applied && !present) continue;
       applyDraftDerivations(form);
-      var strip = document.createElement("div");
-      strip.className = "draft-strip";
-      strip.setAttribute("data-draft-strip", key);
-      strip.setAttribute("role", "status");
-      strip.innerHTML = "<span>Unsaved changes kept —</span>" +
-        '<button type="button" class="btn ghost" data-draft-discard>Discard</button>';
-      form.parentNode.insertBefore(strip, form);
       var details = form.closest("details");
       if (details) details.open = true; // a kept edit must be visible
     }
@@ -1168,31 +1156,9 @@
     });
   }
 
-  // Discard resets this one form to the server-rendered defaults (the
-  // values the fragment was built with) and replays only the view state
-  // the controls drive — no live preset re-derivation, no screen reload.
-  function resetFormDefaults(form) {
-    formControls(form).forEach(function (el) {
-      var t = (el.type || "").toLowerCase();
-      if (el.tagName === "SELECT") {
-        var def = el.querySelector("option[selected]");
-        el.selectedIndex = def ? def.index : (el.options.length ? 0 : -1);
-        return;
-      }
-      if (t === "checkbox" || t === "radio") { el.checked = el.defaultChecked; return; }
-      el.value = el.defaultValue;
-    });
-    delete form.dataset.nameManual;
-    applyDraftDerivations(form);
-  }
-
   function dropDraft(key) {
     if (!key) return;
     delete drafts[key];
-    var strips = screenEl.querySelectorAll("[data-draft-strip]");
-    for (var i = 0; i < strips.length; i++) {
-      if (strips[i].getAttribute("data-draft-strip") === key) strips[i].remove();
-    }
   }
 
   // A confirmed write clears the submitted form's draft (and the
@@ -1230,18 +1196,6 @@
     }
     return null;
   }
-
-  screenEl.addEventListener("click", function (ev) {
-    var btn = ev.target.closest("[data-draft-discard]");
-    if (!btn) return;
-    var strip = btn.closest("[data-draft-strip]");
-    if (!strip) return;
-    var key = strip.getAttribute("data-draft-strip");
-    var form = strip.nextElementSibling;
-    delete drafts[key];
-    if (form && form.tagName === "FORM") resetFormDefaults(form);
-    strip.remove();
-  });
 
   document.body.addEventListener("htmx:beforeRequest", function (ev) {
     var elt = ev.target || (ev.detail && ev.detail.elt);

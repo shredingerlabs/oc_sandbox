@@ -242,9 +242,9 @@ func TestProviderConfirmCitesDraft(t *testing.T) {
 }
 
 // The browser wiring: drafts are captured around every screen swap,
-// restored into the matching form, shown with a Discard strip, and
-// cleared only on the explicit success header. The wizard's associated
-// source radios (outside the form) must ride form.elements.
+// restored into the matching form, and cleared only on the explicit
+// success header. The wizard's associated source radios (outside the
+// form) must ride form.elements.
 func TestFrontendDraftWiring(t *testing.T) {
 	s := startTestServer(t)
 	js := body(t, get(t, s.URL()+"js/main.js"))
@@ -252,17 +252,13 @@ func TestFrontendDraftWiring(t *testing.T) {
 		`form.elements`,         // form-attribute-associated radios (wizard source)
 		`data-draft-key`,        // form identity
 		`data-draft-submit-key`, // confirm-popup forms clear the origin draft
-		`data-draft-strip`,      // restored-draft notice
 		`captureDrafts`,         // pre-swap snapshot
 		`restoreDrafts`,         // post-swap application
 		`applyDraftDerivations`, // wizard/host visibility replay
-		`Unsaved changes kept`,  // notice copy
-		`Discard`,               // explicit drop
 		`X-Oc-Draft-Clear`,      // the only clear signal
 		`htmx:beforeSwap`,       // capture seam
 		`htmx:afterSwap`,        // restore seam
 		`savedFromXhr`,          // header read before the swap
-		`resetFormDefaults`,     // Discard restores this form's server defaults
 		`settings-edition`,      // both chip groups follow the hidden payload
 		`createDraftOp`,         // the create chain releases the wizard draft
 		`delete drafts[`,        // success drops the stored entry
@@ -272,6 +268,15 @@ func TestFrontendDraftWiring(t *testing.T) {
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("main.js missing %q (draft wiring)", want)
+		}
+	}
+	// A restored draft is silent: no "Unsaved changes kept" strip and
+	// no Discard affordance — the draft clears only on a confirmed write.
+	for _, gone := range []string{
+		`draft-strip`, `data-draft-discard`, `Unsaved changes kept`, `resetFormDefaults`,
+	} {
+		if strings.Contains(js, gone) {
+			t.Fatalf("main.js must not carry removed draft-strip code: found %q", gone)
 		}
 	}
 	// htmx 2.x runs beforeSwap/afterSwap before htmx:afterRequest, so the
@@ -292,9 +297,7 @@ func TestFrontendDraftWiring(t *testing.T) {
 		t.Fatal("htmx 2.x afterRequest has no detail.successful — rely on the header")
 	}
 	css := body(t, get(t, s.URL()+"css/main.css"))
-	for _, want := range []string{`.draft-strip`, `.draft-strip button`} {
-		if !strings.Contains(css, want) {
-			t.Fatalf("main.css missing %q (draft strip)", want)
-		}
+	if strings.Contains(css, ".draft-strip") {
+		t.Fatal("main.css must not carry the removed draft strip")
 	}
 }
