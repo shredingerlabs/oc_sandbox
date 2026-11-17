@@ -43,7 +43,7 @@ var fragmentFuncs = template.FuncMap{
 var importScreenTmpl = template.Must(template.New("import").Parse(
 	`<div class="pagehead"><div><h2>Import a workspace</h2>
 <div class="desc">Registers an existing sandbox workspace root — a strict structure check; nothing is moved or transformed.</div></div></div>
-<form class="panel" hx-post="import-workspace" hx-target="[data-role='screen']" hx-swap="innerHTML">
+<form class="panel" hx-post="import-workspace" hx-target="[data-role='screen']" hx-swap="innerHTML" data-screen="import" data-draft-key="import-path">
 <label class="flabel" for="import-path">Workspace folder path</label>
 <input id="import-path" class="field" type="text" name="path" required placeholder="/home/you/workspaces/my-root">
 <div class="rowacts"><button class="btn" type="submit">Import Workspace</button></div>
@@ -88,7 +88,7 @@ var importStageTmpl = template.Must(template.New("importstage").Funcs(fragmentFu
 {{backBtn}}</div>
 {{else}}<div class="panel">
 <div class="notice">Import summary</div>
-<form hx-post="import-register" hx-target="[data-role='screen']" hx-swap="innerHTML">
+<form hx-post="import-register" hx-target="[data-role='screen']" hx-swap="innerHTML" data-screen="import" data-draft-key="import-name" data-draft-submit-key="import-path">
 <input type="hidden" name="path" value="{{.Path}}">
 <label class="flabel" for="import-name">Workspace name</label>
 <input id="import-name" class="field" type="text" name="name" value="{{.Name}}" required>
@@ -180,6 +180,7 @@ func (s *Server) handleImportRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.hub.PublishWorkspace() // re-render cards on open tabs
+	markDraftSaved(w)
 	renderT(w, importedTmpl, name)
 }
 

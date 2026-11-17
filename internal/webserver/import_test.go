@@ -110,6 +110,9 @@ func TestImportCheckMatchingRoot(t *testing.T) {
 		"swdev", // edition from the stored config
 		"web",   // start option
 		`hx-post="import-register"`,
+		`data-screen="import"`,
+		`data-draft-key="import-name"`,        // the edited name survives page changes
+		`data-draft-submit-key="import-path"`, // a confirmed import drops the path draft
 	} {
 		if !strings.Contains(doc, want) {
 			t.Fatalf("summary missing %q in:\n%s", want, doc)

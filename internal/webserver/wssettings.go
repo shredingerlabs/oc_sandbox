@@ -171,7 +171,7 @@ var wsSettingsTemplate = template.Must(template.New("wssettings").
           {{if not .Orphan}}
           <details class="entry-edit">
             <summary>Edit</summary>
-            <form hx-post="{{$.P}}workspaces/{{$.Name}}/providers" hx-target="#ws-settings" hx-swap="outerHTML">
+            <form hx-post="{{$.P}}workspaces/{{$.Name}}/providers" hx-target="#ws-settings" hx-swap="outerHTML" data-draft-key="provider-edit:{{.ID}}">
               <input type="hidden" name="action" value="edit">
               <input type="hidden" name="orig" value="{{.ID}}">
               <label>Display name <input name="name" value="{{.Name}}"></label>
@@ -195,7 +195,7 @@ var wsSettingsTemplate = template.Must(template.New("wssettings").
         <p class="empty" data-empty="providers">no entries — add a provider below</p>
         {{end}}
       </div>
-      <form class="add-form" hx-post="{{.P}}workspaces/{{.Name}}/providers" hx-target="#ws-settings" hx-swap="outerHTML">
+      <form class="add-form" hx-post="{{.P}}workspaces/{{.Name}}/providers" hx-target="#ws-settings" hx-swap="outerHTML" data-draft-key="provider-add">
         <input type="hidden" name="action" value="add">
         <label>Prefill from catalog
           <select name="prefill" data-role="provider-prefill">
@@ -215,7 +215,8 @@ var wsSettingsTemplate = template.Must(template.New("wssettings").
     <div class="confirm-block" data-role="provider-confirm">
       <p class="warn">Credentials for '{{.ProvConfirm.ID}}' exist.</p>
       <p class="field-hint">Keep existing keeps the stored token.</p>
-      <form hx-post="{{.P}}workspaces/{{.Name}}/providers" hx-target="#ws-settings" hx-swap="outerHTML">
+      <form hx-post="{{.P}}workspaces/{{.Name}}/providers" hx-target="#ws-settings" hx-swap="outerHTML"
+            {{if eq .ProvConfirm.Action "add"}}data-draft-submit-key="provider-add"{{else}}data-draft-submit-key="provider-edit:{{.ProvConfirm.Orig}}"{{end}}>
         <input type="hidden" name="action" value="{{.ProvConfirm.Action}}">
         <input type="hidden" name="orig" value="{{.ProvConfirm.Orig}}">
         <input type="hidden" name="name" value="{{.ProvConfirm.Name}}">
@@ -230,7 +231,7 @@ var wsSettingsTemplate = template.Must(template.New("wssettings").
 
     <div class="row" data-row="vcs">
       <div class="rowhead"><span class="label">VCS Tracking</span></div>
-      <form class="add-form" hx-post="{{.P}}workspaces/{{.Name}}/vcs-credentials" hx-target="#ws-settings" hx-swap="outerHTML">
+      <form class="add-form" hx-post="{{.P}}workspaces/{{.Name}}/vcs-credentials" hx-target="#ws-settings" hx-swap="outerHTML" data-draft-key="vcs-credentials">
         <label>Prefill from catalog
           <select name="prefill" data-role="vcs-prefill">
             <option value="">(free-form)</option>
@@ -279,7 +280,7 @@ var wsSettingsTemplate = template.Must(template.New("wssettings").
     </div>
 
     {{if .SettingsForm}}
-    <form class="settings-form" hx-post="{{.P}}workspaces/{{.Name}}/settings" hx-target="#ws-settings" hx-swap="outerHTML">
+    <form class="settings-form" hx-post="{{.P}}workspaces/{{.Name}}/settings" hx-target="#ws-settings" hx-swap="outerHTML" data-draft-key="next-start">
       {{if or (vis .Mode "proxy") (vis .Mode "search_mode") (vis .Mode "offline") (vis .Mode "cbm_ui") (vis .Mode "hil")}}
       <input type="hidden" name="modes_present" value="1">
       {{end}}
@@ -486,6 +487,7 @@ func (s *Server) handleWsSettingsPost(w http.ResponseWriter, r *http.Request) {
 	}
 	// Cards carry the config chips — re-render them reactively (§9).
 	s.hub.PublishWorkspace()
+	markDraftSaved(w)
 	s.renderWsSettingsScreen(w, name, "", nil)
 }
 
@@ -598,6 +600,7 @@ func (s *Server) handleWsVCSCredentialsPost(w http.ResponseWriter, r *http.Reque
 		}
 	}
 	s.hub.PublishWorkspace()
+	markDraftSaved(w)
 	s.renderWsSettingsScreen(w, name, "", nil)
 }
 
@@ -777,6 +780,7 @@ func (s *Server) handleWsProvidersPost(w http.ResponseWriter, r *http.Request) {
 		},
 		Done: func(err error) { s.hub.PublishWorkspace() },
 	})
+	markDraftSaved(w)
 	s.renderWsSettingsScreen(w, name, "", nil)
 }
 
@@ -801,6 +805,7 @@ func (s *Server) handleWsRemoveFromList(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	s.hub.PublishWorkspace()
+	markDraftSaved(w)
 	s.renderWsSettingsEmpty(w)
 }
 

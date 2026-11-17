@@ -63,7 +63,7 @@ var wizardTemplate = template.Must(template.New("wizard").
   {{if or .LogLines (gt .OpID 0)}}
   <div class="logpane" data-role="create-log" data-op-id="{{.OpID}}">{{range .LogLines}}<div class="logline">{{.}}</div>{{end}}</div>
   {{end}}
-  <form data-role="new-workspace-form" id="new-workspace-form" hx-post="{{.P}}workspaces" hx-target="#new-workspace" hx-swap="outerHTML">
+  <form data-role="new-workspace-form" id="new-workspace-form" data-draft-key="new-workspace" hx-post="{{.P}}workspaces" hx-target="#new-workspace" hx-swap="outerHTML">
     <fieldset class="rows" data-role="wizard-fields"{{if .Inert}} disabled{{end}}>
 
     <div class="row" data-row="name">

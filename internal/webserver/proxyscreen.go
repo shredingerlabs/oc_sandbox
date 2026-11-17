@@ -234,7 +234,7 @@ var proxyTemplate = template.Must(template.New("proxy").Parse(`
     </div>
   </div>
   <div class="row" data-row="allowlist-{{.Name}}">
-    <form class="add-form allowlist-form" hx-post="{{$.P}}proxy/{{.Name}}/allowlist" hx-target="#proxy-screen" hx-swap="outerHTML">
+    <form class="add-form allowlist-form" hx-post="{{$.P}}proxy/{{.Name}}/allowlist" hx-target="#proxy-screen" hx-swap="outerHTML" data-draft-key="allowlist:{{.Name}}">
       <label class="flabel">Allowlist of {{.Name}}{{if .AllowlistFile}} (workspace copy){{else}} (seeded from shared on save){{end}}</label>
       <textarea name="content" rows="14" spellcheck="false">{{.Allowlist}}</textarea>
       <div class="actions">
@@ -502,6 +502,7 @@ func (s *Server) handleProxyAllowlist(w http.ResponseWriter, r *http.Request) {
 			return "allowlist could not be written: " + err.Error()
 		}
 		s.hub.PublishWorkspace()
+		markDraftSaved(w)
 		return ""
 	}
 	if r.PostFormValue("action") == "reset" {

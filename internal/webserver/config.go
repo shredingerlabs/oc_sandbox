@@ -116,7 +116,7 @@ var configScreenTmpl = template.Must(template.New("config").Parse(
 <div class="panel">
 <div class="notice">Export config</div>
 <div class="hint">Copies the active config files, byte-exact, into a named server-side backup. The destination folder must lie directly in the backups directory (the restore list shows those exports); an existing folder is overwritten after a confirmation.</div>
-<form hx-post="export-config" hx-target="[data-role='screen']" hx-swap="innerHTML">
+<form hx-post="export-config" hx-target="[data-role='screen']" hx-swap="innerHTML" data-screen="config" data-draft-key="export-path">
 <label class="flabel" for="export-dest">Destination folder</label>
 <input id="export-dest" class="field" type="text" name="dest" required value="{{.ExportDest}}">
 <div class="rowacts"><button class="btn" type="submit">Export config</button></div>
@@ -124,7 +124,7 @@ var configScreenTmpl = template.Must(template.New("config").Parse(
 <div class="panel">
 <div class="notice">Restore config</div>
 <div class="hint">Overwrites the active config files: from a named backup below, or from any folder containing them (a prior export works as-is). A safety backup of the active files is made first.</div>
-<form hx-post="restore-config" hx-target="[data-role='screen']" hx-swap="innerHTML"
+<form hx-post="restore-config" hx-target="[data-role='screen']" hx-swap="innerHTML" data-screen="config" data-draft-key="restore-path"
       data-confirm-popup data-confirm-title="Restore this config?"
       data-confirm-question="Overwrites the active config files from the folder above. A safety backup of the active files is made first."
       data-confirm-label="Restore">
@@ -148,7 +148,7 @@ var overwriteTmpl = template.Must(template.New("overwrite").Parse(
 	`<div class="panel dangerzone"><div class="notice warn">Overwrite the backup?</div>
 <div class="hint">A backup at {{.}} already exists. The existing snapshot is replaced without a backup of its own.</div>
 <div class="rowacts">
-<form hx-post="export-config" hx-target="[data-role='screen']" hx-swap="innerHTML" class="inline">
+<form hx-post="export-config" hx-target="[data-role='screen']" hx-swap="innerHTML" class="inline" data-draft-submit-key="export-path">
 <input type="hidden" name="dest" value="{{.}}">
 <input type="hidden" name="confirm" value="1">
 <button class="btn danger" type="submit">Overwrite</button>
@@ -240,6 +240,7 @@ func (s *Server) handleExportConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.hub.PublishWorkspace()
+	markDraftSaved(w)
 	renderT(w, exportDoneTmpl, struct{ Label, Files string }{
 		Label: filepath.Base(dir),
 		Files: strings.Join(names, ", "),
@@ -336,5 +337,6 @@ func (s *Server) handleRestoreConfig(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	s.hub.PublishWorkspace()
+	markDraftSaved(w)
 	s.renderConfigScreen(w, `Restored `+strings.Join(restored, ", ")+` from `+from+` (safety backup made first).`)
 }

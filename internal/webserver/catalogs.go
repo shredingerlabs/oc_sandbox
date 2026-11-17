@@ -43,7 +43,7 @@ var catalogsTemplate = template.Must(template.New("catalogs").
 {{end}}
 
 {{define "trackers-body"}}
-<section class="catalog" id="catalogs-trackers" data-catalog="trackers">
+<section class="catalog" id="catalogs-trackers" data-catalog="trackers" data-screen="catalogs-trackers">
   <h2>VCS Tracker</h2>
   <p class="catalog-hint">Reusable starting points for New Workspace — entries hold no tokens and never cascade into existing workspaces.</p>
   {{if .Error}}<p class="form-error" role="alert">{{.Error}}</p>{{end}}
@@ -70,7 +70,7 @@ var catalogsTemplate = template.Must(template.New("catalogs").
       </div>
       <details class="entry-edit">
         <summary>Edit</summary>
-        <form hx-post="{{$.P}}catalogs/trackers" hx-target="#catalogs-trackers" hx-swap="outerHTML">
+        <form hx-post="{{$.P}}catalogs/trackers" hx-target="#catalogs-trackers" hx-swap="outerHTML" data-draft-key="edit:{{.Name}}">
           <input type="hidden" name="action" value="edit">
           <input type="hidden" name="orig" value="{{.Name}}">
           <label>Display name <input name="name" value="{{.Name}}"></label>
@@ -91,7 +91,7 @@ var catalogsTemplate = template.Must(template.New("catalogs").
   {{else}}
   <p class="empty" data-empty="trackers">No tracker entries yet — “None” is the default.</p>
   {{end}}
-  <form class="add-form" hx-post="{{$.P}}catalogs/trackers" hx-target="#catalogs-trackers" hx-swap="outerHTML">
+  <form class="add-form" hx-post="{{$.P}}catalogs/trackers" hx-target="#catalogs-trackers" hx-swap="outerHTML" data-draft-key="add">
     <input type="hidden" name="action" value="add">
     <h3>Add tracker</h3>
     <label>Display name <input name="name"></label>
@@ -109,7 +109,7 @@ var catalogsTemplate = template.Must(template.New("catalogs").
 {{end}}
 
 {{define "providers-page-body"}}
-<section class="catalog" id="catalogs-providers" data-catalog="providers">
+<section class="catalog" id="catalogs-providers" data-catalog="providers" data-screen="catalogs-providers">
   <h2>AI-Provider</h2>
   <p class="catalog-hint">Reusable starting points for New Workspace — entries hold no tokens and never cascade into existing workspaces.</p>
   {{if .Error}}<p class="form-error" role="alert">{{.Error}}</p>{{end}}
@@ -136,7 +136,7 @@ var catalogsTemplate = template.Must(template.New("catalogs").
       </div>
       <details class="entry-edit">
         <summary>Edit</summary>
-        <form hx-post="{{$.P}}catalogs/providers" hx-target="#catalogs-providers" hx-swap="outerHTML">
+        <form hx-post="{{$.P}}catalogs/providers" hx-target="#catalogs-providers" hx-swap="outerHTML" data-draft-key="edit:{{.Name}}">
           <input type="hidden" name="action" value="edit">
           <input type="hidden" name="orig" value="{{.Name}}">
           <div class="field-row">
@@ -152,7 +152,7 @@ var catalogsTemplate = template.Must(template.New("catalogs").
   {{else}}
   <p class="empty" data-empty="providers">No provider entries yet — “None” is the default.</p>
   {{end}}
-  <form class="add-form" hx-post="{{$.P}}catalogs/providers" hx-target="#catalogs-providers" hx-swap="outerHTML">
+  <form class="add-form" hx-post="{{$.P}}catalogs/providers" hx-target="#catalogs-providers" hx-swap="outerHTML" data-draft-key="add">
     <input type="hidden" name="action" value="add">
     <h3>Add provider</h3>
     <div class="field-row">
@@ -271,6 +271,7 @@ func (s *Server) handleTrackersPOST(w http.ResponseWriter, r *http.Request) {
 		s.renderTrackers(w, d, err.Error())
 		return
 	}
+	markDraftSaved(w)
 	s.renderTrackers(w, d, "")
 }
 
@@ -315,5 +316,6 @@ func (s *Server) handleProvidersPOST(w http.ResponseWriter, r *http.Request) {
 		s.renderProviders(w, d, err.Error())
 		return
 	}
+	markDraftSaved(w)
 	s.renderProviders(w, d, "")
 }

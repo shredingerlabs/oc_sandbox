@@ -170,6 +170,12 @@
     if (currentNav === "set-ws" && settingsURL) loadScreen(settingsURL);
   });
 
+  // hostlessKind: the VCS Host field only applies to own GitLab — plus
+  // the grandfathered "other" kind of pre-ADR-0038 workspaces.
+  function hostlessKind(kind) {
+    return kind === "github" || kind === "gitlab" || kind === "none";
+  }
+
   // Catalog prefill selects (#157): picking an entry prefills the form
   // fields from the option's data-* attributes — free-form stays.
   document.addEventListener("change", function (ev) {
@@ -200,8 +206,7 @@
       // The kind moved programmatically — the change event above never
       // fires, so sync the Host field's visibility with it here.
       var hostField = f.querySelector('[data-field="host"]');
-      if (hostField) hostField.hidden =
-        kindIn.value === "github" || kindIn.value === "gitlab" || kindIn.value === "none";
+      if (hostField) hostField.hidden = hostlessKind(kindIn.value);
       return;
     }
     // VCS Tracker: the Host field only applies to gitlab_self — plus the
@@ -212,7 +217,7 @@
     if (sel.matches('select[name="kind"]')) {
       var f = sel.closest("form");
       var host = f && f.querySelector('[data-field="host"]');
-      if (host) host.hidden = sel.value === "github" || sel.value === "gitlab" || sel.value === "none";
+      if (host) host.hidden = hostlessKind(sel.value);
       return;
     }
   });
@@ -924,7 +929,367 @@
     return false;
   }
 
+  // --- form drafts: unsaved form values survive same-tab screen swaps.
+  // In-memory only (page change = HTMX/loadScreen swap, never a reload).
+  // A draft is keyed by the screen root (data-screen + data-ws) plus the
+  // form's data-draft-key; only fields the user changed from the
+  // server-rendered defaults are stored, so fresh server truth is never
+  // overridden. Wizard derivations and host visibility replay after a
+  // restore. The server's X-Oc-Draft-Clear header is the only signal
+  // that drops a draft (validation errors and refused writes keep it).
+  var drafts = {};            // "screen|ws|formKey" -> {fields, checks, flags}
+  var draftRequests = [];     // in-flight HTMX submissions carrying draft keys
+  var activeDraftPrefix = ""; // last screen root — confirms render without one
+  var createDraftOp = 0;      // the create chain whose success releases the wizard draft
+
+  function draftRoot(el) {
+    return el.closest ? el.closest("[data-screen]") : null;
+  }
+  function draftPrefix(el) {
+    var root = draftRoot(el);
+    if (root) {
+      return (root.getAttribute("data-screen") || "") + "|" +
+             (root.getAttribute("data-ws") || "") + "|";
+    }
+    return activeDraftPrefix;
+  }
+  function noteActivePrefix() {
+    var root = screenEl.querySelector("[data-screen]");
+    if (root) {
+      activeDraftPrefix = (root.getAttribute("data-screen") || "") + "|" +
+                          (root.getAttribute("data-ws") || "") + "|";
+    }
+  }
+  // form.elements includes form-attribute-associated controls outside
+  // the form (the wizard's source radios in the pagehead).
+  function formControls(form) {
+    var out = [];
+    var els = form.elements;
+    for (var i = 0; i < els.length; i++) {
+      var el = els[i];
+      if (!el.name) continue;
+      var t = (el.type || "").toLowerCase();
+      if (t === "submit" || t === "button" || t === "file" || t === "reset" || t === "image") continue;
+      out.push(el);
+    }
+    return out;
+  }
+  function namedControls(form, name) {
+    var out = [];
+    var els = form.elements;
+    for (var i = 0; i < els.length; i++) {
+      if (els[i].name === name) out.push(els[i]);
+    }
+    return out;
+  }
+  function selectDefault(el) {
+    var def = el.querySelector("option[selected]");
+    return def ? def.value : (el.options.length ? el.options[0].value : "");
+  }
+  function hiddenValue(form, name) {
+    var el = form.querySelector('input[name="' + name + '"]');
+    return el ? el.value : "";
+  }
+
+  // captureDrafts merges into any existing draft: controls currently
+  // not in the DOM (advanced rows hidden in Standard, another display
+  // mode's fragment) keep their stored values instead of being wiped.
+  function captureDrafts() {
+    noteActivePrefix();
+    var forms = screenEl.querySelectorAll("form[data-draft-key]");
+    for (var fi = 0; fi < forms.length; fi++) {
+      var form = forms[fi];
+      var key = draftPrefix(form) + form.getAttribute("data-draft-key");
+      var els = formControls(form);
+      if (!els.length) continue;
+      var groups = {};
+      els.forEach(function (el) {
+        (groups[el.name] = groups[el.name] || []).push(el);
+      });
+      var d = drafts[key] || { fields: {}, checks: {}, flags: {} };
+      Object.keys(groups).forEach(function (name) {
+        var group = groups[name].filter(function (el) { return !el.disabled && !el.readOnly; });
+        if (!group.length) return; // inert/hidden controls: keep stored
+        var first = group[0];
+        var t = (first.type || "").toLowerCase();
+        // A tracked field keeps its draft value even when a server echo
+        // (validation error, confirm Back) makes it equal the current
+        // default — the next fresh render defaults differently.
+        var tracked = Object.prototype.hasOwnProperty.call(d.fields, name);
+        if (t === "checkbox" || t === "radio") {
+          tracked = Object.prototype.hasOwnProperty.call(d.checks, name);
+          var dirty = group.some(function (el) { return el.checked !== el.defaultChecked; });
+          if (!dirty && !tracked) return;
+          d.checks[name] = group.filter(function (el) { return el.checked; })
+                                .map(function (el) { return el.value; });
+          return;
+        }
+        if (first.tagName === "SELECT") {
+          if (!tracked && first.value === selectDefault(first)) return;
+          d.fields[name] = first.value;
+          return;
+        }
+        if (!tracked && first.value === first.defaultValue) return;
+        d.fields[name] = first.value;
+      });
+      if (groups["name"] && form.dataset.nameManual === "1") {
+        d.flags.nameManual = true; // never cleared by a re-render
+      }
+      if (!Object.keys(d.fields).length && !Object.keys(d.checks).length &&
+          !d.flags.nameManual) {
+        delete drafts[key];
+      } else {
+        drafts[key] = d;
+      }
+    }
+  }
+
+  function restoreDrafts() {
+    noteActivePrefix();
+    var forms = screenEl.querySelectorAll("form[data-draft-key]");
+    for (var fi = 0; fi < forms.length; fi++) {
+      var form = forms[fi];
+      var key = draftPrefix(form) + form.getAttribute("data-draft-key");
+      var d = drafts[key];
+      if (!d) continue;
+      var applied = false;
+      var present = false; // a stored control exists here, changed or not
+      // Drop a strip left from an earlier render before re-adding one.
+      var oldStrips = screenEl.querySelectorAll("[data-draft-strip]");
+      for (var si = 0; si < oldStrips.length; si++) {
+        if (oldStrips[si].getAttribute("data-draft-strip") === key) oldStrips[si].remove();
+      }
+      Object.keys(d.fields).forEach(function (name) {
+        var controls = namedControls(form, name);
+        if (controls.length) present = true;
+        controls.forEach(function (el) {
+          if (el.disabled || el.readOnly) return;
+          if (el.tagName === "SELECT") {
+            for (var oi = 0; oi < el.options.length; oi++) {
+              if (el.options[oi].value === d.fields[name]) {
+                if (el.value !== d.fields[name]) {
+                  el.value = d.fields[name];
+                  applied = true;
+                }
+                return;
+              }
+            }
+            return; // option vanished — keep the server default
+          }
+          if (el.value !== d.fields[name]) {
+            el.value = d.fields[name];
+            applied = true;
+          }
+        });
+      });
+      Object.keys(d.checks).forEach(function (name) {
+        var els = namedControls(form, name);
+        if (els.length) present = true;
+        var vals = d.checks[name];
+        var found = els.some(function (el) { return vals.indexOf(el.value) >= 0; });
+        if (vals.length && !found) return; // option vanished — keep default
+        els.forEach(function (el) {
+          if (el.disabled || el.readOnly) return;
+          var want = vals.indexOf(el.value) >= 0;
+          if (el.checked !== want) { el.checked = want; applied = true; }
+        });
+      });
+      if (d.flags.nameManual) {
+        if (namedControls(form, "name").length) present = true;
+        if (form.dataset.nameManual !== "1") {
+          form.dataset.nameManual = "1";
+          applied = true;
+        }
+      }
+      if (!applied && !present) continue;
+      applyDraftDerivations(form);
+      var strip = document.createElement("div");
+      strip.className = "draft-strip";
+      strip.setAttribute("data-draft-strip", key);
+      strip.setAttribute("role", "status");
+      strip.innerHTML = "<span>Unsaved changes kept —</span>" +
+        '<button type="button" class="btn ghost" data-draft-discard>Discard</button>';
+      form.parentNode.insertBefore(strip, form);
+      var details = form.closest("details");
+      if (details) details.open = true; // a kept edit must be visible
+    }
+    var pane = screenEl.querySelector('[data-role="create-log"][data-op-id]');
+    if (pane) createDraftOp = parseInt(pane.getAttribute("data-op-id"), 10) || 0;
+  }
+
+  // Restore only replays the view state the controls drive (source row,
+  // PKM edition pin, chip pressed state) — never the live presets: the
+  // restored HIL checkbox is itself draft data and must not be reset by
+  // applyEditionPreset.
+  function syncWizardDraftView(form) {
+    var radio = repoSourceRadio();
+    var repoRow = q(form, '[data-row="repo_url"]');
+    if (radio && repoRow) {
+      if (radio.checked) repoRow.removeAttribute("data-repo-only");
+      else repoRow.setAttribute("data-repo-only", "1");
+    }
+    var agentSel = q(form, '[data-role="wizard-agent"]');
+    var edRow = q(form, '[data-row="edition"]');
+    var holder = q(form, '[data-role="wizard-edition"]');
+    if (!agentSel || !edRow || !holder) return;
+    if (agentSel.value === "pkm") {
+      edRow.setAttribute("data-pkm-pin", "1");
+      setEdition(holder, "pkm");
+      return;
+    }
+    edRow.removeAttribute("data-pkm-pin");
+    var ed = holder.querySelector('input[name="edition"]');
+    if (ed) setEdition(holder, ed.value);
+  }
+
+  function applyDraftDerivations(form) {
+    if (form.getAttribute("data-role") === "new-workspace-form") {
+      syncWizardDraftView(form);
+    }
+    // Both edition chip groups render a hidden input as the payload; a
+    // restored hidden value must move the chips with it.
+    var holder = form.querySelector('[data-role="wizard-edition"], [data-role="settings-edition"]');
+    if (holder) {
+      var ed = holder.querySelector('input[name="edition"]');
+      if (ed) setEdition(holder, ed.value);
+    }
+    var kind = form.querySelector('select[name="kind"]');
+    if (kind) { // VCS Host visibility follows the restored tracker kind
+      var host = form.querySelector('[data-field="host"]');
+      if (host) host.hidden = hostlessKind(kind.value);
+    }
+    // Typed confirmations arm a button only on an input event; a restored
+    // draft must leave the Uninstall button in the same state.
+    form.querySelectorAll("[data-arms]").forEach(function (input) {
+      var btn = document.getElementById(input.getAttribute("data-arms"));
+      if (!btn) return;
+      var match = input.getAttribute("data-arms-match") || "uninstall";
+      btn.disabled = input.value.trim().toLowerCase() !== match.toLowerCase();
+    });
+  }
+
+  // Discard resets this one form to the server-rendered defaults (the
+  // values the fragment was built with) and replays only the view state
+  // the controls drive — no live preset re-derivation, no screen reload.
+  function resetFormDefaults(form) {
+    formControls(form).forEach(function (el) {
+      var t = (el.type || "").toLowerCase();
+      if (el.tagName === "SELECT") {
+        var def = el.querySelector("option[selected]");
+        el.selectedIndex = def ? def.index : (el.options.length ? 0 : -1);
+        return;
+      }
+      if (t === "checkbox" || t === "radio") { el.checked = el.defaultChecked; return; }
+      el.value = el.defaultValue;
+    });
+    delete form.dataset.nameManual;
+    applyDraftDerivations(form);
+  }
+
+  function dropDraft(key) {
+    if (!key) return;
+    delete drafts[key];
+    var strips = screenEl.querySelectorAll("[data-draft-strip]");
+    for (var i = 0; i < strips.length; i++) {
+      if (strips[i].getAttribute("data-draft-strip") === key) strips[i].remove();
+    }
+  }
+
+  // A confirmed write clears the submitted form's draft (and the
+  // draft a confirm-popup form was carrying), plus the subject's
+  // dependent drafts when the subject itself was removed.
+  function clearSavedDrafts(info) {
+    dropDraft(info.key);
+    dropDraft(info.clearKey);
+    if (info.action === "remove" && info.orig) {
+      dropDraft(info.prefix + "edit:" + info.orig);
+      dropDraft(info.prefix + "provider-edit:" + info.orig);
+    }
+    if (info.post.indexOf("remove-from-list") >= 0 && info.ws) {
+      var prefix = "ws-settings|" + info.ws + "|";
+      Object.keys(drafts).forEach(function (k) {
+        if (k.indexOf(prefix) === 0 || k === "proxy||allowlist:" + info.ws) dropDraft(k);
+      });
+    }
+  }
+
+  // The response header is read before the swap (htmx 2.x runs the
+  // handler — beforeSwap/afterSwap — before htmx:afterRequest). The
+  // clear must land between capture and restore, or the fresh form
+  // would be refilled with the values just saved.
+  function savedFromXhr(xhr) {
+    if (!xhr) return null;
+    for (var i = 0; i < draftRequests.length; i++) {
+      var info = draftRequests[i];
+      if (info.xhr !== xhr) continue;
+      if (xhr.getResponseHeader("X-Oc-Draft-Clear") === "1") {
+        info.saved = true;
+        clearSavedDrafts(info);
+      }
+      return info;
+    }
+    return null;
+  }
+
+  screenEl.addEventListener("click", function (ev) {
+    var btn = ev.target.closest("[data-draft-discard]");
+    if (!btn) return;
+    var strip = btn.closest("[data-draft-strip]");
+    if (!strip) return;
+    var key = strip.getAttribute("data-draft-strip");
+    var form = strip.nextElementSibling;
+    delete drafts[key];
+    if (form && form.tagName === "FORM") resetFormDefaults(form);
+    strip.remove();
+  });
+
+  document.body.addEventListener("htmx:beforeRequest", function (ev) {
+    var elt = ev.target || (ev.detail && ev.detail.elt);
+    var form = elt && elt.closest ? elt.closest("form") : null;
+    if (!form) return;
+    var prefix = draftPrefix(form);
+    var formKey = form.getAttribute("data-draft-key");
+    var submitKey = form.getAttribute("data-draft-submit-key");
+    var post = form.getAttribute("hx-post") || "";
+    var action = hiddenValue(form, "action");
+    var orig = hiddenValue(form, "orig");
+    if (!formKey && !submitKey && action !== "remove" &&
+        post.indexOf("remove-from-list") < 0) return;
+    draftRequests.push({
+      xhr: ev.detail.xhr,
+      key: formKey ? prefix + formKey : null,
+      clearKey: submitKey ? prefix + submitKey : null,
+      action: action,
+      orig: orig,
+      post: post,
+      prefix: prefix,
+      ws: prefix.split("|")[1] || "",
+      saved: false
+    });
+  });
+
+  document.body.addEventListener("htmx:afterRequest", function (ev) {
+    var info = savedFromXhr(ev.detail.xhr);
+    if (!info) return;
+    setTimeout(function () {
+      draftRequests = draftRequests.filter(function (r) { return r !== info; });
+    }, 2000);
+  });
+
+  document.body.addEventListener("htmx:beforeSwap", function (ev) {
+    captureDrafts();
+    savedFromXhr(ev.detail && ev.detail.xhr); // clear between capture and restore
+  });
+  document.body.addEventListener("htmx:afterSwap", function () {
+    draftRequests.forEach(function (info) {
+      if (info.saved) clearSavedDrafts(info); // idempotent
+    });
+    draftRequests = draftRequests.filter(function (r) { return !r.saved; });
+    restoreDrafts();
+  });
+
   function loadScreen(name, spin) {
+    captureDrafts();
     if (spin) { // slow discovery screens answer the wait visibly
       currentScreen = name;
       screenEl.innerHTML =
@@ -935,6 +1300,7 @@
       .then(function (html) {
         currentScreen = name;
         screenEl.innerHTML = html;
+        restoreDrafts();
         restoreLog();
         refreshCounts(); // the count pills ride every screen load
         // htmx processes only its own swaps — a fragment landed through
@@ -1186,6 +1552,13 @@
       // every op state change — the log pane re-fills from memory
       var d = null;
       try { d = JSON.parse(ev.data); } catch (e) {}
+      if (d && d.op && d.op === createDraftOp) {
+        // The create chain's terminal event: a done chain has a
+        // workspace, so the wizard draft is spent; a failed chain
+        // keeps it for the retry (the form re-enables).
+        if (d.state === "done") dropDraft("ws-new||new-workspace");
+        createDraftOp = 0;
+      }
       if (d && d.state) onCreateWorkspace(d); // the create chain's terminal event (#156)
       else if (currentNav === "ws-open") renderWorkspaces(); // #153: reactive cards
       // An op ending anywhere publishes one of these — a settings

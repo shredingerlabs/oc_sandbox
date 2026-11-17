@@ -36,7 +36,7 @@ var uninstallTmpl = template.Must(template.New("uninstall").Parse(
 {{if .Notice}}<div class="notice ok">{{.Notice}}</div>{{end}}
 <div class="panel dangerzone">
 <div class="notice warn">This removes the oc-sandbox installation.</div>
-<form hx-post="uninstall" hx-target="[data-role='screen']" hx-swap="innerHTML">
+<form hx-post="uninstall" hx-target="[data-role='screen']" hx-swap="innerHTML" data-screen="uninstall" data-draft-key="uninstall">
 <div class="optrow"><label><input type="checkbox" name="remove_config"> Remove config (backup is made first)</label></div>
 <div class="optrow"><label><input type="checkbox" name="remove_symlinks"> Remove symlinks</label></div>
 <div class="optrow"><label><input type="checkbox" name="remove_shortcuts"> Remove desktop shortcuts</label></div>
@@ -119,5 +119,6 @@ func (s *Server) handleUninstall(w http.ResponseWriter, r *http.Request) {
 			return err
 		},
 	})
+	markDraftSaved(w)
 	s.renderUninstall(w, "Uninstall started — the script output streams in the log pane.")
 }

@@ -94,6 +94,9 @@ func TestExportConfigOverwriteConfirm(t *testing.T) {
 	if !strings.Contains(doc, "already exists") {
 		t.Fatalf("overwrite confirm missing:\n%s", doc)
 	}
+	if !strings.Contains(doc, `data-draft-submit-key="export-path"`) {
+		t.Fatalf("overwrite confirm must cite the export draft it saves:\n%s", doc)
+	}
 	// The snapshot still holds the old content — nothing overwritten yet.
 	data, _ := os.ReadFile(filepath.Join(dest, "global_config.json")) //nolint:errcheck
 	if !strings.Contains(string(data), "/tmp/workspaces") {

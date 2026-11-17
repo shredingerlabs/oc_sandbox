@@ -33,6 +33,16 @@ import (
 // server error log runs every line through.
 var tokenRe = regexp.MustCompile(`/t/[0-9a-f]{32}/`)
 
+// draftClearHeader is the explicit confirmed-write signal the WebUI
+// client uses to drop a form's in-memory draft. Validation errors and
+// refused writes never carry it — the typed values must survive them.
+const draftClearHeader = "X-Oc-Draft-Clear"
+
+// markDraftSaved answers a confirmed write with the draft-clear signal.
+func markDraftSaved(w http.ResponseWriter) {
+	w.Header().Set(draftClearHeader, "1")
+}
+
 // BasePort is the launcher's base webserver port (spec §4): scanned
 // upward on conflict, never persisted — re-derived per launch.
 const BasePort = 8090
