@@ -26,7 +26,7 @@ import (
 // workspaces), the fresh-per-request pair link and the headless access
 // fallback. The runner is faked; nothing external is touched.
 func checkWebUIWorkspaces(home, root string) Item {
-	p := newPhase("A13", "Open Workspace screen: cards, ?q= filter, start chain with Container-center reuse, taskmgr queue semantics (one-at-a-time per workspace), fresh pair link, access variants + headless fallback, display_mode default + persistence (#153)")
+	p := newPhase("A13", "Open Workspace screen: cards, ?q= filter, start chain with Container-center reuse, taskmgr queue semantics (one-at-a-time per workspace), fresh pair link, access variants + headless fallback, display_mode default + persistence, favorite toggle round-trip (#153, #175)")
 
 	// Fixture install: two workspaces with distinct sandbox configs.
 	rootA := seedWSFixture(home, "mural", "swdev", []string{}, "web")
@@ -275,6 +275,38 @@ func checkWebUIWorkspaces(home, root string) Item {
 	// re-render without polling.
 	if err := sseExpect(base, s.URL()+"events", "workspace"); err != nil {
 		p.reasonf("workspace SSE event: %v", err)
+	}
+
+	// Favorite toggle round-trip (#175): the star's POST flips the
+	// stored flag, the card moves under the Favorite workspaces
+	// heading on the re-render, and a fresh reload shows the same —
+	// then the second POST drops it back into Registered workspaces.
+	favOn, fbody := post(s.URL()+"workspaces/mural/favorite", nil)
+	if favOn == nil || favOn.StatusCode != http.StatusOK || !strings.Contains(fbody, `"ok":true`) {
+		p.reasonf("favorite toggle on: want 200 {ok:true}, got %v %s", respStatusCT(favOn), fbody)
+	}
+	_, fdoc := get(s.URL() + "workspaces")
+	iFav := strings.Index(fdoc, "<h2>Favorite workspaces</h2>")
+	iMural := strings.Index(fdoc, `data-ws="mural"`)
+	iReg := strings.Index(fdoc, "<h2>Registered workspaces</h2>")
+	if iFav < 0 || iMural < 0 || !(iFav < iMural && (iReg < 0 || iMural < iReg)) {
+		p.reasonf("favorited mural must render under the Favorite workspaces section:\n%s", fdoc)
+	}
+	mw, merr := (&registry.Registry{Home: home}).ByName("mural")
+	if merr != nil || !mw.Favorite {
+		p.reasonf("favorite flag must persist in workspaces.json: %v", merr)
+	}
+	favOff, fbody := post(s.URL()+"workspaces/mural/favorite", nil)
+	if favOff == nil || favOff.StatusCode != http.StatusOK || !strings.Contains(fbody, `"ok":true`) {
+		p.reasonf("favorite toggle off: want 200 {ok:true}, got %v %s", respStatusCT(favOff), fbody)
+	}
+	_, fdoc = get(s.URL() + "workspaces")
+	if strings.Contains(fdoc, "<h2>Favorite workspaces</h2>") ||
+		strings.Contains(fdoc, `data-favorite="true"`) {
+		p.reasonf("un-favorited mural must return under Registered workspaces:\n%s", fdoc)
+	}
+	if iReg = strings.Index(fdoc, "<h2>Registered workspaces</h2>"); iReg < 0 || iReg > strings.Index(fdoc, `data-ws="mural"`) {
+		p.reasonf("un-favorited mural must render under the Registered section:\n%s", fdoc)
 	}
 
 	return p.finish()
