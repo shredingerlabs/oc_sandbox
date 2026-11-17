@@ -246,6 +246,52 @@ func TestWorkspacesSectionOrder(t *testing.T) {
 	}
 }
 
+// The ?q= filter applies within each section (#173): matches keep the
+// MRU order inside their section, and a section whose cards all fail
+// the query hides its heading even while a query is active.
+func TestWorkspacesQueryFiltersWithinSections(t *testing.T) {
+	home := t.TempDir()
+	seedFavoriteRegistry(t, home,
+		struct {
+			name, lastUsed, status string
+			favorite               bool
+		}{"fav-alpha", "2026-01-05T12:00:00Z", "stopped", true},
+		struct {
+			name, lastUsed, status string
+			favorite               bool
+		}{"reg-alpha", "2026-01-05T13:00:00Z", "stopped", false},
+		struct {
+			name, lastUsed, status string
+			favorite               bool
+		}{"reg-beta", "2026-01-05T11:00:00Z", "stopped", false},
+	)
+
+	s := startFixtureServer(t, home)
+	// A query matching both sections keeps each section's structure and
+	// its MRU order.
+	doc := body(t, get(t, s.URL()+"workspaces?q=alpha"))
+	iFavHead := strings.Index(doc, "<h2>Favorite workspaces</h2>")
+	iRegHead := strings.Index(doc, "<h2>Registered workspaces</h2>")
+	iFav := strings.Index(doc, `data-ws="fav-alpha"`)
+	iReg := strings.Index(doc, `data-ws="reg-alpha"`)
+	if iFavHead < 0 || iRegHead < 0 || !(iFavHead < iFav && iFav < iRegHead && iRegHead < iReg) {
+		t.Fatalf("query must filter within each section, structure intact:\n%s", doc)
+	}
+	if strings.Contains(doc, `data-ws="reg-beta"`) {
+		t.Fatal("non-matching workspace must not render under ?q=")
+	}
+
+	// A query matching only the registered section hides the favorites
+	// heading — no empty section under an active query.
+	doc = body(t, get(t, s.URL()+"workspaces?q=beta"))
+	if strings.Contains(doc, "<h2>Favorite workspaces</h2>") {
+		t.Fatalf("empty favorites section must hide its heading under a query:\n%s", doc)
+	}
+	if !strings.Contains(doc, `data-ws="reg-beta"`) || strings.Contains(doc, `data-ws="fav-alpha"`) {
+		t.Fatalf("query must match only the registered section:\n%s", doc)
+	}
+}
+
 // startFixtureServer starts a test server pointed at a fake home.
 func startFixtureServer(t *testing.T, home string) *Server {
 	t.Helper()
