@@ -122,6 +122,7 @@ var wizardTemplate = template.Must(template.New("wizard").
       </select>
       <input type="password" name="provider_token" value="" autocomplete="off" placeholder="API token" data-provider-token>
       <span class="sub">Tokens live with the workspace; entries are managed in Settings › AI-Provider.</span>
+      <span class="sub">From the global provider list (Settings › AI-Provider); the typed token is per-workspace, never an entry of the catalog.</span>
     </div>
 
     <div class="row" data-row="modes" data-advanced-only>

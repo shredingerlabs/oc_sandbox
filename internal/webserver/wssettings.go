@@ -208,6 +208,7 @@ var wsSettingsTemplate = template.Must(template.New("wssettings").
         <label>Token <input type="password" name="token" autocomplete="off"></label>
         <button type="submit" class="btn">Add provider</button>
       </form>
+      <div class="field-hint">From the global provider list (Settings › AI-Provider); the typed token is per-workspace, never an entry of the catalog.</div>
     </div>
 
     {{if .ProvConfirm}}
@@ -258,6 +259,7 @@ var wsSettingsTemplate = template.Must(template.New("wssettings").
         </div>
         {{if .VCSHasCreds}}<div class="field-hint">credentials exist — New token login replaces them after the confirm; Re-login keeps them</div>{{end}}
         {{if not .Running}}<div class="field-hint">login runs inside the container — start the workspace to log in (New token login works while stopped)</div>{{end}}
+        <div class="field-hint">From the global tracker list (Settings › VCS Tracker); the typed token is per-workspace, never an entry of the catalog.</div>
       </form>
       {{if .VCSLogin}}
       <div class="confirm-block" data-role="vcs-login">
