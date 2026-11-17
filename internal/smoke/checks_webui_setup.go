@@ -224,7 +224,11 @@ func checkWebUISetup(home, root string) Item {
 	}
 
 	// Pending session blocks the workspace's other actions: disabled
-	// with a reason on the card, refused server-side.
+	// with a reason on the card, refused server-side. Every blocked
+	// button carries the setup refusal in its title — for the mic
+	// button (running + dictation-enabled) that refusal must be the
+	// only title: the HTML parser drops duplicate attributes, so a
+	// rendered action tooltip would hide the refusal.
 	for _, marker := range []string{`data-act="web"`, `data-act="opencode"`, `data-act="console"`, `data-confirm="restart"`} {
 		i := strings.Index(card, marker)
 		if i < 0 {
@@ -235,15 +239,15 @@ func checkWebUISetup(home, root string) Item {
 		if len(tail) > 300 {
 			tail = tail[:300]
 		}
-		// the restart confirm carries the setup refusal in its title;
-		// the access buttons disable without a title
-		if marker == `data-confirm="restart"` {
-			if !strings.Contains(tail, "disabled") || !strings.Contains(tail, "first-run setup") {
-				p.reasonf("%s must be disabled with the setup reason while pending", marker)
-			}
-		} else if !strings.Contains(tail, "disabled") {
-			p.reasonf("%s must be disabled while pending", marker)
+		if !strings.Contains(tail, "disabled") || !strings.Contains(tail, "first-run setup") {
+			p.reasonf("%s must be disabled with the setup reason while pending", marker)
 		}
+	}
+	if !strings.Contains(card, `disabled title="refused — first-run setup session pending" data-act="stt"`) {
+		p.reasonf("mic button must be disabled with the setup reason while pending")
+	}
+	if strings.Contains(card, `title="dictation sidecar — record audio, copy the transcript"`) {
+		p.reasonf("pending mic button must not render the action tooltip")
 	}
 	if r, b := post(s.URL()+"workspaces/setup-alpha/start", nil); r == nil || r.StatusCode != http.StatusConflict || !strings.Contains(b, "first-run setup") {
 		p.reasonf("start during pending setup = %v %q, want 409 with the reason", respStatusCT(r), b)

@@ -138,7 +138,7 @@ var wsTemplate = template.Must(template.New("ws").
       <div class="name">{{.Name}}{{if .Running}}<span class="dot" data-running title="running"></span>{{end}}</div>
       <div class="sub">last used {{.LastUsed}}</div>
     </div>
-    {{if .Stt}}<button class="btn icon" title="dictation sidecar — record audio, copy the transcript" data-act="stt"{{if .SetupPending}} disabled title="refused — first-run setup session pending"{{end}}>
+    {{if .Stt}}<button class="btn icon"{{if .SetupPending}} disabled title="refused — first-run setup session pending"{{else}} title="dictation sidecar — record audio, copy the transcript"{{end}} data-act="stt">
       <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/></svg>
     </button>{{end}}
     <button class="btn icon" title="workspace settings" data-act="settings">
@@ -172,9 +172,9 @@ var wsTemplate = template.Must(template.New("ws").
   {{end}}
   {{if .SetupRetry}}<div class="setup-retry"><button class="btn ghost" data-act="setup-retry">Run setup</button></div>{{end}}
   <div class="acts">
-    <button class="btn" data-act="web" title="OpenCode web — fresh pair link in a new tab"{{if .SetupPending}} disabled title="refused — first-run setup session pending"{{end}}>Web</button>
-    <button class="btn ghost" data-act="opencode" data-advanced-only title="OpenCode TUI in a host terminal window"{{if .SetupPending}} disabled title="refused — first-run setup session pending"{{end}}>OpenCode</button>
-    <button class="btn ghost" data-act="console" data-advanced-only title="console session in a host terminal window"{{if .SetupPending}} disabled title="refused — first-run setup session pending"{{end}}>Console</button>
+    <button class="btn" data-act="web"{{if .SetupPending}} disabled title="refused — first-run setup session pending"{{else}} title="OpenCode web — fresh pair link in a new tab"{{end}}>Web</button>
+    <button class="btn ghost" data-act="opencode" data-advanced-only{{if .SetupPending}} disabled title="refused — first-run setup session pending"{{else}} title="OpenCode TUI in a host terminal window"{{end}}>OpenCode</button>
+    <button class="btn ghost" data-act="console" data-advanced-only{{if .SetupPending}} disabled title="refused — first-run setup session pending"{{else}} title="console session in a host terminal window"{{end}}>Console</button>
   </div>
   <div class="confirms"></div>
   <div class="oplog" data-oplog hidden></div>

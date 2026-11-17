@@ -411,14 +411,9 @@ func TestSetupPendingBlocksWorkspaceActions(t *testing.T) {
 		if len(btn) > 300 {
 			btn = btn[:300]
 		}
-		// the access buttons disable without a title; the restart
-		// confirm carries the setup refusal in its title
-		if marker == `data-confirm="restart"` {
-			if !strings.Contains(btn, "disabled") || !strings.Contains(btn, "first-run setup") {
-				t.Fatalf("%s must be disabled with a setup reason:\n%s", marker, btn)
-			}
-		} else if !strings.Contains(btn, "disabled") {
-			t.Fatalf("%s must be disabled during pending setup:\n%s", marker, btn)
+		// every blocked button carries the setup refusal in its title
+		if !strings.Contains(btn, "disabled") || !strings.Contains(btn, "first-run setup") {
+			t.Fatalf("%s must be disabled with a setup reason:\n%s", marker, btn)
 		}
 	}
 
