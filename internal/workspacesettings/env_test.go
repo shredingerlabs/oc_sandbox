@@ -20,10 +20,7 @@ type env struct {
 
 func newEnv(t *testing.T, names ...string) *env {
 	t.Helper()
-	home := filepath.Join(os.TempDir(), "ocps-"+t.Name())
-	if err := os.RemoveAll(home); err != nil {
-		t.Fatal(err)
-	}
+	home := t.TempDir()
 	e := &env{home: home, roots: map[string]string{}}
 	if err := e.reg(t, time.Now()).CreateWorkspacesFile(); err != nil {
 		t.Fatal(err)

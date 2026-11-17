@@ -27,7 +27,7 @@ USER_AGENT="opencode-sandbox-install-script"
 PRESERVE_ALLOWLIST=true
 BINARY_NAME="oc-sandbox"
 
-# --- Go TUI Binary Selection ---------------------------------------------------
+# --- Binary Selection ----------------------------------------------------------
 # Liefert den Dateinamen des plattform passenden Release-Binary nach dem
 # Matrix-Schema oc-sandbox_<goos>_<goarch> (linux/darwin × amd64/arm64),
 # nicht die PLATFORM_*-Werte (Linux/x86_64).

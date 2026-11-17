@@ -20,7 +20,7 @@ import (
 // byte-accurate bash-era output (not valid JSON) and is only checked for
 // no-mutation. The second half round-trips the Go data layer's own writes.
 func checkConfigCompat(home, root string) Item {
-	p := newPhase("A1", "Bash-era config files (fixtures) read by the Go TUI; Go round-trip stable")
+	p := newPhase("A1", "Bash-era config files (fixtures) read by the Go data layer; Go round-trip stable")
 	bh := filepath.Join(home, "A1")
 	proj := filepath.Join(bh, "ws", "prj")
 	fixtures := map[string]string{

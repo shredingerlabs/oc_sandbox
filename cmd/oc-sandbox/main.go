@@ -21,12 +21,16 @@ import (
 var Version = "dev"
 
 func main() {
-	if len(os.Args) > 1 {
-		switch os.Args[1] {
+	root := "." // --smoke's optional repo-root positional
+	for i := 1; i < len(os.Args); i++ {
+		arg := os.Args[i]
+		if !strings.HasPrefix(arg, "-") {
+			continue // positional: only --smoke consumes one (the next arg)
+		}
+		switch arg {
 		case "--smoke": // A-list parity pre-check over the repo tree (issue #83)
-			root := "."
-			if len(os.Args) > 2 {
-				root = os.Args[2]
+			if i+1 < len(os.Args) && !strings.HasPrefix(os.Args[i+1], "-") {
+				root = os.Args[i+1]
 			}
 			rep := smoke.Run(root)
 			fmt.Print(rep.Text())
@@ -38,11 +42,12 @@ func main() {
 			fmt.Fprintf(os.Stdout, "usage: oc-sandbox [--version|--smoke]  (no flags runs the minimal launcher)\n")
 			return
 		default:
-			if strings.HasPrefix(os.Args[1], "-") { // the parity flag --full-tui died with the full TUI (#163)
-				fmt.Fprintf(os.Stderr, "oc-sandbox: unknown flag: %s\n", os.Args[1])
-				fmt.Fprintf(os.Stderr, "usage: oc-sandbox [--version|--smoke]  (no flags runs the minimal launcher)\n")
-				os.Exit(2)
-			}
+			// The parity flag --full-tui died with the full TUI (#163);
+			// every other unknown flag is rejected too, before any
+			// home/config access.
+			fmt.Fprintf(os.Stderr, "oc-sandbox: unknown flag: %s\n", arg)
+			fmt.Fprintf(os.Stderr, "usage: oc-sandbox [--version|--smoke]  (no flags runs the minimal launcher)\n")
+			os.Exit(2)
 		}
 	}
 	runLauncher()

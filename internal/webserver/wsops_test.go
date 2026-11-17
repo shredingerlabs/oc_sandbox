@@ -127,7 +127,7 @@ func TestStartVariantAgreeingEditionsReuses(t *testing.T) {
 // POST /workspaces/{name}/stop (#154): the existing graceful stop flow
 // through the op runner — a container running inside a pod stops as the
 // pod unit (pod stop, companions go down with it, #151's
-// containerview.StopContainers semantics), the registry flips to
+// launcher.StopContainers semantics), the registry flips to
 // "stopped" only after the container is verified gone on a fresh ps.
 func TestWorkspaceStopStopsPodAndFlipsRegistry(t *testing.T) {
 	reg, roots := fixtureRegistry(t, "alpha")

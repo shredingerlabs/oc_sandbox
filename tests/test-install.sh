@@ -1470,16 +1470,13 @@ test_stale_rename_scripts_removed_on_update() {
   run_install_files "$src" "$target" || rc=$?
 
   assert_equals "0" "$rc" "install_files bei Update mit stale Scripts" || { cleanup_test_env "$test_dir"; return 1; }
-  if [[ -f "$target/scripts/init-project.sh" ]]; then
-    echo "init-project.sh wurde nicht entfernt"
-    cleanup_test_env "$test_dir"
-    return 1
-  fi
-  if [[ -f "$target/scripts/configure-project.sh" ]]; then
-    echo "configure-project.sh wurde nicht entfernt"
-    cleanup_test_env "$test_dir"
-    return 1
-  fi
+  for stale in init-project.sh configure-project.sh; do
+    if [[ -f "$target/scripts/$stale" ]]; then
+      echo "$stale wurde nicht entfernt"
+      cleanup_test_env "$test_dir"
+      return 1
+    fi
+  done
   assert_file_exists "$target/scripts/start.sh" || { cleanup_test_env "$test_dir"; return 1; }
   cleanup_test_env "$test_dir"
 }

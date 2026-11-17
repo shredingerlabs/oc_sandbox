@@ -1,5 +1,11 @@
 # B-list parity checklist — spec #147 §14 (ticket #163 gate)
 
+Sign-off record: every box was checked on the real machine against the
+`dev_WebUI` checkout at tip `c63be2e` — pre-deletion, with `--full-tui` still
+present as the parity escape hatch. The flip-then-delete completion (#162 →
+#163) landed afterwards; the `--full-tui` build line below is therefore
+historical.
+
 Build & run from the repo checkout (/home/dev/project, branch `dev_WebUI`, tip `c63be2e`):
 
 ```

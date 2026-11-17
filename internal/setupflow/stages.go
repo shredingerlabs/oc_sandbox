@@ -20,7 +20,7 @@ type RunnerFactory func(root string) Stager
 
 // NewStagerFor returns the production stage runner for a workspace root.
 // The script paths are constructor args so the wiring decides the
-// install layout (app.LayoutFor), not this package.
+// install layout (the wiring resolves it via webserver.LayoutFor), not this package.
 func NewStagerFor(run cmdrun.Runner, home string, reg *registry.Registry, startScript, configureScript string) RunnerFactory {
 	return func(root string) Stager {
 		return &PipelineStager{

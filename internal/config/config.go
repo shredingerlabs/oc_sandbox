@@ -142,8 +142,8 @@ func createTemp(path string) (string, error) {
 
 // BackupFile copies path into home's backups directory, then rotates.
 // Secret/unsupported files are refused (and never copied) — the refusal
-// is returned as an error; nothing is written to stderr (the Go TUI
-// owns the terminal).
+// is returned as an error; nothing is written to stderr (the caller
+// owns the terminal — the WebUI handlers and the launcher face).
 func BackupFile(home, path string) (string, error) {
 	if !IsGeneralConfigFile(home, path) {
 		msg := fmt.Sprintf("Refusing to back up secret or unsupported configuration: %s", path)

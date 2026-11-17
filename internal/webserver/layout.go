@@ -15,7 +15,7 @@ type Layout struct {
 	ConfigureScript  string // scripts/configure-workspace.sh
 	UninstallScript  string // scripts/uninstall.sh
 	Dockerfile       string // Dockerfile (edition registry, ADR 0019)
-	DockerfileCustom string // Dockerfile.custom ("" when missing?)
+	DockerfileCustom string // Dockerfile.custom (path always set; callers handle a missing file)
 }
 
 // LayoutFor resolves the paths for home.

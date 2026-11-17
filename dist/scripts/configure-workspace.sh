@@ -4,8 +4,8 @@
 #
 # Per-concern subcommands for workspace configuration, migrated from the
 # inline logic of the former bash TUI (start-tui.sh, deleted in #99). The
-# Go TUI calls this script instead of holding its own copy; prompts stay
-# in the TUI, this script only validates and writes.
+# WebUI calls this script instead of holding its own copy; prompts stay
+# in the browser, this script only validates and writes.
 #
 # Nutzung:
 #   scripts/configure-workspace.sh <subcommand> ... (non-interactive flags)

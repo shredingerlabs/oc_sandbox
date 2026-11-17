@@ -36,7 +36,7 @@ type imageRow struct {
 }
 
 // imageRefs computes the enriched ref list pinning images in use
-// (containerview.imageRefs parity): every container's image reference
+// (the deleted TUI view's imageRefs parity, #163): every container's image reference
 // in any state, plus — while an edition image is in use — the parent
 // stages and the infra refs. Errors yield an empty list.
 func (s *Server) imageRefs() []string {

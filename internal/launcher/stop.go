@@ -8,9 +8,7 @@ import (
 	"github.com/shredingerlabs/oc-sandbox/internal/cmdrun"
 	"github.com/shredingerlabs/oc-sandbox/internal/discovery"
 	"github.com/shredingerlabs/oc-sandbox/internal/registry"
-)
-
-// StopContainers is the graceful stop flow for the given oc-sandbox
+)// StopContainers is the graceful stop flow for the given oc-sandbox
 // containers (pod-per-workspace #125): stop the owning pod as the unit
 // (a pod stop takes the member containers down; pre-upgrade containers
 // without a pod stop alone), then flip container_status="stopped" only
@@ -53,7 +51,7 @@ func StopContainers(run cmdrun.Runner, reg *registry.Registry, names []string, e
 		return nil
 	}
 	for _, name := range names {
-		id := strings.TrimPrefix(name, registry.ContainerName(""))
+		id := registry.ContainerID(name)
 		p, err := reg.ByID(id)
 		if err != nil {
 			continue // not a registry workspace

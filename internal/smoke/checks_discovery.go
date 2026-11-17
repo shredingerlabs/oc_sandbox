@@ -130,9 +130,9 @@ func sortedCopy(s []string) []string {
 	return c
 }
 
-// exitCodeOf maps a delegated-command error onto the bash TUI exit-code
-// policy (0 clean, 1 general, 2 abort, 130 for SIGINT-terminated children,
-// 128+n otherwise) — the seam contract the Go TUI must keep.
+// exitCodeOf maps a delegated-command error onto the exit-code policy
+// (0 clean, 1 general, 2 abort, 130 for SIGINT-terminated children,
+// 128+n otherwise) — the seam contract the launcher's exit mapping keeps.
 func exitCodeOf(err error) int {
 	if err == nil {
 		return 0

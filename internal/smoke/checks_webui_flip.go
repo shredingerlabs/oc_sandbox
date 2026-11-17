@@ -48,13 +48,16 @@ func checkWebUIFlip(home, root string) Item {
 	}
 
 	// The deleted flag is rejected as unknown (exit 2, abort code) —
-	// before any home/config access, so a stale wrapper script cannot
-	// silently launch something else.
+	// the flag dies in arg parsing, before the launcher face or the
+	// webserver can come up (asserted via the absence of the launcher's
+	// "WebUI:" banner in the output).
 	out, err := runIn(root, bin, "--full-tui")
 	if err == nil {
 		p.reasonf("--full-tui still accepted: out=%s", outTail(out))
 	} else if !strings.Contains(out, "unknown flag: --full-tui") {
 		p.reasonf("--full-tui rejection lacks the unknown-flag line: err=%v out=%s", err, outTail(out))
+	} else if strings.Contains(out, "WebUI: http") {
+		p.reasonf("--full-tui rejection ran past arg parsing: out=%s", outTail(out))
 	}
 
 	// Fake browser opener: the §3 xdg-open path, logging its argument.

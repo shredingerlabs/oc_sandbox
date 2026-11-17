@@ -38,8 +38,9 @@ type opRunner struct {
 	running map[string]*webOp
 
 	// lastErr carries the most recent failed op's message per key —
-	// screens render it as the flow's refusal text (the TUI pane's aiErr
-	// path, #110). Cleared when the next op for the key launches.
+	// screens render it as the flow's refusal text (the parity of the
+	// deleted TUI pane's aiErr path, #110). Cleared when the next op
+	// for the key launches.
 	lastErr map[string]string
 
 	// lastOp carries the most recent op's id per key — the settings
