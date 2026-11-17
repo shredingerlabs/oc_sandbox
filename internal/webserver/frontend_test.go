@@ -69,6 +69,10 @@ func TestFrontendCardStyles(t *testing.T) {
 		`.busy`,                     // busy row
 		`.confirm`,                  // stop/delete confirm row
 		`.confirm-backdrop[hidden]`, // display:flex must not beat the hidden attribute
+		// The card star's two states (#174): outline default, the
+		// filled/accent treatment carried by the stored flag marker.
+		`.toprow .btn.icon[data-favorite="true"]`,
+		`.toprow .btn.icon[data-favorite="true"] .ic { fill:currentColor`,
 	} {
 		if !strings.Contains(css, want) {
 			t.Fatalf("main.css missing %q", want)

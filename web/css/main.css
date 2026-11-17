@@ -140,6 +140,10 @@ body { background:var(--bg); color:var(--ink);
   box-shadow:none; }
 .btn.icon .ic { width:17px; height:17px; fill:none; stroke:currentColor;
   stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
+/* card star (#174): outline by default, filled in the accent hue when
+   the stored favorite flag is set */
+.card .toprow .btn.icon[data-favorite="true"] { color:var(--accent); }
+.card .toprow .btn.icon[data-favorite="true"] .ic { fill:currentColor; }
 .btn[disabled] { opacity:.4; cursor:not-allowed; }
 
 /* chips — neutral, like every Signal workspace-card chip (C) */
