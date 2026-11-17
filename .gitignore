@@ -16,3 +16,4 @@ dist/bin/
 voice-de/
 .cache/
 .npm/
+go/
