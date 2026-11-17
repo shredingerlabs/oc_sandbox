@@ -148,6 +148,59 @@ func TestWorkspacesFavoriteSections(t *testing.T) {
 	}
 }
 
+// Heading visibility (#173): each section heading renders only when its
+// section has cards — none-favorited and all-favorited homes each show a
+// single section; zero workspaces keeps the existing empty state with no
+// headings (and the search input stays).
+func TestWorkspacesSectionHeadingsVisibility(t *testing.T) {
+	// None favorited: only the Registered section renders.
+	home := t.TempDir()
+	seedFavoriteRegistry(t, home,
+		struct {
+			name, lastUsed, status string
+			favorite               bool
+		}{"alpha", "2026-01-05T13:00:00Z", "stopped", false},
+	)
+	s := startFixtureServer(t, home)
+	doc := body(t, get(t, s.URL()+"workspaces"))
+	if !strings.Contains(doc, "<h2>Registered workspaces</h2>") {
+		t.Fatalf("registered heading missing:\n%s", doc)
+	}
+	if strings.Contains(doc, "<h2>Favorite workspaces</h2>") {
+		t.Fatalf("none-favorited home must render a single section:\n%s", doc)
+	}
+
+	// All favorited: only the Favorite section renders.
+	home = t.TempDir()
+	seedFavoriteRegistry(t, home,
+		struct {
+			name, lastUsed, status string
+			favorite               bool
+		}{"zeta", "2026-01-05T12:00:00Z", "stopped", true},
+	)
+	s2 := startFixtureServer(t, home)
+	doc = body(t, get(t, s2.URL()+"workspaces"))
+	if !strings.Contains(doc, "<h2>Favorite workspaces</h2>") {
+		t.Fatalf("favorite heading missing:\n%s", doc)
+	}
+	if strings.Contains(doc, "<h2>Registered workspaces</h2>") {
+		t.Fatalf("all-favorited home must render a single section:\n%s", doc)
+	}
+
+	// Zero workspaces: the existing empty state, no headings.
+	s3 := startFixtureServer(t, t.TempDir())
+	doc = body(t, get(t, s3.URL()+"workspaces"))
+	if !strings.Contains(doc, "No workspaces registered") {
+		t.Fatalf("empty state missing:\n%s", doc)
+	}
+	if strings.Contains(doc, "<h2>") {
+		t.Fatalf("zero workspaces must render no section headings:\n%s", doc)
+	}
+	if !strings.Contains(doc, `data-role="ws-search"`) {
+		t.Fatalf("page head must keep the search input:\n%s", doc)
+	}
+}
+
 // startFixtureServer starts a test server pointed at a fake home.
 func startFixtureServer(t *testing.T, home string) *Server {
 	t.Helper()
