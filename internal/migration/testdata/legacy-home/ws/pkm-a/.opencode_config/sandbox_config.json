@@ -1,0 +1,17 @@
+{
+  "container_edition": "pkm",
+  "container_modes": ["skills"],
+  "start_option": "opencode",
+  "cbm_auto_index": true,
+  "cbm_auto_watch": true,
+  "ai_provider": "gwdg-saia",
+  "project_source": "empty",
+  "repo_url": "",
+  "project_kind": "pkm",
+  "search_mode": "websearch",
+  "setup_clone_complete": true,
+  "setup_cbm_complete": true,
+  "setup_skills_complete": false,
+  "setup_complete": false,
+  "version": "1.0"
+}

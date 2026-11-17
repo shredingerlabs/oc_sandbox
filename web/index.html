@@ -1,0 +1,84 @@
+<!doctype html>
+<!-- oc_sandbox embedded WebUI — index shell (#150). Signal design
+     language (spec §5, signed-off variant C): left sidebar tree,
+     Standard/Advanced control + theme toggle in the header, footer
+     update banner. #152: the display-mode control persists via
+     GET/POST /settings (global_config.json) and re-renders
+     immediately — data-display on <html>, no reload. Screens are
+     stubs here; the content slots fill in the per-screen tickets. -->
+<html lang="en" data-theme="dark" data-display="standard">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>oc_sandbox</title>
+<link rel="stylesheet" href="css/main.css">
+<script defer src="js/htmx.min.js"></script>
+<script defer src="js/main.js"></script>
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="name">oc_sandbox</div>
+      <div class="sub" data-role="mode-sub">Standard</div>
+    </div>
+    <nav class="tree" aria-label="navigation">
+      <section class="group open" data-group="workspace">
+        <button class="treehead" data-fold="workspace">Workspace<span class="chev" aria-hidden="true">▾</span></button>
+        <ul>
+          <li><button data-nav="ws-open">Open<span class="count" data-role="ws-count"></span></button></li>
+          <li><button data-nav="ws-new">New</button></li>
+        </ul>
+      </section>
+      <section class="group" data-group="settings">
+        <button class="treehead" data-fold="settings">Settings<span class="chev" aria-hidden="true">▾</span></button>
+        <ul hidden>
+          <li><button data-nav="set-ws">Workspace Settings</button></li>
+          <li data-advanced-only><button data-nav="set-proxy">Proxy</button></li>
+          <li><button data-nav="set-vcs">VCS Tracker<span class="count" data-role="vcs-count"></span></button></li>
+          <li><button data-nav="set-ai">AI-Provider<span class="count" data-role="ai-count"></span></button></li>
+          <li><button data-nav="set-import">Import Workspace</button></li>
+          <li data-advanced-only><button data-nav="set-config">Export / Restore Config</button></li>
+          <li><button data-nav="set-images">Images<span class="count" data-role="images-count"></span></button></li>
+          <li><button data-nav="set-containers">Containers<span class="count" data-role="containers-count"></span></button></li>
+          <li><button data-nav="set-update" hx-get="update" hx-target="[data-role='screen']" hx-swap="innerHTML">Update</button></li>
+          <li><button data-nav="set-uninstall">Uninstall</button></li>
+        </ul>
+      </section>
+    </nav>
+  </aside>
+  <main class="stage">
+    <header class="titlebar">
+      <div class="title"><div class="crumb" data-role="crumb">Workspace</div><h1>oc_sandbox</h1></div>
+      <div class="controls">
+        <span class="seg" data-role="display-mode" role="group" aria-label="display mode">
+          <button data-mode="standard" aria-pressed="true">Standard</button>
+          <button data-mode="advanced" aria-pressed="false">Advanced</button>
+        </span>
+        <button class="icontoggle" data-role="theme-toggle" title="toggle color mode" aria-label="toggle color mode">◐</button>
+      </div>
+    </header>
+    <div class="screen" data-role="screen">
+      <!-- screen content slots — filled by the per-screen tickets -->
+    </div>
+    <footer class="footer">
+      <div class="banner" data-role="update-banner" hidden></div>
+      <span class="version">oc_sandbox</span>
+    </footer>
+  </main>
+</div>
+<!-- shared confirm popup (ADR-0021 set): copy is per-action, Cancel-safe -->
+<div class="confirm-backdrop" data-role="confirm" hidden>
+  <div class="confirm" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
+    <h3 id="confirm-title" data-role="confirm-title"></h3>
+    <div class="confirm-body" data-role="confirm-body"></div>
+    <div class="confirm-actions">
+      <button class="btn ghost" data-role="confirm-cancel">Cancel</button>
+      <button class="btn primary" data-role="confirm-ok"></button>
+    </div>
+  </div>
+</div>
+<div class="toasts" data-role="toasts" aria-live="polite"></div>
+</body>
+</html>

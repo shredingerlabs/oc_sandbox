@@ -55,8 +55,8 @@ func Editions(dockerfile, dockerfileCustom string) ([]string, error) {
 }
 
 // SelectableEditions returns the editions offered in the menus that select a
-// project's edition: the raw stage list without `base`, whose stage is the
-// parent image other editions build FROM — infrastructure, not project
+// workspace's edition: the raw stage list without `base`, whose stage is the
+// parent image other editions build FROM — infrastructure, not workspace
 // material (ADR 0019 amendment). Container center Build tab, build-container.sh
 // and start.sh keep using Editions.
 func SelectableEditions(dockerfile, dockerfileCustom string) ([]string, error) {
@@ -138,6 +138,7 @@ var reservedModes = map[string]bool{
 	"container-id":   true,
 	"help":           true,
 	"use_proxy":      true,
+	"use_stt":        true,
 	"search_mode":    true,
 }
 
@@ -257,6 +258,36 @@ func AllContainers(run cmdrun.Runner) []ContainerState {
 	return all
 }
 
+// RunningProxyMembers lists the live squid proxy pod members (anchored
+// name filter `^oc-proxy-`; the sandbox ps filters exclude them).
+// Errors yield an empty list (podman-output based).
+func RunningProxyMembers(run cmdrun.Runner) []string {
+	out, err := run.Output("podman", "ps", "--format", "{{.Names}}", "--filter", "name=^oc-proxy-")
+	if err != nil {
+		return nil
+	}
+	return cmdrun.Lines(out)
+}
+
+// AllProxyMembers lists every squid proxy member in any state
+// (`podman ps -a`, anchored name filter; a stopped member persists —
+// the member run carries no --rm). Errors yield an empty list.
+func AllProxyMembers(run cmdrun.Runner) []ContainerState {
+	out, err := run.Output("podman", "ps", "-a", "--format", "{{.Names}}\t{{.State}}", "--filter", "name=^oc-proxy-")
+	if err != nil {
+		return nil
+	}
+	var all []ContainerState
+	for _, l := range cmdrun.Lines(out) {
+		name, state, ok := strings.Cut(l, "\t")
+		if !ok {
+			continue
+		}
+		all = append(all, ContainerState{Name: name, State: state})
+	}
+	return all
+}
+
 // PodState is one `podman pod ps` row: the pod name and its lifecycle
 // status ("running", "exited", …).
 type PodState struct {
@@ -266,7 +297,7 @@ type PodState struct {
 
 // AllPods lists every sandbox pod in any state (`podman pod ps`,
 // filtered by the pod naming convention opencode-sandbox-pod-), which
-// includes exited pods of gone projects. Errors yield an empty list
+// includes exited pods of gone workspaces. Errors yield an empty list
 // (podman-output based, like the podman ps adapters).
 func AllPods(run cmdrun.Runner) []PodState {
 	out, err := run.Output("podman", "pod", "ps", "--format", "{{.Names}}\t{{.Status}}")
@@ -306,12 +337,18 @@ type SandboxImage struct {
 
 // SearxngImageTag is the fixed tag of the shared SearXNG search image:
 // an infra image like oc-proxy, built from dist/searxng/Dockerfile and
-// never offered as a project edition.
+// never offered as a workspace edition.
 const SearxngImageTag = "oc-searxng"
+
+// SttImageTag is the fixed tag of the shared speech-to-text (dictation)
+// image: the whisper.cpp server with a baked small ggml model, an infra
+// image like oc-searxng, built from dist/stt/Dockerfile and never
+// offered as a workspace edition (ADR 0036).
+const SttImageTag = "oc-stt"
 
 // ProxyImageTag is the fixed tag of the shared squid proxy image: an
 // infra image like oc-searxng, built from proxy/Dockerfile and never
-// offered as a project edition.
+// offered as a workspace edition.
 const ProxyImageTag = "oc-proxy"
 
 // BaseImageRef is the bare image ref of the family's infrastructure
@@ -321,8 +358,8 @@ const ProxyImageTag = "oc-proxy"
 const BaseImageRef = "opencode-sandbox-base"
 
 // infraImage reports whether an image reference is one of the shared
-// infra images (oc-proxy, oc-searxng): its last path segment (tag/
-// digest suffix stripped) is that name.
+// infra images (oc-proxy, oc-searxng, oc-stt): its last path segment
+// (tag/digest suffix stripped) is that name.
 func infraImage(ref string) bool {
 	if i := strings.LastIndex(ref, "/"); i >= 0 {
 		ref = ref[i+1:]
@@ -330,13 +367,13 @@ func infraImage(ref string) bool {
 	if j := strings.IndexAny(ref, ":@"); j >= 0 {
 		ref = ref[:j]
 	}
-	return ref == ProxyImageTag || ref == SearxngImageTag
+	return ref == ProxyImageTag || ref == SearxngImageTag || ref == SttImageTag
 }
 
 // SandboxImageTag reports whether a podman image reference belongs to
 // the sandbox family: tagged `opencode-sandbox-<edition>` (any registry
 // prefix, tag/digest suffix) or one of the infra images (oc-proxy,
-// oc-searxng).
+// oc-searxng, oc-stt).
 func SandboxImageTag(ref string) bool {
 	return EditionFromImage(ref) != "" || infraImage(ref)
 }
@@ -375,7 +412,7 @@ func ContainerImageRefs(run cmdrun.Runner) []string {
 // ImageInUse reports whether any container image reference matches a
 // sandbox-family tag: edition images match on the edition suffix (the
 // container's ref carries no registry prefix or tag), infra images
-// (oc-proxy, oc-searxng) by name.
+// (oc-proxy, oc-searxng, oc-stt) by name.
 func ImageInUse(refs []string, tag string) bool {
 	if ed := EditionFromImage(tag); ed != "" {
 		return slices.ContainsFunc(refs, func(ref string) bool {
@@ -404,6 +441,21 @@ func ImageExistsTag(run cmdrun.Runner, tag string) bool {
 // 4096/tcp port (e.g. "127.0.0.1:4123"), or "" when not published.
 func WebPort(run cmdrun.Runner, container string) string {
 	out, err := run.Output("podman", "port", container, "4096/tcp")
+	if err != nil {
+		return ""
+	}
+	lines := cmdrun.Lines(out)
+	if len(lines) == 0 {
+		return ""
+	}
+	return lines[0]
+}
+
+// SttPort returns the first published host binding for the pod's
+// 8090/tcp STT member port (e.g. "127.0.0.1:8091"), or "" when not
+// published (member down, offline run, started without dictation).
+func SttPort(run cmdrun.Runner, container string) string {
+	out, err := run.Output("podman", "port", container, "8090/tcp")
 	if err != nil {
 		return ""
 	}

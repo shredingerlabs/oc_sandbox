@@ -12,12 +12,12 @@
 
 [safe]
     # "*" statt eines festen Pfads, da .git_local sowohl in Zone 1
-    # (/home/dev/project) als auch Zone 2 (/home/hil/project) genutzt werden
+    # (/home/dev/workspace) als auch Zone 2 (/home/hil/workspace) genutzt werden
     # kann - der Container-Pfad unterscheidet sich je nach Zone. Da ohnehin
     # nur genau ein, bewusst gewähltes Projekt gemountet wird, ist das
     # Risiko hier vertretbar. Wer es strikter mag, kann stattdessen den
     # konkreten Pfad eintragen, z.B.:
-    #   directory = /home/dev/project
+    #   directory = /home/dev/workspace
     directory = *
 
 [init]

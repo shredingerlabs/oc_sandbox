@@ -12,13 +12,17 @@ ENV DEBIAN_FRONTEND=${DEBIAN_FRONTEND} \
     LC_ALL=${LC_ALL}
 
 # --- System packages (common core) -------------------------------------------
+# pulseaudio-utils: parecord — the dictation mic capture runs INSIDE the
+# workspace container against the bind-mounted host PulseAudio socket
+# (ADR-0036); without it the TUI plugin's record spawn fails with
+# "Executable not found in $PATH" (found in the first live dictation test).
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates curl wget git build-essential pkg-config gnupg \
         python3 python3-pip python3-venv python3-dev \
         cmake ninja-build \
         jq unzip openssh-client usbutils \
         libusb-1.0-0 \
-        gh \
+        gh pulseaudio-utils \
     && rm -rf /var/lib/apt/lists/*
 
 # --- Floating-URL cache bust ---------------------------------------------------
@@ -66,14 +70,14 @@ RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
 # --- Non-root user -----------------------------------------------------------
 RUN userdel -r ubuntu \
     && useradd -m -s /bin/bash -u 1000 dev \
-    && mkdir -p /home/dev/.ssh /home/dev/project /home/dev/.git_local/glab-cli \
+    && mkdir -p /home/dev/.ssh /home/dev/workspace /home/dev/.git_local/glab-cli \
               /home/dev/.config/opencode /home/dev/.local/share/opencode /home/dev/.cache/opencode \
     && chown -R dev:dev /home/dev
 
 USER dev
-WORKDIR /home/dev/project
+WORKDIR /home/dev/workspace
 
-RUN git config --global --add safe.directory /home/dev/project
+RUN git config --global --add safe.directory /home/dev/workspace
 
 # =============================================================================
 # EDITION: web
@@ -262,6 +266,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         pandoc \
         python3-matplotlib python3-pandas \
     && rm -rf /var/lib/apt/lists/*
+
+USER dev
+
+ENTRYPOINT ["/bin/bash", "-l"]
+
+# =============================================================================
+# EDITION: chat
+# =============================================================================
+FROM opencode-sandbox-base AS opencode-sandbox-chat
 
 USER dev
 

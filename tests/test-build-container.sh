@@ -7,15 +7,20 @@ PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 test_home=$(mktemp -d)
 trap 'rm -rf "$test_home"' EXIT
 
-# Fixture-Dist-Verzeichnis: echtes Dockerfile + Dummy-Proxy + Test-Dockerfile.custom
+# Fixture-Dist-Verzeichnis: echtes Dockerfile + Dummy-Proxy + Dummy-STT +
+# Test-Dockerfile.custom
 fixture_dist="$test_home/dist"
-mkdir -p "$fixture_dist/scripts" "$fixture_dist/proxy"
+mkdir -p "$fixture_dist/scripts" "$fixture_dist/proxy" "$fixture_dist/stt"
 cp "$PROJECT_ROOT/dist/Dockerfile" "$fixture_dist/Dockerfile"
 cp "$PROJECT_ROOT/dist/scripts/build-container.sh" "$fixture_dist/scripts/"
 cat > "$fixture_dist/proxy/Dockerfile" <<'EOF'
 FROM alpine
 EOF
 touch "$fixture_dist/proxy/dummy"
+cat > "$fixture_dist/stt/Dockerfile" <<'EOF'
+FROM alpine
+EOF
+touch "$fixture_dist/stt/dummy"
 
 make_custom_dockerfile() {
   cat > "$fixture_dist/Dockerfile.custom"
@@ -139,6 +144,7 @@ for bad in nosuchedition Web; do
     exit 1
   fi
   grep -q 'opencode-sandbox-rust' "$test_home/err.log"
+  grep -q 'Infrastruktur: oc-proxy oc-searxng oc-stt' "$test_home/err.log"
 done
 grep -s -q -- '--target opencode-sandbox-nosuchedition' "$PODMAN_LOG" && {
   printf 'unknown edition was passed to podman\n' >&2
@@ -181,7 +187,33 @@ if ! PODMAN_MISSING_IMAGES="" run_script rust; then
 fi
 grep -q -- 'build --network host -t oc-searxng -f searxng/Dockerfile searxng/' "$PODMAN_LOG"
 grep -q -- 'build -t oc-proxy -f proxy/Dockerfile proxy/' "$PODMAN_LOG"
+grep -q -- 'build --network host -t oc-stt -f stt/Dockerfile stt/' "$PODMAN_LOG"
 printf 'searxng infra build tests passed\n'
+
+# --- 10a: STT-Infrastruktur-Image --------------------------------------------
+# Direktes Ziel oc-stt baut nur das STT-Image (--network host: der Build
+# laedt whisper.cpp-Quelle + Modell; kein erneuter Proxy-/SearXNG-Lauf,
+# keine Edition).
+: > "$PODMAN_LOG"
+if ! PODMAN_MISSING_IMAGES="" run_script oc-stt; then
+  printf 'oc-stt build failed\n' >&2
+  cat "$test_home/err.log" >&2
+  exit 1
+fi
+grep -q -- 'build --network host -t oc-stt -f stt/Dockerfile stt/' "$PODMAN_LOG"
+if grep -q -- '--target opencode-sandbox-' "$PODMAN_LOG"; then
+  printf 'stt build touched editions\n' >&2
+  exit 1
+fi
+if grep -q -- 'build -t oc-proxy' "$PODMAN_LOG"; then
+  printf 'stt-only build must not rebuild oc-proxy\n' >&2
+  exit 1
+fi
+if grep -q -- 'build --network host -t oc-searxng' "$PODMAN_LOG"; then
+  printf 'stt-only build must not rebuild oc-searxng\n' >&2
+  exit 1
+fi
+printf 'stt infra build tests passed\n'
 
 # --- 10: SearXNG-MCP-Runtime liegt in der Basis ------------------------------
 # ADR 0026 registriert das SearXNG-MCP fuer JEDES search_mode=searxng-Projekt

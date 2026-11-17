@@ -1,8 +1,8 @@
 # Legacy: Direct Script Usage
 
-All steps of the TUI workflow can also be run directly via the scripts in
+All steps of the WebUI workflow can also be run directly via the scripts in
 `dist/scripts/` (or `~/.oc-sandbox/scripts/` after installation). This is the
-legacy path — the Go TUI (`oc-sandbox`) is the recommended entry point.
+legacy path — the WebUI (`oc-sandbox`) is the recommended entry point.
 
 ## 1. Build an image
 
@@ -30,23 +30,23 @@ This builds:
 - `opencode-sandbox-latex` — base + latexmk + TeX Live collections
 - `opencode-sandbox-pkm` — base only (Personal Knowledge Wiki edition)
 - plus all custom editions from `dist/Dockerfile.custom`
-- `oc-proxy` — Squid egress proxy image (started as a per-project pod member
+- `oc-proxy` — Squid egress proxy image (started as a per-workspace pod member
   by `start.sh --use_proxy`; the image itself is only needed then)
-- `oc-searxng` — SearXNG image for web search (started as a per-project pod
+- `oc-searxng` — SearXNG image for web search (started as a per-workspace pod
   member by `start.sh --search_mode searxng`; configuration in
   `dist/searxng/settings.yml`, survives updates)
 
-## 2. Set up a project root
+## 2. Set up a workspace root
 
-The start script takes exactly **one** path: a **project root** with the
+The start script takes exactly **one** path: a **workspace root** with the
 following subfolders.
 
 ```
-<PROJECT_ROOT>/
-  project/             <- your actual repo (git clone/init goes here)
-  .opencode_config/    <- OpenCode config, per-project, persistent
+<WORKSPACE_ROOT>/
+  workspace/           <- your actual repo (git clone/init goes here)
+  .opencode_config/    <- OpenCode config, per-workspace, persistent
   .opencode_data/      <- OpenCode data incl. sessions & auth/credentials
-  .ssh_local/          <- SSH keys + custom ssh config for this project
+  .ssh_local/          <- SSH keys + custom ssh config for this workspace
   .git_local/          <- git identity/settings + optional HTTPS credentials
     gitconfig             <- user.name/user.email, safe.directory, credential-store
     credentials           <- git credential-store (optional)
@@ -56,21 +56,21 @@ following subfolders.
   .bash_local/         <- bash_profile for the container (persistent prompt/env tweaks)
 ```
 
-The sensitive folders are **siblings** of `project/`, so the git repo never
+The sensitive folders are **siblings** of `workspace/`, so the git repo never
 sees them — not even accidentally via `git add .`.
 
-Create a new project root with correct structure/permissions:
+Create a new workspace root with correct structure/permissions:
 
 ```bash
-dist/scripts/init-project.sh ~/projects/customer-x
-# ... clone the repo into ~/projects/customer-x/project, adjust git config ...
+dist/scripts/init-workspace.sh ~/workspaces/customer-x
+# ... clone the repo into ~/workspaces/customer-x/workspace, adjust git config ...
 ```
 
-The optional `--project_kind` flag seeds the OpenCode templates accordingly:
+The optional `--workspace_kind` flag seeds the OpenCode templates accordingly:
 `code` (default), `chat` (chat-style `AGENTS_chat.md`), or `pkm` (full
-Personal-Knowledge-Wiki templates, also applied to cloned projects).
+Personal-Knowledge-Wiki templates, also applied to cloned workspaces).
 
-Note: re-running `init-project.sh` overwrites the project-specific templates
+Note: re-running `init-workspace.sh` overwrites the workspace-specific templates
 (incl. `.opencode_config/opencode.json`) — your own customizations there are
 lost; only `proxy/allowlist.txt` is preserved on updates.
 `dist/Dockerfile.custom` is also preserved on updates.
@@ -78,19 +78,19 @@ lost; only `proxy/allowlist.txt` is preserved on updates.
 ### `.git_local/` adjustments
 
 ```bash
-$EDITOR ~/projects/customer-x/.git_local/gitconfig   # set user.name / user.email
+$EDITOR ~/workspaces/customer-x/.git_local/gitconfig   # set user.name / user.email
 ```
 
 ### Fill `.ssh_local/`
 
 ```bash
-ssh-keygen -t ed25519 -f ~/projects/customer-x/.ssh_local/id_ed25519_github -N ""
-ssh-keygen -t ed25519 -f ~/projects/customer-x/.ssh_local/id_ed25519_gitlab -N ""
-chmod 600 ~/projects/customer-x/.ssh_local/id_ed25519_*
+ssh-keygen -t ed25519 -f ~/workspaces/customer-x/.ssh_local/id_ed25519_github -N ""
+ssh-keygen -t ed25519 -f ~/workspaces/customer-x/.ssh_local/id_ed25519_gitlab -N ""
+chmod 600 ~/workspaces/customer-x/.ssh_local/id_ed25519_*
 ```
 
 Add the public keys as **deploy keys** (GitHub: repo → Settings → Deploy keys;
-own GitLab: project → Deploy Keys). Adjust `.ssh_local/config`.
+own GitLab: workspace → Deploy Keys). Adjust `.ssh_local/config`.
 
 ### Alternative to SSH: HTTPS + token (gh / glab)
 
@@ -101,9 +101,9 @@ The token is stored once and covers git authentication + the CLI tools
 **GitHub (`gh`):**
 
 ```bash
-cp templates/git_local/gh-cli/hosts.yml ~/projects/customer-x/.git_local/gh-cli/hosts.yml
-$EDITOR ~/projects/customer-x/.git_local/gh-cli/hosts.yml   # enter oauth_token
-chmod 600 ~/projects/customer-x/.git_local/gh-cli/hosts.yml
+cp templates/git_local/gh-cli/hosts.yml ~/workspaces/customer-x/.git_local/gh-cli/hosts.yml
+$EDITOR ~/workspaces/customer-x/.git_local/gh-cli/hosts.yml   # enter oauth_token
+chmod 600 ~/workspaces/customer-x/.git_local/gh-cli/hosts.yml
 ```
 
 Token: GitHub → Settings → Developer settings → Personal access tokens →
@@ -112,9 +112,9 @@ Tokens (classic). Required scopes: `repo`, `read:org`, `workflow`.
 **GitLab (`glab`):**
 
 ```bash
-cp templates/git_local/glab-cli/config.yml ~/projects/customer-x/.git_local/glab-cli/config.yml
-$EDITOR ~/projects/customer-x/.git_local/glab-cli/config.yml   # uncomment hosts: block, enter token
-chmod 600 ~/projects/customer-x/.git_local/glab-cli/config.yml
+cp templates/git_local/glab-cli/config.yml ~/workspaces/customer-x/.git_local/glab-cli/config.yml
+$EDITOR ~/workspaces/customer-x/.git_local/glab-cli/config.yml   # uncomment hosts: block, enter token
+chmod 600 ~/workspaces/customer-x/.git_local/glab-cli/config.yml
 ```
 
 Token: GitLab → Preferences → Access Tokens. Required scopes: `api`,
@@ -129,23 +129,23 @@ gitconfig template (`[credential] helper = store --file=
 https://<user>:ghp_xxxxx@github.com
 ```
 
-The TUI VCS flow writes this entry automatically whenever a VCS token is
+The WebUI VCS flow writes this entry automatically whenever a VCS token is
 captured (GitHub: `https://oauth2:<token>@github.com`).
 
 ## 3. Start the sandbox
 
 ```bash
-dist/scripts/start.sh ~/projects/customer-x --edition web            # full network
+dist/scripts/start.sh ~/workspaces/customer-x --edition web            # full network
 ```
 
 The `--edition` flag accepts any edition discovered from
 `Dockerfile`/`Dockerfile.custom` (no fixed default).
 
 ```bash
-dist/scripts/start.sh ~/projects/customer-x --edition web       # Web only
-dist/scripts/start.sh ~/projects/customer-x --edition embedded  # Embedded only
-dist/scripts/start.sh ~/projects/customer-x --edition base      # Minimal Python
-dist/scripts/start.sh ~/projects/customer-x --edition swdev     # C/C++, Java, Rust, Go
+dist/scripts/start.sh ~/workspaces/customer-x --edition web       # Web only
+dist/scripts/start.sh ~/workspaces/customer-x --edition embedded  # Embedded only
+dist/scripts/start.sh ~/workspaces/customer-x --edition base      # Minimal Python
+dist/scripts/start.sh ~/workspaces/customer-x --edition swdev     # C/C++, Java, Rust, Go
 ```
 
 | Flag combination         | Network | Proxy           | Devices                    | Use case                           |
@@ -157,41 +157,47 @@ dist/scripts/start.sh ~/projects/customer-x --edition swdev     # C/C++, Java, R
 | `--use_proxy --hil_mode` | pasta   | Squid allowlist | Scope + MCU                | HIL with restricted network        |
 | `--cbm_ui`               | pasta   | no              | –                          | CBM knowledge-graph UI (port 9749) |
 | `--use_proxy --cbm_ui`   | pasta   | Squid allowlist | –                          | Proxy + graph UI                   |
-| `--search_mode searxng`  | pasta   | no              | –                          | SearXNG web search (per-project pod member, no proxy) |
+| `--search_mode searxng`  | pasta   | no              | –                          | SearXNG web search (per-workspace pod member, no proxy) |
 | `--start_web --detach`   | pasta   | no              | –                          | OpenCode web UI (port 4096)        |
+
+`pasta` is the primary rootless network mode; when the host has no usable pasta
+interface (VPN/tunnel default route, offline, or IPv4-less) the start retries
+dual-stack pasta and then `slirp4netns` (see the README troubleshooting entry).
 
 Further single flags (not in the table): `--start_opencode` opens an OpenCode
 TUI session in the container directly; `--detach` starts the container in the
-background (without `--start_web` with `sleep infinity` as main process);
-`--container-id <id>` sets the persisted container identity from the project
-registry (otherwise: basename of the project root).
+background — every detached start runs the OpenCode v2 background service as
+main process (`opencode service start && exec sleep infinity`) and publishes
+port 4096 (except `--offline`);
+`--container-id <id>` sets the persisted container identity from the workspace
+registry (otherwise: basename of the workspace root).
 
 Examples:
 
 ```bash
 # Coding, no restrictions (web edition)
-dist/scripts/start.sh ~/projects/customer-x --edition web
+dist/scripts/start.sh ~/workspaces/customer-x --edition web
 
 # Embedded edition with HIL
-dist/scripts/start.sh ~/projects/hil-tests --edition embedded --hil_mode
+dist/scripts/start.sh ~/workspaces/hil-tests --edition embedded --hil_mode
 
 # Egress proxy (allowlist)
-dist/scripts/start.sh ~/projects/customer-x --use_proxy
+dist/scripts/start.sh ~/workspaces/customer-x --use_proxy
 
-# Web search via the project's own SearXNG pod member
-dist/scripts/start.sh ~/projects/customer-x --search_mode searxng
+# Web search via the workspace's own SearXNG pod member
+dist/scripts/start.sh ~/workspaces/customer-x --search_mode searxng
 
 # Completely offline
-dist/scripts/start.sh ~/projects/customer-x --offline
+dist/scripts/start.sh ~/workspaces/customer-x --offline
 
 # HIL tests with scope + microcontrollers
-dist/scripts/start.sh ~/projects/hil-tests --hil_mode
+dist/scripts/start.sh ~/workspaces/hil-tests --hil_mode
 
 # With CBM knowledge-graph UI (default http://localhost:9749)
-dist/scripts/start.sh ~/projects/customer-x --cbm_ui
+dist/scripts/start.sh ~/workspaces/customer-x --cbm_ui
 
 # OpenCode web UI (default http://localhost:4096)
-dist/scripts/start.sh ~/projects/customer-x --start_web --detach
+dist/scripts/start.sh ~/workspaces/customer-x --start_web --detach
 ```
 
 > **`--cbm_ui`:** `codebase-memory-mcp` starts in the background with
@@ -202,8 +208,9 @@ dist/scripts/start.sh ~/projects/customer-x --start_web --detach
 
 > **`--start_web`:** starts the OpenCode web service (v2 background service,
 > pinned to container port 4096) and publishes it on `127.0.0.1` (port scan
-> 4096–4196 if 4096 is taken). With `--detach` the service runs as the
-> container's main process; the URL or a one-time pair link is printed on
+> 4096–4196 if 4096 is taken). Every detached start publishes port 4096 and
+> runs the service as the container's main process (`--start_web` only
+> matters in the foreground); the URL or a one-time pair link is printed on
 > access. Without `--detach`, `opencode serve` runs foreground; Ctrl+C stops
 > and removes the container.
 
@@ -221,9 +228,9 @@ The container starts an interactive shell. Start OpenCode with:
 opencode
 ```
 
-### OpenCode config & data (persistent, per project)
+### OpenCode config & data (persistent, per workspace)
 
-| Purpose                                          | Path in container         | Source in project root |
+| Purpose                                          | Path in container         | Source in workspace root |
 | ------------------------------------------------ | ------------------------- | ---------------------- |
 | Config (`opencode.json`, agents, themes)         | `~/.config/opencode`      | `.opencode_config/`    |
 | Data (sessions, history, **auth/credentials**)   | `~/.local/share/opencode` | `.opencode_data/`      |
@@ -234,14 +241,14 @@ opencode
 Reset:
 
 ```bash
-rm -rf ~/projects/customer-x/.opencode_config/* ~/projects/customer-x/.opencode_data/*
+rm -rf ~/workspaces/customer-x/.opencode_config/* ~/workspaces/customer-x/.opencode_data/*
 ```
 
 ## 4. Uninstall (script)
 
-The TUI offers uninstall under Settings → Uninstall. Directly via script,
+The WebUI offers uninstall under Settings → Uninstall. Directly via script,
 `dist/scripts/uninstall.sh` removes only the installation folder, the symlinks
-and optionally the config — never project roots or user data. Running
+and optionally the config — never workspace roots or user data. Running
 containers are detected and reported; files without removable permissions are
 skipped and listed at the end.
 

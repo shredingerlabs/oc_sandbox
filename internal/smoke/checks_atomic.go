@@ -26,7 +26,7 @@ func checkAtomicDiscipline(home, root string) Item {
 
 	rotated := regexp.MustCompile(`\.\d{8}T\d{6}\d{9}\.[a-zA-Z0-9]{6}$`)
 	// First write: no prior file → no backup.
-	if err := config.AtomicWrite(sub, global, `{"default_project_path": "/x"}`); err != nil {
+	if err := config.AtomicWrite(sub, global, `{"default_workspace_path": "/x"}`); err != nil {
 		p.reasonf("first write: %v", err)
 		return p.finish()
 	}
@@ -34,7 +34,7 @@ func checkAtomicDiscipline(home, root string) Item {
 		p.reasonf("backup created on first write (count=%d)", got)
 	}
 	// Second write: backup with the bash mktemp naming shape.
-	if err := config.AtomicWrite(sub, global, `{"default_project_path": "/y"}`); err != nil {
+	if err := config.AtomicWrite(sub, global, `{"default_workspace_path": "/y"}`); err != nil {
 		p.reasonf("second write: %v", err)
 		return p.finish()
 	}

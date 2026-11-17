@@ -1,0 +1,17 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "theme": "system",
+  "small_model": "provider/some-model",
+  "autoupdate": true,
+  "plugin": "opencode-models-discovery",
+  "providers": {
+    "gwdg-saia": {
+      "package": "@opencode/ai/providers/openai-compatible",
+      "name": "GWDG SAIA",
+      "settings": {
+        "baseURL": "https://chat-ai.academic.cloud/v1",
+        "apiKey": "{file:/home/dev/.local/share/opencode/credentials/gwdg-saia}"
+      }
+    }
+  }
+}

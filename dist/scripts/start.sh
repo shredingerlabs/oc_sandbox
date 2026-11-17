@@ -1,44 +1,46 @@
 #!/usr/bin/env bash
 #
-# Startet die OpenCode-Sandbox (Podman rootless, gehärtet).
+# Starts the OpenCode sandbox (podman rootless, hardened).
 #
-# Ein Container für alle Use Cases: Coding, HIL-Tests, Offline, Proxy.
-# Modi werden per Flags gewählt, nicht per separatem Image.
+# One container for every use case: coding, HIL tests, offline, proxy.
+# Modes are chosen per flags, not per separate image.
 #
-# Erwartet EINEN Projekt-Root mit folgender Struktur:
+# Expects ONE workspace root with the following structure:
 #
-#   <PROJECT_ROOT>/
-#     project/            <- Repo, wird nach /home/dev/project gemountet
-#     .opencode_config/    <- OpenCode-Config, projektspezifisch persistent
-#     .opencode_data/       <- OpenCode-Daten inkl. Auth/Credentials
-#     .ssh_local/           <- SSH-Keys + Config für dieses Projekt
-#     .git_local/           <- Git-Identität/-Settings + optionale Credentials
-#     .cbm_cache/           <- CBM-Graph-Datenbank (persistent)
+#   <WORKSPACE_ROOT>/
+#     workspace/          <- repo, mounted at /home/dev/workspace
+#     .opencode_config/    <- OpenCode config, persistent per workspace
+#     .opencode_data/       <- OpenCode data incl. auth/credentials and plugin cache
+#     .ssh_local/           <- SSH keys + config for this workspace
+#     .git_local/           <- git identity/settings + optional credentials
+#     .cbm_cache/           <- CBM graph database (persistent)
 #
 # Flags:
-#   --use_proxy        Startet Squid-Egress-Allowlist-Proxy und nutzt ihn
-#   --search_mode      Web-Suche: websearch (Exa/Parallel, Standard), none
-#                      oder searxng (oc-searxng-Pod-Member + SearXNG-MCP;
-#                      nicht mit --use_proxy kombinierbar, ADR 0026)
-#   --offline          Kein Netzwerk (nur lokale Modelle)
-#   --hil_mode         USB-Passthrough für Oszi (scope0) und MCU (ttyUSB*, ttyACM*, ttyAMA*)
-#   --cbm_ui           Aktiviert CBM Graph-UI auf Port 9749
-#   --start_opencode   Startet OpenCode direkt nach Container-Start
-#   --start_web        Startet OpenCode Web (Port 4096) nach Container-Start
-#   --edition          Container-Edition (z.B. über build-container.sh gebaut)
-#   --detach            Container im Hintergrund starten
-#   --container-id      Persisted project container identity
+#   --use_proxy        starts the Squid egress-allowlist proxy and uses it
+#   --use_stt          starts the oc-stt pod member (local dictation,
+#                      whisper.cpp; never under --offline)
+#   --search_mode      web search: websearch (Exa/Parallel, default), none
+#                      or searxng (oc-searxng pod member + SearXNG MCP;
+#                      not combinable with --use_proxy, ADR 0026)
+#   --offline          no network (local models only)
+#   --hil_mode         USB passthrough for oscilloscope (scope0) and MCU (ttyUSB*, ttyACM*, ttyAMA*)
+#   --cbm_ui           enables the CBM graph UI on port 9749
+#   --start_opencode   starts OpenCode directly after container start
+#   --start_web        starts OpenCode web (port 4096) after container start
+#   --edition          container edition (e.g. built via build-container.sh)
+#   --detach            start the container in the background
+#   --container-id      persisted workspace container identity
 #
 # Beispiele:
-#   scripts/start.sh ~/projects/kunde-x                            # Default (volle Netzanbindung)
-#   scripts/start.sh ~/projects/kunde-x --use_proxy                 # Mit Egress-Allowlist
-#   scripts/start.sh ~/projects/kunde-x --offline                   # Ohne Netzwerk
-#   scripts/start.sh ~/projects/kunde-x --search_mode searxng       # SearXNG-Websuche
-#   scripts/start.sh ~/projects/kunde-x --hil_mode                  # HIL-Tests
-#   scripts/start.sh ~/projects/kunde-x --use_proxy --hil_mode      # Kombiniert
-#   scripts/start.sh ~/projects/kunde-x --cbm_ui                    # Mit CBM Graph-UI
-#   scripts/start.sh ~/projects/kunde-x --start_opencode            # Mit direktem OpenCode-Start
-#   scripts/start.sh ~/projects/kunde-x --start_web --detach        # Als Webserver
+#   scripts/start.sh ~/workspaces/customer-x                            # default (full network)
+#   scripts/start.sh ~/workspaces/customer-x --use_proxy                  # with the egress allowlist
+#   scripts/start.sh ~/workspaces/customer-x --offline                    # no network
+#   scripts/start.sh ~/workspaces/customer-x --search_mode searxng        # SearXNG web search
+#   scripts/start.sh ~/workspaces/customer-x --hil_mode                   # HIL tests
+#   scripts/start.sh ~/workspaces/customer-x --use_proxy --hil_mode       # combined
+#   scripts/start.sh ~/workspaces/customer-x --cbm_ui                     # with the CBM graph UI
+#   scripts/start.sh ~/workspaces/customer-x --start_opencode             # with a direct OpenCode start
+#   scripts/start.sh ~/workspaces/customer-x --start_web --detach         # as a web server
 #
 set -euo pipefail
 
@@ -46,38 +48,41 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 # --- Flags parsen -------------------------------------------------------------
-PROJECT_ROOT="${1:-}"
-if [[ "$PROJECT_ROOT" == "--help" || "$PROJECT_ROOT" == "-h" ]]; then
-  echo "Nutzung: $0 <projekt-root> --edition <edition> [Flags]"
-  echo "  --edition          Container-Edition auswählen (erforderlich)"
-  echo "  --use_proxy        Squid-Egress-Allowlist-Proxy starten und nutzen"
-  echo "  --search_mode <m>  Web-Suche: websearch (Standard), none, searxng"
-  echo "  --offline          Kein Netzwerk (--network=none)"
-  echo "  --hil_mode         USB-Passthrough für Oszi und MCU-Geräte"
-  echo "  --cbm_ui           CBM Graph-UI auf Port 9749 aktivieren"
-  echo "  --start_opencode   OpenCode direkt nach Container-Start starten"
-  echo "  --start_web        OpenCode Web (Port 4096) starten und veröffentlichen"
-  echo "  --detach           Container im Hintergrund starten"
-  echo "  --container-id     Persisted project container identity"
+WORKSPACE_ROOT="${1:-}"
+if [[ "$WORKSPACE_ROOT" == "--help" || "$WORKSPACE_ROOT" == "-h" ]]; then
+  echo "Usage: $0 <workspace-root> --edition <edition> [Flags]"
+  echo "  --edition          select the container edition (required)"
+  echo "  --use_proxy        start and use the Squid egress-allowlist proxy"
+  echo "  --use_stt          start the oc-stt pod member (local dictation)"
+  echo "  --search_mode <m>  web search: websearch (default), none, searxng"
+  echo "  --offline          no network (--network=none)"
+  echo "  --hil_mode         USB passthrough for oscilloscope and MCU devices"
+  echo "  --cbm_ui           enable the CBM graph UI on port 9749"
+  echo "  --start_opencode   start OpenCode directly after container start"
+  echo "  --start_web        start and publish OpenCode web (port 4096)"
+  echo "  --detach           start the container in the background"
+  echo "  --container-id     persisted workspace container identity"
   exit 0
 fi
-if [[ -z "$PROJECT_ROOT" ]]; then
-  echo "Nutzung: $0 <projekt-root> --edition <edition> [--use_proxy] [--search_mode <none|websearch|searxng>] [--offline] [--hil_mode] [--cbm_ui] [--start_opencode] [--start_web] [--detach]" >&2
+if [[ -z "$WORKSPACE_ROOT" ]]; then
+  echo "Usage: $0 <workspace-root> --edition <edition> [--use_proxy] [--use_stt] [--search_mode <none|websearch|searxng>] [--offline] [--hil_mode] [--cbm_ui] [--start_opencode] [--start_web] [--detach]" >&2
   echo "" >&2
-  echo "  <projekt-root>        Pfad zum Projekt-Root (siehe init-project.sh)" >&2
-  echo "  --edition <edition>   Container-Edition auswählen (erforderlich)" >&2
-  echo "  --use_proxy           Squid-Egress-Allowlist-Proxy starten und nutzen" >&2
-  echo "  --search_mode <m>     Web-Suche: websearch (Standard), none, searxng" >&2
-  echo "  --offline             Kein Netzwerk (--network=none)" >&2
-  echo "  --hil_mode            USB-Passthrough für Oszi + MCU-Geräte" >&2
-  echo "  --cbm_ui              CBM Graph-UI auf Port 9749 aktivieren" >&2
-  echo "  --start_opencode      OpenCode direkt nach Container-Start starten" >&2
-  echo "  --start_web           OpenCode Web (Port 4096) starten und veröffentlichen" >&2
+  echo "  <workspace-root>        path to the workspace root (see init-workspace.sh)" >&2
+  echo "  --edition <edition>   select the container edition (required)" >&2
+  echo "  --use_proxy           start and use the Squid egress-allowlist proxy" >&2
+  echo "  --use_stt             start the oc-stt pod member (local dictation)" >&2
+  echo "  --search_mode <m>     web search: websearch (default), none, searxng" >&2
+  echo "  --offline             no network (--network=none)" >&2
+  echo "  --hil_mode            USB passthrough for oscilloscope + MCU devices" >&2
+  echo "  --cbm_ui              enable the CBM graph UI on port 9749" >&2
+  echo "  --start_opencode      start OpenCode directly after container start" >&2
+  echo "  --start_web           start and publish OpenCode web (port 4096)" >&2
   exit 1
 fi
 shift
 
 USE_PROXY=false
+USE_STT=false
 SEARCH_MODE="websearch"
 OFFLINE=false
 HIL_MODE=false
@@ -90,13 +95,14 @@ CONTAINER_ID=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --edition)
-      [[ $# -ge 2 ]] || { echo "--edition benötigt einen Wert" >&2; exit 1; }
+      [[ $# -ge 2 ]] || { echo "--edition requires a value" >&2; exit 1; }
       EDITION="$2"
       shift 2
       ;;
     --use_proxy)        USE_PROXY=true; shift ;;
+    --use_stt)          USE_STT=true; shift ;;
     --search_mode)
-      [[ $# -ge 2 ]] || { echo "--search_mode benötigt einen Wert" >&2; exit 1; }
+      [[ $# -ge 2 ]] || { echo "--search_mode requires a value" >&2; exit 1; }
       SEARCH_MODE="$2"
       shift 2
       ;;
@@ -107,35 +113,35 @@ while [[ $# -gt 0 ]]; do
     --start_web)        START_WEB=true; shift ;;
     --detach)           DETACH=true; shift ;;
     --container-id)
-      [[ $# -ge 2 ]] || { echo "--container-id benötigt einen Wert" >&2; exit 1; }
+      [[ $# -ge 2 ]] || { echo "--container-id requires a value" >&2; exit 1; }
       CONTAINER_ID="$2"
       shift 2
       ;;
     *)
-      echo "Unbekanntes Flag: $1" >&2
-      echo "Nutzung: $0 <projekt-root> --edition <edition> [--use_proxy] [--search_mode <none|websearch|searxng>] [--offline] [--hil_mode] [--cbm_ui] [--start_opencode] [--start_web] [--detach]" >&2
+      echo "Unknown flag: $1" >&2
+      echo "Usage: $0 <workspace-root> --edition <edition> [--use_proxy] [--use_stt] [--search_mode <none|websearch|searxng>] [--offline] [--hil_mode] [--cbm_ui] [--start_opencode] [--start_web] [--detach]" >&2
       exit 1
       ;;
   esac
 done
 
-# --- Edition validieren ---------------------------------------------------------
+# --- Edition validation ---------------------------------------------------------
 #
-# Editionen sind Dockerfile-Stages mit Namen opencode-sandbox-<name>
-# (siehe ADR 0019). Die Liste wird live aus dem shipped Dockerfile und
-# dem custom edition Dockerfile ermittelt - keine hardcodierte Whitelist.
+# Editions are Dockerfile stages named opencode-sandbox-<name>
+# (see ADR 0019). The list is discovered live from the shipped Dockerfile
+# and the custom edition Dockerfile — no hardcoded whitelist.
 [[ -n "${EDITION:-}" ]] || {
-  echo "Fehler: --edition <edition> ist erforderlich." >&2
-  echo "Nutzung: $0 <projekt-root> --edition <edition> [--use_proxy] [--search_mode <none|websearch|searxng>] [--offline] [--hil_mode] [--cbm_ui] [--start_opencode] [--start_web] [--detach]" >&2
+  echo "Error: --edition <edition> is required." >&2
+  echo "Usage: $0 <workspace-root> --edition <edition> [--use_proxy] [--use_stt] [--search_mode <none|websearch|searxng>] [--offline] [--hil_mode] [--cbm_ui] [--start_opencode] [--start_web] [--detach]" >&2
   exit 1
 }
 
-# --- Suchmodus validieren --------------------------------------------------------
+# --- Search mode validation --------------------------------------------------------
 case "$SEARCH_MODE" in
   websearch|none|searxng) ;;
   *)
-    echo "Fehler: Unbekannter --search_mode: $SEARCH_MODE" >&2
-    echo "Erlaubt: websearch (Standard), none, searxng" >&2
+    echo "Error: unknown --search_mode: $SEARCH_MODE" >&2
+    echo "Allowed: websearch (default), none, searxng" >&2
     exit 1
     ;;
 esac
@@ -143,22 +149,29 @@ SEARCH_WEBSEARCH=false
 SEARCH_SEARXNG=false
 [[ "$SEARCH_MODE" != "websearch" ]] || SEARCH_WEBSEARCH=true
 [[ "$SEARCH_MODE" != "searxng" ]] || SEARCH_SEARXNG=true
-# Kombinationsausschluesse (ADR 0026) VOR jedem Containerzugriff: der
-# Proxy/oc-searxng darf nicht erst gestartet werden, um dann abzubrechen.
+# Combination exclusions (ADR 0026) BEFORE any container access: the
+# proxy/oc-searxng must not be started just to abort afterwards.
 if $SEARCH_SEARXNG && $OFFLINE; then
-  echo "Fehler: --search_mode searxng erfordert Netzwerk (--offline inkompatibel)" >&2
+  echo "Error: --search_mode searxng requires network (incompatible with --offline)" >&2
   exit 1
 fi
 if $SEARCH_SEARXNG && $USE_PROXY; then
-  echo "Fehler: --search_mode searxng ist mit --use_proxy inkompatibel (ADR 0026:" >&2
-  echo "  das SearXNG-MCP liest beliebige URLs; Suche und Egress-Allowlist schließen" >&2
-  echo "  sich aus). Ohne --use_proxy starten oder --search_mode websearch verwenden." >&2
+  echo "Error: --search_mode searxng is incompatible with --use_proxy (ADR 0026:" >&2
+  echo "  the SearXNG MCP fetches arbitrary URLs; search and the egress allowlist" >&2
+  echo "  exclude each other). Start without --use_proxy or use --search_mode websearch." >&2
   exit 1
+fi
+# Dictation + offline is NOT an error (unlike searxng/cbm_ui above): an
+# offline start of a dictation-enabled workspace just must not start the
+# STT member — silent skip (no member, no publish, no STT_URL; the pod
+# block below is guarded by ! $OFFLINE anyway).
+if $USE_STT && $OFFLINE; then
+  echo "Note: --offline excludes the STT member (dictation stays off for this run)" >&2
 fi
 
 if [[ ! "$EDITION" =~ ^[a-z0-9_-]+$ ]]; then
-  echo "Fehler: Ungültiger Editions-Name: $EDITION" >&2
-  echo "Erlaubt sind nur Kleinbuchstaben [a-z0-9_-]." >&2
+  echo "Error: invalid edition name: $EDITION" >&2
+  echo "Only lowercase [a-z0-9_-] is allowed." >&2
   exit 1
 fi
 
@@ -171,7 +184,7 @@ discover_editions() {
         DISCOVERED_FILE[$name]="$f"
         printf '%s\n' "$name"
       elif [[ "${DISCOVERED_FILE[$name]}" != "$f" ]]; then
-        echo "Warnung: Edition 'opencode-sandbox-$name' kommt in Dockerfile und Dockerfile.custom vor — Edition wird übersprungen." >&2
+        echo "Warning: edition 'opencode-sandbox-$name' appears in both Dockerfile and Dockerfile.custom — edition skipped." >&2
       fi
     done < <(sed -nE '/^[[:space:]]*#/d; s/^[[:space:]]*FROM[[:space:]]+[^[:space:]]+[[:space:]]+AS[[:space:]]+opencode-sandbox-([^[:space:]]+)[[:space:]]*(#.*)?$/\1/p' "$f" || true)
   done
@@ -191,91 +204,91 @@ for ed in "${AVAILABLE_EDITIONS[@]:-}"; do
   fi
 done
 if ! $edition_known; then
-  echo "Fehler: Unbekannte Edition: $EDITION" >&2
-  echo "Verfügbare Editionen: ${AVAILABLE_EDITIONS[*]:-}" >&2
+  echo "Error: unknown edition: $EDITION" >&2
+  echo "Available editions: ${AVAILABLE_EDITIONS[*]:-}" >&2
   exit 1
 fi
 
-# --- Projekt-Root validieren ---------------------------------------------------
-PROJECT_ROOT="$(realpath "$PROJECT_ROOT")"
+# --- Workspace root validation -------------------------------------------------
+WORKSPACE_ROOT="$(realpath "$WORKSPACE_ROOT")"
 
-PROJECT_DIR="${PROJECT_ROOT}/project"
-CONFIG_DIR="${PROJECT_ROOT}/.opencode_config"
-DATA_DIR="${PROJECT_ROOT}/.opencode_data"
-SSH_DIR="${PROJECT_ROOT}/.ssh_local"
-GIT_DIR="${PROJECT_ROOT}/.git_local"
-CBM_DIR="${PROJECT_ROOT}/.cbm_cache"
-BASH_DIR="${PROJECT_ROOT}/.bash_local"
+WORKSPACE_DIR="${WORKSPACE_ROOT}/workspace"
+CONFIG_DIR="${WORKSPACE_ROOT}/.opencode_config"
+DATA_DIR="${WORKSPACE_ROOT}/.opencode_data"
+SSH_DIR="${WORKSPACE_ROOT}/.ssh_local"
+GIT_DIR="${WORKSPACE_ROOT}/.git_local"
+CBM_DIR="${WORKSPACE_ROOT}/.cbm_cache"
+BASH_DIR="${WORKSPACE_ROOT}/.bash_local"
 
-mkdir -p "$PROJECT_DIR" "$CONFIG_DIR" "$DATA_DIR" "$SSH_DIR" "$GIT_DIR" "$GIT_DIR/gh-cli" "$GIT_DIR/glab-cli" "$CBM_DIR"
+mkdir -p "$WORKSPACE_DIR" "$CONFIG_DIR" "$DATA_DIR" "$DATA_DIR/cache/opencode" "$SSH_DIR" "$GIT_DIR" "$GIT_DIR/gh-cli" "$GIT_DIR/glab-cli" "$CBM_DIR"
 chmod 700 "$SSH_DIR" "$GIT_DIR"
 
-# OpenCode-Web braucht ein Git-Repo als Worktree: ohne .git in project/
-# faellt opencode auf das "global"-Projekt mit worktree "/" zurueck
-# (Weboberflaeche: "+" disabled, kein Projekt anlegbar).
-# Bestehende Projekte werden beim Start nachgepflegt (Heal).
-# Ausnahme: Projekte, deren Quelle ein geklontes Repo ist (project_source
-# in sandbox_config.json). Dort ist ein leeres project/.git oft noch der
-# Zustand vor dem Clone - ein git init wuerde das Repo-Setup zerschieschen.
+# OpenCode web needs a git repo as worktree: without .git in workspace/
+# opencode falls back to the "global" project with worktree "/" (web UI:
+# "+" disabled, no new sessions). Existing workspaces are healed at
+# start. Exception: workspaces whose source is a cloned repo
+# (workspace_source in sandbox_config.json): an empty workspace/.git is
+# often the pre-clone state — a git init would destroy the repo setup.
+# Missing file/field -> the heal runs (backward compatibility).
 # Fehlende Datei/Field -> Heal laeuft (Rueckwaertskompatibilitaet).
-PROJECT_SOURCE=""
+WORKSPACE_SOURCE=""
 if [[ -f "${CONFIG_DIR}/sandbox_config.json" ]]; then
-  PROJECT_SOURCE="$(jq -r '.project_source // empty' "${CONFIG_DIR}/sandbox_config.json" 2>/dev/null || true)"
+  WORKSPACE_SOURCE="$(jq -r '.workspace_source // empty' "${CONFIG_DIR}/sandbox_config.json" 2>/dev/null || true)"
 fi
-if [[ ! -e "$PROJECT_DIR/.git" && "$PROJECT_SOURCE" != "cloned" ]]; then
-  if git -C "$PROJECT_DIR" init -q 2>/dev/null; then
-    echo "Hinweis: ${PROJECT_DIR} war kein Git-Repo; 'git init' nachgeholt." >&2
-    echo "  (Noetig fuer OpenCode-Web, sonst worktree \"/\" und keine neuen Sessions.)" >&2
+if [[ ! -e "$WORKSPACE_DIR/.git" && "$WORKSPACE_SOURCE" != "cloned" ]]; then
+  if git -C "$WORKSPACE_DIR" init -q 2>/dev/null; then
+    echo "Note: ${WORKSPACE_DIR} was not a git repo; ran \"git init\" (heal)." >&2
+    echo "  (Needed for OpenCode web; otherwise worktree \"/\" and no new sessions.)" >&2
   else
-    echo "Warnung: 'git init' in ${PROJECT_DIR} fehlgeschlagen - OpenCode-Web" >&2
-    echo "  wird dann worktree \"/\" verwenden (keine Sessions anlegbar)." >&2
+    echo "Warning: 'git init' in ${WORKSPACE_DIR} failed — OpenCode web" >&2
+    echo "  will use worktree \"/\" (no sessions can be created)." >&2
   fi
 fi
 chmod 700 "$SSH_DIR" "$GIT_DIR"
 
 if [[ -z "$(find "$SSH_DIR" -maxdepth 1 -type f 2>/dev/null)" ]]; then
-  echo "Warnung: ${SSH_DIR} enthält keine Dateien (keine Keys/Config)." >&2
-  echo "  Git-Push/Pull über SSH wird ohne Keys fehlschlagen." >&2
-  echo "  Vorlage: templates/ssh_local/config, Keys erzeugen mit:" >&2
+  echo "Warning: ${SSH_DIR} contains no files (no keys/config)." >&2
+  echo "  Git push/pull over SSH will fail without keys." >&2
+  echo "  Template: templates/ssh_local/config; create keys with:" >&2
   echo "    ssh-keygen -t ed25519 -f ${SSH_DIR}/id_ed25519_github -N \"\"" >&2
 fi
 
 if [[ ! -f "${GIT_DIR}/gitconfig" ]]; then
-  echo "Warnung: ${GIT_DIR}/gitconfig fehlt - lege eine an (z.B. aus" >&2
-  echo "  templates/git_local/gitconfig kopieren), sonst fehlen user.name/" >&2
-  echo "  user.email im Container." >&2
+  echo "Warning: ${GIT_DIR}/gitconfig is missing — create one (e.g. copy" >&2
+  echo "  from templates/git_local/gitconfig), otherwise user.name/" >&2
+  echo "  user.email are missing in the container." >&2
 fi
 
 if [[ ! -f "${GIT_DIR}/glab-cli/config.yml" ]]; then
-  echo "Warnung: ${GIT_DIR}/glab-cli/config.yml fehlt - lege eine an (z.B. aus" >&2
-  echo "  templates/git_local/glab-cli/config.yml kopieren), sonst fehlt die" >&2
-  echo "  glab-Authentifizierung im Container." >&2
+  echo "Warning: ${GIT_DIR}/glab-cli/config.yml is missing — create one (e.g. copy" >&2
+  echo "  from templates/git_local/glab-cli/config.yml), otherwise the" >&2
+  echo "  glab authentication is missing in the container." >&2
 fi
 
 if [[ ! -f "${GIT_DIR}/gh-cli/hosts.yml" ]]; then
-  echo "Warnung: ${GIT_DIR}/gh-cli/hosts.yml fehlt - lege eine an (z.B. aus" >&2
-  echo "  templates/git_local/gh-cli/hosts.yml kopieren), sonst fehlt die" >&2
-  echo "  gh (GitHub CLI)-Authentifizierung im Container." >&2
+  echo "Warning: ${GIT_DIR}/gh-cli/hosts.yml is missing — create one (e.g. copy" >&2
+  echo "  from templates/git_local/gh-cli/hosts.yml), otherwise the" >&2
+  echo "  gh (GitHub CLI) authentication is missing in the container." >&2
 fi
 
 while IFS= read -r -d '' key; do
   perms="$(stat -c '%a' "$key")"
   if [[ "$perms" != "600" && "$perms" != "400" ]]; then
-    echo "Warnung: ${key} hat Rechte ${perms}, SSH erwartet 600. Fix: chmod 600 ${key}" >&2
+    echo "Warnung: ${key} has mode ${perms}; SSH expects 600. Fix: chmod 600 ${key}" >&2
   fi
 done < <(find "$SSH_DIR" -maxdepth 1 -type f -name 'id_*' ! -name '*.pub' -print0 2>/dev/null)
 
 if [[ -f "${GIT_DIR}/credentials" ]]; then
   perms="$(stat -c '%a' "${GIT_DIR}/credentials")"
   if [[ "$perms" != "600" && "$perms" != "400" ]]; then
-    echo "Warnung: ${GIT_DIR}/credentials hat Rechte ${perms}, sollte 600 sein." >&2
+    echo "Warnung: ${GIT_DIR}/credentials has mode ${perms}; it should be 600." >&2
   fi
 fi
 
 if [[ -f "${GIT_DIR}/glab-cli/config.yml" ]]; then
   perms="$(stat -c '%a' "${GIT_DIR}/glab-cli/config.yml")"
   if [[ "$perms" != "600" ]]; then
-    echo "Warnung: ${GIT_DIR}/glab-cli/config.yml hat Rechte ${perms}, setze auf 600." >&2
+    echo "Warnung: ${GIT_DIR}/glab-cli/config.yml has mode ${perms}; setting it to 600." >&2
     chmod 600 "${GIT_DIR}/glab-cli/config.yml"
   fi
 fi
@@ -283,72 +296,120 @@ fi
 if [[ -f "${GIT_DIR}/gh-cli/hosts.yml" ]]; then
   perms="$(stat -c '%a' "${GIT_DIR}/gh-cli/hosts.yml")"
   if [[ "$perms" != "600" ]]; then
-    echo "Warnung: ${GIT_DIR}/gh-cli/hosts.yml hat Rechte ${perms}, setze auf 600." >&2
+    echo "Warnung: ${GIT_DIR}/gh-cli/hosts.yml has mode ${perms}; setting it to 600." >&2
     chmod 600 "${GIT_DIR}/gh-cli/hosts.yml"
   fi
 fi
 
 # --- OpenCode-Konfiguration (v2-Schema, ADR 0025) ------------------------------
-# Bestehende Projekte: eine v1-geformte opencode.json (provider/plugin/
-# permission, flaches mcp) und auth.json-Credentials werden einmalig vor dem
-# Container-Start auf das v2-Schema migriert - bevor der OpenCode-Service
-# das erste Mal die Konfiguration laedt. Idempotent; ein Scheitern blockiert
-# den Start nicht (die Go-TUI liest beide Formate, configure-project.sh
-# migriert lazy bei jedem Provider-Subcommand nach).
+# Existing installations: a v1-shaped opencode.json (provider/plugin/
+# permission, flat mcp) and auth.json credentials are migrated to the
+# v2 schema once before container start — before the OpenCode service
+# loads the config for the first time. Idempotent; a failure does not
+# block the start (configure-workspace.sh re-migrates lazily on the
+# next start or the first provider edit).
 if [[ -f "${CONFIG_DIR}/opencode.json" ]] && command -v jq >/dev/null 2>&1; then
-  bash "${SCRIPT_DIR}/configure-project.sh" migrate-opencode-config "$PROJECT_ROOT" ||
-    echo "Warnung: opencode.json v2-Migration fehlgeschlagen - wiederholt sich beim naechsten Start oder beim ersten Provider-Edit." >&2
-  # Suchmodus (search_mode) auf opencode.json anwenden: SearXNG-MCP
-  # +/− Built-in-Websearch-Seed. Idempotent, schreibt nur bei Aenderung;
-  # ein Scheitern blockiert den Start nicht.
-  bash "${SCRIPT_DIR}/configure-project.sh" search-mode "$PROJECT_ROOT" --mode "$SEARCH_MODE" ||
-    echo "Warnung: search-mode auf opencode.json fehlgeschlagen - wiederholt sich beim naechsten Start." >&2
+  bash "${SCRIPT_DIR}/configure-workspace.sh" migrate-opencode-config "$WORKSPACE_ROOT" ||
+    echo "Warning: opencode.json v2 migration failed — it retries on the next start or the first provider edit." >&2
+  # Apply search_mode to opencode.json: SearXNG MCP +/- the built-in
+  # websearch seed. Idempotent, writes only on change; failure does not
+  # block the start.
+  bash "${SCRIPT_DIR}/configure-workspace.sh" search-mode "$WORKSPACE_ROOT" --mode "$SEARCH_MODE" ||
+    echo "Warning: applying search-mode to opencode.json failed — it retries on the next start." >&2
+fi
+
+# --- Dictation seeding (every start, idempotent) --------------------------------
+# Plain bash here (no jq needed): runs on EVERY start under --use_stt so it
+# covers existing workspaces and post-update starts alike — init-workspace.sh
+# is creation-only and cannot (it hard-fails on non-empty roots).
+if $USE_STT; then
+  # Language pin (#168, ADR 0036 D3): read the pinned language ONCE per start,
+  # BEFORE the write-if-absent seeding below (a just-seeded file mounts
+  # nothing new — its content is the member's own auto default anyway).
+  # jq-guarded like the v2 migration above; a missing jq or an absent/
+  # invalid file falls back to "auto" (the member's own default).
+  STT_LANG="auto"
+  STT_MOUNT_ARGS=()
+  if [[ -f "${CONFIG_DIR}/stt.json" ]]; then
+    if command -v jq >/dev/null 2>&1; then
+      STT_LANG="$(jq -r '.language // "auto"' "${CONFIG_DIR}/stt.json" 2>/dev/null || true)"
+    fi
+    STT_LANG="${STT_LANG//[[:space:]]/}"
+    if [[ -z "$STT_LANG" ]]; then
+      STT_LANG="auto"
+    fi
+    # ADR 0034 allowlist pattern: the settings file is the persistent
+    # record traveling with the workspace; mounted read-only into the
+    # member only when the file exists.
+    STT_MOUNT_ARGS=(-v "${CONFIG_DIR}/stt.json:/etc/stt/stt.json:ro")
+  fi
+  # Workspace STT settings (spec story 26): the language pin lives in
+  # stt.json, hand-editable. Write only if absent — a user's pinned
+  # language must survive every start (the STT mount reads it later).
+  if [[ ! -f "${CONFIG_DIR}/stt.json" ]]; then
+    printf '{"language": "auto"}\n' > "${CONFIG_DIR}/stt.json"
+  fi
+  # Dictation plugin refresh: overwrite OUR OWN seeded files on every
+  # start (the update story — image/plugin updates land on the next
+  # start). Exactly this dir, nothing else in plugins/ is touched.
+  if [[ -d "${REPO_ROOT}/templates/opencode/plugins/dictation" ]]; then
+    rm -rf "${CONFIG_DIR}/plugins/dictation"
+    mkdir -p "${CONFIG_DIR}/plugins"
+    cp -r "${REPO_ROOT}/templates/opencode/plugins/dictation" "${CONFIG_DIR}/plugins/dictation"
+  fi
+  # Keybind note (ADR 0036, D1): dictation binds ctrl+alt+s — verified
+  # free against the shipped stock keybind defaults and legacy-decodable
+  # (the earlier ctrl+t and ctrl+shift+s chords were retired: the latter
+  # collapses to the swallowed 0x13 byte on terminals that do not report
+  # modifiers), so no cli.json is seeded and no stock keybind is touched.
+  # (A cli.json seeded by an older build keeps its variant.cycle entry,
+  # which only moves that command to the command palette.)
 fi
 
 # --- Proxy ----------------------------------------------------------------------
-# Image wird bei jedem Proxy-Start gebaut: Copy-Layer für squid.conf/
-# allowlist.txt wird so bei jeder Änderung frisch — ein veraltetes oc-proxy-
-# Image (einmal gebaut, nie erneuert) ließe Allowlist-Änderungen stumm vor
-# den laufenden Editionen vorbei laufen (Bug: bungled allowlist tötete den
-# Squid-Member still statt laut beim Build).
+# The proxy image is rebuilt on every proxy start: the copy layer for
+# squid.conf/allowlist.txt stays fresh on every change — a stale oc-proxy
+# image (built once, never rebuilt) would silently let allowlist changes
+# slip past the running editions (bug: a bungled allowlist killed the
+# Squid member quietly instead of failing loudly at build).
 if $USE_PROXY; then
-  echo "==> Baue/aktualisiere oc-proxy Image ..."
+  echo "==> Building/updating the oc-proxy image ..."
   podman build -t oc-proxy -f "${REPO_ROOT}/proxy/Dockerfile" "${REPO_ROOT}/proxy/"
 fi
 
-# --- Netzwerk: Pod pro Projekt (ADR 0029) ---------------------------------------
-# Ein Pod pro Projekt, Netzmodus pasta:--ipv4-only. Pod-Member teilen einen
-# Netz-Namespace: Companion-Dienste werden ueber 127.0.0.1 erreicht (in-
-# Namespace-Konstanten) - ohne Host-Loopback-Publishing fuer Dienste und
-# ohne podmans host.containers.internal, das bei pasta auf die EIGENE
-# Container-Adresse zeigt (sie schattiert die Host-Adresse). Die
-# Host-Publishings der UIs (Web 4096-Scan, CBM-UI 9749-Scan) haengen am
-# Pod (siehe "Pod starten"), nicht mehr am Projektcontainer. Der
-# ADR-0028-Detour (default-route-Gateway-Ermittlung, --add-host
-# host.oc-sandbox.internal) ist damit entfallen.
-SANDBOX_ID="${CONTAINER_ID:-$(basename "$PROJECT_ROOT")}"
+# --- Network: one pod per workspace (ADR 0029) ----------------------------------
+# One pod per workspace, network mode pasta:--ipv4-only. Pod members share
+# one network namespace: companion services are reached via 127.0.0.1
+# (in-namespace constants) — no host loopback publishing for services and
+# no podman host.containers.internal, which under pasta points at the
+# container's OWN address (it shadows the host address). The UI host
+# publishings (web 4096 scan, CBM UI 9749 scan) live on the pod (see "pod
+# create" below), no longer on the workspace container. The ADR-0028 detour
+# (default-route gateway discovery, --add-host host.oc-sandbox.internal)
+# is gone.
+SANDBOX_ID="${CONTAINER_ID:-$(basename "$WORKSPACE_ROOT")}"
 POD_NAME="opencode-sandbox-pod-${SANDBOX_ID}"
 CONTAINER_NAME="opencode-sandbox-${SANDBOX_ID}"
 
 NETWORK_ARGS=()
 if $OFFLINE; then
-  echo "Hinweis: Sandbox läuft ohne Netzwerk (--offline). OpenCode-Login/API" >&2
-  echo "         ist damit nicht nutzbar, nur lokale Modelle." >&2
-  # Offline laeuft der Projektcontainer ohne Pod (und ohne Companion-Member):
-  # --network=none klassisch, Publishings bleiben - wie bisher - am
-  # Container selbst.
+  echo "Note: sandbox runs without network (--offline). OpenCode login/API" >&2
+  echo "         are not usable; local models only." >&2
+  # Offline the workspace container runs without a pod (and without
+  # companion members): plain --network=none; publishings stay — as before
+  # — on the container itself.
   NETWORK_ARGS=(--network=none)
 fi
 
-# Proxy: In-Namespace-Konstante (ADR 0029) - der per-Pod Squid-Member
-# wird beim Pod-Aufbau unten gestartet.
-# NO_PROXY umfasst 0.0.0.0: opencode v2 haengt die Managed-Service-URLs am
-# gepinnten service.json-Hostname (0.0.0.0 bei Web-Pinned-Config, ADR 0024).
-# Ohne diesen Eintrag laufen Service-Handshakes/Health-Probes der
-# Hintergrunddienst-Erkennung durch den Squid-Allowlist-Proxy (der sie
-# verweigert), der Client haelt den laufenden Dienst fuer "missing", startet
-# Kollidierende `opencode serve --service`-Kinder dagegen auf 4096 und bricht
-# mit "Managed service port 4096 on 0.0.0.0 is already in use" ab.
+# Proxy in-namespace constant (ADR 0029) — the per-pod Squid member is
+# started during pod creation below.
+# NO_PROXY includes 0.0.0.0: opencode v2 hangs its managed-service URLs on
+# the pinned service.json hostname (0.0.0.0 with the web-pinned config,
+# ADR 0024). Without this entry the service handshakes/health probes of
+# background-service discovery go through the Squid allowlist proxy (it
+# denies them), the client considers the running service "missing",
+# colliding `opencode serve --service` children instead start on 4096 and
+# abort with "Managed service port 4096 on 0.0.0.0 is already in use".
 # 0.0.0.0 ist nur als Zieladresse des In-Container-Service wirksam - ein
 # Egress-Kanal des Agents bleibt gebunden (der Proxy ist die Regel).
 PROXY_ENV=()
@@ -358,14 +419,23 @@ if $USE_PROXY; then
     -e HTTP_PROXY="http://127.0.0.1:3128"
     -e NO_PROXY="localhost,127.0.0.1,0.0.0.0"
   )
+  # Per-workspace allowlist (ADR 0034): when the workspace carries its
+  # own copy (.opencode_config/allowlist.txt, seeded from the shared
+  # proxy/allowlist.txt by the WebUI proxy screen), it wins over the
+  # image's baked-in copy — mounted read-only into the member.
+  PROXY_MOUNT_ARGS=()
+  if [[ -f "${CONFIG_DIR}/allowlist.txt" ]]; then
+    echo "==> Using the workspace allowlist: ${CONFIG_DIR}/allowlist.txt"
+    PROXY_MOUNT_ARGS=(-v "${CONFIG_DIR}/allowlist.txt:/etc/squid/allowlist.txt:Z")
+  fi
 fi
 if $OFFLINE; then
   PROXY_ENV=()
 fi
 
-# Such-Umgebung: websearch aktiviert die Built-in-Exa/Parallel-Backends
-# (Standard, Rückwärtskompatibilität: fehlender --search_mode liest als
-# websearch). searxng traegt nur SEARXNG_URL ein, none nichts.
+# Search environment: websearch enables the built-in Exa/Parallel backends
+# (default; backward compat: a missing --search_mode reads as
+# websearch). searxng only sets SEARXNG_URL, none sets nothing.
 WEBSEARCH_ENV=()
 if $SEARCH_WEBSEARCH; then
   WEBSEARCH_ENV=(-e OPENCODE_ENABLE_EXA=1 -e OPENCODE_ENABLE_PARALLEL=1)
@@ -401,17 +471,17 @@ select_free_host_port() {
     port=$((port + 1))
   done
 
-  echo "Fehler: Kein freier Host-Port für ${label} im Bereich ${base_port}-${last_port}." >&2
+  echo "Error: no free host port for ${label} in range ${base_port}-${last_port}." >&2
   return 1
 }
 
 select_cbm_host_port() {
-  select_free_host_port 9749 "die CBM-UI"
+  select_free_host_port 9749 "the CBM UI"
 }
 
 # --- Flag-Validierung ----------------------------------------------------------
 if $OFFLINE && $CBM_UI; then
-  echo "Fehler: --cbm_ui erfordert Netzwerk (--offline inkompatibel)" >&2
+  echo "Error: --cbm_ui requires network (incompatible with --offline)" >&2
   exit 1
 fi
 
@@ -421,141 +491,283 @@ CBM_ENV_UI=()
 if $CBM_UI; then
   CBM_HOST_PORT=$(select_cbm_host_port)
   if [[ "$CBM_HOST_PORT" != "9749" ]]; then
-    echo "Hinweis: Host-Port 9749 ist belegt; CBM-UI wird auf http://127.0.0.1:${CBM_HOST_PORT} veröffentlicht." >&2
+    echo "Note: host port 9749 is in use; the CBM UI is published at http://127.0.0.1:${CBM_HOST_PORT}." >&2
   fi
   CBM_PORT_ARGS=(-p "127.0.0.1:${CBM_HOST_PORT}:9749")
   CBM_ENV_UI=(-e CBM_UI=true)
 fi
 
 # --- OpenCode-Web-Optionen ------------------------------------------------------
+# Always-on web access (spec §10): EVERY detached start publishes container
+# port 4096 (auto-scan upward, unchanged range) and runs the v2 background
+# service — independent of --start_web, which the detached path ignores.
+# --offline is exempt: --network=none has structurally nothing to publish
+# through. The foreground path keeps the --start_web-only contract
+# (ADR 0024, Ctrl+C stops and removes).
 WEB_PORT_ARGS=()
-if $START_WEB; then
-  WEB_HOST_PORT=$(select_free_host_port 4096 "die OpenCode-Weboberfläche")
+WEB_HOST_PORT=""
+PUBLISH_WEB=false
+if $DETACH && ! $OFFLINE; then
+  PUBLISH_WEB=true
+fi
+if $START_WEB && ! $DETACH; then
+  PUBLISH_WEB=true
+fi
+if $PUBLISH_WEB; then
+  WEB_HOST_PORT=$(select_free_host_port 4096 "the OpenCode web UI")
   if [[ "$WEB_HOST_PORT" != "4096" ]]; then
-    echo "Hinweis: Host-Port 4096 ist belegt; OpenCode Web wird auf http://127.0.0.1:${WEB_HOST_PORT} veröffentlicht." >&2
+    echo "Note: host port 4096 is in use; OpenCode web is published at http://127.0.0.1:${WEB_HOST_PORT}." >&2
   fi
   WEB_PORT_ARGS=(-p "127.0.0.1:${WEB_HOST_PORT}:4096")
 fi
-# Im Detached-Modus startet der Containerbefehl den Webserver selbst;
-# START_WEB=true würde über die Login-Shell den Server doppelt starten.
+# The foreground login shell only starts the webserver itself on
+# --start_web; the detached container command starts the service
+# unconditionally (below).
 START_WEB_ENV=false
 if $START_WEB && ! $DETACH; then
   START_WEB_ENV=true
 fi
 
-# --- SearXNG-Member (search_mode=searxng) ---------------------------------------
-# Nach ADR 0029 laeuft SearXNG als per-Pod-Member im Netz-Namespace des
-# Projekt-Pods (detached, oc-searxng-Image, settings.yml-Bind, generiertes
-# Secret, keine Publishing, pro-Pod-eindeutiger Name; gestartet beim
-# Pod-Aufbau unten). Der hostseitig geteilte oc-searxng-Container (und der
-# zugehoerige Port-Scan) ist entfallen.
+# --- SearXNG member (search_mode=searxng) ---------------------------------------
+# Per ADR 0029 SearXNG runs as a per-pod member in the network namespace
+# of the workspace pod (detached, oc-searxng image, settings.yml bind,
+# generated secret, no publishings, unique per-pod name; started during
+# pod creation below). The host-shared oc-searxng container (and its port
+# scan) is gone.
 if $SEARCH_SEARXNG; then
   if [[ ! -f "${REPO_ROOT}/searxng/settings.yml" ]]; then
-    echo "Fehler: ${REPO_ROOT}/searxng/settings.yml fehlt (siehe Install)." >&2
+    echo "Error: ${REPO_ROOT}/searxng/settings.yml is missing (see install)." >&2
     exit 1
   fi
   if ! podman image exists oc-searxng 2>/dev/null; then
-    echo "==> Baue oc-searxng Image ..."
+    echo "==> Building the oc-searxng image ..."
     podman build --network host -t oc-searxng -f "${REPO_ROOT}/searxng/Dockerfile" "${REPO_ROOT}/searxng/"
   fi
   SEARXNG_SECRET="$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')"
   SEARXNG_NAME="oc-searxng-${SANDBOX_ID}"
-  # Ohne /search-Suffix: mcp-searxng haengt /search selbst an (sonst /search/search -> 404).
+  # Without a /search suffix: mcp-searxng appends /search itself (otherwise /search/search -> 404).
   SEARXNG_ENV=(-e "SEARXNG_URL=http://127.0.0.1:8080")
 fi
 
-# --- HIL-Geräte ----------------------------------------------------------------
+# --- STT member (dictation) -----------------------------------------------------
+# Per ADR 0029/0036 the whisper.cpp server runs as a per-pod member
+# (detached, oc-stt image, no publishings on the member, unique per-pod
+# name; started during pod creation below). In-pod port constant 8090 —
+# whisper.cpp's 8080 default collides with searxng's in-pod 8080, and
+# both members may coexist in one pod. The one loopback publish lives on
+# POD CREATE (web 4096 / CBM 9749 precedent, ADR 0029), never on the
+# member. The host scan starts at 8091, not 8090: the WebUI itself
+# listens on 8090 (single instance per host), so 8091 upward is the
+# sidecars' own range. --offline excludes the member entirely (silent
+# skip above).
+STT_PORT_ARGS=()
+STT_ENV=()
+if $USE_STT && ! $OFFLINE; then
+  STT_HOST_PORT=$(select_free_host_port 8091 "the STT member")
+  if [[ "$STT_HOST_PORT" != "8091" ]]; then
+    echo "Note: host port 8091 is in use; the STT member is published at http://127.0.0.1:${STT_HOST_PORT}." >&2
+  fi
+  STT_PORT_ARGS=(-p "127.0.0.1:${STT_HOST_PORT}:8090")
+  # Bare pod-internal loopback constant on the workspace container —
+  # never the scanned host port (ADR 0029: scans are never persisted;
+  # `podman port` stays the truth).
+  STT_ENV=(-e "STT_URL=http://127.0.0.1:8090")
+fi
+
+# --- HIL devices ----------------------------------------------------------------
 #
-# Wichtig: Geräte werden NICHT mehr als einzelne --device-Snapshots gebunden.
-# Grund: --device bindet beim Container-Start eine feste major:minor-
-# Kombination. Enumeriert das USB-Gerät später neu (neue Bus/Device-Nummer,
-# z.B. weil das PicoScope beim (Wieder-)Verbinden Firmware nachlädt, wegen
-# USB-Autosuspend, oder weil ein MCU-Board resettet wird), zeigt der
-# Snapshot im Container ins Leere (Rechte erscheinen als "c---------"),
-# obwohl das Gerät auf dem Host unter neuem Pfad weiterhin funktioniert.
+# Important: devices are NO longer bound as individual --device snapshots.
+# Reason: --device binds a fixed major:minor combination at container
+# start. When USB re-enumerates later (new bus/device number, e.g. because
+# the PicoScope re-loads firmware on (re-)connect, because of USB
+# autosuspend, or because an MCU board is reset), the snapshot in the
+# container points nowhere (rights show as "c---------"), although the
+# device keeps working under the new path on the host.
 DEVICE_ARGS=()
 if $HIL_MODE; then
 
-  # --- PicoScope (libusb-basiert: libps2000/libps2000a lesen selbst das
-  #     Verzeichnis /dev/bus/usb/<Bus>/ per readdir und öffnen dort den
-  #     aktuell passenden Geräteknoten. Ein Symlink an anderer Stelle
-  #     (z.B. /dev/hil/scope0) hilft dem NICHT - libusb kennt nur den
-  #     Standardpfad /dev/bus/usb/*.
-  #     Wir ermitteln daher zur Laufzeit die Bus-Nummer (stabil, solange
-  #     das Gerät am selben physischen Port hängt - siehe udev/99-hil.rules
-  #     für den Autosuspend-Fix gegen sporadisches Re-Enumerieren) und
-  #     mounten NUR dieses eine Bus-Verzeichnis live, nicht ganz
-  #     /dev/bus/usb. Das gibt Zugriff auf alles, was aktuell an diesem
-  #     Bus/Hub hängt (mehr geht mit libusb nicht granularer), aber nicht
-  #     auf andere USB-Busse des Hosts.
+  # --- PicoScope (libusb-based: libps2000/libps2000a read the
+  #     /dev/bus/usb/<Bus>/ directory themselves via readdir and open the
+  #     matching device node there. A symlink elsewhere (e.g.
+  #     /dev/hil/scope0) does NOT help — libusb only knows the standard
+  #     path /dev/bus/usb/*.
+  #     We therefore resolve the bus number at runtime (stable as long as
+  #     the device stays on the same physical port — see
+  #     udev/99-hil.rules for the autosuspend fix against sporadic
+  #     re-enumeration) and mount ONLY this one bus directory live, not
+  #     all of /dev/bus/usb. That gives access to everything currently
+  #     attached to this bus/hub (libusb cannot be more granular), but
+  #     not to the host's other USB buses.
   if [[ -e /dev/scope0 ]]; then
     SCOPE_REAL=$(readlink -f /dev/scope0)          # z.B. /dev/bus/usb/007/055
     SCOPE_BUS_DIR="$(dirname "$SCOPE_REAL")"        # z.B. /dev/bus/usb/007
     if [[ -d "$SCOPE_BUS_DIR" ]]; then
       DEVICE_ARGS+=(-v "${SCOPE_BUS_DIR}:${SCOPE_BUS_DIR}")
-      # Kein --device-cgroup-rule: im rootless-Modus (User-Namespace) gibt
-      # es keinen nutzbaren devices-Cgroup-Controller, Podman lehnt das
-      # Flag dort ab ("not supported in rootless mode"). Das ist unkritisch,
-      # weil rootless-Container ohnehin nur über normale Unix-Rechte (DAC)
-      # auf Devices zugreifen - die Cgroup-Ebene entfällt komplett. Die
-      # Freigabe hier passiert allein durch den Bind-Mount + die per
-      # --userns=keep-id/--group-add keep-groups übernommene
-      # Gruppenmitgliedschaft (dialout, siehe udev/99-hil.rules).
+      # No --device-cgroup-rule: in rootless mode (user namespace) there
+      # is no usable devices cgroup controller; podman rejects the flag
+      # ("not supported in rootless mode"). That is harmless because
+      # rootless containers anyway only access devices through ordinary
+      # Unix rights (DAC) — the cgroup layer is gone entirely. Access is
+      # granted solely by the bind mount + the group membership inherited
+      # via --userns=keep-id/--group-add keep-groups (dialout, see
+      # udev/99-hil.rules).
     fi
   else
-    echo "Hinweis: /dev/scope0 fehlt. Das ist eine Folgeerscheinung, kein Blocker:" >&2
-    echo "         - udev-Regel (udev/99-hil.rules) ist auf dem Host nicht installiert, ODER" >&2
-    echo "         - Oszi ist nicht angeschlossen (Bus-Nummer kann erst danach ermittelt" >&2
-    echo "           werden - Container ggf. neu starten, sobald das Gerät steckt)." >&2
+    echo "Note: /dev/scope0 is missing. That is a side effect, not a blocker:" >&2
+    echo "         - the udev rule (udev/99-hil.rules) is not installed on the host, OR" >&2
+    echo "         - the oscilloscope is not connected (the bus number is resolved" >&2
+    echo "           afterwards; restart the container once the device is there)." >&2
   fi
 
-  # --- Serielle HIL-Geräte (ttyUSB/ttyACM): udev legt bei jedem ADD-Event
-  #     (auch nach Reset/Replug) einen echten Geräteknoten unter aktuellem
-  #     Kernel-Namen sowie einen stabilen Vendor/Produkt/Serial-Symlink in
-  #     /dev/hil/ an (siehe udev/99-hil.rules). Das Verzeichnis wird live
-  #     gemountet, sodass jede Änderung sofort im Container sichtbar ist -
-  #     kein Container-Neustart nach einem Reset nötig.
+  # --- Serial HIL devices (ttyUSB/ttyACM): on every ADD event (also
+  #     after reset/replug) udev creates a real device node under the
+  #     current kernel name plus a stable vendor/product/serial symlink
+  #     in /dev/hil/ (see udev/99-hil.rules). The directory is mounted
+  #     live, so every change is visible in the container immediately —
+  #     no container restart needed after a reset.
   if [[ -d /dev/hil ]]; then
     DEVICE_ARGS+=(-v /dev/hil:/dev/hil)
   else
-    echo "Hinweis: /dev/hil fehlt. Das ist eine Folgeerscheinung, kein Blocker:" >&2
-    echo "         - udev-Regel (udev/99-hil.rules) ist auf dem Host nicht installiert, ODER" >&2
-    echo "         - noch kein passendes Gerät wurde je erkannt (Verzeichnis wird von udev" >&2
-    echo "           erst beim ersten ADD-Event automatisch angelegt)." >&2
+    echo "Note: /dev/hil is missing. That is a side effect, not a blocker:" >&2
+    echo "         - the udev rule (udev/99-hil.rules) is not installed on the host, OR" >&2
+    echo "         - no matching device was ever detected (udev creates the" >&2
+    echo "           directory automatically on the first ADD event)." >&2
   fi
 
-  # onboard UART (kein USB, re-enumeriert nicht) weiterhin klassisch durchreichen
+  # onboard UART (not USB, does not re-enumerate) still passes through classically
   for dev in /dev/ttyAMA*; do
     [[ -e "$dev" ]] && DEVICE_ARGS+=(--device="$dev")
   done
 fi
 
-# --- Pod pro Projekt (ADR 0029) ---------------------------------------------------
-# Lifecycle-Entscheidung: deterministisches Recreate bei jedem Start. Ein
-# `podman pod create --replace` konnte auf podman 4.9.3 nicht verifiziert
-# werden (kein Podman in dieser Umgebung fuer den Probe), also der sichere
-# Pfad: forciertes `podman pod rm -f` (Best-Effort, fehlender Pod/Fehler
-# wird ignoriert) gefolgt von einem frischen `podman pod create` - das
-# heilt auch haengengebliebene Member, statt sie zu recyceln. Die
-# Pod-Level-Publishings (Web-UI-4096-Scan, CBM-UI-9749-Scan, oben
-# gesammelt) haengen am Pod; der Projektcontainer tritt mit --pod bei.
-if ! $OFFLINE; then
-  echo "==> Lege Pod ${POD_NAME} an (Recreate) ..."
+# --- Dictation audio: PulseAudio socket cascade (ADR 0036) -----------------------
+# parecord runs INSIDE the workspace container, so the mount + env go on
+# the workspace run vector below — never on the STT member. Detection
+# cascade, first existing socket wins:
+#   1) ${XDG_RUNTIME_DIR}/pulse/<default socket> ("native" first, then the
+#      first entry of the pulse dir — deterministic: the standard name
+#      wins, globs only cover non-standard default socket names),
+#   2) WSLg path — a start.sh VARIABLE so tests can stub it,
+#   3) WSLg runtime-dir fallback: ${XDG_RUNTIME_DIR}/../wslg/PulseServer.
+# No socket → empty arrays: no mount, no env — the STT member still runs
+# (the dictation sidecar works), only TUI recording degrades.
+STT_WSLG_PULSE="${STT_WSLG_PULSE:-/mnt/wslg/PulseServer}"
+STT_DEVICE_ARGS=()
+STT_AUDIO_ENV=()
+STT_PULSE_SOCKET=""
+if $USE_STT && ! $OFFLINE; then
+  if [[ -n "${XDG_RUNTIME_DIR:-}" ]]; then
+    shopt -s nullglob
+    for stt_pulse_cand in "${XDG_RUNTIME_DIR}/pulse/native" "${XDG_RUNTIME_DIR}/pulse/"*; do
+      if [[ -e "$stt_pulse_cand" ]]; then
+        STT_PULSE_SOCKET="$stt_pulse_cand"
+        break
+      fi
+    done
+    shopt -u nullglob
+  fi
+  if [[ -z "$STT_PULSE_SOCKET" && -e "$STT_WSLG_PULSE" ]]; then
+    STT_PULSE_SOCKET="$STT_WSLG_PULSE"
+  fi
+  if [[ -z "$STT_PULSE_SOCKET" && -n "${XDG_RUNTIME_DIR:-}" \
+       && -e "${XDG_RUNTIME_DIR}/../wslg/PulseServer" ]]; then
+    STT_PULSE_SOCKET="${XDG_RUNTIME_DIR}/../wslg/PulseServer"
+  fi
+  if [[ -n "$STT_PULSE_SOCKET" ]]; then
+    # Bind the first existing socket at the SAME path in the container
+    # (PULSE_SERVER=unix:<path> needs the socket at the path the client
+    # was told). SELinux note: a socket mount must not be relabeled —
+    # SELinux distros want `label=disable` appended here; the repo's
+    # other mounts use :Z, which would break pulse on those hosts
+    # (Ubuntu/AppArmor unaffected; real-SELinux behavior = manual
+    # matrix). Deliberately plain, no :Z, no :ro.
+    STT_DEVICE_ARGS=(-v "${STT_PULSE_SOCKET}:${STT_PULSE_SOCKET}")
+    STT_AUDIO_ENV=(-e "PULSE_SERVER=unix:${STT_PULSE_SOCKET}")
+  else
+    echo "Note: no PulseAudio socket found — dictation recording is" >&2
+    echo "  unavailable (side effect, not a blocker: the STT member still" >&2
+    echo "  runs; the dictation sidecar path works)." >&2
+  fi
+fi
+
+# --- One pod per workspace (ADR 0029) --------------------------------------------
+# Lifecycle decision: deterministic recreate on every start.
+# `podman pod create --replace` could not be verified on podman 4.9.3
+# (no podman in this environment for the probe), so the safe path: force
+# `podman pod rm -f` (best effort, a missing pod/error is ignored) then a
+# fresh `podman pod create` — this also heals stuck members instead of
+# recycling them. The pod-level publishings (web UI 4096 scan, CBM UI
+# 9749 scan, collected above) live on the pod; the workspace container
+# joins with --pod.
+create_workspace_pod() {
+  local network="$1"
+
   podman pod rm -f "$POD_NAME" >/dev/null 2>&1 || true
   podman pod create --name "$POD_NAME" \
     --userns=keep-id \
-    --network pasta:--ipv4-only \
+    --network "$network" \
     "${CBM_PORT_ARGS[@]}" \
-    "${WEB_PORT_ARGS[@]}"
+    "${WEB_PORT_ARGS[@]}" \
+    "${STT_PORT_ARGS[@]}"
+}
+
+# start_workspace_pod starts the pod's infra container — the step that
+# actually sets up the rootless network. `podman pod create` only records
+# it, so a host-network limitation surfaces on the first member start;
+# doing it here lets the fallback below retry before any member exists.
+start_workspace_pod() {
+  local err
+  if err="$(podman pod start "$POD_NAME" 2>&1)"; then
+    return 0
+  fi
+  POD_START_ERR="$err"
+  return 1
+}
+
+if ! $OFFLINE; then
+  echo "==> Creating pod ${POD_NAME} (recreate) ..."
+  POD_START_ERR=""
+  create_workspace_pod "pasta:--ipv4-only"
+  if ! start_workspace_pod; then
+    # pasta aborts with "External interface not usable" when the host has
+    # no interface it can derive an address/gateway from: a VPN or other
+    # tunnel holds the default route (no MAC), the laptop is offline, or
+    # there is no IPv4 route. --ipv4-only also hides a usable IPv6 route,
+    # so retry dual-stack pasta before giving up on it.
+    if [[ "$POD_START_ERR" == *"External interface not usable"* ]]; then
+      echo "Warning: pasta cannot use a host network interface (VPN/tunnel default route," >&2
+      echo "         offline host, or no IPv4 route) — retrying with dual-stack pasta." >&2
+      create_workspace_pod "pasta"
+      if ! start_workspace_pod; then
+        # slirp4netns runs its own NAT and does not depend on a usable
+        # host interface (the documented pasta fallback on Podman < 6;
+        # Podman 6 removed it, in which case the error below is the hint).
+        echo "Note: retrying the sandbox network with slirp4netns." >&2
+        if ! create_workspace_pod "slirp4netns" || ! start_workspace_pod; then
+          printf '%s\n' "$POD_START_ERR" >&2
+          echo "Error: podman could not set up the sandbox network (pasta and slirp4netns failed)." >&2
+          echo "       Reconnect the host network (a VPN/tunnel can hide the usable interface)," >&2
+          echo "       install slirp4netns for the fallback (Podman < 6), or use offline mode." >&2
+          echo "       Podman 6 removed slirp4netns — there pasta needs a usable host interface." >&2
+          podman pod rm -f "$POD_NAME" >/dev/null 2>&1 || true
+          exit 1
+        fi
+      fi
+    else
+      printf '%s\n' "$POD_START_ERR" >&2
+      podman pod rm -f "$POD_NAME" >/dev/null 2>&1 || true
+      exit 1
+    fi
+  fi
   POD_ARGS=(--pod "$POD_NAME")
   CONTAINER_PORT_ARGS=()
   USERNS_ARGS=()
-  # Pod create uebernimmt --userns=keep-id fuer den gemeinsamen Namespace:
-  # Pod-Member duerfen auf podman 4.9 kein --userns setzen
-  # ("--userns and --pod cannot be set together") - der Projektcontainer
-  # erbt keep-id daher vom Pod.
+  # Pod create inherits --userns=keep-id for the shared namespace: pod
+  # members may not set --userns on podman 4.9 ("--userns and --pod
+  # cannot be set together") so the workspace container inherits keep-id
+  # from the pod.
   if $SEARCH_SEARXNG; then
-    echo "==> Starte oc-searxng Pod-Member (${SEARXNG_NAME}) ..."
+    echo "==> Starting the oc-searxng pod member (${SEARXNG_NAME}) ..."
     podman run -d \
       --pod "$POD_NAME" \
       --name "$SEARXNG_NAME" \
@@ -565,15 +777,37 @@ if ! $OFFLINE; then
   fi
   if $USE_PROXY; then
     PROXY_NAME="oc-proxy-${SANDBOX_ID}"
-    echo "==> Starte oc-proxy Pod-Member (${PROXY_NAME}) ..."
+    echo "==> Starting the oc-proxy pod member (${PROXY_NAME}) ..."
     podman run -d \
       --pod "$POD_NAME" \
       --name "$PROXY_NAME" \
+      "${PROXY_MOUNT_ARGS[@]}" \
       oc-proxy
   fi
+  if $USE_STT; then
+    # Lazy image build (searxng precedent): builds once on the host,
+    # whisper.cpp + model are baked into the image (no runtime download).
+    if ! podman image exists oc-stt 2>/dev/null; then
+      echo "==> Building the oc-stt image ..."
+      podman build --network host -t oc-stt -f "${REPO_ROOT}/stt/Dockerfile" "${REPO_ROOT}/stt/"
+    fi
+    STT_NAME="oc-stt-${SANDBOX_ID}"
+    echo "==> Starting the oc-stt pod member (${STT_NAME}) ..."
+    # Language pin (next-start apply, #168): STT_LANG was read once per
+    # start above; the file is re-read only when the member is recreated
+    # with the pod — no live-apply of any kind. The member applies the
+    # language server-side (entrypoint --language); clients stay dumb
+    # (no client-side language parameter anywhere).
+    podman run -d \
+      --pod "$POD_NAME" \
+      --name "$STT_NAME" \
+      -e "STT_LANG=${STT_LANG}" \
+      "${STT_MOUNT_ARGS[@]}" \
+      oc-stt
+  fi
 else
-  # Offline: kein Pod, kein Member - Publishings bleiben (wie vor der
-  # Umstellung) am Projektcontainer.
+  # Offline: no pod, no members — publishings stay (as before the change)
+  # on the workspace container.
   POD_ARGS=()
   CONTAINER_PORT_ARGS=("${CBM_PORT_ARGS[@]}" "${WEB_PORT_ARGS[@]}")
   USERNS_ARGS=(--userns=keep-id)
@@ -581,21 +815,23 @@ else
 fi
 
 # --- Container starten ---------------------------------------------------------
-# v2-Web: Hostname/Port werden bootunabhaengig in die gemountete
-# service-config vorgesehen (ADR 0024), damit der Container start nur noch
-# `service start` braucht. Die alten Aufrufe `service set hostname/port`
-# stoppen jeweils einen laufenden Service (ServiceConfig.set -> Service.stop)
-# und koennen die Bootkette abbrechen ("Server process ... is still running"),
-# sobald ein Container mit lebendem Service neu startet.
-if $START_WEB && $DETACH; then
-  SERVICE_FILE="${CONFIG_DIR}/service.json"
-  if [[ ! -f "$SERVICE_FILE" ]]; then
-    printf '{"hostname": "0.0.0.0", "port": 4096}\n' > "$SERVICE_FILE"
-  elif ! jq -e '.hostname == "0.0.0.0" and .port == 4096' "$SERVICE_FILE" >/dev/null 2>&1; then
-    tmp_service_json="$(mktemp)"
-    jq '."hostname" = "0.0.0.0" | ."port" = 4096' "$SERVICE_FILE" > "$tmp_service_json" \
-      && mv "$tmp_service_json" "$SERVICE_FILE"
-  fi
+# v2 web: hostname/port are provisioned boot-independently into the
+# mounted service config (ADR 0024), so container start only needs
+# `service start`. The old `service set hostname/port` calls each stop a
+# running service (ServiceConfig.set -> Service.stop) and can break the
+# boot chain ("Server process ... is still running") as soon as a
+# container with a live service restarts.
+# The pin is unconditional (always-on web access, spec §10): the service
+# config is provisioned on every start, detached or foreground — the
+# published 4096 port must hit a service listening on container port 4096
+# regardless of the configured start option.
+SERVICE_FILE="${CONFIG_DIR}/service.json"
+if [[ ! -f "$SERVICE_FILE" ]]; then
+  printf '{"hostname": "0.0.0.0", "port": 4096}\n' > "$SERVICE_FILE"
+elif ! jq -e '.hostname == "0.0.0.0" and .port == 4096' "$SERVICE_FILE" >/dev/null 2>&1; then
+  tmp_service_json="$(mktemp)"
+  jq '."hostname" = "0.0.0.0" | ."port" = 4096' "$SERVICE_FILE" > "$tmp_service_json" \
+    && mv "$tmp_service_json" "$SERVICE_FILE"
 fi
 
 IMAGE="opencode-sandbox-${EDITION}"
@@ -603,21 +839,37 @@ RUN_MODE=(-it)
 CONTAINER_COMMAND=()
 if $DETACH; then
   RUN_MODE=(-d)
-  if $START_WEB; then
-    # v2: shared background service pinned to container port 4096, then
-    # keep-alive (ADR 0024). Published host port comes from the 4096 scan.
-    # Hostname/Port stehen schon in service.json (siehe oben) - der Start
-    # selbst ist ein einziger idempotenter Ensure.
-    CONTAINER_COMMAND=(-c 'opencode service start && exec sleep infinity')
-  else
-    CONTAINER_COMMAND=(-c 'sleep infinity')
-  fi
+  # v2: shared background service pinned to container port 4096, then
+  # keep-alive (ADR 0024) — in EVERY detached mode (always-on web access,
+  # spec §10). --start_web is a foreground-only contract and is ignored
+  # here; the published host port comes from the 4096 scan. Hostname/Port
+  # already sit in service.json (above) — the start itself is a single
+  # idempotent ensure.
+  # idempotent ensure. The daemon resets its cwd to $HOME (upstream v2
+  # behaviour), landing in /home/dev -> not a git repo -> workspace root
+  # falls back to / (anomalyco/opencode#36858) -> the web UI shows the
+  # project picker. Override HOME so the daemon boots in the workspace.
+  CONTAINER_COMMAND=(-c 'cd /home/dev/workspace && HOME=/home/dev/workspace opencode service start && exec sleep infinity')
 fi
 
 if $START_WEB && ! $DETACH; then
-  echo "OpenCode Web: http://127.0.0.1:${WEB_HOST_PORT} (Strg+C beendet den Server)"
+  echo "OpenCode web: http://127.0.0.1:${WEB_HOST_PORT} (Ctrl+C stops the server)"
 fi
 
+# Service registration must land where exec clients find it: the detached
+# boot runs the daemon with HOME=/home/dev/workspace (CONTAINER_COMMAND
+# below), but every `podman exec` client (skills stage, pair, console TUI)
+# runs with HOME=/home/dev. Without this pin the daemon's registration is
+# written to workspace/.local/state/opencode/ while clients look in
+# /home/dev/.local/state/opencode/ — they see no running service, boot a
+# second one and abort on the pinned port 4096 ("Managed service port 4096
+# ... is already in use").
+# Plugin cache persistence: the models-discovery plugin is installed from
+# npm into $XDG_CACHE_HOME/opencode/npm on load. On a cold (ephemeral)
+# cache that install takes tens of seconds while /api/provider, /api/model
+# and /api/agent answer 503 — the first TUI/web client then renders no
+# models until it is reopened. Mount the cache from the persistent data
+# dir so only the very first boot pays the install cost.
 podman run --rm "${RUN_MODE[@]}" \
   --name "$CONTAINER_NAME" \
   "${USERNS_ARGS[@]}" \
@@ -630,24 +882,60 @@ podman run --rm "${RUN_MODE[@]}" \
   "${CONTAINER_PORT_ARGS[@]}" \
   "${CBM_ENV_UI[@]}" \
   "${DEVICE_ARGS[@]}" \
+  "${STT_DEVICE_ARGS[@]}" \
   -e TERM="${TERM:-xterm-256color}" \
   -e XDG_CONFIG_HOME="/home/dev/.config" \
   -e XDG_DATA_HOME="/home/dev/.local/share" \
+  -e XDG_STATE_HOME="/home/dev/.local/state" \
+  -e XDG_CACHE_HOME="/home/dev/.cache" \
   -e GIT_CONFIG_GLOBAL="/home/dev/.git_local/gitconfig" \
+  -e GH_CONFIG_DIR="/home/dev/.git_local/gh-cli" \
+  -e GLAB_CONFIG_DIR="/home/dev/.git_local/glab-cli" \
   -e START_OPENCODE="${START_OPENCODE}" \
   -e START_WEB="${START_WEB_ENV}" \
   "${WEBSEARCH_ENV[@]}" \
   "${SEARXNG_ENV[@]}" \
-  -v "${PROJECT_DIR}:/home/dev/project:Z" \
+  "${STT_ENV[@]}" \
+  "${STT_AUDIO_ENV[@]}" \
+  -v "${WORKSPACE_DIR}:/home/dev/workspace:Z" \
   -v "${CONFIG_DIR}:/home/dev/.config/opencode:Z" \
   -v "${DATA_DIR}:/home/dev/.local/share/opencode:Z" \
+  -v "${DATA_DIR}/cache/opencode:/home/dev/.cache/opencode:Z" \
   -v "${SSH_DIR}:/home/dev/.ssh:Z,ro" \
   -v "${GIT_DIR}:/home/dev/.git_local:Z" \
   -v "${CBM_DIR}:/home/dev/.cache/codebase-memory-mcp:Z" \
   -v "${BASH_DIR}/bash_profile:/home/dev/.bash_profile:Z" \
   "$IMAGE" "${CONTAINER_COMMAND[@]}"
 
-if $START_WEB && $DETACH; then
-  echo "OpenCode Web: http://127.0.0.1:${WEB_HOST_PORT}"
-  echo "Anmeldung (einmaliger Pair-Link): podman exec -it $CONTAINER_NAME opencode pair"
+# Detached starts must not report success before the v2 service has loaded
+# config/plugins. During plugin load the API answers 503, so a client that
+# opens immediately (TUI/web pair flow) caches an empty model list. Poll
+# the authenticated model endpoint — the service password lives in the
+# mounted service.json. Bounded: a slow/broken service only warns (the
+# container is up; reopening the client later still works).
+if $DETACH; then
+  ready_tries="${OC_SANDBOX_SERVICE_READY_TRIES:-90}"
+  ready=false
+  for ((try = 1; try <= ready_tries; try++)); do
+    if podman exec "$CONTAINER_NAME" bash -c '
+      pw="$(jq -r ".password // empty" /home/dev/.config/opencode/service.json 2>/dev/null)"
+      [ -n "$pw" ] && curl -fsS -u "opencode:$pw" http://127.0.0.1:4096/api/model >/dev/null 2>&1
+    ' >/dev/null 2>&1; then
+      ready=true
+      break
+    fi
+    sleep 1
+  done
+  if ! $ready; then
+    printf 'Warning: OpenCode service was not ready after %ss; the first client may show no models until the plugin cache is warm.\n' "$ready_tries" >&2
+  fi
+fi
+
+if $DETACH && ! $OFFLINE; then
+  # Always-on web echo (spec §10): every detached start announces the live
+  # published URL + the pair hint — the scanned host port is never
+  # persisted, so this echo is informational; live `podman port
+  # <ctr> 4096/tcp` (discovery.WebPort) stays the truth.
+  echo "OpenCode web: http://127.0.0.1:${WEB_HOST_PORT}"
+  echo "Sign-in (one-time pair link): podman exec -it $CONTAINER_NAME opencode pair"
 fi

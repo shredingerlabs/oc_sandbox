@@ -6,8 +6,10 @@ package config
 import (
 	"crypto/rand"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -22,12 +24,20 @@ import (
 // Paths resolves the config layout under a home directory.
 type Paths struct{ Home string }
 
-func (p Paths) Dir() string         { return filepath.Join(p.Home, ".config", "oc-sandbox") }
-func (p Paths) BackupsDir() string  { return filepath.Join(p.Dir(), "backups") }
+func (p Paths) Dir() string        { return filepath.Join(p.Home, ".config", "oc-sandbox") }
+func (p Paths) BackupsDir() string { return filepath.Join(p.Dir(), "backups") }
 func (p Paths) GlobalConfigPath() string {
 	return filepath.Join(p.Dir(), "global_config.json")
 }
-func (p Paths) ProjectsPath() string { return filepath.Join(p.Dir(), "projects.json") }
+func (p Paths) WorkspacesPath() string { return filepath.Join(p.Dir(), "workspaces.json") }
+
+// LegacyProjectsPath is the pre-rename registry file (used by the first-start
+// migration; the registry itself only reads workspaces.json).
+func (p Paths) LegacyProjectsPath() string {
+	return filepath.Join(p.Dir(), "projects.json")
+}
+
+func (p Paths) CatalogsPath() string { return filepath.Join(p.Dir(), "catalogs.json") }
 
 // AtomicWrite writes content to path atomically (same-filesystem temp file
 // + rename). If the target already exists it is backed up under
@@ -132,8 +142,8 @@ func createTemp(path string) (string, error) {
 
 // BackupFile copies path into home's backups directory, then rotates.
 // Secret/unsupported files are refused (and never copied) — the refusal
-// is returned as an error; nothing is written to stderr (the Go TUI
-// owns the terminal).
+// is returned as an error; nothing is written to stderr (the caller
+// owns the terminal — the WebUI handlers and the launcher face).
 func BackupFile(home, path string) (string, error) {
 	if !IsGeneralConfigFile(home, path) {
 		msg := fmt.Sprintf("Refusing to back up secret or unsupported configuration: %s", path)
@@ -240,7 +250,8 @@ var secretPatterns = []string{
 }
 
 // IsGeneralConfigFile reports whether path is whitelisted for backups:
-// global_config.json, projects.json, or anything under */.opencode_config/*.
+// global_config.json, workspaces.json, catalogs.json, the legacy
+// projects.json (migration backups), or anything under */.opencode_config/*.
 func IsGeneralConfigFile(home, path string) bool {
 	p := filepath.Clean(path)
 	for _, pat := range secretPatterns {
@@ -249,31 +260,77 @@ func IsGeneralConfigFile(home, path string) bool {
 		}
 	}
 	p2 := Paths{Home: filepath.Clean(home)}
-	if p == p2.GlobalConfigPath() || p == p2.ProjectsPath() {
+	if p == p2.GlobalConfigPath() || p == p2.WorkspacesPath() ||
+		p == p2.CatalogsPath() || p == p2.LegacyProjectsPath() {
 		return true
 	}
 	return strings.Contains(p, "/.opencode_config/")
 }
 
+// Display modes of the WebUI (display_mode in global_config.json,
+// #152): Standard preselects at creation and hides advanced rows/chips
+// (presets, not pinning — the stored sandbox_config.json stays the
+// single truth); Advanced always reveals stored values. Default is
+// standard: absent and unknown keys read as standard.
+const (
+	DisplayStandard = "standard"
+	DisplayAdvanced = "advanced"
+)
+
+// ValidDisplayMode reports whether v is a known display_mode value.
+func ValidDisplayMode(v string) bool {
+	return v == DisplayStandard || v == DisplayAdvanced
+}
+
 // GlobalConfig models global_config.json.
 type GlobalConfig struct {
-	DefaultProjectPath string `json:"default_project_path"`
-	Version            string `json:"version"`
+	DefaultWorkspacePath string `json:"default_workspace_path"`
+	DisplayMode          string `json:"display_mode"`
+	Version              string `json:"version"`
 }
 
 // CreateGlobalConfig writes the initial global_config.json for first-run setup.
-func CreateGlobalConfig(home, projectPath string) error {
+func CreateGlobalConfig(home, workspacePath string) error {
 	return AtomicWrite(home, Paths{Home: home}.GlobalConfigPath(),
-		jsonfmt.Marshal(GlobalConfig{DefaultProjectPath: projectPath, Version: "1.0"}))
+		jsonfmt.Marshal(GlobalConfig{
+			DefaultWorkspacePath: workspacePath,
+			DisplayMode:          DisplayStandard,
+			Version:              "2.0",
+		}))
 }
 
-// ReadGlobalConfig reads global_config.json.
+// SetDisplayMode persists the WebUI display mode (POST /settings, #152):
+// read-modify-write preserving every other key, one atomic write with
+// backup rotation (ADR-0009). A missing global_config.json is created —
+// the WebUI must not dead-end.
+func SetDisplayMode(home, mode string) error {
+	if !ValidDisplayMode(mode) {
+		return fmt.Errorf("config: invalid display_mode %q", mode)
+	}
+	gc, err := ReadGlobalConfig(home)
+	if err != nil {
+		if !errors.Is(err, fs.ErrNotExist) {
+			return err
+		}
+		gc = GlobalConfig{Version: "2.0"}
+	}
+	gc.DisplayMode = mode
+	return AtomicWrite(home, Paths{Home: home}.GlobalConfigPath(), jsonfmt.Marshal(gc))
+}
+
+// ReadGlobalConfig reads global_config.json. An absent or unknown
+// display_mode reads as standard (default, #152).
 func ReadGlobalConfig(home string) (GlobalConfig, error) {
 	var gc GlobalConfig
 	data, err := os.ReadFile(Paths{Home: home}.GlobalConfigPath())
 	if err != nil {
 		return gc, err
 	}
-	err = json.Unmarshal(data, &gc)
-	return gc, err
+	if err = json.Unmarshal(data, &gc); err != nil {
+		return gc, err
+	}
+	if !ValidDisplayMode(gc.DisplayMode) {
+		gc.DisplayMode = DisplayStandard
+	}
+	return gc, nil
 }

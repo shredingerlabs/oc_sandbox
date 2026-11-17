@@ -75,8 +75,33 @@ the sandbox to v2 in one flip:
 - v2 writes `service.json` into `~/.config/opencode` (the mounted
   `.opencode_config/`); the dynamic host port stays unrecorded in
   sandbox_config.json/projects.json (smoke check intact). The service
-  registration in `~/.local/state/opencode/` is container-ephemeral —
-  harmless.
+  registration in the XDG state dir is container-ephemeral — harmless. The
+  registration's directory is pinned container-wide
+  (`-e XDG_STATE_HOME=/home/dev/.local/state`): the detached boot runs the
+  daemon with `HOME=/home/dev/workspace` (cwd/project-picker fix), while
+  every `podman exec` client (skills stage, `opencode pair`, console TUI)
+  runs with `HOME=/home/dev` — without the pin the daemon's registration is
+  invisible to exec clients, which boot a second service that collides on
+  the pinned port 4096 ("Managed service port 4096 ... is already in use").
+  Containers started before the pin need one restart to pick it up.
+  The same daemon HOME pin also redirects every `$HOME/.cache`-resolved
+  path into the workspace, so the cache dir is pinned container-wide too
+  (`-e XDG_CACHE_HOME=/home/dev/.cache`): opencode's own cache stays in
+  the overlay (pre-created by the image), and the CBM server — spawned as
+  a daemon child without `--cache-dir` — lands on the `.cbm_cache` mount
+  (`/home/dev/.cache/codebase-memory-mcp`) where the CBM stage writes its
+  config; without the pin both wrote into `workspace/.cache/` and the
+  stage's config was invisible to the server.
+  The opencode plugin cache itself (`$XDG_CACHE_HOME/opencode`, where the
+  models-discovery npm tree is installed) is mounted from the persistent
+  data dir (`.opencode_data/cache/opencode`) so a container re-creation
+  keeps the install; only the very first boot pays the (tens of seconds)
+  npm install. Detached starts additionally gate on the authenticated
+  `GET /api/model` (password from the mounted `service.json`) for up to
+  `OC_SANDBOX_SERVICE_READY_TRIES` seconds (default 90) and warn instead
+  of failing on timeout: before the plugins are loaded the API answers
+  503, and a TUI/web client opened in that window cached an empty model
+  list until it was reopened.
 - The web toast signs the browser in via one-time pair links (sessions
   then last 30 days); the foreground `serve` path shows the server
   password in its banner for direct URL sign-in.
@@ -84,3 +109,7 @@ the sandbox to v2 in one flip:
   compatibility (`.opencode_data/auth.json` mount), and `mini` inside
   the ephemeral `podman exec -it` skills session (fallback:
   `--standalone` for that stage only).
+- Release-sweep addendum (#163): OpenCode's published `/docs/web/` page
+  is a stale v1 leftover — `opencode web`/`attach` do not exist in the
+  shipped v2 build; the v2-native attach is the root flag
+  `--server <url>`. No revision to this ADR's invocation flow.

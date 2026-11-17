@@ -7,7 +7,7 @@
 # in Dockerfile und Dockerfile.custom (= <script_dir>/../dist/). Jede
 # entdeckte Edition ist ein gueltiges Argument; Namen sind klein
 # [a-z0-9_-]. Ohne Argument wird jede entdeckte Edition gebaut.
-# Die Infrastruktur-Images (oc-proxy, oc-searxng) sind eigene
+# Die Infrastruktur-Images (oc-proxy, oc-searxng, oc-stt) sind eigene
 # Build-Ziele mit festem Namen, keine Editionen (grep-safe: eigene
 # Dockerfiles, keine Stages im Editions-Registry-Format).
 #
@@ -112,6 +112,10 @@ build_infra_image() {
       echo "==> Baue SearXNG (MCP-Websuche)"
       podman build --network host -t oc-searxng -f searxng/Dockerfile searxng/
       ;;
+    oc-stt)
+      echo "==> Baue STT (whisper.cpp)"
+      podman build --network host -t oc-stt -f stt/Dockerfile stt/
+      ;;
     *) echo "Fehler: unbekanntes Infrastruktur-Image: $1" >&2; exit 1 ;;
   esac
 }
@@ -119,6 +123,7 @@ build_infra_image() {
 build_infra_images() {
   build_infra_image oc-proxy
   build_infra_image oc-searxng
+  build_infra_image oc-stt
 }
 
 if [[ $# -eq 0 || "${1:-}" == "all" ]]; then
@@ -128,7 +133,7 @@ if [[ $# -eq 0 || "${1:-}" == "all" ]]; then
   done
 elif arg_stage=$(stage_of_edition "$1") && [[ -n "${STAGE_FILE[$arg_stage]:-}" ]]; then
   build_edition "$arg_stage"
-elif [[ "${1:-}" == "oc-proxy" || "${1:-}" == "oc-searxng" ]]; then
+elif [[ "${1:-}" == "oc-proxy" || "${1:-}" == "oc-searxng" || "${1:-}" == "oc-stt" ]]; then
   build_infra_image "$1"
   echo "==> Fertig."
   exit 0
@@ -138,7 +143,7 @@ else
   for stage in "${STAGE_ORDER[@]}"; do
     echo "  $stage" >&2
   done
-  echo "Infrastruktur: oc-proxy oc-searxng" >&2
+  echo "Infrastruktur: oc-proxy oc-searxng oc-stt" >&2
   echo "Nutzung: $0 [$USAGE_EDITIONS|all]" >&2
   exit 1
 fi

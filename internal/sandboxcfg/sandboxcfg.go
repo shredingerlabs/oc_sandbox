@@ -11,8 +11,8 @@ import (
 	"github.com/shredingerlabs/oc-sandbox/internal/jsonfmt"
 )
 
-// Search modes of a project (search_mode in sandbox_config.json).
-// Absent key reads as SearchWebsearch so pre-existing projects keep
+// Search modes of a workspace (search_mode in sandbox_config.json).
+// Absent key reads as SearchWebsearch so pre-existing workspaces keep
 // today's built-in websearch behavior.
 const (
 	SearchNone      = "none"
@@ -35,7 +35,8 @@ func ValidSearchMode(v string) bool {
 
 // Config is the read view of sandbox_config.json. Absent optional fields
 // fall back exactly like the bash jq reads: vcs_tracking // "none",
-// use_proxy // false, search_mode // "websearch", setup_* // false.
+// use_proxy // false, use_stt // false, search_mode // "websearch",
+// setup_* // false.
 type Config struct {
 	ContainerEdition    string
 	ContainerModes      []string
@@ -43,10 +44,11 @@ type Config struct {
 	CBMAutoIndex        bool
 	CBMAutoWatch        bool
 	AIProvider          string
-	ProjectSource       string
+	WorkspaceSource     string
 	RepoURL             string
 	VCSTracking         string
 	UseProxy            bool
+	UseStt              bool
 	SearchMode          string
 	SetupCloneComplete  bool
 	SetupCBMComplete    bool
@@ -55,9 +57,15 @@ type Config struct {
 	Version             string
 }
 
-// Path resolves the sandbox_config.json location for a project root.
+// Path resolves the sandbox_config.json location for a workspace root.
 func Path(projectRoot string) string {
 	return filepath.Join(projectRoot, ".opencode_config", "sandbox_config.json")
+}
+
+// AllowlistPath resolves the workspace allowlist location for a
+// workspace root (ADR 0034): alongside sandbox_config.json.
+func AllowlistPath(projectRoot string) string {
+	return filepath.Join(projectRoot, ".opencode_config", "allowlist.txt")
 }
 
 func readDoc(path string) (*jsonfmt.Doc, error) {
@@ -89,10 +97,11 @@ func Read(path string) (Config, error) {
 		CBMAutoIndex:        doc.GetBool("cbm_auto_index", false),
 		CBMAutoWatch:        doc.GetBool("cbm_auto_watch", false),
 		AIProvider:          doc.GetString("ai_provider", ""),
-		ProjectSource:       doc.GetString("project_source", "empty"),
+		WorkspaceSource:     doc.GetString("workspace_source", "empty"),
 		RepoURL:             doc.GetString("repo_url", ""),
 		VCSTracking:         doc.GetString("vcs_tracking", "none"),
 		UseProxy:            doc.GetBool("use_proxy", false),
+		UseStt:              doc.GetBool("use_stt", false),
 		SearchMode:          doc.GetString("search_mode", SearchWebsearch),
 		SetupCloneComplete:  doc.GetBool("setup_clone_complete", false),
 		SetupCBMComplete:    doc.GetBool("setup_cbm_complete", false),
@@ -103,7 +112,7 @@ func Read(path string) (Config, error) {
 }
 
 // Create writes the initial payload: fixed defaults, all setup flags false,
-// cbm_* true, project_source "empty", repo_url "", search_mode per the
+// cbm_* true, workspace_source "empty", repo_url "", search_mode per the
 // wizard's Search row (empty → websearch). Field order matches the
 // bash create_sandbox_config jq output.
 func Create(home, path, edition string, modes []string, startOption, aiProvider, searchMode string) error {
@@ -124,14 +133,17 @@ func Create(home, path, edition string, modes []string, startOption, aiProvider,
 		{Key: "cbm_auto_index", Val: true},
 		{Key: "cbm_auto_watch", Val: true},
 		{Key: "ai_provider", Val: aiProvider},
-		{Key: "project_source", Val: "empty"},
+		{Key: "workspace_source", Val: "empty"},
 		{Key: "repo_url", Val: ""},
 		{Key: "search_mode", Val: searchMode},
+		// Dictation is preselected ON at creation (spec story 15); the
+		// advanced-only settings row patches it back to false on opt-out.
+		{Key: "use_stt", Val: true},
 		{Key: "setup_clone_complete", Val: false},
 		{Key: "setup_cbm_complete", Val: false},
 		{Key: "setup_skills_complete", Val: false},
 		{Key: "setup_complete", Val: false},
-		{Key: "version", Val: "1.0"},
+		{Key: "version", Val: "2.0"},
 	}}
 	return config.AtomicWrite(home, path, jsonfmt.Marshal(doc))
 }
@@ -157,7 +169,7 @@ func PatchBool(home, path, field string, value bool) error {
 	return config.AtomicWrite(home, path, jsonfmt.Marshal(doc))
 }
 
-// Settings is the revisit-rewrite payload (change project settings /
+// Settings is the revisit-rewrite payload (change workspace settings /
 // failure-recovery retry path). Applies on next container start.
 type Settings struct {
 	Edition     string
@@ -166,6 +178,7 @@ type Settings struct {
 	VCS         string
 	AIProvider  string
 	UseProxy    bool
+	UseStt      bool
 	SearchMode  string
 }
 
@@ -187,6 +200,7 @@ func Rewrite(home, path string, s Settings) error {
 	doc.Set("vcs_tracking", s.VCS)
 	doc.Set("ai_provider", s.AIProvider)
 	doc.Set("use_proxy", s.UseProxy)
+	doc.Set("use_stt", s.UseStt)
 	doc.Set("search_mode", s.SearchMode)
 	return config.AtomicWrite(home, path, jsonfmt.Marshal(doc))
 }

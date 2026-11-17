@@ -1,0 +1,851 @@
+// New Workspace wizard + create chain (spec §7/§8/§9, #156): the
+// Workspace → New screen as one HTMX fragment — source radio pair
+// (Blank Workspace / From Repo, name derived live from the repo URL),
+// Agent row (default code; pkm pins the edition), Edition preselected
+// swdev with the inline "Image build" row when the image is missing,
+// VCS-credential and AI-provider selects fed from the global catalogs
+// (pick-only — entries are managed in Settings › VCS Tracker /
+// AI-Provider), each with its per-workspace token input inline.
+//
+// Create runs ONE create-chain task — image build (when missing and
+// Build now) → init-workspace.sh → configure-workspace.sh in credential
+// order — exactly as the TUI invokes the scripts (native script
+// enhancement, ADR-0007), streamed into the log pane under the form via
+// SSE line events keyed by the op ID. Standard visible rows only per
+// §6; Advanced reveals the full option set (matrix-driven, #152): the
+// presets — start web, proxy off, searxng, offline off, CBM-UI off, HIL
+// on for embedded — are recorded regardless of the mode.
+package webserver
+
+import (
+	"errors"
+	"fmt"
+	"html/template"
+	"net/http"
+	"net/url"
+	"sort"
+	"strings"
+
+	"github.com/shredingerlabs/oc-sandbox/internal/catalogs"
+	"github.com/shredingerlabs/oc-sandbox/internal/cmdrun"
+	"github.com/shredingerlabs/oc-sandbox/internal/discovery"
+	"github.com/shredingerlabs/oc-sandbox/internal/newworkspace"
+	"github.com/shredingerlabs/oc-sandbox/internal/providerid"
+	"github.com/shredingerlabs/oc-sandbox/internal/registry"
+	"github.com/shredingerlabs/oc-sandbox/internal/sandboxcfg"
+)
+
+// wizardEditionDefault is the §6 preselected edition.
+const wizardEditionDefault = "swdev"
+
+// wizardTemplate renders the New Workspace fragments (form, confirm).
+// P carries the tokenized path prefix so hx-* targets stay absolute.
+// Styling per the signed-off prototype (ws-new): a pagehead with the
+// Blank/From-Repo segment, .flabel/.sub rows, .edotsel chips for the
+// edition, .switch toggles for the Advanced booleans. The functional
+// payload (field names, defaults, hidden round-trip) keeps the previous
+// contract minus the removed inline-new rows.
+var wizardTemplate = template.Must(template.New("wizard").
+	Funcs(template.FuncMap{"hueFor": editionHue}).
+	Funcs(iconFuncs).
+	Parse(`
+{{define "wizard"}}
+<section class="wizard" id="new-workspace" data-screen="ws-new">
+  <div class="pagehead"><div>
+  <h2>Create a workspace</h2>
+  <div class="desc">Name, source, edition and provider are recorded once; later changes apply on next start.</div>
+  </div>
+  <span class="seg" role="group" aria-label="creation path">
+    <label>{{icon "file-plus"}}Blank Workspace<input type="radio" name="source" value="blank" form="new-workspace-form" {{if not .FromRepo}}checked{{end}}></label>
+    <label>{{icon "git-fork"}}From Repo<input type="radio" name="source" value="repo" form="new-workspace-form" {{if .FromRepo}}checked{{end}}></label>
+  </span></div>
+  {{if .Error}}<p class="form-error" role="alert">{{.Error}}</p>{{end}}
+  {{if or .LogLines (gt .OpID 0)}}
+  <div class="logpane" data-role="create-log" data-op-id="{{.OpID}}">{{range .LogLines}}<div class="logline">{{.}}</div>{{end}}</div>
+  {{end}}
+  <form data-role="new-workspace-form" id="new-workspace-form" data-draft-key="new-workspace" hx-post="{{.P}}workspaces" hx-target="#new-workspace" hx-swap="outerHTML">
+    <fieldset class="rows" data-role="wizard-fields"{{if .Inert}} disabled{{end}}>
+
+    <div class="row" data-row="name">
+      <label class="flabel" for="wiz-name">Workspace name</label>
+      <input id="wiz-name" name="name" value="{{.Name}}" data-role="wizard-name" placeholder="my-workspace">
+      <div class="sub">Under your workspaces root — derived from the repo URL on From Repo, still editable.</div>
+    </div>
+    <div class="row" data-row="repo_url" data-repo-only="{{if not .FromRepo}}1{{end}}">
+      <label class="flabel" for="wiz-url">Repo URL</label>
+      <input id="wiz-url" name="repo_url" value="{{.RepoURL}}" placeholder="https://github.com/user/repo.git">
+      <div class="sub">Cloned at create (in-container clone during first-run setup).</div>
+    </div>
+    <div class="row" data-row="agent">
+      <span class="label">Agent</span>
+      <select name="agent" data-role="wizard-agent">
+        <option value="code" {{if eq .Agent "code"}}selected{{end}}>Code</option>
+        <option value="chat" {{if eq .Agent "chat"}}selected{{end}}>Chat Agent (NO_CODE)</option>
+        <option value="pkm" {{if eq .Agent "pkm"}}selected{{end}}>PKM (Personal Knowledge Wiki)</option>
+      </select>
+      <span class="sub">PKM pins the edition to pkm (ADR-0027).</span>
+    </div>
+    <div class="row" data-row="edition" {{if eq .Agent "pkm"}}data-pkm-pin{{end}}>
+      <span class="label">Edition</span>
+      <span class="edotsel" data-role="wizard-edition" data-edition="{{.Edition}}">
+        <input type="hidden" name="edition" value="{{.Edition}}">
+        {{range .Editions}}<button type="button" class="edopt" data-ed="{{.}}" aria-pressed="{{if eq . $.Edition}}true{{else}}false{{end}}"><i style="--ed:{{hueFor .}}"></i>{{.}}</button>{{end}}
+      </span>
+      <div class="sub">Container image for this workspace.</div>
+    </div>
+    {{if .ImageMissing}}
+    <div class="row" data-row="image_build">
+      <span class="label">Image build</span>
+      <span class="seg">
+        <label>{{icon "hammer"}}Build now<input type="radio" name="build" value="now" {{if not .BuildLater}}checked{{end}}></label>
+        <label>{{icon "clock"}}Build later<input type="radio" name="build" value="later" {{if .BuildLater}}checked{{end}}></label>
+      </span>
+      <span class="sub">the {{.Edition}} image is missing — Create runs the build, or the workspace registers deferred</span>
+    </div>
+    {{end}}
+
+    <div class="row" data-row="vcs">
+      <span class="label">VCS credentials</span>
+      <select name="vcs" data-role="wizard-vcs">
+        <option value="none" {{if eq .VCS "none"}}selected{{end}}>none</option>
+        {{range .Trackers}}<option value="{{.Name}}" {{if eq $.VCS .Name}}selected{{end}}>{{.Name}} — {{.Kind}}</option>{{end}}
+      </select>
+      <input type="password" name="vcs_token" value="" autocomplete="off" placeholder="VCS token">
+      <span class="sub">From the global tracker list (Settings › VCS Tracker); the typed token is per-workspace, never an entry of the catalog.</span>
+    </div>
+
+    <div class="row" data-row="provider">
+      <span class="label">AI provider</span>
+      <select name="provider" data-role="wizard-provider">
+        <option value="none" {{if eq .Provider "none"}}selected{{end}}>none</option>
+        {{range .Providers}}<option value="{{.Name}}" {{if eq $.Provider .Name}}selected{{end}}>{{.Name}}</option>{{end}}
+      </select>
+      <input type="password" name="provider_token" value="" autocomplete="off" placeholder="API token" data-provider-token>
+      <span class="sub">Tokens live with the workspace; entries are managed in Settings › AI-Provider.</span>
+      <span class="sub">From the global provider list (Settings › AI-Provider); the typed token is per-workspace, never an entry of the catalog.</span>
+    </div>
+
+    <div class="row" data-row="modes" data-advanced-only>
+      <span class="label">Modes</span>
+      <span class="swgroup">
+        <label class="switch">use_proxy<input type="checkbox" name="proxy" value="yes" {{if .Proxy}}checked{{end}}><i></i></label>
+        <label class="switch">offline<input type="checkbox" name="offline" value="on" {{if .Offline}}checked{{end}}><i></i></label>
+        <label class="switch">CBM-UI<input type="checkbox" name="cbm_ui" value="on" {{if .CBMUI}}checked{{end}}><i></i></label>
+        <label class="switch">HIL<input type="checkbox" name="hil" value="on" {{if .HIL}}checked{{end}}><i></i></label>
+        <label class="switch">dictation<input type="checkbox" name="use_stt" value="on" {{if .STT}}checked{{end}}><i></i><input type="hidden" name="use_stt_present" value="1"></label>
+      </span>
+      <div class="sub">start.sh flags — apply on next start (presets, not pinning: the stored config stays the truth).</div>
+    </div>
+    <div class="row" data-row="search" data-advanced-only>
+      <span class="label">Search</span>
+      <span class="edotsel">
+        <label>none<input type="radio" name="search_mode" value="none" {{if eq .SearchMode "none"}}checked{{end}}></label>
+        <label>websearch<input type="radio" name="search_mode" value="websearch" {{if eq .SearchMode "websearch"}}checked{{end}}></label>
+        <label>searxng<input type="radio" name="search_mode" value="searxng" {{if eq .SearchMode "searxng"}}checked{{end}}></label>
+      </span>
+      <div class="sub">SearXNG runs as a companion service — searxng excludes the proxy and offline mode.</div>
+    </div>
+    <div class="row hint" data-row="presets">{{.PresetsHint}}</div>
+
+    </fieldset>
+    <div class="actions">
+      <button type="submit" class="btn" data-role="wizard-create">Create Workspace</button>
+    </div>
+  </form>
+</section>
+{{end}}
+
+{{define "confirm"}}
+<div class="create-confirm" id="create-confirm" data-role="create-confirm">
+  <h2>Create this workspace?</h2>
+  {{if .Error}}<p class="form-error" role="alert">{{.Error}}</p>{{end}}
+  <ul class="summary">
+    {{range .Lines}}<li>{{.}}</li>{{end}}
+  </ul>
+  <form hx-post="{{.P}}workspaces" hx-target="#create-confirm" hx-swap="outerHTML">
+    {{range .Fields}}<input type="hidden" name="{{.Name}}" value="{{.Value}}">{{end}}
+    <div class="actions">
+      <button type="submit" class="btn" name="confirm" value="1">Create</button>
+      <button type="submit" class="btn ghost" name="confirm" value="">Back</button>
+    </div>
+  </form>
+</div>
+{{end}}
+`))
+
+// wizardForm is the wizard's rendered state — the parsed payload with
+// defaults applied (the GET's blank form and the POST's redisplay share
+// one shape).
+type wizardForm struct {
+	P     string // tokenized path prefix
+	Error string
+
+	FromRepo bool
+	RepoURL  string
+	Name     string
+	Agent    string
+	Edition  string
+
+	ImageMissing bool
+	BuildLater   bool
+
+	VCS      string
+	Provider string
+
+	StartOption string
+	Proxy       bool
+	SearchMode  string
+	Offline     bool
+	CBMUI       bool
+	HIL         bool
+	STT         bool
+	STTPresent  bool // the row rendered (use_stt_present) — gates the patch
+
+	Trackers    []catalogs.Tracker
+	Providers   []catalogs.Provider
+	Editions    []string
+	PresetsHint string
+
+	// create-chain log pane state (inert form while the chain runs)
+	LogLines []string
+	OpID     int
+	Inert    bool
+
+	// confirm-popup state (POST validation output)
+	Fields *formFields
+	Lines  []string
+}
+
+// formField is one hidden field of the confirm popup's round-trip form.
+type formField struct {
+	Name  string
+	Value string
+}
+
+// formFields is the ordered hidden-payload list of the confirm popup.
+type formFields []formField
+
+// wizardDefaults returns the §6 preset state the wizard opens with:
+// agent code, edition swdev, start web, proxy off, searxng, offline /
+// CBM-UI off. HIL presets on for embedded (passed in at render time —
+// the preset follows the selected edition).
+func wizardDefaults() wizardForm {
+	return wizardForm{
+		Agent:       "code",
+		Edition:     wizardEditionDefault,
+		VCS:         "none",
+		Provider:    "none",
+		StartOption: "web",
+		SearchMode:  "searxng",
+		STT:         true, // dictation preset ON (the sandboxcfg.Create default)
+	}
+}
+
+// handleNewWorkspaceGET serves GET /workspaces/new: the blank wizard
+// form with the catalog feeds and the live edition/image discovery.
+func (s *Server) handleNewWorkspaceGET(w http.ResponseWriter, r *http.Request) {
+	f := wizardDefaults()
+	s.renderWizard(w, f)
+}
+
+// renderWizard renders the form fragment with the current feeds and
+// discovery (fresh per call, data map §2). Retired-kind entries
+// (ADR-0038) never reach the pick list.
+func (s *Server) renderWizard(w http.ResponseWriter, f wizardForm) {
+	cat := catalogs.Read(s.opts.Home)
+	f.P = s.pathPrefix()
+	f.PresetsHint = PresetsHint
+	for _, t := range cat.Trackers {
+		if catalogs.SelectableKind(t.Kind) {
+			f.Trackers = append(f.Trackers, t)
+		}
+	}
+	f.Providers = cat.Providers
+	f.Editions = s.wizardEditions()
+	if f.Edition == "" || !wizardHasEdition(f.Editions, f.Edition) {
+		f.Edition = wizardPickEdition(f.Editions)
+	}
+	if f.Agent != "pkm" { // pkm pins the edition (ADR-0027)
+		f.ImageMissing = f.Edition != "" && !discovery.ImageExists(s.runner(), f.Edition)
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := wizardTemplate.ExecuteTemplate(w, "wizard", f); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+}
+
+// wizardEditions lists the selectable editions from the Dockerfile
+// registry; an unreadable registry yields nil (the wizard shows the
+// refusal on create — never guesses an edition).
+func (s *Server) wizardEditions() []string {
+	eds, err := discovery.SelectableEditions(s.deps.Dockerfile, s.deps.DockerfileCustom)
+	if err != nil {
+		return nil
+	}
+	return eds
+}
+
+// wizardPickEdition preselects swdev when present (§6), else the first
+// selectable edition.
+func wizardPickEdition(eds []string) string {
+	if wizardHasEdition(eds, wizardEditionDefault) {
+		return wizardEditionDefault
+	}
+	if len(eds) > 0 {
+		return eds[0]
+	}
+	return ""
+}
+
+func wizardHasEdition(eds []string, e string) bool {
+	for _, x := range eds {
+		if x == e {
+			return true
+		}
+	}
+	return false
+}
+
+// runner resolves the command runner (nil → exec).
+func (s *Server) runner() cmdrun.Runner {
+	if s.deps != nil && s.deps.Run != nil {
+		return s.deps.Run
+	}
+	return cmdrun.ExecRunner{}
+}
+
+// handleWorkspacesPOST serves POST /workspaces (§9): the wizard payload
+// → validate → create-summary confirm → one create-chain task. The
+// confirm round-trips the same endpoint (confirm=1 launches; empty
+// re-renders the form with the entered values).
+func (s *Server) handleWorkspacesPOST(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad form", http.StatusBadRequest)
+		return
+	}
+	f := s.parseWizardForm(r)
+	if r.PostFormValue("confirm") != "1" {
+		if r.PostForm.Has("confirm") { // the confirm popup's Back button —
+			s.renderWizard(w, f) // re-render the form with the entered values
+			return
+		}
+		if msg := s.validateWizard(r, f); msg != "" {
+			f.Error = msg
+			s.renderWizard(w, f)
+			return
+		}
+		s.renderConfirm(w, r, f)
+		return
+	}
+	// confirm=1: refuse while an op for this workspace is queued or
+	// running (one-at-a-time per workspace, parallel across workspaces),
+	// then launch the ONE create-chain task through the shared op queue.
+	if msg := s.validateWizard(r, f); msg != "" {
+		f.Error = msg
+		s.renderWizard(w, f)
+		return
+	}
+	if s.queue.BusyKey(f.Name) {
+		f.Error = "A create chain for this workspace is already queued or running — wait for it to finish."
+		s.renderWizard(w, f)
+		return
+	}
+	chain := s.newCreateChain(r, f)
+	chain.opID = s.queue.reserve()
+	f.OpID = chain.opID
+	f.Inert = true // the form stays visible but inert while the chain runs
+	s.renderWizard(w, f)
+	s.queue.Launch(webOp{
+		ID:  chain.opID,
+		Key: chain.name,
+		Run: func(emit func(string)) error { return chain.runSteps(s, emit) },
+		Done: func(err error) {
+			if err != nil {
+				s.hub.PublishWorkspaceOp(chain.opID, "failed")
+			} else {
+				s.hub.PublishWorkspaceOp(chain.opID, "done")
+			}
+		},
+	})
+}
+
+// trackerLabel maps a tracker kind onto the stored vcs_tracking value —
+// the exact option vocabulary the settings flow reads back
+// (github.com / gitlab.com / own GitLab / others).
+func trackerLabel(kind string) string {
+	switch kind {
+	case catalogs.KindGitHub:
+		return "github.com"
+	case catalogs.KindGitLab:
+		return "gitlab.com"
+	case catalogs.KindGitLabSel:
+		return "own GitLab"
+	case catalogs.KindOther:
+		return "others"
+	}
+	return "none"
+}
+
+// wizardVCSTracking resolves the stored vcs_tracking value of the
+// payload: the catalog entry's kind label, or "none" (an unknown pick
+// — crafted "new" included — reads back as none, fail-soft).
+func (s *Server) wizardVCSTracking(f wizardForm) string {
+	if f.VCS == "none" {
+		return "none"
+	}
+	var kind string
+	if t, ok := s.wizardTracker(f.VCS); ok {
+		kind = t.Kind
+	}
+	return trackerLabel(kind)
+}
+
+// wizardTracker finds a catalog tracker by display name (slug match);
+// retired-kind entries never resolve (ADR-0038) — a crafted pick of
+// one reads back as none, fail-soft like an unknown name.
+func (s *Server) wizardTracker(name string) (catalogs.Tracker, bool) {
+	slug := catalogs.Slug(name)
+	for _, t := range catalogs.Read(s.opts.Home).Trackers {
+		if catalogs.Slug(t.Name) == slug && catalogs.SelectableKind(t.Kind) {
+			return t, true
+		}
+	}
+	return catalogs.Tracker{}, false
+}
+
+// wizardProvider finds a catalog provider by display name (slug match).
+func (s *Server) wizardProvider(name string) (catalogs.Provider, bool) {
+	slug := catalogs.Slug(name)
+	for _, p := range catalogs.Read(s.opts.Home).Providers {
+		if catalogs.Slug(p.Name) == slug {
+			return p, true
+		}
+	}
+	return catalogs.Provider{}, false
+}
+
+// renderConfirm renders the create-summary confirmation popup (§9: the
+// TUI confirm set carried 1:1 — newworkspace.askCreate parity) with the
+// payload round-tripping in hidden fields.
+func (s *Server) renderConfirm(w http.ResponseWriter, r *http.Request, f wizardForm) {
+	if f.Agent == "pkm" { // pkm pins the edition (ADR-0027)
+		f.Edition = "pkm"
+	}
+	lines := []string{
+		"name: " + f.Name,
+		"path: " + s.wizardRoot(f.Name),
+		"edition: " + f.Edition,
+	}
+	if f.Agent == "chat" {
+		lines = append(lines, "agent: chat")
+	}
+	lines = append(lines,
+		"search: "+f.SearchMode,
+		"VCS tracking: "+s.wizardVCSTracking(f),
+	)
+	if p, ok := s.wizardProvider(f.Provider); ok {
+		lines = append(lines, "AI provider: "+p.Name)
+	} else {
+		lines = append(lines, "AI provider: none")
+	}
+	if !discovery.ImageExists(s.runner(), f.Edition) {
+		line := "image build: Build later"
+		if !f.BuildLater {
+			line = "image build: Build now"
+		}
+		lines = append(lines, line)
+	}
+	fields := formFields{}
+	for _, k := range sortedFormKeys(r.PostForm) {
+		if k == "confirm" {
+			continue
+		}
+		fields = append(fields, formField{Name: k, Value: r.PostForm.Get(k)})
+	}
+	data := struct {
+		P      string
+		Error  string
+		Lines  []string
+		Fields formFields
+	}{P: s.pathPrefix(), Lines: lines, Fields: fields}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := wizardTemplate.ExecuteTemplate(w, "confirm", data); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+}
+
+// sortedFormKeys gives the hidden round-trip a deterministic order.
+func sortedFormKeys(vs url.Values) []string {
+	keys := make([]string, 0, len(vs))
+	for k := range vs {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+// parseWizardForm reads the wizard payload into the rendered state,
+// applying the §6 presets where a row is absent.
+func (s *Server) parseWizardForm(r *http.Request) wizardForm {
+	f := wizardDefaults()
+	f.FromRepo = r.PostFormValue("source") == "repo"
+	f.RepoURL = strings.TrimSpace(r.PostFormValue("repo_url"))
+	f.Name = strings.TrimSpace(r.PostFormValue("name"))
+	f.Agent = r.PostFormValue("agent")
+	f.Edition = r.PostFormValue("edition")
+	f.BuildLater = r.PostFormValue("build") == "later"
+	f.VCS = r.PostFormValue("vcs")
+	if f.VCS == "" {
+		f.VCS = "none"
+	}
+	f.Provider = r.PostFormValue("provider")
+	if f.Provider == "" {
+		f.Provider = "none"
+	}
+	f.StartOption = r.PostFormValue("start_option")
+	if f.StartOption == "" {
+		f.StartOption = "web" // §6 preset — presets, not pinning
+	}
+	f.Proxy = r.PostFormValue("proxy") == "yes"
+	f.SearchMode = r.PostFormValue("search_mode")
+	if f.SearchMode == "" {
+		f.SearchMode = "searxng" // §6 preset
+	}
+	f.Offline = r.PostFormValue("offline") == "on"
+	f.CBMUI = r.PostFormValue("cbm_ui") == "on"
+	f.HIL = r.PostFormValue("hil") == "on"
+	f.STT = r.PostFormValue("use_stt") == "on" // absent (row hidden AND stripped) keeps the ON default
+	f.STTPresent = r.PostFormValue("use_stt_present") == "1"
+	return f
+}
+
+// validateWizard checks the payload; "" when valid. Mirrors the TUI's
+// validateInputs plus the ADR-0026 exclusions start.sh hard-exits on.
+func (s *Server) validateWizard(r *http.Request, f wizardForm) string {
+	if !newworkspace.NameRe.MatchString(f.Name) {
+		return "Invalid workspace name — use [a-zA-Z0-9_-]+."
+	}
+	if f.FromRepo && f.RepoURL == "" {
+		return "Repo URL is required for a From Repo workspace."
+	}
+	if f.Agent == "pkm" { // pkm pins the edition (ADR-0027)
+		f.Edition = "pkm"
+	}
+	if f.Edition == "" {
+		return "No container editions found in Dockerfile/Dockerfile.custom."
+	}
+	reg := s.registry()
+	if _, err := reg.ByName(f.Name); err == nil {
+		return "Duplicate workspace name — choose a unique display name."
+	}
+	if _, err := reg.ByPath(s.wizardRoot(f.Name)); err == nil {
+		return "Duplicate workspace path — choose a unique location."
+	}
+	if f.SearchMode == "searxng" && (f.Proxy || f.Offline) {
+		return "SearXNG needs network — it excludes the proxy and offline mode."
+	}
+	if f.Offline && f.CBMUI {
+		return "offline and cbm_ui are mutually exclusive."
+	}
+	if f.Provider != "none" && !providerid.ValidToken(r.PostFormValue("provider_token")) {
+		return "Token must not be empty or contain whitespace/newlines."
+	}
+	return ""
+}
+
+// registry returns the Deps registry view.
+func (s *Server) registry() *registry.Registry {
+	return s.deps.Registry
+}
+
+// wizardRoot derives the workspace root from the name — the default
+// workspace path base + the name (the wizard has no path row; §6).
+// The slug is newworkspace's canonical PathSlug (bash-rule parity).
+func (s *Server) wizardRoot(name string) string {
+	base := s.deps.DefaultWorkspacePath
+	if base == "" {
+		base = s.opts.Home + "/oc-sandbox"
+	}
+	return registry.CanonicalPath(base + "/" + newworkspace.PathSlug(name))
+}
+
+// --- the create chain (ONE task: image build → init → configure) ------------
+
+// editionHue is the template's handle on the Signal hue map (the
+// edition chip dots tint like the Open screen's cards).
+func editionHue(name string) string {
+	return editionFor(name).Hue
+}
+
+// createChain is the captured payload of one confirmed create — every
+// request-scoped value (tokens included) is read before the chain goes
+// to its own goroutine.
+type createChain struct {
+	opID int
+	name string
+	root string
+
+	fromRepo bool
+	repoURL  string
+	agent    string // code | chat | pkm
+	edition  string // pkm pinned for the pkm agent
+
+	vcsLabel string // stored vcs_tracking value (none/github.com/…)
+	vcsKind  string // catalog kind slug driving the invocation
+	vcsHost  string
+	vcsToken string
+	gitName  string
+	gitEmail string
+
+	providerName     string
+	providerEndpoint string
+	providerToken    string
+	providerID       string
+
+	modes  []string
+	start  string
+	search string
+	proxy  bool
+	stt    bool // the dictation preset (use_stt, NOT a container mode)
+	// sttPresent carries the wizard row's rendered sentinel (D9): the
+	// patch writes use_stt only when the row rendered, so a Standard
+	// post without the fields keeps the Create default (never re-imposes).
+	sttPresent bool
+	build      bool // Build now decision (the row only drives visibility)
+}
+
+// newCreateChain captures the confirmed payload (fresh image/edition
+// decision re-checked here, like the TUI's create()).
+func (s *Server) newCreateChain(r *http.Request, f wizardForm) *createChain {
+	if f.Agent == "pkm" { // pkm pins the edition (ADR-0027)
+		f.Edition = "pkm"
+	}
+	c := &createChain{
+		name:          f.Name,
+		root:          s.wizardRoot(f.Name),
+		fromRepo:      f.FromRepo,
+		repoURL:       f.RepoURL,
+		agent:         f.Agent,
+		edition:       f.Edition,
+		vcsLabel:      s.wizardVCSTracking(f),
+		vcsToken:      r.PostFormValue("vcs_token"),
+		providerToken: r.PostFormValue("provider_token"),
+		modes:         wizardModes(f),
+		start:         f.StartOption,
+		search:        f.SearchMode,
+		proxy:         f.Proxy,
+		stt:           f.STT,
+		sttPresent:    f.STTPresent,
+	}
+	c.build = !discovery.ImageExists(s.runner(), c.edition) && !f.BuildLater
+	// resolve the picked catalog entries (the wizard only picks — the
+	// entries live in Settings › VCS Tracker / AI-Provider); an unknown
+	// pick materializes nothing (none stays the default, fail-soft)
+	var tracker catalogs.Tracker
+	var provider catalogs.Provider
+	if t, ok := s.wizardTracker(f.VCS); ok {
+		tracker = t
+		c.vcsKind = t.Kind
+		c.vcsHost = t.Host
+	}
+	c.gitName, c.gitEmail = strings.TrimSpace(tracker.GitName), strings.TrimSpace(tracker.GitEmail)
+	if p, ok := s.wizardProvider(f.Provider); ok {
+		provider = p
+	}
+	if provider.Name != "" {
+		c.providerName = provider.Name
+		c.providerEndpoint = provider.Endpoint
+		c.providerID = providerid.Slug(provider.Name)
+	}
+	return c
+}
+
+// wizardModes computes container_modes from the Advanced toggles: the
+// §6 presets are recorded regardless of the display mode — proxy off /
+// offline off / CBM-UI off stay absent, HIL on for embedded (the row's
+// checked state posts the preset).
+func wizardModes(f wizardForm) []string {
+	var modes []string
+	add := func(m string) { modes = append(modes, m) }
+	if f.Offline {
+		add("offline")
+	}
+	if f.CBMUI {
+		add("cbm_ui")
+	}
+	if f.HIL {
+		add("hil_mode")
+	}
+	return modes
+}
+
+// runSteps executes the chain, streaming every step into the log pane
+// under the form via the op queue's emit (SSE line events keyed by the
+// op ID); the scripts are invoked exactly as the TUI invokes them —
+// `bash <script> <args>` — through the runner seam (ADR-0007). The
+// returned error is the chain outcome (Done publishes the workspace op
+// event).
+func (c *createChain) runSteps(s *Server, emit func(string)) error {
+	emitf := func(format string, a ...any) { emit(fmt.Sprintf(format, a...)) }
+	runScript := func(script string, args ...string) error {
+		out, err := s.runner().Output("bash", append([]string{script}, args...)...)
+		for _, l := range cmdrun.Lines(out) {
+			emit(l)
+		}
+		return err
+	}
+	fail := func(msg string) error {
+		emit(msg)
+		return errors.New(msg)
+	}
+
+	// image build (only when the image is missing and Build now won)
+	if c.build {
+		emitf("==> Building image %s", c.edition)
+		if err := runScript(s.deps.BuildScript, c.edition); err != nil ||
+			!discovery.ImageExists(s.runner(), c.edition) {
+			return fail("Build failed — the " + c.edition + " image is still unavailable. Press Create Workspace to retry.")
+		}
+	}
+
+	// init-workspace.sh BEFORE any state write (registry/config)
+	emitf("==> Creating workspace %s", c.name)
+	initArgs := []string{c.root}
+	if kind := agentKind(c.agent); kind != "" {
+		initArgs = append(initArgs, "--workspace_kind", kind)
+	}
+	if c.fromRepo {
+		initArgs = append(initArgs, "--repo_url", c.repoURL)
+	}
+	if err := runScript(s.deps.InitScript, initArgs...); err != nil {
+		return fail("Workspace initialization failed: " + err.Error() + " — no workspace state was registered.")
+	}
+
+	// sandbox_config.json: the Create payload + the atomic patches
+	cfgPath := sandboxcfg.Path(c.root)
+	providerID := c.providerID
+	if providerID == "" {
+		providerID = "none"
+	}
+	if err := sandboxcfg.Create(s.opts.Home, cfgPath, c.edition, c.modes, c.start, providerID, c.search); err != nil {
+		return fail("sandbox_config.json could not be created: " + err.Error())
+	}
+	if err := c.patchConfig(s, s.opts.Home, cfgPath); err != nil {
+		return fail("sandbox_config.json could not be patched: " + err.Error())
+	}
+
+	// configure-workspace.sh in credential order (TUI buildCreds parity)
+	if c.vcsKind != "" && strings.TrimSpace(c.vcsToken) != "" {
+		emit("==> Configuring credentials")
+		if err := runScript(s.deps.ConfigureScript, vcsCredArgs(c)...); err != nil {
+			return fail("Workspace configuration failed — " + err.Error())
+		}
+	}
+	if c.vcsKind != "" && c.gitName != "" && c.gitEmail != "" {
+		emit("==> Configuring credentials")
+		if err := runScript(s.deps.ConfigureScript, "git-identity", c.root, "--name", c.gitName, "--email", c.gitEmail); err != nil {
+			return fail("Workspace configuration failed — " + err.Error())
+		}
+	}
+	if c.providerName != "" {
+		emit("==> Configuring credentials")
+		if err := runScript(s.deps.ConfigureScript, "ai-provider", c.root, "--name", c.providerName,
+			"--endpoint", c.providerEndpoint, "--token", c.providerToken); err != nil {
+			return fail("Workspace configuration failed — " + err.Error())
+		}
+		if err := runScript(s.deps.ConfigureScript, "opencode-config", c.root, "--id", c.providerID,
+			"--name", c.providerName, "--endpoint", c.providerEndpoint); err != nil {
+			return fail("Workspace configuration failed — " + err.Error())
+		}
+	}
+
+	// the registry write (missing workspaces.json seeds once)
+	reg := s.registry()
+	req := registry.AddRequest{
+		Name: c.name, Path: c.root,
+		GitTracking: c.vcsLabel, RepoURL: c.repoURL,
+	}
+	err := reg.AddWorkspace(req)
+	if errors.Is(err, registry.ErrNotFound) {
+		err = reg.CreateWorkspacesFile()
+		if err == nil {
+			err = reg.AddWorkspace(req)
+		}
+	}
+	if err != nil {
+		return fail("Workspace not registered: " + err.Error())
+	}
+	emit("Workspace created successfully.")
+	return nil
+}
+
+// patchConfig applies the field patches via the atomic paths
+// (newworkspace.patchConfig parity).
+func (c *createChain) patchConfig(s *Server, home, cfgPath string) error {
+	source := "empty"
+	if c.fromRepo {
+		source = "cloned"
+	}
+	if err := sandboxcfg.PatchString(home, cfgPath, "workspace_source", source); err != nil {
+		return err
+	}
+	if source == "cloned" {
+		if err := sandboxcfg.PatchString(home, cfgPath, "repo_url", c.repoURL); err != nil {
+			return err
+		}
+	}
+	if err := sandboxcfg.PatchString(home, cfgPath, "vcs_tracking", c.vcsLabel); err != nil {
+		return err
+	}
+	if kind := agentKind(c.agent); kind != "" { // kind recorded once, never re-applied
+		if err := sandboxcfg.PatchString(home, cfgPath, "workspace_kind", kind); err != nil {
+			return err
+		}
+	}
+	// Dictation (#167, D9): the Create payload seeds use_stt true; the
+	// wizard's patch runs only when the row rendered — a Standard post
+	// without the fields never re-imposes (and never pins false).
+	if c.sttPresent {
+		if err := sandboxcfg.PatchBool(home, cfgPath, "use_stt", c.stt); err != nil {
+			return err
+		}
+	}
+	if c.proxy {
+		if err := sandboxcfg.PatchBool(home, cfgPath, "use_proxy", true); err != nil {
+			return err
+		}
+		// Seed the workspace allowlist from shared (ADR 0034,
+		// best-effort — the member start re-seeds).
+		_ = s.seedWorkspaceAllowlist(c.root)
+		return nil
+	}
+	return nil
+}
+
+// agentKind maps the agent to the --workspace_kind value ("" for code).
+func agentKind(agent string) string {
+	switch agent {
+	case "chat":
+		return "chat"
+	case "pkm":
+		return "pkm"
+	}
+	return ""
+}
+
+// vcsCredArgs renders the configure-workspace.sh vcs-credentials
+// invocation from the catalog kind (newworkspace.vcsCredStep parity,
+// host-from-entry instead of the free-form row). The retired "other"
+// kind never resolves (ADR-0038), so no custom case exists here — the
+// retained writer for grandfathered workspaces lives in wssettings.
+func vcsCredArgs(c *createChain) []string {
+	switch c.vcsKind {
+	case catalogs.KindGitHub:
+		return []string{"vcs-credentials", "github", c.root, "--token", c.vcsToken}
+	case catalogs.KindGitLab:
+		return []string{"vcs-credentials", "gitlab", c.root, "--token", c.vcsToken, "--host", "gitlab.com"}
+	case catalogs.KindGitLabSel:
+		return []string{"vcs-credentials", "gitlab", c.root, "--token", c.vcsToken, "--host", c.vcsHost}
+	}
+	return nil
+}

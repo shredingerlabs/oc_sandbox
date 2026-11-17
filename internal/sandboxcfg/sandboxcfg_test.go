@@ -22,14 +22,15 @@ const goldenCreate = `{
   "cbm_auto_index": true,
   "cbm_auto_watch": true,
   "ai_provider": "none",
-  "project_source": "empty",
+  "workspace_source": "empty",
   "repo_url": "",
   "search_mode": "websearch",
+  "use_stt": true,
   "setup_clone_complete": false,
   "setup_cbm_complete": false,
   "setup_skills_complete": false,
   "setup_complete": false,
-  "version": "1.0"
+  "version": "2.0"
 }
 `
 
@@ -117,7 +118,7 @@ func TestPatchStringAppendsNewKeyAtEndAndKeepsOrder(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, f := range []struct{ field, val string }{
-		{"project_source", "cloned"},
+		{"workspace_source", "cloned"},
 		{"repo_url", "https://github.com/u/p"},
 		{"vcs_tracking", "github.com"},
 	} {
@@ -136,8 +137,8 @@ func TestPatchStringAppendsNewKeyAtEndAndKeepsOrder(t *testing.T) {
 	}
 	if !(idx("container_edition") < idx("container_modes") && idx("container_modes") < idx("start_option") &&
 		idx("start_option") < idx("cbm_auto_index") && idx("cbm_auto_index") < idx("cbm_auto_watch") &&
-		idx("cbm_auto_watch") < idx("ai_provider") && idx("ai_provider") < idx("project_source") &&
-		idx("project_source") < idx("repo_url") && idx("repo_url") < idx("setup_clone_complete") &&
+		idx("cbm_auto_watch") < idx("ai_provider") && idx("ai_provider") < idx("workspace_source") &&
+		idx("workspace_source") < idx("repo_url") && idx("repo_url") < idx("setup_clone_complete") &&
 		idx("setup_clone_complete") < idx("setup_cbm_complete") && idx("setup_cbm_complete") < idx("setup_skills_complete") &&
 		idx("setup_skills_complete") < idx("setup_complete") && idx("setup_complete") < idx("version")) {
 		t.Fatalf("original key order disturbed:\n%s", got)
@@ -145,8 +146,27 @@ func TestPatchStringAppendsNewKeyAtEndAndKeepsOrder(t *testing.T) {
 	if !(idx("version") < idx("vcs_tracking")) {
 		t.Fatalf("new key vcs_tracking must append after version:\n%s", got)
 	}
-	if want := `"project_source": "cloned"`; !regexp.MustCompile(regexp.QuoteMeta(want)).MatchString(got) {
-		t.Fatalf("project_source not patched: %s", got)
+	if want := `"workspace_source": "cloned"`; !regexp.MustCompile(regexp.QuoteMeta(want)).MatchString(got) {
+		t.Fatalf("workspace_source not patched: %s", got)
+	}
+}
+
+// Dictation toggle (#164/#166): Create preselects ON (spec story 15);
+// pre-feature workspaces without the key read OFF.
+func TestUseSttCreateOnAbsentOff(t *testing.T) {
+	home, cfgPath := setupProject(t)
+	if err := Create(home, cfgPath, "swdev", nil, "console", "none", SearchWebsearch); err != nil {
+		t.Fatal(err)
+	}
+	if c, err := Read(cfgPath); err != nil || !c.UseStt {
+		t.Fatalf("Create must record use_stt true: %+v err %v", c, err)
+	}
+	legacy := filepath.Join(t.TempDir(), "legacy.json")
+	if err := os.WriteFile(legacy, []byte("{\"container_edition\": \"web\"}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if c, err := Read(legacy); err != nil || c.UseStt {
+		t.Fatalf("absent use_stt must read as false: %+v err %v", c, err)
 	}
 }
 
@@ -176,7 +196,7 @@ func TestRewriteIsOneAtomicWrite(t *testing.T) {
 	if err := Create(home, cfgPath, "swdev", []string{"offline"}, "opencode", "none", SearchWebsearch); err != nil {
 		t.Fatal(err)
 	}
-	if err := PatchString(home, cfgPath, "project_source", "cloned"); err != nil {
+	if err := PatchString(home, cfgPath, "workspace_source", "cloned"); err != nil {
 		t.Fatal(err)
 	}
 	if err := PatchString(home, cfgPath, "repo_url", "https://github.com/u/p"); err != nil {
@@ -199,6 +219,7 @@ func TestRewriteIsOneAtomicWrite(t *testing.T) {
 		VCS:         "gitlab.com",
 		AIProvider:  "gwdg-saia",
 		UseProxy:    true,
+		UseStt:      false,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -213,9 +234,10 @@ func TestRewriteIsOneAtomicWrite(t *testing.T) {
 		`"vcs_tracking": "gitlab.com"`,
 		`"ai_provider": "gwdg-saia"`,
 		`"use_proxy": true`,
+		`"use_stt": false`,
 		`"container_modes": [`,
 		`"cbm_ui"`,
-		`"project_source": "cloned"`,
+		`"workspace_source": "cloned"`,
 		`"repo_url": "https://github.com/u/p"`,
 		`"setup_clone_complete": true`,
 		`"cbm_auto_index": true`,
@@ -238,7 +260,7 @@ func TestRewriteIsOneAtomicWrite(t *testing.T) {
 }
 
 // Ticket #124: the later change-settings rewrite (the next-start apply)
-// only patches its seven settings fields — a recorded pkm project kind
+// only patches its seven settings fields — a recorded pkm workspace kind
 // survives an edition switch in BOTH directions, and no seeded PKM file
 // (creation-time seeding, ADR 0027) is ever touched or removed by it.
 func TestRewriteKeepsPKMKindAndSeedUntouched(t *testing.T) {
@@ -246,7 +268,7 @@ func TestRewriteKeepsPKMKindAndSeedUntouched(t *testing.T) {
 	if err := Create(home, cfgPath, "pkm", []string{"skills"}, "opencode", "none", SearchWebsearch); err != nil {
 		t.Fatal(err)
 	}
-	if err := PatchString(home, cfgPath, "project_kind", "pkm"); err != nil {
+	if err := PatchString(home, cfgPath, "workspace_kind", "pkm"); err != nil {
 		t.Fatal(err)
 	}
 	projRoot := filepath.Dir(filepath.Dir(cfgPath)) // .../my-project
@@ -263,21 +285,21 @@ func TestRewriteKeepsPKMKindAndSeedUntouched(t *testing.T) {
 		filepath.Join(projRoot, ".opencode_config", "AGENTS.md"):         "wiki schema\n",
 		filepath.Join(projRoot, ".opencode_config", "opencode.json"):     "{\"default_agent\":\"wiki\"}\n",
 		filepath.Join(projRoot, ".opencode_config", "agents", "wiki.md"): "agent\n",
-		filepath.Join(projRoot, "project", "wiki", "index.md"):           "seed\n",
+		filepath.Join(projRoot, "workspace", "wiki", "index.md"):         "seed\n",
 	}
 	for p, c := range seedPaths {
 		sentinel(t, p, c)
 	}
-	// The vault skeleton of a pkm-kind project (notes/raw/wiki).
+	// The vault skeleton of a pkm-kind workspace (notes/raw/wiki).
 	for _, d := range []string{"notes", "raw", "wiki"} {
-		if err := os.MkdirAll(filepath.Join(projRoot, "project", d), 0o755); err != nil {
+		if err := os.MkdirAll(filepath.Join(projRoot, "workspace", d), 0o755); err != nil {
 			t.Fatal(err)
 		}
 	}
 	skeletonExists := func(t *testing.T) {
 		t.Helper()
 		for _, d := range []string{"notes", "raw", "wiki"} {
-			fi, err := os.Stat(filepath.Join(projRoot, "project", d))
+			fi, err := os.Stat(filepath.Join(projRoot, "workspace", d))
 			if err != nil || !fi.IsDir() {
 				t.Errorf("vault skeleton dir %q removed by a settings rewrite", d)
 			}
@@ -342,8 +364,8 @@ func TestRewriteKeepsPKMKindAndSeedUntouched(t *testing.T) {
 	}
 
 	doc := read(t, cfgPath)
-	if !strings.Contains(doc, `"project_kind": "pkm"`) {
-		t.Fatalf("rewrite lost the pkm project kind:\n%s", doc)
+	if !strings.Contains(doc, `"workspace_kind": "pkm"`) {
+		t.Fatalf("rewrite lost the pkm workspace kind:\n%s", doc)
 	}
 }
 
@@ -365,13 +387,13 @@ func TestRoundTripWithBashWrittenFile(t *testing.T) {
   "cbm_auto_index": true,
   "cbm_auto_watch": true,
   "ai_provider": "none",
-  "project_source": "cloned",
+  "workspace_source": "cloned",
   "repo_url": "https://github.com/u/p",
   "setup_clone_complete": true,
   "setup_cbm_complete": true,
   "setup_skills_complete": false,
   "setup_complete": false,
-  "version": "1.0"
+  "version": "2.0"
 }`
 	if err := os.MkdirAll(filepath.Dir(cfgPath), 0o755); err != nil {
 		t.Fatal(err)
@@ -383,7 +405,7 @@ func TestRoundTripWithBashWrittenFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.ContainerEdition != "swdev" || c.ProjectSource != "cloned" || !c.SetupCloneComplete || c.SetupComplete {
+	if c.ContainerEdition != "swdev" || c.WorkspaceSource != "cloned" || !c.SetupCloneComplete || c.SetupComplete {
 		t.Fatalf("round-trip read failed: %+v", c)
 	}
 	if err := PatchBool(home, cfgPath, "setup_skills_complete", true); err != nil {

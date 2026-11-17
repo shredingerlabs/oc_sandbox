@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # Deinstalliert opencode-sandbox sicher und interaktiv.
-# Entfernt nur Dateien in $INSTALL_PATH, niemals Projekt-Roots oder User-Daten.
+# Removes only files in $INSTALL_PATH, never workspace roots or user data.
 #
 set -euo pipefail
 
@@ -139,20 +139,20 @@ check_running_containers() {
   fi
 }
 
-detect_project_roots() {
+detect_workspace_roots() {
   local found=0
   
-  echo "Prüfe auf registrierte Projekt-Roots..."
+  echo "Checking for registered workspace roots..."
   
-  local projects_file="$HOME/.config/oc-sandbox/projects.json"
-  if [[ -f "$projects_file" ]]; then
-    local projects
-    projects=$(grep -oP '"path":\s*"\K[^"]+' "$projects_file" 2>/dev/null || echo "")
+  local workspaces_file="$HOME/.config/oc-sandbox/workspaces.json"
+  if [[ -f "$workspaces_file" ]]; then
+    local workspaces
+    workspaces=$(grep -oP '"path":\s*"\K[^"]+' "$workspaces_file" 2>/dev/null || echo "")
     
-    if [[ -n "$projects" ]]; then
+    if [[ -n "$workspaces" ]]; then
       echo ""
-      echo "WARNUNG: Registrierte Projekte gefunden (werden NICHT entfernt):"
-      echo "$projects" | while read -r path; do
+      echo "WARNING: Registered workspaces found (NOT removed):"
+      echo "$workspaces" | while read -r path; do
         echo "  - $path"
       done
       echo ""
@@ -161,7 +161,7 @@ detect_project_roots() {
   fi
   
   if [[ $found -eq 0 ]]; then
-    echo "Keine registrierten Projekte gefunden."
+    echo "No registered workspaces found."
   fi
   echo ""
 }
@@ -336,7 +336,7 @@ remove_symlinks() {
   
   log_info "Prüfe auf Symlinks in $bin_dir..."
   
-  local scripts=("oc-sandbox" "build-container.sh" "configure-project.sh" "init-project.sh" "start.sh" "start-tui.sh" "create-release.sh" "install.sh" "uninstall.sh")
+  local scripts=("oc-sandbox" "build-container.sh" "configure-workspace.sh" "init-workspace.sh" "start.sh" "start-tui.sh" "create-release.sh" "install.sh" "uninstall.sh")
   
   for script in "${scripts[@]}"; do
     local link="$bin_dir/$script"
@@ -645,7 +645,7 @@ perform_removal() {
   
   # Safety checks
   check_running_containers
-  detect_project_roots
+  detect_workspace_roots
   
   # Backup config if requested
   if $REMOVE_CONFIG; then
@@ -700,7 +700,7 @@ perform_removal() {
   echo ""
   echo "Verbleibende Artefakte (manuelle Bereinigung optional):"
   echo "  - Container-Images: podman images | grep opencode-sandbox"
-  echo "  - Projekt-Roots: Ihre Projekt-Verzeichnisse (unberührt)"
+  echo "  - Workspace roots: your workspace directories (untouched)"
   
   if ! $REMOVE_CONFIG; then
     echo "  - Config: \$HOME/.config/oc-sandbox/ (falls vorhanden)"

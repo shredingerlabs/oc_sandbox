@@ -17,7 +17,7 @@ func stageFixture(t *testing.T) (*PipelineStager, *cmdrun.Fake, string) {
 	p := &PipelineStager{
 		Home: home, Root: root, Reg: reg, Runner: fake,
 		StartScript:     "dist/scripts/start.sh",
-		ConfigureScript: "dist/scripts/configure-project.sh",
+		ConfigureScript: "dist/scripts/configure-workspace.sh",
 	}
 	return p, fake, root
 }
@@ -38,7 +38,7 @@ func TestNewStagerForUsesConfiguredScriptPaths(t *testing.T) {
 	home, root, reg, _ := fixture(t, "cloned")
 	fake := &cmdrun.Fake{}
 	podmanStates(fake)
-	p := NewStagerFor(fake, home, reg, "/opt/oc/start.sh", "/opt/oc/configure-project.sh")(root)
+	p := NewStagerFor(fake, home, reg, "/opt/oc/start.sh", "/opt/oc/configure-workspace.sh")(root)
 
 	var emitted []string
 	if err := p.Run(StageStart, func(l string) { emitted = append(emitted, l) }); err != nil {
@@ -96,6 +96,34 @@ func TestStartStageRunsStartShWithRebuiltArgs(t *testing.T) {
 	}
 	if st.ContainerStatus != "running" {
 		t.Fatalf("container_status = %q, want running on start success", st.ContainerStatus)
+	}
+}
+
+// #166: the dictation toggle rides the setup flow's inline start vector
+// exactly like the proxy toggle (parity with sandboxcfg.StartArgs).
+func TestStartStageCarriesUseStt(t *testing.T) {
+	p, fake, root := stageFixture(t)
+	podmanStates(fake) // nothing running
+
+	if err := sandboxcfg.PatchBool(p.Home, sandboxcfg.Path(root), "use_stt", true); err != nil {
+		t.Fatal(err)
+	}
+
+	var emitted []string
+	if err := p.Run(StageStart, func(l string) { emitted = append(emitted, l) }); err != nil {
+		t.Fatalf("start stage failed: %v", err)
+	}
+	found := false
+	for _, c := range fake.Calls {
+		if c.Name == "bash" && len(c.Args) > 0 && c.Args[0] == p.StartScript {
+			found = true
+			if !strings.Contains(strings.Join(c.Args, " "), "--use_stt") {
+				t.Fatalf("start args missing --use_stt: %v", c.Args)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("start.sh not invoked: %v", fake.Calls)
 	}
 }
 
@@ -169,7 +197,7 @@ func TestCloneStageProbeFailureFallsThroughToClone(t *testing.T) {
 		case name == "podman" && strings.Contains(joined, "remote.origin.url"):
 			return "fatal: unable to access", errDenied{}
 		case name == "podman" && strings.Contains(joined, "git clone"):
-			return "Cloning into '/home/dev/project'...", nil
+			return "Cloning into '/home/dev/workspace'...", nil
 		}
 		return "", nil
 	}

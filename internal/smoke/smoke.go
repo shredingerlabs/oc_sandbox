@@ -31,6 +31,18 @@ func Run(root string) Report {
 		checkExitCodeSeams,
 		checkUpgradeInPlace,
 		checkAIProviderBackend,
+		checkMigrationFixture,
+		checkWebUI,
+		checkWebUIScreens,
+		checkWebSettings,
+		checkCreateChain,
+		checkWebUIWorkspaces,
+		checkWebUIStopAdopt,
+		checkWebUISettings,
+		checkWebUISetup,
+		checkWebUIUpdate,
+		checkWebUIFlip,
+		checkWebUIProxy,
 	} {
 		items = append(items, check(home, root))
 	}
@@ -38,7 +50,7 @@ func Run(root string) Report {
 }
 
 // Box IDs of the A-list in run order (failAll/skipAll mirrors).
-var boxIDs = []string{"A1", "A2", "A3", "A4", "A5", "A6", "A7"}
+var boxIDs = []string{"A1", "A2", "A3", "A4", "A5", "A6", "A7", "A8", "A9", "A10", "A11", "A12", "A13", "A14", "A15", "A16", "A17", "A18", "A19"}
 
 func failAll(err error) []Item {
 	var items []Item

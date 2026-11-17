@@ -562,7 +562,7 @@ test_update_replaces_running_binary() {
   local fixture="$test_dir/fixture"
   mkdir -p "$fixture/scripts" "$fixture/bin"
   local f
-  for f in start build-container init-project configure-project uninstall; do
+  for f in start build-container init-workspace configure-workspace uninstall; do
     printf '#!/usr/bin/env bash\necho stub\n' > "$fixture/scripts/$f.sh"
   done
   printf 'FROM scratch\n' > "$fixture/Dockerfile"
@@ -1449,6 +1449,38 @@ test_custom_dockerfile_recreated_if_absent() {
   cleanup_test_env "$test_dir"
 }
 
+# Stale old-name scripts (Workspace-Rename, #148): der Update-Flow entfernt
+# init-project.sh / configure-project.sh aus der bestehenden Installation —
+# die neuen Namen init-workspace.sh / configure-workspace.sh kommen aus dem
+# Release-Baum (#163: Release-Sweep-Verifikation der Stale-Script-Entfernung).
+test_stale_rename_scripts_removed_on_update() {
+  local test_dir
+  test_dir=$(setup_test_env "stale-rename-scripts")
+  local src="$test_dir/src"
+  local target="$test_dir/target"
+
+  setup_custom_dockerfile_source "$src"
+
+  # Bestehende Installation mit den vor-rename Scripts (vor dem Update)
+  mkdir -p "$target/scripts"
+  touch "$target/scripts/init-project.sh" "$target/scripts/configure-project.sh"
+  touch "$target/scripts/start.sh"
+
+  local rc=0
+  run_install_files "$src" "$target" || rc=$?
+
+  assert_equals "0" "$rc" "install_files bei Update mit stale Scripts" || { cleanup_test_env "$test_dir"; return 1; }
+  for stale in init-project.sh configure-project.sh; do
+    if [[ -f "$target/scripts/$stale" ]]; then
+      echo "$stale wurde nicht entfernt"
+      cleanup_test_env "$test_dir"
+      return 1
+    fi
+  done
+  assert_file_exists "$target/scripts/start.sh" || { cleanup_test_env "$test_dir"; return 1; }
+  cleanup_test_env "$test_dir"
+}
+
 # SearXNG settings.yml: gleiche Custom-Edition-Dockerfile-Regel wie
 # Dockerfile.custom (Benutzer-editierbar, Update erhält, Löschen
 # reinkarniert).
@@ -1579,6 +1611,7 @@ main() {
   run_test "Fresh install: dist/Dockerfile.custom landet" test_custom_dockerfile_fresh_install_lands
   run_test "Update: editierte dist/Dockerfile.custom bleibt erhalten" test_custom_dockerfile_update_preserves_edited_file
   run_test "Update ohne Datei: wird erneut angelegt" test_custom_dockerfile_recreated_if_absent
+  run_test "Update: stale Rename-Scripts werden entfernt" test_stale_rename_scripts_removed_on_update
   run_test "Update: editierte dist/searxng/settings.yml bleibt erhalten" test_searxng_settings_update_preserves_edited_file
   run_test "Update ohne settings.yml: wird erneut angelegt" test_searxng_settings_recreated_if_absent
 

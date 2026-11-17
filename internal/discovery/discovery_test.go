@@ -86,7 +86,7 @@ func TestSelectableEditionsOnlyBaseErrors(t *testing.T) {
 	only := filepath.Join(dir, "Dockerfile")
 	os.WriteFile(only, []byte("FROM ubuntu AS opencode-sandbox-base\n"), 0o644)
 	if _, err := SelectableEditions(only, ""); err == nil {
-		t.Fatal("only-base stages must not be project-selectable")
+		t.Fatal("only-base stages must not be workspace-selectable")
 	}
 }
 
@@ -106,8 +106,9 @@ func TestModesFromRealHelpOutput(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Reserved flags (edition, use_proxy, start_opencode, start_web, detach,
-	// container-id, help) excluded; first-seen order kept.
+	// Reserved flags (edition, use_proxy, use_stt, start_opencode,
+	// start_web, detach, container-id, help) excluded; first-seen order
+	// kept.
 	want := []string{"offline", "hil_mode", "cbm_ui"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("modes = %v, want %v", got, want)
@@ -136,7 +137,7 @@ func (*fakeErr) Error() string { return "fake" }
 func TestRunningContainers(t *testing.T) {
 	run := &cmdrun.Fake{Script: func(name string, args []string) (string, error) {
 		if name == "podman" {
-			// Fixture of a pod-based run (#125): the project container
+			// Fixture of a pod-based run (#125): the workspace container
 			// `opencode-sandbox-<id>`, a legacy bare container, and the
 			// pod's infra container (podman names it <pod-name>-infra).
 			return "opencode-sandbox-aaa\nopencode-sandbox-legacy\nopencode-sandbox-pod-aaa-infra\n", nil
@@ -249,6 +250,7 @@ func TestSandboxImagesAndUse(t *testing.T) {
 		if name == "podman" && args[0] == "images" {
 			return "localhost/opencode-sandbox-web:latest\t1.23 GB\n" +
 				"localhost/oc-proxy:latest\t500 MB\n" +
+				"localhost/oc-stt:latest\t1.40 GB\n" +
 				"reg.io/opencode-sandbox-swdev\t2.1 GB\n" +
 				"node:20\t900 MB\n" +
 				"<none>:<none>\t1 KB\n", nil
@@ -259,6 +261,7 @@ func TestSandboxImagesAndUse(t *testing.T) {
 	want := []SandboxImage{
 		{Tag: "localhost/opencode-sandbox-web:latest", Size: "1.23 GB"},
 		{Tag: "localhost/oc-proxy:latest", Size: "500 MB"},
+		{Tag: "localhost/oc-stt:latest", Size: "1.40 GB"},
 		{Tag: "reg.io/opencode-sandbox-swdev", Size: "2.1 GB"},
 	}
 	if !reflect.DeepEqual(got, want) {
@@ -274,8 +277,9 @@ func TestSandboxImagesAndUse(t *testing.T) {
 		t.Fatalf("failed podman images must yield no images, got %v", got)
 	}
 	// Use matching: the edition suffix maps per edition, oc-proxy by
-	// exact name — never by substring.
-	refs := []string{"opencode-sandbox-swdev", "localhost/oc-proxy:latest", "my-oc-proxy-x:latest"}
+	// exact name — never by substring. oc-stt (whisper.cpp STT image)
+	// follows the same infra-by-name rule.
+	refs := []string{"opencode-sandbox-swdev", "localhost/oc-proxy:latest", "reg.io/oc-stt:latest", "my-oc-proxy-x:latest"}
 	if ImageInUse(refs, "localhost/opencode-sandbox-web:latest") {
 		t.Error("edition matched although only swdev has a container")
 	}
@@ -287,6 +291,15 @@ func TestSandboxImagesAndUse(t *testing.T) {
 	}
 	if ImageInUse(refs, "localhost/my-oc-proxy-x:latest") {
 		t.Error("substring oc-proxy false positive")
+	}
+	if !ImageInUse(refs, "reg.io/oc-stt:latest") || !ImageInUse(refs, "oc-stt") {
+		t.Error("oc-stt variants must all match their own tag")
+	}
+	if ImageInUse(refs, "localhost/my-oc-stt-x:latest") {
+		t.Error("substring oc-stt false positive")
+	}
+	if !SandboxImageTag("localhost/oc-stt:latest") || !SandboxImageTag("oc-stt") {
+		t.Error("oc-stt must belong to the sandbox image family")
 	}
 }
 

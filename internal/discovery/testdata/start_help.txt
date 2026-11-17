@@ -1,6 +1,7 @@
 Nutzung: dist/scripts/start.sh <projekt-root> --edition <edition> [Flags]
   --edition          Container-Edition auswählen (erforderlich)
   --use_proxy        Squid-Egress-Allowlist-Proxy starten und nutzen
+  --use_stt          Lokales Diktat (oc-stt Pod-Member) starten
   --offline          Kein Netzwerk (--network=none)
   --hil_mode         USB-Passthrough für Oszi und MCU-Geräte
   --cbm_ui           CBM Graph-UI auf Port 9749 aktivieren

@@ -1,0 +1,16 @@
+{
+  "container_edition": "swdev",
+  "container_modes": [],
+  "start_option": "console",
+  "cbm_auto_index": false,
+  "cbm_auto_watch": false,
+  "ai_provider": "",
+  "project_source": "cloned",
+  "repo_url": "https://gitlab.com/example/code-b.git",
+  "search_mode": "websearch",
+  "setup_clone_complete": true,
+  "setup_cbm_complete": true,
+  "setup_skills_complete": true,
+  "setup_complete": true,
+  "version": "1.0"
+}
