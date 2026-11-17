@@ -18,8 +18,10 @@ import (
 )
 
 // Tracker entry: display name, git identity, tracker kind (github |
-// gitlab | gitlab_self | other) and the bare host (required for
-// gitlab_self/other, per the "Host, not URL" rule).
+// gitlab | gitlab_self) and the bare host (required for gitlab_self,
+// per the "Host, not URL" rule). The retired "other" kind (ADR-0038)
+// persists only as KindOther — stale entries and grandfathered
+// workspaces keep speaking the slug; no new one can be written.
 type Tracker struct {
 	Name     string
 	GitName  string
@@ -192,6 +194,9 @@ func (d *Data) AddProvider(p Provider) error {
 
 // Tracker kinds — the script-level slugs the seeded entries and
 // configure-workspace.sh vcs-credentials flow speak (ADR-0031).
+// KindOther is retired (ADR-0038): it stays a known slug for stale
+// catalog entries and grandfathered "others" workspaces but is no
+// longer a selectable kind.
 const (
 	KindGitHub    = "github"
 	KindGitLab    = "gitlab"
@@ -200,24 +205,36 @@ const (
 )
 
 // TrackerKinds lists the selectable kinds in UI order.
-var TrackerKinds = []string{KindGitHub, KindGitLab, KindGitLabSel, KindOther}
+var TrackerKinds = []string{KindGitHub, KindGitLab, KindGitLabSel}
+
+// SelectableKind reports whether kind is one of the selectable tracker
+// kinds — the retired KindOther (ADR-0038) is a known slug but never
+// selectable.
+func SelectableKind(kind string) bool {
+	for _, k := range TrackerKinds {
+		if k == kind {
+			return true
+		}
+	}
+	return false
+}
 
 // ValidateTracker enforces the §8 entry shape: slugifiable display
 // name, a known kind, and a bare Host exactly where it is required —
-// for own GitLab and others. "none" is reserved (the empty default is
-// never a catalog entry).
+// for own GitLab. The retired "other" kind is refused (ADR-0038).
+// "none" is reserved (the empty default is never a catalog entry).
 func ValidateTracker(t Tracker) error {
 	t.Name = strings.TrimSpace(t.Name)
 	if err := validateEntryName(t.Name); err != nil {
 		return err
 	}
 	switch t.Kind {
-	case KindGitHub, KindGitLab, KindGitLabSel, KindOther:
+	case KindGitHub, KindGitLab, KindGitLabSel:
 	default:
 		return errors.New("unknown tracker kind")
 	}
-	if (t.Kind == KindGitLabSel || t.Kind == KindOther) && strings.TrimSpace(t.Host) == "" {
-		return errors.New("host is required for own GitLab and other trackers")
+	if t.Kind == KindGitLabSel && strings.TrimSpace(t.Host) == "" {
+		return errors.New("host is required for own GitLab trackers")
 	}
 	return nil
 }

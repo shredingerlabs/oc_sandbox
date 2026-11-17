@@ -111,9 +111,11 @@ const (
 )
 
 var (
-	startOptions  = []string{"console", "opencode", "web"}
-	buildOptions  = []string{"Build now", "Build later"}
-	vcsOptions    = []string{"none", "github.com", "gitlab.com", "own GitLab", "others"}
+	startOptions = []string{"console", "opencode", "web"}
+	buildOptions = []string{"Build now", "Build later"}
+	// vcsOptions drops the retired "others" tracker (ADR-0038): creation
+	// offers none / GitHub / GitLab / own GitLab only.
+	vcsOptions    = []string{"none", "github.com", "gitlab.com", "own GitLab"}
 	aiOptions     = []string{"none", "Custom"}
 	agentOptions  = []string{"Code", "Chat Agent (NO_CODE)", agentPKM}
 	searchOptions = sandboxcfg.SearchModes // none / websearch / SearXNG (ADR 0026)
@@ -897,7 +899,7 @@ func (m *Model) fieldList() []int {
 	fs = append(fs, fAgent, fModes, fStart, fSearch, fVCS)
 	if m.vcs != "none" {
 		fs = append(fs, fGitName, fGitEmail, fVCSToken)
-		if m.vcs == "own GitLab" || m.vcs == "others" {
+		if m.vcs == "own GitLab" {
 			fs = append(fs, fVCSHost)
 		}
 	}

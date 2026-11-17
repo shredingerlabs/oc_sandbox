@@ -451,7 +451,7 @@ func (v *View) click(x, y int) {
 	if p := v.vcs; p != nil && v.pane == paneVCS {
 		for i, r := range p.trackerRects {
 			if r.Hit(x, y) {
-				p.setTracker(trackers[i])
+				p.setTracker(trackerOptions(p.tracker)[i])
 				return
 			}
 		}

@@ -98,21 +98,52 @@ func confirmReplace(t *testing.T, v *View) {
 
 // --- tests ------------------------------------------------------------------
 
-// Tracker row: the five trackers render; the stored vcs_tracking is
-// pre-marked with the on symbol (spec user stories 7/8).
+// Tracker row: the four selectable trackers render (the retired
+// "others" is gone, ADR-0038); the stored vcs_tracking is pre-marked
+// with the on symbol (spec user stories 7/8).
 func TestVCSPanePrefillsTracker(t *testing.T) {
 	e := newEnv(t, "alpha")
 	e.setTracking(t, "alpha", "own GitLab")
 	v := e.view(t)
 	openVCS(t, v)
 	lines := bodyLines(t, v)
-	for _, want := range []string{"none", "github.com", "gitlab.com", "own GitLab", "others"} {
+	for _, want := range []string{"none", "github.com", "gitlab.com", "own GitLab"} {
 		if !someLine(lines, want) {
 			t.Fatalf("tracker %q missing:\n%s", want, strings.Join(lines, "\n"))
 		}
 	}
+	if someLine(lines, "others") {
+		t.Fatalf("the retired others tracker must not render:\n%s", strings.Join(lines, "\n"))
+	}
 	if !someLine(lines, "● own GitLab") {
 		t.Fatalf("stored tracker not marked:\n%s", strings.Join(lines, "\n"))
+	}
+}
+
+// Grandfathered "others" workspaces (ADR-0038): the stored tracker keeps
+// its row — token and Host fields included — until the user switches
+// away; the row then disappears and cannot be re-picked.
+func TestVCSPaneGrandfathersStoredOthers(t *testing.T) {
+	e := newEnv(t, "alpha")
+	e.setTracking(t, "alpha", "others")
+	e.writeHostFile(t, "alpha", "vcs/hosts.yml", "git.example.com")
+	v := e.view(t)
+	openVCS(t, v)
+	lines := bodyLines(t, v)
+	if !someLine(lines, "● others") {
+		t.Fatalf("stored others must keep its row:\n%s", strings.Join(lines, "\n"))
+	}
+	if !someLine(lines, "git.example.com") {
+		t.Fatalf("stored others must prefill its host:\n%s", strings.Join(lines, "\n"))
+	}
+	// Switching away drops the retired row for good.
+	clickTracker(t, v, "github.com")
+	lines = bodyLines(t, v)
+	if someLine(lines, "others") {
+		t.Fatalf("switching away must drop the retired row:\n%s", strings.Join(lines, "\n"))
+	}
+	if someLine(lines, "Host:") {
+		t.Fatalf("github.com must hide the host row:\n%s", strings.Join(lines, "\n"))
 	}
 }
 
@@ -139,9 +170,9 @@ func TestVCSPanePrefillsGitIdentity(t *testing.T) {
 	}
 }
 
-// Host input shows only for own GitLab / others, prefilled from the
-// workspace's .git_local hosts file (stories 10/11); the token input is
-// masked (story 9).
+// Host input shows only for own GitLab (and a grandfathered stored
+// "others", ADR-0038), prefilled from the workspace's .git_local
+// hosts file (stories 10/11); the token input is masked (story 9).
 func TestVCSPaneHostAndTokenFields(t *testing.T) {
 	e := newEnv(t, "alpha")
 	e.setTracking(t, "alpha", "others")
@@ -267,13 +298,13 @@ func TestVCSSaveRefusesWhitespaceToken(t *testing.T) {
 	}
 }
 
-// An invalid host (own GitLab / others) is refused at save with a
-// rendered error, no write (story 12).
+// An invalid host (own GitLab) is refused at save with a rendered
+// error, no write (story 12).
 func TestVCSSaveRefusesInvalidHost(t *testing.T) {
 	e := newEnv(t, "alpha")
 	v := e.view(t)
 	openVCS(t, v)
-	clickTracker(t, v, "others")
+	clickTracker(t, v, "own GitLab")
 	clickField(t, v, "Token:")
 	typeKeys(v, "tok")
 	clickField(t, v, "Host:")

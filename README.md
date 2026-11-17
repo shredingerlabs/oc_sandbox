@@ -21,7 +21,7 @@ A multi-edition development sandbox running OpenCode in rootless Podman containe
   whisper.cpp server (`oc-stt`), transcript review before anything is sent,
   browser sidecar page for web sessions
 - **Project & git handling** — project wizard with VCS setup (GitHub, GitLab,
-  custom host), hidden token storage, git identity, in-container cloning
+  own GitLab), hidden token storage, git identity, in-container cloning
 - **Prepared skills** — first-run setup installs an engineering skill set for
   OpenCode automatically
 - **All manageable with the TUI** — the Go binary `oc-sandbox` covers build,
@@ -95,8 +95,11 @@ The TUI is a standalone Go application (`oc-sandbox`), built at release time
 The wizard asks for the **project source** ("New empty project" or "Clone
 existing repo via URL" — clones happen inside the container during first-run
 setup), creates the project root, collects VCS host (`none`, GitHub, public
-GitLab, own GitLab, others) and tokens (hidden input, stored project-locally in
+GitLab, own GitLab) and tokens (hidden input, stored project-locally in
 `.git_local/`), configures the git identity, and picks a start option:
+
+Other git hosts are unsupported — pick `none` and configure git inside the
+workspace.
 
 - `console` — interactive shell in the container
 - `opencode` — OpenCode TUI

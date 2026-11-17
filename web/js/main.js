@@ -204,10 +204,11 @@
         kindIn.value === "github" || kindIn.value === "gitlab" || kindIn.value === "none";
       return;
     }
-    // VCS Tracker: the Host field only applies to gitlab_self / other
-    // kinds — github / gitlab trackers are hostless and "none" tracks
-    // nothing. The field hides (value kept); the initial hidden state
-    // renders server-side (Catalog menu and Workspace settings alike).
+    // VCS Tracker: the Host field only applies to gitlab_self — plus the
+    // grandfathered "other" kind of pre-ADR-0038 workspaces — github /
+    // gitlab trackers are hostless and "none" tracks nothing. The field
+    // hides (value kept); the initial hidden state renders server-side
+    // (Catalog menu and Workspace settings alike).
     if (sel.matches('select[name="kind"]')) {
       var f = sel.closest("form");
       var host = f && f.querySelector('[data-field="host"]');

@@ -662,6 +662,60 @@ func TestCreateCraftedNewFailsSoft(t *testing.T) {
 	}
 }
 
+// Retired-kind entries are hidden from the wizard's pick list
+// (ADR-0038): a stale kind:"other" catalog row never renders as an
+// option, and a crafted POST naming it fails soft — none tracking, no
+// credential write.
+func TestCreateWizardHidesRetiredKindEntries(t *testing.T) {
+	f := newCreateFixture(t, imageExistsScript(true))
+	f.seedCatalog(t)
+	d := catalogs.Read(f.home)
+	d.Trackers = append(d.Trackers, catalogs.Tracker{Name: "Gitea", Kind: catalogs.KindOther, Host: "git.example.com"})
+	if err := catalogs.WriteFile(f.home, d); err != nil {
+		t.Fatal(err)
+	}
+
+	resp, _ := http.Get(f.s.URL() + "workspaces/new")
+	doc := readAll(t, resp)
+	resp.Body.Close()
+	if !strings.Contains(doc, `value="GitHub Work"`) {
+		t.Fatalf("valid entries must stay listed:\n%s", doc)
+	}
+	if strings.Contains(doc, `value="Gitea"`) {
+		t.Fatalf("retired-kind entry must be hidden from the wizard:\n%s", doc)
+	}
+
+	// A crafted pick of the hidden entry fails soft to none.
+	vals := f.blankForm()
+	vals["vcs"] = "Gitea"
+	vals["vcs_token"] = "tok"
+	doc = readAll(t, f.postForm(t, vals))
+	if !strings.Contains(doc, `data-role="create-confirm"`) {
+		t.Fatalf("crafted pick must fail soft into the confirm:\n%s", doc)
+	}
+	if !strings.Contains(doc, "VCS tracking: none") {
+		t.Fatalf("crafted pick must read back as none:\n%s", doc)
+	}
+
+	// The confirmed create writes no credentials and records none.
+	doc = f.confirm(t, vals)
+	_ = doc
+	waitForNoOp(t, f)
+	for _, c := range bashCalls(f) {
+		if slices.Contains(c, "vcs-credentials") {
+			t.Fatalf("retired-kind pick must not write credentials: %v", c)
+		}
+	}
+	root := registry.CanonicalPath(f.home + "/ws/demo")
+	cfg, err := sandboxcfg.Read(sandboxcfg.Path(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.VCSTracking != "none" {
+		t.Fatalf("vcs_tracking = %q, want none", cfg.VCSTracking)
+	}
+}
+
 // Credential order per the TUI contract: picking a catalog tracker +
 // provider materializes today's ordinary per-workspace configuration —
 // vcs-credentials → git-identity → ai-provider → opencode-config, each

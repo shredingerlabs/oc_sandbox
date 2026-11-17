@@ -308,7 +308,9 @@ func (m *Model) buildCreds(root string) {
 }
 
 // vcsCredStep renders the configure-workspace.sh invocation for the chosen
-// tracking value; nil when no token was captured.
+// tracking value; nil when no token was captured. The retired "others"
+// tracker (ADR-0038) is unreachable from the form — its retained writer
+// for grandfathered workspaces lives in workspacesettings.
 func vcsCredStep(vcs, token, host, root string) *credStep {
 	var args []string
 	switch vcs {
@@ -321,11 +323,6 @@ func vcsCredStep(vcs, token, host, root string) *credStep {
 			return nil
 		}
 		args = []string{"vcs-credentials", "gitlab", root, "--token", token, "--host", host}
-	case "others":
-		if host == "" {
-			return nil
-		}
-		args = []string{"vcs-credentials", "custom", root, "--token", token, "--host", host}
 	default:
 		return nil
 	}
@@ -334,8 +331,7 @@ func vcsCredStep(vcs, token, host, root string) *credStep {
 
 // vcsHostFile resolves the CLI host credential file whose existence the
 // VCS/AI replacement confirm guards:
-// github.com → gh-cli/hosts.yml; gitlab.com / own GitLab → glab-cli/config.yml;
-// others → vcs/hosts.yml.
+// github.com → gh-cli/hosts.yml; gitlab.com / own GitLab → glab-cli/config.yml.
 func vcsHostFile(vcs, root, host string) string {
 	var sub string
 	switch vcs {
@@ -343,8 +339,6 @@ func vcsHostFile(vcs, root, host string) string {
 		sub = "gh-cli/hosts.yml"
 	case "gitlab.com", "own GitLab":
 		sub = "glab-cli/config.yml"
-	case "others":
-		sub = "vcs/hosts.yml"
 	}
 	if sub == "" {
 		return ""
@@ -435,4 +429,3 @@ func (m *Model) needsConfirm(st credStep) bool {
 	}
 	return false
 }
-

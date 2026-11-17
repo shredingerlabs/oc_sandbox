@@ -250,6 +250,11 @@ func TestVCSDeviceLoginFailure(t *testing.T) {
 func TestVCSDeviceLoginRefusals(t *testing.T) {
 	fx := newCreateFixture(t, nil)
 	root, key := seedRunningWorkspace(t, fx)
+	// The custom-host refusal rides the grandfathered "others" tracker
+	// (ADR-0038) — the only path where kind "other" is still accepted.
+	if err := sandboxcfg.PatchString(fx.home, sandboxcfg.Path(root), "vcs_tracking", "others"); err != nil {
+		t.Fatal(err)
+	}
 
 	resp := postForm(t, fx.s.URL()+"workspaces/alpha/vcs-credentials", map[string]string{
 		"kind": "other", "host": "git.example.com", "login": "device",

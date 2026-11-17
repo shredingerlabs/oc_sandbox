@@ -87,7 +87,7 @@ type wsSettingsView struct {
 
 	// VCS Tracking section (Standard row)
 	VCSCatalog    []catalogs.Tracker
-	TrackerKinds  []string
+	TrackerKinds  []string      // selectable kinds; appends the retired "other" while stored (ADR-0038)
 	VCSKind       string        // preselected kind (from stored vcs_tracking)
 	VCSHost       string        // prefill (stored credential file host)
 	VCSHostful    bool          // the Host field renders visible (own GitLab / others)
@@ -242,7 +242,7 @@ var wsSettingsTemplate = template.Must(template.New("wssettings").
             {{range .TrackerKinds}}<option value="{{.}}" {{if eq . $.VCSKind}}selected{{end}}>{{.}}</option>{{end}}
           </select>
         </label>
-        <label data-field="host"{{if not .VCSHostful}} hidden{{end}}>Host <input name="host" value="{{.VCSHost}}" placeholder="gitlab.example.com"> <span class="field-hint">required for own GitLab / others</span></label>
+        <label data-field="host"{{if not .VCSHostful}} hidden{{end}}>Host <input name="host" value="{{.VCSHost}}" placeholder="gitlab.example.com"> <span class="field-hint">required for own GitLab{{if eq .VCSKind "other"}} / others{{end}}</span></label>
         <label>Token <input type="password" name="token" autocomplete="off"></label>
         <div class="actions">
           <button type="submit" class="btn" name="replace" value="1"
@@ -522,7 +522,15 @@ func (s *Server) handleWsVCSCredentialsPost(w http.ResponseWriter, r *http.Reque
 	host := strings.TrimSpace(r.PostFormValue("host"))
 	token := strings.TrimSpace(r.PostFormValue("token"))
 	replace := r.PostFormValue("replace")
-	if kind != "none" && !slices.Contains(catalogs.TrackerKinds, kind) {
+	// The stored tracker is the grandfather gate (ADR-0038): the
+	// retired "other" kind stays writable only while the workspace is
+	// already on it — no new "other" tracking can be written.
+	stored := ""
+	if cfg, err := readSandboxCfg(root); err == nil {
+		stored = cfg.VCSTracking
+	}
+	if kind != "none" && !catalogs.SelectableKind(kind) &&
+		!(kind == catalogs.KindOther && stored == trackerLabel(catalogs.KindOther)) {
 		s.renderWsSettingsScreen(w, name, "unknown tracker kind", nil)
 		return
 	}
@@ -563,10 +571,6 @@ func (s *Server) handleWsVCSCredentialsPost(w http.ResponseWriter, r *http.Reque
 
 	// The tracker persists first (the stored config is the truth the
 	// Standard row shows back); the credentials ride the queued op.
-	stored := ""
-	if cfg, err := readSandboxCfg(root); err == nil {
-		stored = cfg.VCSTracking
-	}
 	if label != stored {
 		if err := sandboxcfg.PatchString(s.opts.Home, sandboxcfg.Path(root), "vcs_tracking", label); err != nil {
 			s.renderWsSettingsScreen(w, name, "vcs_tracking could not be written: "+err.Error(), nil)
@@ -858,6 +862,13 @@ func (s *Server) renderWsSettingsScreen(w http.ResponseWriter, name, errMsg stri
 	}
 	v.ProvConfirm = confirm
 	v.VCSKind = trackerKindForLabel(v.VCSTrackingSt)
+	// Grandfathered "others" workspaces (ADR-0038): the retired kind's
+	// option renders only while it is the stored value.
+	if v.VCSKind == catalogs.KindOther {
+		kinds := make([]string, 0, len(catalogs.TrackerKinds)+1)
+		kinds = append(kinds, catalogs.TrackerKinds...)
+		v.TrackerKinds = append(kinds, catalogs.KindOther)
+	}
 	// The Host field is Add-tracker behavior: visible (and prefilled from
 	// the stored credential file, TUI pane parity) for own GitLab /
 	// others, hidden for github / gitlab and for the empty default.
@@ -901,10 +912,16 @@ func (s *Server) renderWsSettingsScreen(w http.ResponseWriter, name, errMsg stri
 		}
 	}
 
-	// Catalog feeds (§8): prefill sources, token-free.
+	// Catalog feeds (§8): prefill sources, token-free. The tracker feed
+	// skips retired-kind entries (ADR-0038) — stale "other" rows are
+	// listed in Settings only, never picked.
 	cat := catalogs.Read(s.opts.Home)
 	v.ProvCatalog = cat.Providers
-	v.VCSCatalog = cat.Trackers
+	for _, t := range cat.Trackers {
+		if catalogs.SelectableKind(t.Kind) {
+			v.VCSCatalog = append(v.VCSCatalog, t)
+		}
+	}
 
 	// Provider entries read from the workspace's stored files (the list's
 	// single source of truth, ADR 0025) — orphaned sections render

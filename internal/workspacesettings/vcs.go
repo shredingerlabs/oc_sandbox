@@ -15,18 +15,29 @@ import (
 	"github.com/shredingerlabs/oc-sandbox/internal/taskmgr"
 )
 
-// The VCS pane (ticket #109): tracker row reusing the five trackers
+// The VCS pane (ticket #109): tracker row reusing the tracking choices
 // pre-marked from sandbox_config vcs_tracking, git identity prefilled from
 // the workspace-local git config, repo URL, a masked token input for every
-// non-none tracker and a host input for own GitLab / others only (bare
-// hostname, prefilled from the workspace's .git_local hosts file). One
-// staged Save runs the applicable configure-workspace.sh subcommands —
+// non-none tracker and a host input for own GitLab only (bare hostname,
+// prefilled from the workspace's .git_local hosts file) — plus the
+// grandfathered "others" tracker (ADR-0038) while it is the stored value.
+// One staged Save runs the applicable configure-workspace.sh subcommands —
 // vcs-credentials <tracker> --token <t> [--host <h>] [--replace], with
 // the ADR-0021 confirmation gating an overwrite of existing credentials —
 // and mirrors the repo URL to sandbox_config.json + the workspace registry.
 
-// trackers are the five VCS tracking choices (openworkspace parity).
-var trackers = []string{"none", "github.com", "gitlab.com", "own GitLab", "others"}
+// trackerOptions are the VCS tracking choices (openworkspace parity):
+// none / GitHub / GitLab / own GitLab. The retired "others" (ADR-0038)
+// renders only while it is the staged tracker — a grandfathered
+// workspace keeps its row until it switches away, and switching away
+// removes it for good.
+func trackerOptions(staged string) []string {
+	opts := []string{"none", "github.com", "gitlab.com", "own GitLab"}
+	if staged == "others" {
+		opts = append(opts, "others")
+	}
+	return opts
+}
 
 // hostRe mirrors configure-workspace.sh validate_vcs_host: a bare hostname.
 var hostRe = regexp.MustCompile(`^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?)+$`)
@@ -81,21 +92,22 @@ func (p *vcsState) fields() []vcsField {
 	return fs
 }
 
-// stepTracker selects the previous/next tracker; switching to own GitLab /
-// others prefills the host from the matching hosts file (story 11).
+// stepTracker selects the previous/next tracker; switching to own GitLab
+// prefills the host from the matching hosts file (story 11).
 func (p *vcsState) stepTracker(d int) {
+	opts := trackerOptions(p.tracker)
 	i := 0
-	for j, tr := range trackers {
+	for j, tr := range opts {
 		if tr == p.tracker {
 			i = j
 			break
 		}
 	}
 	n := i + d
-	if n < 0 || n >= len(trackers) {
+	if n < 0 || n >= len(opts) {
 		return
 	}
-	p.setTracker(trackers[n])
+	p.setTracker(opts[n])
 }
 
 // setTracker selects a tracker, clearing a rendered save error and
@@ -472,7 +484,7 @@ func (v *View) vcsRows(w int, contentX, contentY int) []string {
 	// tracker tokens, wrapped at the content width; one hit rect each
 	lineNo := len(rows)
 	row, col := "", 0
-	for _, tr := range trackers {
+	for _, tr := range trackerOptions(p.tracker) {
 		sym := shell.SymOff
 		if tr == p.tracker {
 			sym = shell.SymOn

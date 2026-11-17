@@ -102,7 +102,7 @@ var catalogsTemplate = template.Must(template.New("catalogs").
         {{range $.Kinds}}<option value="{{.}}">{{.}}</option>{{end}}
       </select>
     </label>
-    <label data-field="host" hidden>Host <input name="host" placeholder="gitlab.example.com"> <span class="field-hint">required for own GitLab / others</span></label>
+    <label data-field="host" hidden>Host <input name="host" placeholder="gitlab.example.com"> <span class="field-hint">required for own GitLab</span></label>
     <button type="submit" class="btn">Add tracker</button>
   </form>
 </section>

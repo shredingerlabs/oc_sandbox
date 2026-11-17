@@ -248,12 +248,17 @@ func (s *Server) handleNewWorkspaceGET(w http.ResponseWriter, r *http.Request) {
 }
 
 // renderWizard renders the form fragment with the current feeds and
-// discovery (fresh per call, data map §2).
+// discovery (fresh per call, data map §2). Retired-kind entries
+// (ADR-0038) never reach the pick list.
 func (s *Server) renderWizard(w http.ResponseWriter, f wizardForm) {
 	cat := catalogs.Read(s.opts.Home)
 	f.P = s.pathPrefix()
 	f.PresetsHint = PresetsHint
-	f.Trackers = cat.Trackers
+	for _, t := range cat.Trackers {
+		if catalogs.SelectableKind(t.Kind) {
+			f.Trackers = append(f.Trackers, t)
+		}
+	}
 	f.Providers = cat.Providers
 	f.Editions = s.wizardEditions()
 	if f.Edition == "" || !wizardHasEdition(f.Editions, f.Edition) {
@@ -394,11 +399,13 @@ func (s *Server) wizardVCSTracking(f wizardForm) string {
 	return trackerLabel(kind)
 }
 
-// wizardTracker finds a catalog tracker by display name (slug match).
+// wizardTracker finds a catalog tracker by display name (slug match);
+// retired-kind entries never resolve (ADR-0038) — a crafted pick of
+// one reads back as none, fail-soft like an unknown name.
 func (s *Server) wizardTracker(name string) (catalogs.Tracker, bool) {
 	slug := catalogs.Slug(name)
 	for _, t := range catalogs.Read(s.opts.Home).Trackers {
-		if catalogs.Slug(t.Name) == slug {
+		if catalogs.Slug(t.Name) == slug && catalogs.SelectableKind(t.Kind) {
 			return t, true
 		}
 	}
@@ -827,7 +834,9 @@ func agentKind(agent string) string {
 
 // vcsCredArgs renders the configure-workspace.sh vcs-credentials
 // invocation from the catalog kind (newworkspace.vcsCredStep parity,
-// host-from-entry instead of the free-form row).
+// host-from-entry instead of the free-form row). The retired "other"
+// kind never resolves (ADR-0038), so no custom case exists here — the
+// retained writer for grandfathered workspaces lives in wssettings.
 func vcsCredArgs(c *createChain) []string {
 	switch c.vcsKind {
 	case catalogs.KindGitHub:
@@ -836,8 +845,6 @@ func vcsCredArgs(c *createChain) []string {
 		return []string{"vcs-credentials", "gitlab", c.root, "--token", c.vcsToken, "--host", "gitlab.com"}
 	case catalogs.KindGitLabSel:
 		return []string{"vcs-credentials", "gitlab", c.root, "--token", c.vcsToken, "--host", c.vcsHost}
-	case catalogs.KindOther:
-		return []string{"vcs-credentials", "custom", c.root, "--token", c.vcsToken, "--host", c.vcsHost}
 	}
 	return nil
 }

@@ -692,17 +692,20 @@ func TestWsVCSCredentialsReplaceGate(t *testing.T) {
 }
 
 // Validation: a token is required for a fresh non-none tracker write,
-// the host for own GitLab / others (bare hostname), unknown kinds are
-// refused — the fragment re-renders with the error, nothing runs.
+// the host for own GitLab (bare hostname), unknown kinds — the retired
+// "other" included unless the workspace is grandfathered on it
+// (ADR-0038) — are refused — the fragment re-renders with the error,
+// nothing runs.
 func TestWsVCSCredentialsValidation(t *testing.T) {
 	fx := newCreateFixture(t, nil)
 	root := seedWorkspace(t, fx.home, "alpha", "swdev", nil)
 
 	for name, form := range map[string]map[string]string{
 		"token-required": {"kind": "github", "token": ""},
-		"host-required":  {"kind": "other", "host": "", "token": "t"},
-		"bad-host":       {"kind": "other", "host": "not a host", "token": "t"},
+		"host-required":  {"kind": "gitlab_self", "host": "", "token": "t"},
+		"bad-host":       {"kind": "gitlab_self", "host": "not a host", "token": "t"},
 		"bad-kind":       {"kind": "ftp", "token": "t"},
+		"retired-other":  {"kind": "other", "host": "git.example.com", "token": "t"},
 	} {
 		resp := postForm(t, fx.s.URL()+"workspaces/alpha/vcs-credentials", form)
 		if doc := body(t, resp); !strings.Contains(doc, `role="alert"`) {
@@ -718,6 +721,54 @@ func TestWsVCSCredentialsValidation(t *testing.T) {
 	cfg, _ := sandboxcfg.Read(sandboxcfg.Path(root))
 	if cfg.VCSTracking != "none" {
 		t.Fatalf("refused save must not move vcs_tracking: %q", cfg.VCSTracking)
+	}
+}
+
+// Grandfathered "others" workspaces (ADR-0038): the stored tracker keeps
+// its paste-only re-login — kind "other" writes through the retained
+// custom writer — while the kind stays refused for every other
+// workspace and the screen appends the retired option only while it is
+// the stored value.
+func TestWsVCSCredentialsGrandfatheredOther(t *testing.T) {
+	fx := newCreateFixture(t, nil)
+	root := seedWorkspace(t, fx.home, "alpha", "swdev", nil)
+	if err := sandboxcfg.PatchString(fx.home, sandboxcfg.Path(root), "vcs_tracking", "others"); err != nil {
+		t.Fatal(err)
+	}
+
+	// The screen appends the retired kind's option and shows the Host
+	// field for the stored value.
+	doc := body(t, get(t, fx.s.URL()+"workspaces/alpha/settings"))
+	if !strings.Contains(doc, `value="other" selected`) {
+		t.Fatalf("stored others must preselect the grandfathered kind:\n%s", doc)
+	}
+	if !strings.Contains(doc, `data-field="host">Host`) {
+		t.Fatalf("stored others must render the Host field visible:\n%s", doc)
+	}
+
+	// Paste re-login writes through the retained custom writer (no
+	// --replace: the workspace holds no prior credential file, so the
+	// write is a plain install).
+	resp := postForm(t, fx.s.URL()+"workspaces/alpha/vcs-credentials", map[string]string{
+		"kind": "other", "host": "git.example.com", "token": "t0k", "replace": "1",
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("grandfathered write: status = %d", resp.StatusCode)
+	}
+	waitForNoOp(t, fx)
+	want := []string{"vcs-credentials", "custom", root, "--token", "t0k", "--host", "git.example.com"}
+	var ran bool
+	for _, c := range fx.fake.Snapshot() {
+		if c.Name == "bash" && len(c.Args) > 1 && slices.Equal(c.Args[1:], want) {
+			ran = true
+		}
+	}
+	if !ran {
+		t.Fatalf("grandfathered write must run the custom writer:\n%v", fx.fake.Snapshot())
+	}
+	cfg, _ := sandboxcfg.Read(sandboxcfg.Path(root))
+	if cfg.VCSTracking != "others" {
+		t.Fatalf("vcs_tracking = %q, want others", cfg.VCSTracking)
 	}
 }
 

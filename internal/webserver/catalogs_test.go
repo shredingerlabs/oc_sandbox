@@ -52,12 +52,21 @@ func TestCatalogsEmptyDefault(t *testing.T) {
 		`name="kind"`, // add form: tracker kind
 		`name="host"`, // bare Host field — never labeled URL (ADR-0031)
 		"gitlab_self", // seeded tracker kinds (script-level slugs)
-		"other",
-		`hx-post=`, // HTMX-first: forms post for the swap
+		`hx-post=`,    // HTMX-first: forms post for the swap
 	} {
 		if !strings.Contains(doc, want) {
 			t.Fatalf("GET /catalogs/trackers missing %q", want)
 		}
+	}
+	// The kind list is GitHub / GitLab / own GitLab — the retired "other"
+	// kind (ADR-0038) is neither offered nor hinted.
+	for _, gone := range []string{`>other<`, "required for own GitLab / others"} {
+		if strings.Contains(doc, gone) {
+			t.Fatalf("GET /catalogs/trackers must not render %q", gone)
+		}
+	}
+	if !strings.Contains(doc, "required for own GitLab") {
+		t.Fatal(`GET /catalogs/trackers missing the own-GitLab host hint`)
 	}
 	for _, want := range []string{
 		`id="catalogs-providers"`, // HTMX swap target for provider actions
@@ -235,8 +244,9 @@ func TestTrackersAddRefusesDuplicateSlug(t *testing.T) {
 	}
 }
 
-// Validation (§8): unknown kind and missing Host for own GitLab/others
-// are refused with a visible error; no file is written.
+// Validation (§8): unknown kinds — including the retired "other"
+// (ADR-0038) — and a missing Host for own GitLab are refused with a
+// visible error; no file is written.
 func TestTrackersAddValidation(t *testing.T) {
 	s := startCatalogServer(t)
 	for _, c := range []struct {
@@ -249,8 +259,8 @@ func TestTrackersAddValidation(t *testing.T) {
 		{"own GitLab without host", "host is required", map[string]string{
 			"action": "add", "name": "X", "kind": "gitlab_self",
 		}},
-		{"other without host", "host is required", map[string]string{
-			"action": "add", "name": "X", "kind": "other",
+		{"retired kind other", "unknown tracker kind", map[string]string{
+			"action": "add", "name": "X", "kind": "other", "host": "git.example.com",
 		}},
 		{"reserved name none", "reserved", map[string]string{
 			"action": "add", "name": "None", "kind": "github",
@@ -264,6 +274,58 @@ func TestTrackersAddValidation(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(s.opts.Home, ".config", "oc-sandbox", "catalogs.json")); !os.IsNotExist(err) {
 			t.Fatalf("%s: refused add must not write catalogs.json", c.name)
 		}
+	}
+}
+
+// Stale kind:"other" entries (ADR-0038: seeded by the catalogs
+// migration, kept in place) stay tolerated: Settings lists and removes
+// them, an edit onto the retired kind is refused, an edit onto a valid
+// kind rewrites the entry.
+func TestTrackersStaleOtherEntryTolerated(t *testing.T) {
+	s := startCatalogServer(t)
+	file := filepath.Join(s.opts.Home, ".config", "oc-sandbox", "catalogs.json")
+	if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	stale := "{\n  \"trackers\": [{\"name\": \"Gitea\", \"kind\": \"other\", \"host\": \"git.example.com\"}],\n  \"providers\": [],\n  \"version\": \"2.0\"\n}\n"
+	if err := os.WriteFile(file, []byte(stale), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	doc := body(t, get(t, s.URL()+"catalogs/trackers"))
+	if !strings.Contains(doc, `data-name="Gitea"`) {
+		t.Fatalf("stale kind:%q entry must stay listed:\n%s", "other", doc)
+	}
+
+	// Edit onto the retired kind is refused; the file is untouched.
+	resp := postForm(t, s.URL()+"catalogs/trackers", map[string]string{
+		"action": "edit", "orig": "Gitea", "name": "Gitea", "kind": "other", "host": "git.example.com",
+	})
+	if doc := body(t, resp); !strings.Contains(doc, "unknown tracker kind") {
+		t.Fatalf("edit onto the retired kind must be refused:\n%s", doc)
+	}
+	if got, _ := os.ReadFile(file); string(got) != stale {
+		t.Fatalf("refused edit must not rewrite catalogs.json:\n%s", got)
+	}
+
+	// Edit onto a valid kind rewrites the entry in place.
+	resp = postForm(t, s.URL()+"catalogs/trackers", map[string]string{
+		"action": "edit", "orig": "Gitea", "name": "Gitea", "kind": "github",
+	})
+	if doc := body(t, resp); !strings.Contains(doc, `data-name="Gitea"`) {
+		t.Fatalf("edit onto a valid kind must re-render the entry:\n%s", doc)
+	}
+	got, _ := os.ReadFile(file)
+	if strings.Contains(string(got), `"kind": "other"`) || !strings.Contains(string(got), `"kind": "github"`) {
+		t.Fatalf("edit must rewrite the kind — file:\n%s", got)
+	}
+
+	// Remove still drops the stale entry.
+	resp = postForm(t, s.URL()+"catalogs/trackers", map[string]string{
+		"action": "remove", "orig": "Gitea",
+	})
+	if doc := body(t, resp); strings.Contains(doc, `data-name="Gitea"`) {
+		t.Fatalf("stale entry must be removable:\n%s", doc)
 	}
 }
 
