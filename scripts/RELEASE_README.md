@@ -79,7 +79,7 @@ Prompts for:
     gh auth login
     ```
 
-2. **Go toolchain** 1.22+ (cross-compiles the Go TUI into `dist/bin/`)
+2. **Go toolchain** 1.22+ (cross-compiles the binary with the embedded WebUI into `dist/bin/`)
 
 3. **Git repository** with `dist/` folder present
 
@@ -96,7 +96,7 @@ Prompts for:
     - Semantic version format check: `v` + numbers + `.` + numbers + `.` + numbers
     - Existing tag verification
 
-3. **Go TUI Cross-Compilation**
+3. **Binary Cross-Compilation**
     - Builds `dist/bin/oc-sandbox_<os>_<arch>` for linux/amd64+arm64 and
       darwin/amd64+arm64 (CGO off, tag injected via `-X main.Version`)
     - Requires `go.mod` + `cmd/oc-sandbox` at the repo root

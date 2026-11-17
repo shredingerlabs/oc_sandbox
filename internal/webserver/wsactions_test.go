@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/shredingerlabs/oc-sandbox/internal/app"
 	"github.com/shredingerlabs/oc-sandbox/internal/cmdrun"
 	"github.com/shredingerlabs/oc-sandbox/internal/registry"
 )
@@ -51,7 +50,7 @@ func startServerWith(t *testing.T, home string, fake *cmdrun.Fake) *Server {
 		Deps: &Deps{
 			Run:         fake,
 			Registry:    &registry.Registry{Home: home},
-			StartScript: app.LayoutFor(home).StartScript,
+			StartScript: LayoutFor(home).StartScript,
 		},
 	})
 	if err := s.Start(); err != nil {

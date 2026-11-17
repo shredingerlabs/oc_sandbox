@@ -147,7 +147,7 @@ du können.</p>
     <li><a href="#installation-linux">Installation unter Linux</a></li>
     <li><a href="#first-setup">First Setup: erster Build, erstes Projekt, erste Session</a></li>
     <li><a href="#pfadmodell">Wie Projektordner und Container zusammenhängen</a></li>
-    <li><a href="#nutzung">Nutzung: starten mit Symlink, Shortcut und TUI</a></li>
+    <li><a href="#nutzung">Nutzung: starten mit Symlink, Shortcut und WebUI</a></li>
     <li><a href="#tipps">Tipps für den Alltag</a></li>
     <li><a href="#troubleshooting">Troubleshooting</a></li>
   </ol>
@@ -158,7 +158,7 @@ du können.</p>
 <p>oc-sandbox stellt dir pro Projekt einen <strong>Podman-Container</strong> bereit –
 eine abgeschlossene, gehärtete Linux-Umgebung, in der dein Projektcode liegt
 und in der OpenCode (Terminal- und Weboberfläche) läuft. Deine Zentrale ist die
-<strong>TUI</strong> (Go-TUI <code>oc-sandbox</code>, Text-Oberfläche im
+<strong>WebUI</strong> (Browser-Oberfläche des Binarys <code>oc-sandbox</code>, served auf
 Terminal): Sie führt durch Container-Bau,
 Projekt-Einrichtung und Start.</p>
 
@@ -186,7 +186,7 @@ Whitelist:</p>
 legst du eigene Editionen an – jede ist ein eigener Build-Abschnitt (Stage) mit
 einem <code>FROM opencode-sandbox-base AS opencode-sandbox-&lt;name&gt;</code>-Header,
 der auf <code>USER dev</code> und <code>ENTRYPOINT ["/bin/bash","-l"]</code>
-endet. Neue Editionen tauchen danach automatisch in Build, Start und TUI auf.
+endet. Neue Editionen tauchen danach automatisch in Build, Start und WebUI auf.
 Diese Datei bleibt bei Updates unangetastet.</p>
 
 <p>Editionen mit gleichen/ähnlichen Werkzeugen unterscheiden sich nur im Umfang
@@ -259,7 +259,7 @@ sudo apt-get install -y git curl podman passt fuse-overlayfs jq
 <p>Weiter mit Abschnitt 4 – dort läuft der Installations-Befehl identisch in
 Ubuntu/WSL. Auch der Desktop-Shortcut funktioniert: Er wird standardmäßig
  angelegt. Du findest dann <strong>„OC Sandbox.lnk“</strong> im
-Windows-Startmenü – er startet die TUI direkt.</p>
+Windows-Startmenü – er startet oc-sandbox direkt.</p>
 
 <h2 id="voraussetzungen-linux">3. Voraussetzungen (Linux)</h2>
 
@@ -315,13 +315,13 @@ wird ans Skript durchgereicht. Bedeutung der Flags:</p>
   <tr><td><code>--force</code></td><td>Bestehende Installation ohne Nachfrage überschreiben.</td></tr>
 </table>
 
-<p>Das Skript installiert außerdem die Go-TUI als Binary
+<p>Das Skript installiert außerdem oc-sandbox als Binary
 <code>oc-sandbox</code> und benutzt
 <strong>nie automatisch sudo</strong>.</p>
 
 <h2 id="first-setup">5. First Setup: erster Build, erstes Projekt, erste Session</h2>
 
-<p>TUI starten (entweder durch den Menü-Shortcut oder im Terminal):</p>
+<p>oc-sandbox starten (entweder durch den Menü-Shortcut oder im Terminal):</p>
 
 <pre><code>oc-sandbox
 </code></pre>
@@ -418,7 +418,7 @@ Wizard fragt Schritt für Schritt:</p>
 <p>Ist ein bestehendes Projekt schon in einem Git-Repo, gib statt „New empty
 project“ die Repo-URL an. Das Klonen passiert <strong>im Container</strong> –
 auf dem Host brauchst du kein git und keine SSH-Keys. Beim Start des Projekts
-prüft die TUI zuerst die Erreichbarkeit (<code>git ls-remote</code>) und klont
+prüft der Wizard zuerst die Erreichbarkeit (<code>git ls-remote</code>) und klont
 dann das komplette Repo in den <code>project/</code>-Ordner, bevor die normale
 Einrichtung weiterläuft.</p>
 
@@ -443,7 +443,7 @@ Einrichtung weiterläuft.</p>
 <p>Die Ersteinrichtung (Klonen bei „Clone existing repo via URL“, danach
 Konfiguration des Knowledge-Graph-Indexers „CBM“ und die interaktive
 Skills-Einrichtung über eine OpenCode-Session) läuft
-<strong>automatisch</strong>. Sollte ein Schritt scheitern, bietet die TUI
+<strong>automatisch</strong>. Sollte ein Schritt scheitern, bietet der Setup-Ablauf
 <code>Retry</code> und <code>Exit</code>; beim Klonen zusätzlich
 <code>Change URL</code>, um die Repo-URL zu korrigieren – ein
 <code>Retry</code> wiederholt nur den fehlgeschlagenen Teil.</p>
@@ -456,7 +456,7 @@ heuristisch: <code>Today</code>, <code>Yesterday</code>, <code>n d ago</code>, s
 Je nach gewählter Start-Option:</p>
 
 <ul>
-  <li><code>opencode</code> – OpenCode-TUI öffnet sich direkt</li>
+  <li><code>opencode</code> – OpenCode-TUI (im Container) öffnet sich direkt</li>
   <li><code>console</code> – interaktive Shell im Container, dort z.B.
       <code>opencode</code> eintippen</li>
   <li><code>web</code> – OpenCode im Browser (nächster Abschnitt)</li>
@@ -498,9 +498,9 @@ nichts – sie bleiben auf dem Host und werden als interne Verbindungen benutzt.
   <code>~/project</code> – und du wählst sie dort in der Liste.
 </div>
 
-<h2 id="nutzung">7. Nutzung: starten mit Symlink, Shortcut und TUI</h2>
+<h2 id="nutzung">7. Nutzung: starten mit Symlink, Shortcut und WebUI</h2>
 
-<h3>7.1 TUI starten</h3>
+<h3>7.1 oc-sandbox starten</h3>
 
 <p>Am einfachsten mit dem Standard-Symlink:</p>
 
@@ -513,15 +513,15 @@ Installation standardmäßig angelegt; per <code>--no_symlinks</code> /
 <br>Alternativ direkt über den Installationspfad:
 <code>~/.oc-sandbox/bin/oc-sandbox</code>.</p>
 
-<h3>7.2 Hauptmenü</h3>
+<h3>7.2 Die WebUI-Screens</h3>
 
 <table>
   <tr><th>Menüpunkt</th><th>Funktion</th></tr>
-  <tr><td><strong>Open Project</strong></td><td>Registriertes Projekt auswählen und starten – Projektkarten (nach letzter Nutzung sortiert; statt des Pfads zeigt die Karte das Datum der letzten Nutzung) mit Start-Buttons <strong>Console / OpenCode / Web</strong>.</td></tr>
-  <tr><td><strong>New Project</strong></td><td>Projekt neu anlegen (Wizard aus Abschnitt 5.3).</td></tr>
-  <tr><td><strong>Container</strong></td><td>Container-Center mit Unter-Tabs: <strong>Build Images</strong> (<code>● built</code> / <code>○ missing</code>), <strong>Delete Images</strong> (<code>● in use</code> / <code>○ unused</code>, mit Größen), <strong>Start Container</strong>, <strong>Stop Container</strong>, <strong>Delete Container</strong>.</td></tr>
-  <tr><td><strong>Settings</strong></td><td><strong>Project settings</strong> (Edition, Modi, Start-Option, VCS/AI-Provider), Import project, Export Config, Restore Config, Update, Uninstall.</td></tr>
-  <tr><td><strong>Exit</strong></td><td>TUI beenden.</td></tr>
+  <tr><td><strong>Workspace → Open</strong></td><td>Registriertes Workspace auswählen und starten – Workspace-Karten (nach letzter Nutzung sortiert; statt des Pfads zeigt die Karte das Datum der letzten Nutzung) mit Start-Buttons <strong>Console / OpenCode / Web</strong>.</td></tr>
+  <tr><td><strong>Workspace → New</strong></td><td>Workspace neu anlegen (Wizard aus Abschnitt 5.3).</td></tr>
+  <tr><td><strong>Settings → Images / Containers</strong></td><td>Images bauen (<code>● built</code> / <code>○ missing</code>) und löschen (<code>● in use</code> / <code>○ unused</code>, mit Größen); Container <strong>Start / Stop / Delete</strong>.</td></tr>
+  <tr><td><strong>Settings</strong></td><td><strong>Workspace Settings</strong> (Edition, Modi inkl. HIL, Start-Option, VCS/AI-Provider), VCS Tracker / AI-Provider-Kataloge, Import Workspace, Export / Restore Config, Update, Uninstall (Proxy advanced-only).</td></tr>
+  <tr><td><strong>Launcher-Ansicht (Terminal)</strong></td><td>Zeigt die vollständige tokenisierte WebUI-URL, <strong>Open WebUI</strong> (öffnet den Tab erneut) und <strong>Quit</strong> (fragt, ob laufende Container gestoppt werden sollen – Standard: weiterlaufen lassen).</td></tr>
 </table>
 
 <div class="info">
@@ -533,18 +533,17 @@ Installation standardmäßig angelegt; per <code>--no_symlinks</code> /
 <h3>7.3 Die Web-Option (OpenCode im Browser)</h3>
 
 <p>Hast du als Start-Option <code>web</code> gewählt, läuft im Container dauerhaft
-ein OpenCode-Webdienst. Die URL zeigt dir die TUI an, typischerweise:</p>
+ein OpenCode-Webdienst. Die URL nennt dir der Start-Log bzw. die WebUI, typischerweise:</p>
 
 <pre><code>http://127.0.0.1:4096
 </code></pre>
 
-<p>Frischer Web-Zugriff erzeugt einen Einmal-Pair-Link (ADR 0024): über dem
-Project-Settings-Bereich erscheint ein hervorgehobener <strong>Login
-WEB</strong>-Button, der beim Klick die Pair-URL direkt im Browser öffnet
-(unten bleibt der Toast als Kopier-Backup). Hat der Rechner keinen Browser
-oder Öffner, bleibt der Toast die Rückfallebene.</p>
+<p>Frischer Web-Zugriff erzeugt einen Einmal-Pair-Link (ADR 0024): <strong>Web
+Access</strong> holt den Link und öffnet ihn in einem neuen Tab direkt beim
+Klick; wenn das Pairing scheitert, erscheint die plain-URL als Rückfallebene
+zum Kopieren.</p>
 
-<p><strong>Port-Suchbereich:</strong> Falls 4096 belegt ist, probiert die TUI
+<p><strong>Port-Suchbereich:</strong> Falls 4096 belegt ist, probiert der Start
 automatisch die Ports 4096–4196 durch.</p>
 
 <p><strong>Im Browser (OpenCode-Weboberfläche):</strong></p>
@@ -556,12 +555,12 @@ automatisch die Ports 4096–4196 durch.</p>
   <li><strong>Session starten</strong> – los geht's mit OpenCode im Browser</li>
 </ol>
 
-<p>Beim Zugriff auf ein laufendes Projekt dockt die TUI über
-<code>podman exec</code> an: Jede Projektkarte hat Start-Buttons
+<p>Beim Zugriff auf ein laufendes Workspace dockt die WebUI über
+<code>podman exec</code> an: Jede Workspace-Karte hat Start-Buttons
 <strong>Console / OpenCode / Web</strong> – Start + Zugriff in einem Klick. Eine
 Console-Session ist eine unabhängige Shell und ändert deine konfigurierte
 Start-Option nicht. Läuft der Container mit Start-Option <code>web</code>, aber
-ohne freigegebenen Web-Port, startet die TUI ihn mit geprüftem
+ohne freigegebenen Web-Port, startet sie ihn mit geprüftem
 <code>--start_web</code>-Neustart neu (Auto-Adopt).</p>
 
 <h2 id="tipps">8. Tipps für den Alltag</h2>
@@ -574,10 +573,10 @@ Trick: <strong>pro Aufgabe eine neue Session</strong> (z.B. „Bug X fixen“ in
 einer Session, „Feature Y“ in der nächsten), nicht alles in eine einzige
 Session stopfen.</p>
 
-<h3>Tipp 2: Die TUI verwenden</h3>
+<h3>Tipp 2: OpenCode im Terminal verwenden</h3>
 
 <p>Bei der Projekteinrichtung <strong>Start-Option <code>opencode</code></strong>
-(oder <code>console</code> + dort <code>opencode</code>) wählen – die TUI zeigt
+(oder <code>console</code> + dort <code>opencode</code>) wählen – das OpenCode-TUI zeigt
 <strong>mehr Infos zur laufenden Session</strong> als die Weboberfläche und gibt dir
 über <code>/session</code> einen <strong>Überblick über bisherige Sessions</strong>.</p>
 
@@ -607,7 +606,7 @@ im Entwickler-Workflow (HOWTO)</a>.</p>
 <h3>„Build dauert so lang – stimmt da was nicht?“</h3>
 <p>Nein, normal (siehe 5.1). Erster Build dauert sehr lange; auch der
 <strong>erste Start nach einem Systemneustart</strong> braucht noch Zeit. Wenn
-der Fortschritt aber komplett stillsteht, TUI beenden, Container prüfen
+der Fortschritt aber komplett stillsteht, oc-sandbox beenden, Container prüfen
 (<code>podman ps -a</code>) und den Build wiederholen.</p>
 
 <h3>„Erster Start nach dem Neustart ist langsam“</h3>
@@ -617,14 +616,15 @@ zweiten Projektstart in derselben Sitzung geht es deutlich schneller.</p>
 
 <h3>„Web-URL nicht erreichbar“</h3>
 <p>Die URL (z.B. <code>http://127.0.0.1:4096</code>) gilt <em>auf dem Rechner,
-auf dem der Container läuft</em>. Steht der genaue Port in der TUI-URL-Anzeige.
-Für die Web-Option benötigt OpenCode ein Git-Repo im <code>project/</code>-Ordner:
-Bei leeren Projekten legt der Wizard automatisch eines an, falls keins
+auf dem der Container läuft</em>. Der genaue Port steht in der URL-Anzeige der
+Launcher-Ansicht im Terminal. Für die Web-Option benötigt OpenCode ein Git-Repo im
+<code>workspace/</code>-Ordner:
+Bei leeren Workspaces legt der Wizard automatisch eines an, falls keins
 existiert; bei geklonten Projekten ist das Repo durch den Clone ohnehin
 vorhanden.</p>
 
 <h3>„Setup ist abgebrochen / fehlgeschlagen“</h3>
-<p>Das Projekt bleibt registriert. TUI neu öffnen, <strong>Open Project</strong>
+<p>Das Workspace bleibt registriert. oc-sandbox neu öffnen, <strong>Workspace → Open</strong>
 wählen und <code>Retry</code> drücken – es wird nur der unvollständige Schritt
 wiederholt, nicht alles.</p>
 

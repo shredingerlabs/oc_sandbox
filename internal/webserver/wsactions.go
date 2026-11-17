@@ -12,7 +12,6 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/shredingerlabs/oc-sandbox/internal/app"
 	"github.com/shredingerlabs/oc-sandbox/internal/cmdrun"
 	"github.com/shredingerlabs/oc-sandbox/internal/discovery"
 	"github.com/shredingerlabs/oc-sandbox/internal/registry"
@@ -53,7 +52,7 @@ func (s *Server) startScript() string {
 	if s.deps != nil && s.deps.StartScript != "" {
 		return s.deps.StartScript
 	}
-	return app.LayoutFor(s.opts.Home).StartScript
+	return LayoutFor(s.opts.Home).StartScript
 }
 
 // lookupWorkspace resolves the URL-identity name to the registry entry.

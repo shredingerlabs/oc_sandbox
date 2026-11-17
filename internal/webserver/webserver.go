@@ -56,7 +56,7 @@ const scanWindow = 100
 type Options struct {
 	BasePort      int                                                         // first port tried; 0 means "pick a free port" (tests)
 	Version       string                                                      // compiled-in version — the update card's fallback when the VERSION file is absent
-	InstallRoot   string                                                      // the install layout root (app.LayoutFor): the VERSION file lives here
+	InstallRoot   string                                                      // the install layout root (LayoutFor): the VERSION file lives here
 	Home          string                                                      // the oc-sandbox home: ~/.config/oc-sandbox holds catalogs.json etc. and global_config.json (GET/POST /settings)
 	Deps          *Deps                                                       // screen seams (#156/#158/#159); nil = shell + update/settings/catalogs only
 	Runner        cmdrun.Runner                                               // podman/script runner for the workspace access verbs (#153); nil → deps.Run, then real execution

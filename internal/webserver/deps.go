@@ -59,7 +59,7 @@ func (s *Server) regView() *registry.Registry {
 func (s *Server) home() string { return s.opts.Home }
 
 // uninstallScript resolves uninstall.sh from the install layout
-// (app.LayoutFor): <install root>/scripts/uninstall.sh — the same file
+// (LayoutFor): <install root>/scripts/uninstall.sh — the same file
 // the TUI invokes.
 func (s *Server) uninstallScript() string {
 	return filepath.Join(s.opts.InstallRoot, "scripts", "uninstall.sh")

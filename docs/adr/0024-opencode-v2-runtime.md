@@ -109,3 +109,7 @@ the sandbox to v2 in one flip:
   compatibility (`.opencode_data/auth.json` mount), and `mini` inside
   the ephemeral `podman exec -it` skills session (fallback:
   `--standalone` for that stage only).
+- Release-sweep addendum (#163): OpenCode's published `/docs/web/` page
+  is a stale v1 leftover — `opencode web`/`attach` do not exist in the
+  shipped v2 build; the v2-native attach is the root flag
+  `--server <url>`. No revision to this ADR's invocation flow.

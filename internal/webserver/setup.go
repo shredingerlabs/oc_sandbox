@@ -27,7 +27,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/shredingerlabs/oc-sandbox/internal/app"
 	"github.com/shredingerlabs/oc-sandbox/internal/registry"
 	"github.com/shredingerlabs/oc-sandbox/internal/setupflow"
 )
@@ -155,7 +154,7 @@ func (s *Server) launchSetup(ws registry.Workspace) string {
 // home (deps-first script paths, ADR-0007 — the TUI invokes the same
 // scripts).
 func (s *Server) setupStager() setupflow.RunnerFactory {
-	layout := app.LayoutFor(s.opts.Home)
+	layout := LayoutFor(s.opts.Home)
 	start, configure := layout.StartScript, layout.ConfigureScript
 	if s.deps != nil {
 		if s.deps.StartScript != "" {

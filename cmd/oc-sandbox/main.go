@@ -4,17 +4,15 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/x/term"
 
-	"github.com/shredingerlabs/oc-sandbox/internal/app"
 	"github.com/shredingerlabs/oc-sandbox/internal/cmdrun"
 	"github.com/shredingerlabs/oc-sandbox/internal/launcher"
 	"github.com/shredingerlabs/oc-sandbox/internal/migration"
 	"github.com/shredingerlabs/oc-sandbox/internal/registry"
-	"github.com/shredingerlabs/oc-sandbox/internal/shell"
 	"github.com/shredingerlabs/oc-sandbox/internal/smoke"
 	"github.com/shredingerlabs/oc-sandbox/internal/webserver"
 )
@@ -37,69 +35,17 @@ func main() {
 			fmt.Fprintf(os.Stdout, "oc-sandbox %s\n", Version)
 			return
 		case "--help":
-			// --full-tui stays hidden from help (spec §14 parity gate):
-			// same binary, no menu entry, documented in the release README only.
 			fmt.Fprintf(os.Stdout, "usage: oc-sandbox [--version|--smoke]  (no flags runs the minimal launcher)\n")
 			return
-		case "--full-tui": // transitional parity gate (spec §14): the full TUI stays reachable until the flip
-			runTUI()
-			return
+		default:
+			if strings.HasPrefix(os.Args[1], "-") { // the parity flag --full-tui died with the full TUI (#163)
+				fmt.Fprintf(os.Stderr, "oc-sandbox: unknown flag: %s\n", os.Args[1])
+				fmt.Fprintf(os.Stderr, "usage: oc-sandbox [--version|--smoke]  (no flags runs the minimal launcher)\n")
+				os.Exit(2)
+			}
 		}
 	}
 	runLauncher()
-}
-
-// requestMinTermSize asks the terminal to grow to the shell minimum when
-// it starts smaller, via the CSI 8 escape (xterm window-size request,
-// honored by many emulators). Emitters that ignore it fall back to the
-// shell's too-small overlay; an already-large terminal is never shrunk.
-// Startup only — mid-session resizes stay on the overlay guard.
-func requestMinTermSize() {
-	out := os.Stdout
-	if !term.IsTerminal(out.Fd()) {
-		return
-	}
-	w, h, err := term.GetSize(out.Fd())
-	if err != nil || w >= shell.MinWidth && h >= shell.ResizeHeight {
-		return
-	}
-	fmt.Fprintf(out, "\x1b[8;%d;%dt", shell.ResizeHeight, shell.MinWidth)
-}
-
-// runTUI runs the composed production TUI (#84). It's the default
-// `oc-sandbox` behavior (the bash TUI's defaults, in one binary), with
-// the story-28 exit-code discipline: 0 clean, 1 error, 2 abort, 130
-// SIGINT — configs stay intact, no temp files leak.
-func runTUI() {
-	requestMinTermSize()
-	home, err := os.UserHomeDir()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "oc-sandbox: resolve home: %v\n", err)
-		os.Exit(1)
-	}
-	// One-time first-start migration (spec §2): blocking before anything
-	// reads config — before Compose, unlike the silent-init precedent.
-	if err := runMigration(home); err != nil {
-		os.Exit(1)
-	}
-	a := app.Compose(home, Version, cmdrun.ExecRunner{}, nil)
-	a.Model.AddInitCmd(a.StartupCheck)  // silent background update check
-	ui := startWebserver(home, Version) // webserver runs launch→quit (spec §4); #151 owns the launcher face
-	if ui != nil {
-		defer ui.Close()
-	}
-	p := tea.NewProgram(a.Model, tea.WithAltScreen(), tea.WithMouseCellMotion())
-	final, err := p.Run()
-	if ui != nil {
-		ui.Hub().PublishShutdown() // best-effort push; tabs stop reconnecting (§4/§12)
-	}
-	code := app.ExitCode(final.(shell.Model), err)
-	if code != 0 && code != 130 && err != nil { // signal kills exit silently, like the bash TUI's trap
-		fmt.Fprintf(os.Stderr, "oc-sandbox: %v\n", err)
-	}
-	if code != 0 {
-		os.Exit(code)
-	}
 }
 
 // runLauncher is the default launch (spec §4, #151): the minimal TUI
@@ -163,14 +109,17 @@ func runLauncher() {
 	os.Exit(1)
 }
 
-// will take over. Home wires GET/POST /settings to global_config.json
+// startWebserver starts the WebUI server (spec §4): it binds the scan
+// window behind a per-launch token and serves every screen — the
+// browser is the interface, the launcher face just carries the URL.
+// Home wires GET/POST /settings to global_config.json
 // (#152) and the New Workspace wizard (#156) to the install-layout
-// scripts — invoked exactly as the TUI invokes them (ADR-0007). A
-// failed start never kills the TUI — it prints a warning and returns
-// nil. The §12 update check rides the server start: one silent
+// scripts — invoked exactly as the TUI invoked them (ADR-0007). A
+// failed start never kills the launcher — it prints a warning and
+// returns nil. The §12 update check rides the server start: one silent
 // GitHub request, badge pushed via /events.
 func startWebserver(home, version string) *webserver.Server {
-	layout := app.LayoutFor(home)
+	layout := webserver.LayoutFor(home)
 	ui := webserver.New(webserver.Options{
 		Version:     version,
 		Home:        home,
@@ -184,7 +133,7 @@ func startWebserver(home, version string) *webserver.Server {
 			ConfigureScript:      layout.ConfigureScript,
 			Dockerfile:           layout.Dockerfile,
 			DockerfileCustom:     layout.DockerfileCustom,
-			DefaultWorkspacePath: app.DefaultWorkspacePath(home),
+			DefaultWorkspacePath: webserver.DefaultWorkspacePath(home),
 		},
 	})
 	if err := ui.Start(); err != nil {

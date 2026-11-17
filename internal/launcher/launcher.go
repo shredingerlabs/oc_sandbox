@@ -7,7 +7,7 @@
 // containers before quitting? [y/N]"), and the graceful stop.
 //
 // The package stays self-contained (no shell/theme imports) so the
-// parity-gate flip (#99) can delete the full TUI without touching it.
+// parity-gate deletion of the full TUI (#163) never touched it.
 package launcher
 
 import (
@@ -18,7 +18,6 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/shredingerlabs/oc-sandbox/internal/cmdrun"
-	"github.com/shredingerlabs/oc-sandbox/internal/containerview"
 	"github.com/shredingerlabs/oc-sandbox/internal/discovery"
 	"github.com/shredingerlabs/oc-sandbox/internal/opener"
 	"github.com/shredingerlabs/oc-sandbox/internal/registry"
@@ -302,7 +301,7 @@ func (m *Model) cmdStop() tea.Cmd {
 	names := m.stopNames
 	run, reg := m.opts.Runner, m.opts.Registry
 	return func() tea.Msg {
-		return stopDoneMsg{err: containerview.StopContainers(run, reg, names, func(string) {})}
+		return stopDoneMsg{err: StopContainers(run, reg, names, func(string) {})}
 	}
 }
 
@@ -384,8 +383,8 @@ func renderButton(label string, focused bool) string {
 	return idleStyle.Render(label)
 }
 
-// palette — local to the launcher so the parity-gate flip deleting the
-// full TUI leaves the face untouched.
+// palette — local to the launcher, self-contained since the WebUI-first
+// flip (#151).
 var (
 	titleStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("39")).Bold(true)
 	urlStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("252")).Bold(true)

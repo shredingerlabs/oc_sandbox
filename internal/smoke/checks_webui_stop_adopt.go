@@ -401,7 +401,7 @@ func checkWebUIStopAdopt(home, root string) Item {
 	stopCount, startCount = len(stopCalls)+len(podStopCalls), len(startArgs)
 	mu.Unlock()
 	v = sidecar(s.URL()+"workspaces/atlas/restart", nil)
-	if scOK(v) || !strings.Contains(scStr(v, "error"), "is not running") {
+	if scOK(v) || !strings.Contains(scStr(v, "error"), "restart starts nothing") {
 		p.reasonf("stopped restart sidecar = %v, want the not-running refusal", v)
 	}
 	mu.Lock()

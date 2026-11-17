@@ -8,15 +8,14 @@ import (
 	"strings"
 )
 
-// checkWebUIFlip asserts the parity gate flip (spec §14, #151/#162)
-// against the freshly built binary: `--full-tui` stays hidden from
-// help; the default launch is the minimal launcher (webserver at
-// launch + the browser auto-open carrying the tokenized URL);
-// `--full-tui` reaches the full TUI without the auto-open; the
-// full-TUI packages still compile (no deletion yet — the sweep rides
-// #163).
+// checkWebUIFlip asserts the parity gate's completion (spec §14,
+// #151/#162/#163) against the freshly built binary: `--full-tui` is
+// deleted along with the full-TUI code — the flag is rejected like any
+// unknown flag, help names only the minimal launcher, and the default
+// launch is still the launcher face (webserver at launch + the browser
+// auto-open carrying the tokenized URL).
 func checkWebUIFlip(home, root string) Item {
-	p := newPhase("A18", "Parity flip: --full-tui hidden from help, default launch = launcher face (webserver at launch + browser auto-open), --full-tui reaches the full TUI with no auto-open, full-TUI packages still compile (#151)")
+	p := newPhase("A18", "Parity gate closed: --full-tui deleted (rejected as unknown), help names only the minimal launcher, default launch = launcher face (webserver at launch + browser auto-open) (#163)")
 
 	if abs, err := filepath.Abs(root); err == nil {
 		root = abs // the PTY child and go build need an absolute cwd
@@ -27,25 +26,35 @@ func checkWebUIFlip(home, root string) Item {
 		return p.finish()
 	}
 
-	// Full-TUI packages still compile (AC: no deletion yet — protoapp
-	// and the shell/openproject/settings tree build with the WebUI).
+	// The whole tree still compiles after the full-TUI deletion (the
+	// launcher face is the only bubbletea program left).
 	if out, err := runIn(root, "go", "build", "./..."); err != nil {
-		p.reasonf("go build ./... (full-TUI compile): %v — %s", err, out)
+		p.reasonf("go build ./...: %v — %s", err, out)
 	}
 	if out, err := runIn(root, "go", "build", "-o", bin, "./cmd/oc-sandbox"); err != nil {
 		p.reasonf("go build binary: %v — %s", err, out)
 		return p.finish()
 	}
 
-	// Help hides the flag: the transitional release README documents it
-	// (README sweep rides #163), help output must not.
+	// Help names the launcher as the default and never mentions the
+	// deleted flag.
 	help, err := runIn(root, bin, "--help")
 	if err != nil {
 		p.reasonf("--help: %v — %s", err, help)
 	} else if strings.Contains(help, "full-tui") {
-		p.reasonf("--help leaks the hidden --full-tui flag: %s", help)
+		p.reasonf("--help leaks the deleted --full-tui flag: %s", help)
 	} else if !strings.Contains(help, "minimal launcher") {
 		p.reasonf("--help does not name the launcher as the default: %s", help)
+	}
+
+	// The deleted flag is rejected as unknown (exit 2, abort code) —
+	// before any home/config access, so a stale wrapper script cannot
+	// silently launch something else.
+	out, err := runIn(root, bin, "--full-tui")
+	if err == nil {
+		p.reasonf("--full-tui still accepted: out=%s", outTail(out))
+	} else if !strings.Contains(out, "unknown flag: --full-tui") {
+		p.reasonf("--full-tui rejection lacks the unknown-flag line: err=%v out=%s", err, outTail(out))
 	}
 
 	// Fake browser opener: the §3 xdg-open path, logging its argument.
@@ -79,30 +88,6 @@ func checkWebUIFlip(home, root string) Item {
 				p.reasonf("default launch printed no tokenized WebUI URL: %s", outTail(out))
 			} else if bdata, rerr := os.ReadFile(blog); rerr != nil || strings.TrimSpace(string(bdata)) != m {
 				p.reasonf("browser auto-open: log %q, want the launched URL %q (err %v)", bdata, m, rerr)
-			}
-		}
-	}
-
-	// --full-tui: the full BubbleTea TUI renders (nav bar + hints) and
-	// quits on q — with NO browser auto-open (no launcher face).
-	{
-		h2 := filepath.Join(home, "A18", "home-tui")
-		blog := filepath.Join(home, "A18", "tui-browser.log")
-		if err := os.MkdirAll(h2, 0o755); err != nil {
-			p.reasonf("tui home: %v", err)
-			return p.finish()
-		}
-		out, err := runPTY(root, "q", h2, binDir, blog, bin, "--full-tui")
-		if err != nil || strings.Contains(out, "timed out") {
-			p.reasonf("--full-tui: err=%v out=%s", err, outTail(out))
-		} else {
-			for _, want := range []string{"1 open", "new workspace", "select down", "quit"} {
-				if !strings.Contains(out, want) {
-					p.reasonf("--full-tui missing the TUI marker %q: %s", want, outTail(out))
-				}
-			}
-			if bdata, rerr := os.ReadFile(blog); rerr == nil && strings.TrimSpace(string(bdata)) != "" {
-				p.reasonf("--full-tui must not auto-open the browser, log: %q", strings.TrimSpace(string(bdata)))
 			}
 		}
 	}
