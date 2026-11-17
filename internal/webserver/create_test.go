@@ -167,12 +167,13 @@ func TestNewWorkspaceFormStandard(t *testing.T) {
 		`name="agent"`, `value="code"`, // Agent row, code default
 		`value="pkm"`,                     // pkm pins the edition
 		`name="edition"`, `value="swdev"`, // Edition preselected swdev
-		`name="vcs"`,            // VCS-credential select
-		`name="provider"`,       // AI-provider select
-		`name="provider_token"`, // token input for the selected provider
-		`data-advanced-only`,    // #152 machinery: advanced-only rows marked
-		PresetsHint,             // "presets, see Advanced" pointer
-		`data-field="host" hidden`, // New… tracker: Host hides for github (the kind default)
+		`name="vcs"`,                        // VCS-credential select
+		`name="vcs_token"`,                  // …with its token input inline (AI-Provider parity)
+		`name="provider"`,                   // AI-provider select
+		`name="provider_token"`,             // token input for the selected provider
+		`data-advanced-only`,                // #152 machinery: advanced-only rows marked
+		PresetsHint,                         // "presets, see Advanced" pointer
+		`Settings › VCS Tracker`,            // the catalog pointer sub (entries are managed there)
 		`name="use_stt" value="on" checked`, // #167: dictation preset ON (Create default)
 		`name="use_stt_present"`,            // the deactivation sentinel inside the row
 	} {
@@ -180,40 +181,12 @@ func TestNewWorkspaceFormStandard(t *testing.T) {
 			t.Errorf("wizard fragment misses %q", want)
 		}
 	}
-}
-
-// The wizard's New… tracker block renders the Host field under the same
-// rule as Workspace settings and the catalog menu: visible (and
-// re-selected) only for gitlab_self / others — github / gitlab hide it,
-// the blank default included.
-func TestWizardHostVisibility(t *testing.T) {
-	f := newCreateFixture(t, imageExistsScript(true))
-
-	// refused payload redisplay: the entered kind survives the re-render
-	// (selected option + visible Host field for a hostful kind).
-	vals := f.blankForm()
-	vals["name"] = "bad name!" // the name refusal re-renders with the values
-	vals["vcs"] = "new"
-	vals["vcs_name"] = "Own GitLab"
-	vals["vcs_kind"] = "gitlab_self"
-	vals["vcs_host"] = "git.example.org"
-	doc := readAll(t, f.postForm(t, vals))
-	for _, want := range []string{
-		`value="gitlab_self" selected`,
-		`data-field="host">Host`, // visible, no hidden attribute
-		`value="git.example.org"`,
-	} {
-		if !strings.Contains(doc, want) {
-			t.Errorf("gitlab_self redisplay misses %q:\n%s", want, doc)
+	// inline catalog editing is gone in both modes (Settings › VCS
+	// Tracker / AI-Provider own the entries — the wizard only picks).
+	for _, gone := range []string{`>New…</option>`, `>Add provider…</option>`, `name="vcs_kind"`, `name="provider_endpoint"`} {
+		if strings.Contains(doc, gone) {
+			t.Errorf("wizard must not offer inline catalog editing: found %q", gone)
 		}
-	}
-
-	// the hostless kinds hide it on redisplay as well
-	vals["vcs_kind"] = "github"
-	delete(vals, "vcs_host")
-	doc = readAll(t, f.postForm(t, vals))
-	if !strings.Contains(doc, `data-field="host" hidden`) {
-		t.Errorf("github redisplay must hide the Host field:\n%s", doc)
 	}
 }
 
@@ -638,8 +611,9 @@ func TestCreateValidationRefusals(t *testing.T) {
 }
 
 // The VCS and AI-provider selects list the catalog entries (§8); an
-// empty catalog never dead-ends first-run: "none" stays the default and
-// the inline "New…" affordance is always offered.
+// empty catalog leaves "none" the only choice — entries are created in
+// the catalog screens (Settings › VCS Tracker / AI-Provider), never
+// inline in the wizard.
 func TestNewWorkspaceSelectsFeedFromCatalogs(t *testing.T) {
 	f := newCreateFixture(t, imageExistsScript(true))
 
@@ -648,9 +622,6 @@ func TestNewWorkspaceSelectsFeedFromCatalogs(t *testing.T) {
 	resp.Body.Close()
 	if !strings.Contains(empty, `<option value="none" selected>none</option>`) {
 		t.Error("empty catalog: selects must default to none")
-	}
-	if !strings.Contains(empty, `<option value="new">New…</option>`) {
-		t.Error("empty catalog: inline New… missing — first-run would dead-end")
 	}
 
 	f.seedCatalog(t)
@@ -661,6 +632,33 @@ func TestNewWorkspaceSelectsFeedFromCatalogs(t *testing.T) {
 		if !strings.Contains(fed, want) {
 			t.Errorf("seeded catalog: fragment misses %q", want)
 		}
+	}
+}
+
+// A crafted vcs=new / provider=new POST (the inline-new rows are gone
+// from the form) fails soft: the confirm summary records none for both
+// and nothing is captured into the catalog.
+func TestCreateCraftedNewFailsSoft(t *testing.T) {
+	f := newCreateFixture(t, imageExistsScript(true))
+	vals := f.blankForm()
+	vals["vcs"] = "new"
+	vals["vcs_kind"] = "gitlab_self"
+	vals["vcs_host"] = "git.example.org"
+	vals["provider"] = "new"
+	vals["provider_name"] = "Crafted"
+	vals["provider_endpoint"] = "https://api.crafted.example/v1"
+	vals["provider_token"] = "crafted-tok"
+	doc := readAll(t, f.postForm(t, vals))
+	if !strings.Contains(doc, `data-role="create-confirm"`) {
+		t.Fatalf("crafted new must fail soft into the confirm:\n%s", doc)
+	}
+	for _, want := range []string{"VCS tracking: none", "AI provider: none"} {
+		if !strings.Contains(doc, want) {
+			t.Errorf("confirm misses %q:\n%s", want, doc)
+		}
+	}
+	if d := catalogs.Read(f.home); len(d.Trackers) != 0 || len(d.Providers) != 0 {
+		t.Errorf("crafted new must not write the catalog: %+v %+v", d.Trackers, d.Providers)
 	}
 }
 
@@ -735,60 +733,6 @@ func equalArgs(a, b []string) bool {
 		}
 	}
 	return true
-}
-
-// The inline "New…" saves the entry to the catalog before applying it —
-// an empty catalog never dead-ends first-run (§8).
-func TestCreateChainInlineNewSavesToCatalog(t *testing.T) {
-	f := newCreateFixture(t, imageExistsScript(true))
-	sse := sseReader(t, f.s)
-
-	vals := f.blankForm()
-	vals["vcs"] = "new"
-	vals["vcs_name"] = "Own GitLab Host"
-	vals["vcs_git_name"] = "grace"
-	vals["vcs_git_email"] = "grace@example.com"
-	vals["vcs_kind"] = "gitlab_self"
-	vals["vcs_host"] = "gitlab.example.org"
-	vals["vcs_token"] = "vcs-tok"
-	vals["provider"] = "new"
-	vals["provider_name"] = "Local LLM"
-	vals["provider_endpoint"] = "https://llm.local/v1"
-	vals["provider_token"] = "llm-tok"
-	f.confirm(t, vals)
-	if state, lines := waitDone(t, sse); state != "done" {
-		t.Fatalf("chain state = %s (%v)", state, lines)
-	}
-
-	// the catalog carries the entries (token-free)
-	d := catalogs.Read(f.home)
-	if len(d.Trackers) != 1 || d.Trackers[0].Name != "Own GitLab Host" {
-		t.Fatalf("trackers = %+v", d.Trackers)
-	}
-	if len(d.Providers) != 1 || d.Providers[0].Name != "Local LLM" {
-		t.Fatalf("providers = %+v", d.Providers)
-	}
-
-	// the materialization uses the new entries
-	root := registry.CanonicalPath(f.home + "/ws/demo")
-	calls := bashCalls(f)
-	if !slices.ContainsFunc(calls, func(c []string) bool {
-		return equalArgs(c, []string{f.s.deps.ConfigureScript, "vcs-credentials", "gitlab", root, "--token", "vcs-tok", "--host", "gitlab.example.org"})
-	}) {
-		t.Errorf("vcs-credentials call missing: %v", calls)
-	}
-	if !slices.ContainsFunc(calls, func(c []string) bool {
-		return equalArgs(c, []string{f.s.deps.ConfigureScript, "git-identity", root, "--name", "grace", "--email", "grace@example.com"})
-	}) {
-		t.Errorf("git-identity call missing: %v", calls)
-	}
-	cfg, err := sandboxcfg.Read(sandboxcfg.Path(root))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cfg.AIProvider != "local-llm" || cfg.VCSTracking != "own GitLab" {
-		t.Fatalf("materialized config = %+v", cfg)
-	}
 }
 
 // Conflict semantics: confirms refuse while a chain is queued or running

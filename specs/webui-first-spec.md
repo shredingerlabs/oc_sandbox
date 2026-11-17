@@ -82,7 +82,7 @@ update that retires the full TUI through a parity gate.
 17. As a user whose running container is about to be replaced (edition mismatch switch, web re-adopt), I want an extra confirmation, so that an agent mid-task is never killed silently.
 18. As a creation-flow user, I want to pick VCS tracker and AI provider from reusable catalogs and type the token once, so that I stop retyping endpoints and git identities.
 19. As a catalog editor, I want catalog edits never to cascade into existing workspaces, so that my materialized instances keep their configuration.
-20. As a first-run user, I want inline "New…" in both catalog selects, so that an empty catalog never dead-ends creation.
+20. As a first-run user, I want inline "New…" in both catalog selects, so that an empty catalog never dead-ends creation. *(amended 2026-11-17: the inline "New…" was removed — entries are managed in the catalog screens; creation with an empty catalog proceeds with "none".)*
 21. As a user whose skills-setup terminal window got closed hard, I want Cancel setup with partial progress preserved, so that a stale pending state never blocks the workspace forever.
 22. As an updating user, I want the version check at server start with a footer banner, "Check now" on demand, and one globally exclusive update op with a live log, so that updating is calm and serialized.
 23. As a post-install user, I want a "Update installed — restart oc-sandbox to apply" note rather than automatic restart, so that the per-launch token never surprises me with reconnects.
@@ -331,8 +331,10 @@ control (§6), theme toggle (dark/bright), and the footer update banner (§12).
   `pkm` pins edition), Edition (preselected `swdev`; inline "Image build" row when
   the image is missing, folded into the create confirm + chain per existing TUI
   contract), VCS-credential select + AI-provider select fed from the catalogs
-  (each with inline "New…"), token input for the selected provider, "Add
-  provider…" slot. Create runs the one create-chain task (§9) with every step
+  (pick-only — entries are managed in Settings → VCS Tracker / AI-Provider;
+  user amendment 2026-11-17: the inline "New…" and "Add provider…" options
+  were removed from both display modes), each with its per-workspace token
+  input inline. Create runs the one create-chain task (§9) with every step
   streamed into the log pane under the form.
 - **Workspace Settings** (per workspace, from card settings icon or via menu —
   menu entry carries the workspace selector dropdown, letter-tinted, running
@@ -345,8 +347,8 @@ control (§6), theme toggle (dark/bright), and the footer update banner (§12).
 - **Settings → Import Workspace** — path input (server-side validation) +
   legacy-folder convert action (§2).
 - **Settings → Update** — phases, "Check now", embedded log pane, restart note (§12).
-- **Settings → Export Config / Restore Config** — named server-side backup with
-  overwrite confirm; restore behind the confirm popup (§9).
+- **Settings → Export Config / Restore Config (advanced-only)** — named server-side
+  backup with overwrite confirm; restore behind the confirm popup (§9).
 - **Settings → Image: Build / Delete** — edition rows with built/missing markers
   and delete-as-danger per existing Container-center semantics (§9).
 - **Settings → Container: Start / Stop / Delete** — one list, three actions,
@@ -381,9 +383,10 @@ control (§6), theme toggle (dark/bright), and the footer update banner (§12).
   start-time catalog coupling. Workspace edit flows keep their free-form add and
   gain pick-from-catalog prefill; several provider entries per workspace remain
   possible.
-- **Creation**: one tracker pick + one provider pick; each select also offers an
-  inline **"New…"** that saves the entry to the catalog before applying it (an
-  empty catalog never dead-ends first-run). The token is typed at creation and
+- **Creation**: one tracker pick + one provider pick — the selects only pick
+  (user amendment 2026-11-17, overturning the earlier inline "New…": entries
+  are created in the catalog screens; creation with an empty catalog proceeds
+  with `none`). The token is typed at creation and
   lands in the existing flows untouched — `.git_local/` credential bridge + gh/glab/vcs
   host files; `.opencode_data/credentials/<id>` via the v2 `{file:…}` reference
   (ADR-0025).
@@ -598,7 +601,7 @@ later per-repo features arrive without a break.*
   - **B-list — manual boxes on the real machine** (visual/platform judgement):
     Signal look on all screens (dark + bright); display-mode segmented control
     immediate re-render; cards (tile hue, HIL chip, relative last-used); creation
-    form incl. catalogs, inline "New…", masked token; pair-link new-tab handoff
+    form incl. catalogs, masked token; pair-link new-tab handoff
     in a real browser; host-terminal opens per platform (Linux/macOS/Windows/WSL)
     and the copyable-command fallback; browser auto-open / Open WebUI button
     recovery; confirm popup set incl. `adopt` and typed uninstall; log-pane

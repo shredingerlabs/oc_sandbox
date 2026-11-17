@@ -67,16 +67,20 @@ func checkCreateChain(home, root string) Item {
 	}
 
 	// the wizard fragment: editions from the real Dockerfile registry,
-	// swdev preselected (§6), catalog selects with the inline New….
+	// swdev preselected (§6), catalog selects (pick-only — no inline
+	// New…) with the VCS token input inline.
 	resp, body := get2(s.URL() + "workspaces/new")
 	if resp == nil || resp.StatusCode != http.StatusOK {
 		p.reasonf("GET /workspaces/new: want 200, got %v", respStatusCT(resp))
 		return p.finish()
 	}
-	for _, want := range []string{`data-role="new-workspace-form"`, `value="swdev"`, `>New…</option>`} {
+	for _, want := range []string{`data-role="new-workspace-form"`, `value="swdev"`, `name="vcs_token"`, `Settings › VCS Tracker`} {
 		if !strings.Contains(body, want) {
 			p.reasonf("wizard fragment misses %q", want)
 		}
+	}
+	if strings.Contains(body, `>New…</option>`) || strings.Contains(body, `>Add provider…</option>`) {
+		p.reasonf("wizard must not offer inline catalog editing (New… / Add provider…)")
 	}
 
 	// seed one tracker entry through the catalog API (the creation flow's

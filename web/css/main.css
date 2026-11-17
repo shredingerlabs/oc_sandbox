@@ -216,7 +216,6 @@ body { background:var(--bg); color:var(--ink);
   font-family:ui-monospace,monospace; font-size:12.5px; }
 .create-confirm .summary li { padding:6px 0; border-bottom:1px solid var(--hairline); }
 .create-confirm .summary li:last-child { border-bottom:0; }
-[data-hidden="1"] { display:none; }
 [data-repo-only="1"] { display:none; }
 [data-pkm-pin] { display:none; } /* pkm pins the edition — the row hides */
 

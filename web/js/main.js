@@ -206,11 +206,9 @@
     }
     // VCS Tracker: the Host field only applies to gitlab_self / other
     // kinds — github / gitlab trackers are hostless and "none" tracks
-    // nothing (the wizard's New… tracker select carries the same rule
-    // under its vcs_kind name). The field hides (value kept); the
-    // initial hidden state renders server-side (Catalog menu, wizard
-    // and Workspace settings alike).
-    if (sel.matches('select[name="kind"], select[name="vcs_kind"]')) {
+    // nothing. The field hides (value kept); the initial hidden state
+    // renders server-side (Catalog menu and Workspace settings alike).
+    if (sel.matches('select[name="kind"]')) {
       var f = sel.closest("form");
       var host = f && f.querySelector('[data-field="host"]');
       if (host) host.hidden = sel.value === "github" || sel.value === "gitlab" || sel.value === "none";
@@ -719,12 +717,6 @@
   function repoSourceRadio() {
     return document.querySelector('[data-screen="ws-new"] [name="source"][value="repo"]');
   }
-  function setHidden(el, hidden) {
-    if (!el) return;
-    if (hidden) el.setAttribute("data-hidden", "1");
-    else el.removeAttribute("data-hidden");
-  }
-
   // name derivation: the workspace name derives live from the repo URL
   // in From Repo until hand-edited (the TUI's prefill rule).
   document.addEventListener("input", function (ev) {
@@ -801,22 +793,12 @@
     if (hil) hil.checked = ed === "embedded";
   }
 
-  // catalog selects: the inline "New…" rows and the token input appear
-  // per selection; "none" hides both (the empty default).
-  function applyCatalogSelect(form, selRole, newRow, tokenRow) {
-    var v = q(form, selRole).value;
-    setHidden(q(form, newRow), v !== "new");
-    setHidden(q(form, tokenRow), v === "none");
-  }
-
   document.addEventListener("change", function (ev) {
     var form = wizardForm(ev.target);
     if (!form) return;
     if (ev.target.name === "source") applySource(form);
     else if (ev.target.name === "agent") applyAgent(form);
     else if (ev.target.name === "edition") applyEditionPreset(form);
-    else if (ev.target.name === "vcs") applyCatalogSelect(form, '[name="vcs"]', '[data-row="vcs_new"]', '[data-row="vcs_token"]');
-    else if (ev.target.name === "provider") applyCatalogSelect(form, '[name="provider"]', '[data-row="provider_new"]', '[data-row="provider_token"]');
   });
 
   // --- ADR-0026 exclusions live in the forms (openworkspace.applyOption

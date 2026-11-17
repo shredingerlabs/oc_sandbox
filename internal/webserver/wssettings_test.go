@@ -152,10 +152,10 @@ func TestWsSettingsScreenAdvanced(t *testing.T) {
 
 	doc := body(t, get(t, fx.s.URL()+"workspaces/alpha/settings"))
 	for _, want := range []string{
-		`data-row="edition"`,           // switchable, next-start apply (chips)
-		`data-role="settings-edition"`, // the chip group the shell's .edopt clicks bind
-		`data-row="modes"`,             // the wizard's one-line Modes row
-		`data-row="search_mode"`,       // the triad with searxng preselected
+		`data-row="edition"`,                  // switchable, next-start apply (chips)
+		`data-role="settings-edition"`,        // the chip group the shell's .edopt clicks bind
+		`data-row="modes"`,                    // the wizard's one-line Modes row
+		`data-row="search_mode"`,              // the triad with searxng preselected
 		`name="edition" value="swdev"`,        // stored edition (chip payload)
 		`data-ed="swdev" aria-pressed="true"`, // the chip's pressed state
 		`name="proxy" value="yes" checked`,    // stored proxy checked
@@ -1278,7 +1278,7 @@ func TestFrontendWsSettingsWiring(t *testing.T) {
 		`provider-prefill`,   // AI-Provider catalog prefill
 		`vcs-prefill`,        // VCS catalog prefill
 		`"settings"`,         // the card settings icon jump
-		`vcs_kind`,           // the wizard's New… tracker Host toggle
+		`data-field="host"`,  // the Tracker kind select toggles Host visibility
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("main.js missing %q", want)

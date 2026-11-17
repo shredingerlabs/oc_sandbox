@@ -4,8 +4,8 @@
 // Agent row (default code; pkm pins the edition), Edition preselected
 // swdev with the inline "Image build" row when the image is missing,
 // VCS-credential and AI-provider selects fed from the global catalogs
-// each with an inline "New…" that saves the entry to the catalog before
-// applying it, and the token input for the selected provider.
+// (pick-only — entries are managed in Settings › VCS Tracker /
+// AI-Provider), each with its per-workspace token input inline.
 //
 // Create runs ONE create-chain task — image build (when missing and
 // Build now) → init-workspace.sh → configure-workspace.sh in credential
@@ -42,10 +42,9 @@ const wizardEditionDefault = "swdev"
 // P carries the tokenized path prefix so hx-* targets stay absolute.
 // Styling per the signed-off prototype (ws-new): a pagehead with the
 // Blank/From-Repo segment, .flabel/.sub rows, .edotsel chips for the
-// edition, .switch toggles for the Advanced booleans, "Add provider…"
-// as the select's inline-new option. The functional payload (field
-// names, defaults, hidden round-trip) is byte-for-byte the previous
-// contract.
+// edition, .switch toggles for the Advanced booleans. The functional
+// payload (field names, defaults, hidden round-trip) keeps the previous
+// contract minus the removed inline-new rows.
 var wizardTemplate = template.Must(template.New("wizard").
 	Funcs(template.FuncMap{"hueFor": editionHue}).
 	Funcs(iconFuncs).
@@ -110,25 +109,9 @@ var wizardTemplate = template.Must(template.New("wizard").
       <select name="vcs" data-role="wizard-vcs">
         <option value="none" {{if eq .VCS "none"}}selected{{end}}>none</option>
         {{range .Trackers}}<option value="{{.Name}}" {{if eq $.VCS .Name}}selected{{end}}>{{.Name}} — {{.Kind}}</option>{{end}}
-        <option value="new">New…</option>
       </select>
+      <input type="password" name="vcs_token" value="" autocomplete="off" placeholder="VCS token">
       <span class="sub">From the global tracker list (Settings › VCS Tracker); the typed token is per-workspace, never an entry of the catalog.</span>
-    </div>
-    <div class="row" data-row="vcs_token" data-hidden="{{if eq .VCS "none"}}1{{end}}">
-      <span class="label">VCS token</span>
-      <input type="password" name="vcs_token" value="" autocomplete="off">
-    </div>
-    <div class="row" data-row="vcs_new" data-role="vcs-new" data-hidden="{{if not (eq .VCS "new")}}1{{end}}">
-      <span class="label">New tracker (saved to the catalog, no token)</span>
-      <label>Display name <input name="vcs_name" value="{{.VCSName}}"></label>
-      <label>Git name <input name="vcs_git_name" value="{{.VCSGitName}}"></label>
-      <label>Git e-mail <input name="vcs_git_email" value="{{.VCSGitMail}}"></label>
-      <label>Tracker kind
-        <select name="vcs_kind">
-          {{range .TrackerKinds}}<option value="{{.}}" {{if eq . $.VCSKind}}selected{{end}}>{{.}}</option>{{end}}
-        </select>
-      </label>
-      <label data-field="host"{{if not (or (eq .VCSKind "gitlab_self") (eq .VCSKind "other"))}} hidden{{end}}>Host <input name="vcs_host" value="{{.VCSHost}}" placeholder="gitlab.example.com"></label>
     </div>
 
     <div class="row" data-row="provider">
@@ -136,15 +119,9 @@ var wizardTemplate = template.Must(template.New("wizard").
       <select name="provider" data-role="wizard-provider">
         <option value="none" {{if eq .Provider "none"}}selected{{end}}>none</option>
         {{range .Providers}}<option value="{{.Name}}" {{if eq $.Provider .Name}}selected{{end}}>{{.Name}}</option>{{end}}
-        <option value="new">Add provider…</option>
       </select>
       <input type="password" name="provider_token" value="" autocomplete="off" placeholder="API token" data-provider-token>
-      <span class="sub">Tokens live with the workspace; "Add provider…" records the endpoint in the global catalog first.</span>
-    </div>
-    <div class="row" data-row="provider_new" data-role="provider-new" data-hidden="{{if not (eq .Provider "new")}}1{{end}}">
-      <span class="label">Add provider… (saved to the catalog, no token)</span>
-      <label>Display name <input name="provider_name" value="{{.ProviderName}}"></label>
-      <label>Endpoint <input name="provider_endpoint" value="{{.ProviderEndpoint}}" placeholder="https://api.example.com/v1"></label>
+      <span class="sub">Tokens live with the workspace; entries are managed in Settings › AI-Provider.</span>
     </div>
 
     <div class="row" data-row="modes" data-advanced-only>
@@ -211,15 +188,8 @@ type wizardForm struct {
 	ImageMissing bool
 	BuildLater   bool
 
-	VCS              string
-	VCSName          string
-	VCSGitName       string
-	VCSGitMail       string
-	VCSKind          string
-	VCSHost          string
-	Provider         string
-	ProviderName     string
-	ProviderEndpoint string
+	VCS      string
+	Provider string
 
 	StartOption string
 	Proxy       bool
@@ -230,11 +200,10 @@ type wizardForm struct {
 	STT         bool
 	STTPresent  bool // the row rendered (use_stt_present) — gates the patch
 
-	Trackers     []catalogs.Tracker
-	Providers    []catalogs.Provider
-	TrackerKinds []string
-	Editions     []string
-	PresetsHint  string
+	Trackers    []catalogs.Tracker
+	Providers   []catalogs.Provider
+	Editions    []string
+	PresetsHint string
 
 	// create-chain log pane state (inert form while the chain runs)
 	LogLines []string
@@ -261,14 +230,13 @@ type formFields []formField
 // the preset follows the selected edition).
 func wizardDefaults() wizardForm {
 	return wizardForm{
-		Agent:        "code",
-		Edition:      wizardEditionDefault,
-		VCS:          "none",
-		Provider:     "none",
-		StartOption:  "web",
-		SearchMode:   "searxng",
-		STT:          true, // dictation preset ON (the sandboxcfg.Create default)
-		TrackerKinds: catalogs.TrackerKinds,
+		Agent:       "code",
+		Edition:     wizardEditionDefault,
+		VCS:         "none",
+		Provider:    "none",
+		StartOption: "web",
+		SearchMode:  "searxng",
+		STT:         true, // dictation preset ON (the sandboxcfg.Create default)
 	}
 }
 
@@ -377,11 +345,6 @@ func (s *Server) handleWorkspacesPOST(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	chain := s.newCreateChain(r, f)
-	if chain.err != "" {
-		f.Error = chain.err // abandoned before any script runs
-		s.renderWizard(w, f)
-		return
-	}
 	chain.opID = s.queue.reserve()
 	f.OpID = chain.opID
 	f.Inert = true // the form stays visible but inert while the chain runs
@@ -418,15 +381,14 @@ func trackerLabel(kind string) string {
 }
 
 // wizardVCSTracking resolves the stored vcs_tracking value of the
-// payload: the catalog entry's kind label, or "none".
+// payload: the catalog entry's kind label, or "none" (an unknown pick
+// — crafted "new" included — reads back as none, fail-soft).
 func (s *Server) wizardVCSTracking(f wizardForm) string {
 	if f.VCS == "none" {
 		return "none"
 	}
 	var kind string
-	if f.VCS == "new" {
-		kind = f.VCSKind
-	} else if t, ok := s.wizardTracker(f.VCS); ok {
+	if t, ok := s.wizardTracker(f.VCS); ok {
 		kind = t.Kind
 	}
 	return trackerLabel(kind)
@@ -473,9 +435,7 @@ func (s *Server) renderConfirm(w http.ResponseWriter, r *http.Request, f wizardF
 		"search: "+f.SearchMode,
 		"VCS tracking: "+s.wizardVCSTracking(f),
 	)
-	if f.Provider == "new" {
-		lines = append(lines, "AI provider: "+f.ProviderName)
-	} else if p, ok := s.wizardProvider(f.Provider); ok {
+	if p, ok := s.wizardProvider(f.Provider); ok {
 		lines = append(lines, "AI provider: "+p.Name)
 	} else {
 		lines = append(lines, "AI provider: none")
@@ -530,17 +490,10 @@ func (s *Server) parseWizardForm(r *http.Request) wizardForm {
 	if f.VCS == "" {
 		f.VCS = "none"
 	}
-	f.VCSName = r.PostFormValue("vcs_name")
-	f.VCSGitName = r.PostFormValue("vcs_git_name")
-	f.VCSGitMail = r.PostFormValue("vcs_git_email")
-	f.VCSKind = r.PostFormValue("vcs_kind")
-	f.VCSHost = strings.TrimSpace(r.PostFormValue("vcs_host"))
 	f.Provider = r.PostFormValue("provider")
 	if f.Provider == "" {
 		f.Provider = "none"
 	}
-	f.ProviderName = r.PostFormValue("provider_name")
-	f.ProviderEndpoint = strings.TrimSpace(r.PostFormValue("provider_endpoint"))
 	f.StartOption = r.PostFormValue("start_option")
 	if f.StartOption == "" {
 		f.StartOption = "web" // §6 preset — presets, not pinning
@@ -586,18 +539,6 @@ func (s *Server) validateWizard(r *http.Request, f wizardForm) string {
 	if f.Offline && f.CBMUI {
 		return "offline and cbm_ui are mutually exclusive."
 	}
-	if f.VCS == "new" {
-		t := catalogs.Tracker{Name: f.VCSName, GitName: f.VCSGitName, GitEmail: f.VCSGitMail, Kind: f.VCSKind, Host: f.VCSHost}
-		if err := catalogs.ValidateTracker(t); err != nil {
-			return err.Error()
-		}
-	}
-	if f.Provider == "new" {
-		p := catalogs.Provider{Name: f.ProviderName, Endpoint: f.ProviderEndpoint}
-		if err := catalogs.ValidateProvider(p); err != nil {
-			return err.Error()
-		}
-	}
 	if f.Provider != "none" && !providerid.ValidToken(r.PostFormValue("provider_token")) {
 		return "Token must not be empty or contain whitespace/newlines."
 	}
@@ -630,11 +571,8 @@ func editionHue(name string) string {
 
 // createChain is the captured payload of one confirmed create — every
 // request-scoped value (tokens included) is read before the chain goes
-// to its own goroutine. err carries a catalog-save refusal (the launch
-// is abandoned before any script runs).
+// to its own goroutine.
 type createChain struct {
-	err string
-
 	opID int
 	name string
 	root string
@@ -675,55 +613,35 @@ func (s *Server) newCreateChain(r *http.Request, f wizardForm) *createChain {
 		f.Edition = "pkm"
 	}
 	c := &createChain{
-		name:             f.Name,
-		root:             s.wizardRoot(f.Name),
-		fromRepo:         f.FromRepo,
-		repoURL:          f.RepoURL,
-		agent:            f.Agent,
-		edition:          f.Edition,
-		vcsLabel:         s.wizardVCSTracking(f),
-		vcsHost:          f.VCSHost,
-		vcsToken:         r.PostFormValue("vcs_token"),
-		gitName:          strings.TrimSpace(f.VCSGitName),
-		gitEmail:         strings.TrimSpace(f.VCSGitMail),
-		providerName:     f.ProviderName,
-		providerEndpoint: f.ProviderEndpoint,
-		providerToken:    r.PostFormValue("provider_token"),
-		modes:            wizardModes(f),
-		start:            f.StartOption,
-		search:           f.SearchMode,
-		proxy:            f.Proxy,
-		stt:              f.STT,
-		sttPresent:       f.STTPresent,
+		name:          f.Name,
+		root:          s.wizardRoot(f.Name),
+		fromRepo:      f.FromRepo,
+		repoURL:       f.RepoURL,
+		agent:         f.Agent,
+		edition:       f.Edition,
+		vcsLabel:      s.wizardVCSTracking(f),
+		vcsToken:      r.PostFormValue("vcs_token"),
+		providerToken: r.PostFormValue("provider_token"),
+		modes:         wizardModes(f),
+		start:         f.StartOption,
+		search:        f.SearchMode,
+		proxy:         f.Proxy,
+		stt:           f.STT,
+		sttPresent:    f.STTPresent,
 	}
 	c.build = !discovery.ImageExists(s.runner(), c.edition) && !f.BuildLater
-	// resolve catalog entries (picked or the inline "New…" — the entry
-	// saves to the catalog before applying it, §8; an empty catalog
-	// never dead-ends first-run)
+	// resolve the picked catalog entries (the wizard only picks — the
+	// entries live in Settings › VCS Tracker / AI-Provider); an unknown
+	// pick materializes nothing (none stays the default, fail-soft)
 	var tracker catalogs.Tracker
 	var provider catalogs.Provider
-	if f.VCS == "new" {
-		tracker = catalogs.Tracker{Name: f.VCSName, GitName: f.VCSGitName, GitEmail: f.VCSGitMail, Kind: f.VCSKind, Host: f.VCSHost}
-		c.vcsKind = tracker.Kind
-		if err := s.saveCatalogEntry(&tracker, nil); err != "" {
-			c.err = err
-			return c
-		}
-	} else if t, ok := s.wizardTracker(f.VCS); ok {
+	if t, ok := s.wizardTracker(f.VCS); ok {
 		tracker = t
 		c.vcsKind = t.Kind
-		if c.vcsHost == "" {
-			c.vcsHost = t.Host
-		}
+		c.vcsHost = t.Host
 	}
 	c.gitName, c.gitEmail = strings.TrimSpace(tracker.GitName), strings.TrimSpace(tracker.GitEmail)
-	if f.Provider == "new" {
-		provider = catalogs.Provider{Name: f.ProviderName, Endpoint: f.ProviderEndpoint}
-		if err := s.saveCatalogEntry(nil, &provider); err != "" {
-			c.err = err
-			return c
-		}
-	} else if p, ok := s.wizardProvider(f.Provider); ok {
+	if p, ok := s.wizardProvider(f.Provider); ok {
 		provider = p
 	}
 	if provider.Name != "" {
@@ -732,26 +650,6 @@ func (s *Server) newCreateChain(r *http.Request, f wizardForm) *createChain {
 		c.providerID = providerid.Slug(provider.Name)
 	}
 	return c
-}
-
-// saveCatalogEntry persists the inline "New…" entry to the global
-// catalog before applying it (§8); entries stay token-free — the typed
-// tokens ride the chain payload only.
-func (s *Server) saveCatalogEntry(t *catalogs.Tracker, p *catalogs.Provider) string {
-	d := catalogs.Read(s.opts.Home)
-	var err error
-	if t != nil {
-		err = d.AddTracker(*t)
-	} else {
-		err = d.AddProvider(*p)
-	}
-	if err == nil {
-		err = catalogs.WriteFile(s.opts.Home, d)
-	}
-	if err != nil {
-		return err.Error()
-	}
-	return ""
 }
 
 // wizardModes computes container_modes from the Advanced toggles: the
