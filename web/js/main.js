@@ -235,6 +235,30 @@
       return;
     }
 
+    if (btn.dataset.act === "stt") {
+      // Dictation sidecar: the tab opens synchronously under the click
+      // gesture (popup blockers, the §10 pair-link pattern), then
+      // navigates once the member's live published port resolves; a
+      // missing member answers the refusal sidecar as a card note.
+      var stab = openSidecarTab();
+      fetch(post(card, "stt-link"), { referrerPolicy: "no-referrer" })
+        .then(function (r) { return r.json(); })
+        .then(function (v) {
+          if (v.ok && v.url) {
+            if (stab) stab.location.href = v.url;
+            else showNote(card, v.url); // popup blocked: the URL stays reachable
+            return;
+          }
+          if (stab) stab.close();
+          showNote(card, v.error || "dictation sidecar failed — retry");
+        })
+        .catch(function () {
+          if (stab) stab.close();
+          showNote(card, "dictation sidecar failed — retry");
+        });
+      return;
+    }
+
     if (btn.dataset.confirm === "restart") {
       showConfirmRow(card, "restart");
       return;
@@ -495,6 +519,18 @@
       tab.document.body.innerHTML =
         '<p style="font:14px system-ui;padding:2em">Pairing OpenCode web…</p>';
       tabs[card.dataset.ws] = tab;
+    }
+    return tab;
+  }
+
+  // The mic button's tab: opened synchronously under the click gesture
+  // (popup blockers), navigated once the sidecar URL resolves and closed
+  // on the refusal — the note lands on the card instead.
+  function openSidecarTab() {
+    var tab = window.open("", "_blank");
+    if (tab) {
+      tab.document.body.innerHTML =
+        '<p style="font:14px system-ui;padding:2em">Opening the dictation sidecar…</p>';
     }
     return tab;
   }

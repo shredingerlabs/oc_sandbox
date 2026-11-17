@@ -278,8 +278,12 @@ Nothing is auto-sent in either route.
 
 For OpenCode web sessions, the `oc-stt` member serves a small local page
 (the dictation sidecar) on its published loopback port — default
-`http://127.0.0.1:8090` (the start log names the actual port if 8090 was
-busy; `podman port opencode-sandbox-pod-<id>` shows it). Record with the
+`http://127.0.0.1:8091` (the scan starts above the WebUI's own 8090; the
+start log names the actual port if it moved, and `podman port
+opencode-sandbox-pod-<id>` shows it). Open it with the microphone icon on
+the workspace card (Workspace → Open — visible while the workspace runs
+dictation-enabled; the click resolves the live port and opens a new tab),
+or navigate to the port directly. Record with the
 browser microphone and copy the transcript into the web composer. Chrome and
 Firefox record webm/opus, Safari falls back to mp4/AAC; recordings stay
 in-memory. The sidecar is reachable only from your own machine (loopback

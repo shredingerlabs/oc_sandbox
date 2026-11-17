@@ -86,6 +86,41 @@ func (s *Server) handlePairLink(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write([]byte(jsonMarshal(v)))
 }
 
+// sttLinkView is the mic button's {ok, url} sidecar: the dictation
+// sidecar's live published binding (never persisted, the pair-link
+// pattern) or the ok:false refusal when the member is down.
+type sttLinkView struct {
+	OK    bool   `json:"ok"`
+	URL   string `json:"url,omitempty"`
+	Error string `json:"error,omitempty"`
+}
+
+// sttNotRunning is the mic button's refusal: the stored truth rendered
+// the button, but no published STT member answers (stopped pod,
+// offline run, next-start-pending toggle flip).
+const sttNotRunning = "dictation sidecar not running — start the workspace"
+
+// handleSttLink serves GET /workspaces/{name}/stt-link — the Open
+// Workspace card's mic button: the STT member's published loopback port
+// resolved live via podman port (never persisted), answered as the
+// refusal sidecar when the member is down.
+func (s *Server) handleSttLink(w http.ResponseWriter, r *http.Request) {
+	ws, err := s.lookupWorkspace(r.PathValue("name"))
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	ctr := registry.ContainerName(ws.ContainerID)
+	var v sttLinkView
+	if port := discovery.SttPort(s.accessRunner(), ctr); port != "" {
+		v = sttLinkView{OK: true, URL: "http://" + port}
+	} else {
+		v = sttLinkView{Error: sttNotRunning}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_, _ = w.Write([]byte(jsonMarshal(v)))
+}
+
 // validVariant is the shared console/opencode/web triad check — the
 // one validation the access verbs, the adopt confirm, the variant
 // start POST and the workspace-settings start_option row enforce.

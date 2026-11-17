@@ -523,7 +523,7 @@ if ! bash "$PROJECT_ROOT/dist/scripts/start.sh" "$test_home" --edition swdev --u
   exit 1
 fi
 pod_create_line="$(grep -m1 -- 'pod create --name opencode-sandbox-pod-' "$PODMAN_LOG")"
-if ! grep -q -- '-p 127.0.0.1:8090:8090' <<<"$pod_create_line"; then
+if ! grep -q -- '-p 127.0.0.1:8091:8090' <<<"$pod_create_line"; then
   printf 'use_stt start did not publish the STT loopback on pod create: %s\n' "$pod_create_line" >&2
   exit 1
 fi
@@ -555,7 +555,7 @@ fi
 # Kein STT-irgendwas ohne --use_stt.
 : > "$PODMAN_LOG"
 bash "$PROJECT_ROOT/dist/scripts/start.sh" "$test_home" --edition swdev --detach > /dev/null 2>&1
-if grep -q -- 'oc-stt\|STT_URL\|8090:8090' "$PODMAN_LOG"; then
+if grep -q -- 'oc-stt\|STT_URL\|8091:8090' "$PODMAN_LOG"; then
   printf 'plain start grew STT artifacts (opt-in flag must gate everything)\n' >&2
   exit 1
 fi
@@ -573,7 +573,7 @@ grep -q -- '--name oc-stt-' "$PODMAN_LOG"
 grep -q -- 'SEARXNG_URL=http://127.0.0.1:8080' "$PODMAN_LOG"
 grep -q -- 'STT_URL=http://127.0.0.1:8090' "$PODMAN_LOG"
 pod_create_line="$(grep -m1 -- 'pod create --name opencode-sandbox-pod-' "$PODMAN_LOG")"
-if ! grep -q -- '-p 127.0.0.1:8090:8090' <<<"$pod_create_line"; then
+if ! grep -q -- '-p 127.0.0.1:8091:8090' <<<"$pod_create_line"; then
   printf 'coexistence lost the STT publish on pod create: %s\n' "$pod_create_line" >&2
   exit 1
 fi
@@ -595,7 +595,7 @@ if grep -q -- '--name oc-stt-' "$PODMAN_LOG"; then
   printf 'offline start grew an oc-stt member\n' >&2
   exit 1
 fi
-if grep -q -- 'STT_URL\|8090:8090' "$PODMAN_LOG"; then
+if grep -q -- 'STT_URL\|8091:8090' "$PODMAN_LOG"; then
   printf 'offline start published/announced STT\n' >&2
   exit 1
 fi

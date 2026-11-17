@@ -22,6 +22,7 @@ func TestFrontendOpenScreenWiring(t *testing.T) {
 		`displaychange`,       // mode switch re-renders the cards
 		`data-op-id`,          // line events match the busy card by op id
 		`pair-link`,           // fresh one-time link per access
+		`stt-link`,            // mic button resolves the live sidecar port
 		`window.open`,         // new tab under the click gesture
 		`workspaces/`,         // POST start + access targets
 		`"access"`,            // console/OpenCode variants
@@ -30,6 +31,25 @@ func TestFrontendOpenScreenWiring(t *testing.T) {
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("main.js missing %q", want)
+		}
+	}
+}
+
+// The dictation mic button's wiring: the tab opens under the click
+// gesture (popup blockers, the pair-link pattern), navigates once the
+// stt-link resolution lands, and the failure paths fall back to a card
+// note.
+func TestFrontendSttMicWiring(t *testing.T) {
+	s := startTestServer(t)
+	js := body(t, get(t, s.URL()+"js/main.js"))
+	for _, want := range []string{
+		`btn.dataset.act === "stt"`,
+		`post(card, "stt-link")`,
+		`openSidecarTab`,                   // tab under the click gesture
+		`dictation sidecar failed — retry`, // fetch-failure note copy
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("main.js missing %q (mic button)", want)
 		}
 	}
 }

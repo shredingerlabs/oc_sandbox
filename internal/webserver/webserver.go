@@ -198,6 +198,7 @@ func (s *Server) Start() error {
 	inner.HandleFunc("GET /workspaces", s.handleWorkspacesGET)
 	inner.HandleFunc("POST /workspaces/{name}/access", s.handleAccess)
 	inner.HandleFunc("POST /workspaces/{name}/pair-link", s.handlePairLink)
+	inner.HandleFunc("GET /workspaces/{name}/stt-link", s.handleSttLink)
 	// Workspace Settings screen (#157): the per-workspace settings —
 	// the card settings icon jumps in preselected, the menu entry is
 	// the name-less alias (MRU workspace preselected).

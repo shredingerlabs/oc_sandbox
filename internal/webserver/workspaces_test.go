@@ -220,6 +220,57 @@ func TestWorkspacesCardActions(t *testing.T) {
 
 func wantB(doc, want string) bool { return strings.Contains(doc, want) }
 
+// The dictation mic button: rendered for a running dictation-enabled
+// workspace (stored truth: Running && use_stt), left of the settings
+// gear — never on stopped cards or dictation-off workspaces.
+func TestWorkspacesSttMicButton(t *testing.T) {
+	home := t.TempDir()
+	live := seedWorkspace(t, home, "alpha", "swdev", nil)
+	if err := (&registry.Registry{Home: home}).UpdateStatus(live, "running"); err != nil {
+		t.Fatalf("seed running status: %v", err)
+	}
+	dark := seedWorkspace(t, home, "dark", "swdev", nil)
+	if err := sandboxcfg.PatchBool(home, sandboxcfg.Path(dark), "use_stt", false); err != nil {
+		t.Fatalf("patch use_stt off: %v", err)
+	}
+	if err := (&registry.Registry{Home: home}).UpdateStatus(dark, "running"); err != nil {
+		t.Fatalf("seed running status: %v", err)
+	}
+	seedWorkspace(t, home, "idle", "swdev", nil) // dictation on, stopped
+
+	s := startFixtureServer(t, home)
+	doc := body(t, get(t, s.URL()+"workspaces"))
+	var liveCard, darkCard, idleCard string
+	for _, card := range strings.Split(doc, "<article")[1:] {
+		if strings.Contains(card, `data-ws="alpha"`) {
+			liveCard = card
+		}
+		if strings.Contains(card, `data-ws="dark"`) {
+			darkCard = card
+		}
+		if strings.Contains(card, `data-ws="idle"`) {
+			idleCard = card
+		}
+	}
+	if liveCard == "" || darkCard == "" || idleCard == "" {
+		t.Fatalf("cards missing:\n%s", doc)
+	}
+	iMic := strings.Index(liveCard, `data-act="stt"`)
+	iGear := strings.Index(liveCard, `title="workspace settings"`)
+	if iMic < 0 || iGear < 0 || iMic > iGear {
+		t.Fatalf("running dictation card must carry the mic left of the settings gear:\n%s", liveCard)
+	}
+	if !strings.Contains(liveCard, `title="dictation sidecar — record audio, copy the transcript"`) {
+		t.Fatal("mic button missing its tooltip")
+	}
+	if strings.Contains(darkCard, `data-act="stt"`) {
+		t.Fatal("dictation-off card must not render the mic button")
+	}
+	if strings.Contains(idleCard, `data-act="stt"`) {
+		t.Fatal("stopped card must not render the mic button")
+	}
+}
+
 // Server-side ?q= filtering (§9): only matching names render.
 func TestWorkspacesQueryFilter(t *testing.T) {
 	home := t.TempDir()

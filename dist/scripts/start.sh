@@ -556,13 +556,16 @@ fi
 # whisper.cpp's 8080 default collides with searxng's in-pod 8080, and
 # both members may coexist in one pod. The one loopback publish lives on
 # POD CREATE (web 4096 / CBM 9749 precedent, ADR 0029), never on the
-# member. --offline excludes the member entirely (silent skip above).
+# member. The host scan starts at 8091, not 8090: the WebUI itself
+# listens on 8090 (single instance per host), so 8091 upward is the
+# sidecars' own range. --offline excludes the member entirely (silent
+# skip above).
 STT_PORT_ARGS=()
 STT_ENV=()
 if $USE_STT && ! $OFFLINE; then
-  STT_HOST_PORT=$(select_free_host_port 8090 "the STT member")
-  if [[ "$STT_HOST_PORT" != "8090" ]]; then
-    echo "Note: host port 8090 is in use; the STT member is published at http://127.0.0.1:${STT_HOST_PORT}." >&2
+  STT_HOST_PORT=$(select_free_host_port 8091 "the STT member")
+  if [[ "$STT_HOST_PORT" != "8091" ]]; then
+    echo "Note: host port 8091 is in use; the STT member is published at http://127.0.0.1:${STT_HOST_PORT}." >&2
   fi
   STT_PORT_ARGS=(-p "127.0.0.1:${STT_HOST_PORT}:8090")
   # Bare pod-internal loopback constant on the workspace container —

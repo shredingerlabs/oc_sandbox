@@ -451,6 +451,21 @@ func WebPort(run cmdrun.Runner, container string) string {
 	return lines[0]
 }
 
+// SttPort returns the first published host binding for the pod's
+// 8090/tcp STT member port (e.g. "127.0.0.1:8091"), or "" when not
+// published (member down, offline run, started without dictation).
+func SttPort(run cmdrun.Runner, container string) string {
+	out, err := run.Output("podman", "port", container, "8090/tcp")
+	if err != nil {
+		return ""
+	}
+	lines := cmdrun.Lines(out)
+	if len(lines) == 0 {
+		return ""
+	}
+	return lines[0]
+}
+
 // PairLink runs `opencode pair --url <hostURL>` inside the container
 // (v2 web sign-in, ADR 0024) and returns the first printed one-time
 // link, or "" when pairing fails. hostURL is the published host binding
