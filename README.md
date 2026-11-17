@@ -292,6 +292,13 @@ Firefox record webm/opus, Safari falls back to mp4/AAC; recordings stay
 in-memory. The sidecar is reachable only from your own machine (loopback
 publish).
 
+Workspace cards on that screen also carry a star icon: clicking it favorites
+the workspace, moving its card into the **Favorite workspaces** section at the
+top of Workspace → Open (clicking again moves it back into Registered
+workspaces). Favorites keep their section regardless of the last-used order,
+persist in the registry across reloads and oc-sandbox restarts, and change
+nothing else — the flag is purely organizational.
+
 ### Degradation matrix
 
 | Situation | Behavior |
