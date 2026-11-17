@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/shredingerlabs/oc-sandbox/internal/cmdrun"
 	"github.com/shredingerlabs/oc-sandbox/internal/config"
 	"github.com/shredingerlabs/oc-sandbox/internal/registry"
 	"github.com/shredingerlabs/oc-sandbox/internal/sandboxcfg"
@@ -545,7 +546,11 @@ func TestWorkspacesStarButton(t *testing.T) {
 		t.Fatalf("favorited card must carry the favorite star:\n%s", favCard)
 	}
 	// Never disabled — the flag works from any workspace state (#172).
-	if strings.Contains(favCard[iStar:], "disabled") {
+	starBtn := favCard[iStar:]
+	if iEnd := strings.Index(starBtn, "</button>"); iEnd >= 0 {
+		starBtn = starBtn[:iEnd]
+	}
+	if strings.Contains(starBtn, "disabled") {
 		t.Fatalf("star must never render disabled:\n%s", favCard)
 	}
 	if !strings.Contains(favCard, `data-favorite="true"`) {
@@ -564,6 +569,77 @@ func TestWorkspacesStarButton(t *testing.T) {
 	doc = body(t, get(t, s.URL()+"workspaces"))
 	if !strings.Contains(doc, `data-favorite="true"`) || !strings.Contains(doc, `title="add to favorites"`) {
 		t.Fatalf("advanced mode must render both star states:\n%s", doc)
+	}
+}
+
+// The star renders on every card regardless of workspace state (#174):
+// stopped, running, setup-retry (deferred build), a busy op and a
+// pending first-run setup all keep the glyph — and unlike the mic and
+// restart buttons the star never disables during setup.
+func TestWorkspacesStarOnEveryCard(t *testing.T) {
+	// Stopped, running and setup-retry cards (deferred-build shape).
+	home := t.TempDir()
+	root := seedWorkspace(t, home, "alpha", "swdev", nil)
+	if err := sandboxcfg.PatchBool(home, sandboxcfg.Path(root), "setup_complete", false); err != nil {
+		t.Fatalf("patch setup_complete: %v", err)
+	}
+	seedWorkspace(t, home, "beta", "swdev", nil)
+	if err := (&registry.Registry{Home: home}).UpdateStatus(root, "running"); err != nil {
+		t.Fatalf("seed running status: %v", err)
+	}
+	seedWorkspace(t, home, "gamma", "web", nil)
+
+	s := startFixtureServer(t, home)
+	doc := body(t, get(t, s.URL()+"workspaces"))
+	for _, name := range []string{"alpha", "beta", "gamma"} {
+		if cardOf(t, s, name) == "" || !strings.Contains(cardOf(t, s, name), `title="add to favorites"`) {
+			t.Fatalf("%s card must render the star:\n%s", name, doc)
+		}
+	}
+
+	// Busy card: an op holds the workspace, the star stays.
+	home = t.TempDir()
+	seedWorkspace(t, home, "alpha", "swdev", nil)
+	release := make(chan struct{})
+	fake := &cmdrun.Fake{Script: func(name string, args []string) (string, error) {
+		if name == "bash" {
+			<-release
+		}
+		return "", nil
+	}}
+	s = startServerWith(t, home, fake)
+	postMap(t, s.URL()+"workspaces/alpha/start", nil)
+	waitForBusyCard(t, s, "alpha")
+	busyCard := cardOf(t, s, "alpha")
+	if !strings.Contains(busyCard, `title="add to favorites"`) {
+		t.Fatalf("busy card must still render the star:\n%s", busyCard)
+	}
+	close(release)
+
+	// Setup-pending card: mic and restart disable with the refusal
+	// title, the star never does (favoriting needs no container).
+	f := newSetupFixture(t, false)
+	if resp := postSetup(t, f.s, "alpha", "retry"); resp.StatusCode != http.StatusOK {
+		t.Fatalf("setup/retry status = %d", resp.StatusCode)
+	}
+	f.waitSpawn(t)
+	pendingCard := cardOf(t, f.s, "alpha")
+	iStar := strings.Index(pendingCard, `title="add to favorites"`)
+	if iStar < 0 {
+		t.Fatalf("setup-pending card must render the star:\n%s", pendingCard)
+	}
+	starBtn := pendingCard[iStar:]
+	if iEnd := strings.Index(starBtn, "</button>"); iEnd >= 0 {
+		starBtn = starBtn[:iEnd]
+	}
+	if strings.Contains(starBtn, "disabled") {
+		t.Fatalf("star must stay enabled during a pending setup:\n%s", pendingCard)
+	}
+	for _, marker := range []string{`data-confirm="restart"`} {
+		i := strings.Index(pendingCard, marker)
+		if i < 0 || !strings.Contains(pendingCard[i:i+180], "disabled") {
+			t.Fatalf("%s must be disabled during a pending setup:\n%s", marker, pendingCard)
+		}
 	}
 }
 
