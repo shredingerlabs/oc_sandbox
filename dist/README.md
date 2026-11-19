@@ -99,8 +99,9 @@ before CBM and skills setup. A probe or clone failure shows the context and
 offers `Retry` (same URL, after cleaning partial clone state), `Change URL`
 (re-prompts and stores the new URL), or `Cancel setup` (partial progress is
 preserved); empty-source workspaces skip this stage. First-run setup records clone, CBM, and skills progress separately. CBM
-runs without a terminal; the skills stage opens a host terminal window
-automatically (through an attached
+runs without a terminal; the skills stage (code workspaces only — `chat` and
+`pkm` workspaces skip it and their setup completes after CBM) opens a host
+terminal window automatically (through an attached
 `podman exec -it`, so its interactive input and output stay connected to the
 user — on a headless/SSH machine the browser shows the exact copyable command
 instead). A stage is marked complete only after success, and a failure keeps the

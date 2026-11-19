@@ -403,7 +403,7 @@ Wizard fragt Schritt für Schritt:</p>
   <tr><td>3. Projektname</td><td>Anzeigename, z.B. <code>mein-erstes-projekt</code></td><td>kurzer, klarer Name</td></tr>
   <tr><td>4. Pfad</td><td>Wohin? Standard: <code>~/oc-sandbox/&lt;name&gt;</code></td><td>Standard lassen, oder eigener Pfad z.B. <code>~/projects/kunde-x</code></td></tr>
   <tr><td>5. Edition</td><td>Container-Edition (alle entdeckten Editionen inkl. eigener aus <code>Dockerfile.custom</code>); solange das Image fehlt, zusätzlich die Zeile <strong>Image build</strong>: <code>Build now</code> / <code>Build later</code> (Voreinstellung: Build now)</td><td>Edition passend zum Projekt wählen (siehe Abschnitt 1); meist reicht die Voreinstellung</td></tr>
-  <tr><td>6. Agent</td><td>Projektart: <code>Code</code>, <code>Chat Agent (NO_CODE)</code>, <code>PKM</code> (bei PKM wird die Edition automatisch auf <code>pkm</code> gesetzt)</td><td><code>Code</code> für normale Coding-Projekte</td></tr>
+  <tr><td>6. Agent</td><td>Projektart: <code>Code</code>, <code>Chat Agent (NO_CODE)</code>, <code>PKM</code> (bei PKM wird die Edition automatisch auf <code>pkm</code> gesetzt; nur <code>Code</code> durchläuft das Skills-Setup des First-Run)</td><td><code>Code</code> für normale Coding-Projekte</td></tr>
   <tr><td>7. Modi</td><td>Mehrfachauswahl (z.B. Proxy/Egress, Offline, HIL, CBM-UI – live aus <code>start.sh</code> entdeckt)</td><td>meist keine Zusatz-Modi nötig (Auswahl <code>none</code>)</td></tr>
   <tr><td>8. Start-Option</td><td><code>console</code> / <code>opencode</code> / <code>web</code></td><td><code>opencode</code> (empfohlen, siehe Tipps)</td></tr>
   <tr><td>9. Such-Tools</td><td>Per-Projekt-Websuche: <code>none</code> / <code>websearch</code> / <code>searxng</code></td><td><code>websearch</code> (ohne API-Key) oder <code>none</code> für Offline-Projekte</td></tr>
@@ -595,8 +595,10 @@ installiert: geladen werden sie aus zwei Repos — <code>mattpocock/skills</code
 und <code>shredingerlabs/shredinger-skills</code> — nach
 <code>.opencode_config/skills/</code>, eingerichtet wird das Set im First-Setup
 über den Befehl <code>/setup-matt-pocock-skills</code> — deshalb ist die erste Session so wichtig
-(siehe Warnung in 5.3). Danach kannst du über <code>/skills</code> weitere
-hinzufügen oder aktivieren.</p>
+(siehe Warnung in 5.3). Nur <code>Code</code>-Projekte durchlaufen dieses
+Skills-Setup: bei <code>Chat Agent (NO_CODE)</code> und <code>PKM</code> entfällt
+es im First-Run (die PKM-Templates bringen ihr eigenes Skills-Set mit). Danach
+kannst du über <code>/skills</code> weitere hinzufügen oder aktivieren.</p>
 
 <p>Ausführliche Anleitung: <a href="howto-skill-workflow.html">Matt Pococks Skills
 im Entwickler-Workflow (HOWTO)</a>.</p>

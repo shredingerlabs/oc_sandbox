@@ -151,6 +151,56 @@ func TestPlanClonedSourceIncludesClone(t *testing.T) {
 	}
 }
 
+// Chat/pkm workspaces skip the skills stage (ADR 0041): the plan runs
+// start → clone? → cbm and setup_complete is written without the skills
+// flag ever flipping — it is not their completion authority.
+func TestChatAndPKMPlansSkipSkillsStage(t *testing.T) {
+	for _, tc := range []struct {
+		source, kind string
+		want         []Stage
+	}{
+		{"empty", "chat", []Stage{StageStart, StageCBM}},
+		{"empty", "pkm", []Stage{StageStart, StageCBM}},
+		{"cloned", "pkm", []Stage{StageStart, StageClone, StageCBM}},
+	} {
+		home, root, reg, st := fixture(t, tc.source)
+		cfgPath := sandboxcfg.Path(root)
+		if err := sandboxcfg.PatchString(home, cfgPath, "workspace_kind", tc.kind); err != nil {
+			t.Fatal(err)
+		}
+		m := newMachine(t, st, home, root, reg)
+
+		if got := m.Plan(); !equalStages(got, tc.want) {
+			t.Fatalf("%s/%s: plan = %v, want %v", tc.source, tc.kind, got, tc.want)
+		}
+		if drive(m, st) != PhaseDone {
+			t.Fatalf("%s/%s: phase = %d, want done", tc.source, tc.kind, m.Phase())
+		}
+		c := cfgOf(t, root)
+		if c.SetupSkillsComplete {
+			t.Fatalf("%s/%s: setup_skills_complete must stay false", tc.source, tc.kind)
+		}
+		if !c.SetupComplete {
+			t.Fatalf("%s/%s: setup_complete should be written", tc.source, tc.kind)
+		}
+	}
+}
+
+// Unknown kinds read as code: the skills stage stays planned (default-on
+// fallback, ADR 0041).
+func TestUnknownKindKeepsSkillsStage(t *testing.T) {
+	home, root, reg, st := fixture(t, "empty")
+	if err := sandboxcfg.PatchString(home, sandboxcfg.Path(root), "workspace_kind", "typo"); err != nil {
+		t.Fatal(err)
+	}
+	m := newMachine(t, st, home, root, reg)
+
+	want := []Stage{StageStart, StageCBM, StageSkills}
+	if got := m.Plan(); !equalStages(got, want) {
+		t.Fatalf("plan = %v, want %v", got, want)
+	}
+}
+
 func TestPlanResumeSkipsCompletedStages(t *testing.T) {
 	home, root, reg, st := fixture(t, "cloned")
 	cfgPath := sandboxcfg.Path(root)

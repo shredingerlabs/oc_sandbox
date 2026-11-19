@@ -23,16 +23,21 @@ import (
 // patch + setup_complete, 2 → abort flag-free, else recovery), Cancel
 // setup marks abandoned and ignores late status files, the headless
 // fallback shows the copyable manual command and completes through the
-// same relay, and the pending session blocks the workspace's other
-// actions. The runner is faked; nothing external is touched.
+// same relay, the pending session blocks the workspace's other
+// actions, and chat/pkm workspaces skip the skills stage entirely
+// (ADR 0041 — no spawn, setup_complete without the skills flag). The
+// runner is faked; nothing external is touched.
 func checkWebUISetup(home, root string) Item {
-	p := newPhase("A16", "First-run setup interaction: setup/retry machine run with streamed stages, skills-stage auto-open with the status-file relay, exit-code routing (0/2/other), Cancel setup + late-file session guard, headless manual-command path, pending-session action blocking (#161)")
+	p := newPhase("A16", "First-run setup interaction: setup/retry machine run with streamed stages, skills-stage auto-open with the status-file relay, exit-code routing (0/2/other), Cancel setup + late-file session guard, headless manual-command path, pending-session action blocking, chat/pkm skills-stage skip (#161, ADR 0041)")
 
-	// Four workspaces: full relay, cancel+late-file, headless, exit-2.
-	rootA := seedSetupWS(home, "setup-alpha")
-	rootB := seedSetupWS(home, "setup-beta")
-	rootC := seedSetupWS(home, "setup-gamma")
-	rootD := seedSetupWS(home, "setup-delta")
+	// Six workspaces: full relay, cancel+late-file, headless, exit-2,
+	// and the two kinds that skip the skills stage (ADR 0041).
+	rootA := seedSetupWS(home, "setup-alpha", "")
+	rootB := seedSetupWS(home, "setup-beta", "")
+	rootC := seedSetupWS(home, "setup-gamma", "")
+	rootD := seedSetupWS(home, "setup-delta", "")
+	rootE := seedSetupWS(home, "setup-epsilon", "pkm")
+	rootF := seedSetupWS(home, "setup-zeta", "chat")
 
 	var mu sync.Mutex
 	spawns := map[string]string{} // workspace name → the spawned wrapper command
@@ -338,6 +343,35 @@ func checkWebUISetup(home, root string) Item {
 		p.reasonf("delta: recovery action must reappear after the abort")
 	}
 
+	// --- epsilon/zeta: chat and pkm skip the skills stage (ADR 0041) —
+	// setup completes after CBM, no terminal window ever opens ---
+	for _, name := range []string{"setup-epsilon", "setup-zeta"} {
+		if r, _ := post(s.URL()+"workspaces/"+name+"/setup/retry", nil); r == nil || r.StatusCode != http.StatusOK {
+			p.reasonf("%s setup/retry: want 200, got %v", name, respStatusCT(r))
+		}
+	}
+	for _, tc := range []struct {
+		name string
+		root string
+	}{
+		{"setup-epsilon", rootE},
+		{"setup-zeta", rootF},
+	} {
+		waitFlag(tc.root, "setup_cbm_complete", true)
+		waitFlag(tc.root, "setup_complete", true)
+		waitFlag(tc.root, "setup_skills_complete", false) // skipped, not completed
+		waitCardGone(tc.name, `data-act="setup-retry"`)
+	}
+	mu.Lock()
+	for cmd := range spawns {
+		for _, name := range []string{"setup-epsilon", "setup-zeta"} {
+			if strings.Contains(cmd, registry.ContainerName(registry.ContainerIdentity(rootOf(home, name)))) {
+				p.reasonf("%s: skills window spawned for a kind that skips it: %q", name, cmd)
+			}
+		}
+	}
+	mu.Unlock()
+
 	// The workspace SSE event rides the relay — tabs re-render without
 	// polling (the alpha relay above already produced several).
 	if err := sseExpect(base, s.URL()+"events", "workspace"); err != nil {
@@ -347,11 +381,16 @@ func checkWebUISetup(home, root string) Item {
 	return p.finish()
 }
 
-// seedSetupWS seeds one cloned-source workspace fixture for the setup box.
-func seedSetupWS(home, name string) string {
+// seedSetupWS seeds one workspace fixture for the setup box; kind ""
+// seeds the default code kind (no workspace_kind patch), "pkm"/"chat"
+// record the kind that skips the skills stage (ADR 0041).
+func seedSetupWS(home, name, kind string) string {
 	root := seedWSFixture(home, name, "swdev", []string{}, "web")
 	_ = sandboxcfg.PatchString(home, sandboxcfg.Path(root), "workspace_source", "cloned")
 	_ = sandboxcfg.PatchString(home, sandboxcfg.Path(root), "repo_url", "https://github.com/u/"+name+".git")
+	if kind != "" {
+		_ = sandboxcfg.PatchString(home, sandboxcfg.Path(root), "workspace_kind", kind)
+	}
 	return root
 }
 

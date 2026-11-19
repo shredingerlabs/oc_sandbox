@@ -137,8 +137,9 @@ While the edition's image is missing, an **Image build** row offers
 **Build now** / **Build later** (default: Build now). The create summary
 confirm shows the full plan before anything runs.
 
-First-run setup runs automatically in the background (CBM configuration, then
-interactive skills setup in a host terminal window — the window opens
+First-run setup runs automatically in the background (CBM configuration, then —
+for `code` workspaces — interactive skills setup in a host terminal window;
+`chat` and `pkm` workspaces skip the skills stage — the window opens
 automatically when the skills stage arrives; on a headless/SSH machine the
 browser shows the exact copyable command instead). On failure the screen offers
 `Retry` and `Cancel setup` (plus `Change URL` when a clone failed); a retry

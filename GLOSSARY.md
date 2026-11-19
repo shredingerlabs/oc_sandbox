@@ -15,7 +15,7 @@ Where a new workspace's code comes from: "Blank Workspace" (wizard-created scaff
 _Avoid_: project source (the pre-rename term), import repo, repo migration, connect repo.
 
 **workspace kind**:
-What a workspace is for, chosen by the New Workspace wizard's Agent row (identical for both workspace sources): `code` (default, standard agent rules), `chat` — the "Chat Agent (NO_CODE)" option for a non-code workspace that behaves like plain AI chat — or `pkm` — the "PKM (Personal Knowledge Wiki)" option, which additionally pins the edition and seeds the PKM templates (see pkm edition, ADR 0027). Decided and recorded once at creation (`workspace_kind` in sandbox_config.json, absent reads as code); never re-applied or offered in the revisit sequence — later changes are a hand edit of `.opencode_config/AGENTS.md`.
+What a workspace is for, chosen by the New Workspace wizard's Agent row (identical for both workspace sources): `code` (default, standard agent rules), `chat` — the "Chat Agent (NO_CODE)" option for a non-code workspace that behaves like plain AI chat — or `pkm` — the "PKM (Personal Knowledge Wiki)" option, which additionally pins the edition and seeds the PKM templates (see pkm edition, ADR 0027). Decided and recorded once at creation (`workspace_kind` in sandbox_config.json, absent reads as code); never re-applied or offered in the revisit sequence — later changes are a hand edit of `.opencode_config/AGENTS.md`. Only `code` workspaces run the first-run skills setup; `chat` and `pkm` skip it (see first-run setup, ADR 0041).
 _Avoid_: project kind (the pre-rename term), nocode workspace, agent template, NO_CODE workspace.
 
 **OKF (Open Knowledge Format)**:
@@ -42,16 +42,16 @@ Global workspace registry stored in `$HOME/.config/oc-sandbox/` with workspace m
 _Avoid_: projects.json (the pre-rename filename), project registry.
 
 **first-run setup**:
-Automated container initialization including in-container probe (`git ls-remote`) and full clone for cloned workspaces, then CBM configuration and skills setup, tracked via `setup_clone_complete`, `setup_cbm_complete`, and `setup_skills_complete` flags in sandbox_config.json, offering granular recovery for partial failures including Retry / Change URL / Exit for clone issues.
+Automated container initialization including in-container probe (`git ls-remote`) and full clone for cloned workspaces, then CBM configuration and — for `code` workspaces — skills setup, tracked via `setup_clone_complete`, `setup_cbm_complete`, and `setup_skills_complete` flags in sandbox_config.json, offering granular recovery for partial failures including Retry / Change URL / Exit for clone issues. `chat` and `pkm` workspaces skip the skills setup entirely: their setup completes after CBM with `setup_skills_complete` legitimately still false (ADR 0041).
 
 **setup-complete marker**:
-Boolean flag in sandbox_config.json tracking whether first-run setup (CBM configuration and skills setup) has been completed for a workspace.
+Boolean flag in sandbox_config.json tracking whether first-run setup has been completed for a workspace — the sole completion authority, whatever the kind: on `chat`/`pkm` workspaces it flips after CBM without the skills setup (ADR 0041), so `setup_skills_complete` may read false on a setup-complete workspace.
 
 **workspace display name**:
 Unique user-facing name for a registered workspace, used in WebUI menus and registry selection.
 
 **setup recovery**:
-Explicit retry path for incomplete first-run setup while preserving setup-complete as false until CBM and skills setup both succeed.
+Explicit retry path for incomplete first-run setup while preserving setup-complete as false until every planned stage has succeeded — CBM always, plus the skills setup on `code` workspaces only (ADR 0041).
 
 **retry flow**:
 Error recovery pattern where users who choose "Retry" after a failure remain in the recovery loop even if intermediate steps (like settings adjustment) fail. Failures show context-aware error messages and return to the retry menu, except for explicit user aborts (exit code 2) which are respected throughout.

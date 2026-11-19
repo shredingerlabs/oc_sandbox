@@ -1,7 +1,8 @@
 // Package setupflow is the Go state machine driving the first-run setup
 // pipeline inside the workspace container (per the hybrid decision #57 and
 // the configure-workspace extraction #58/#67): container start → clone (for
-// workspace_source "cloned") → CBM configuration → skills setup.
+// workspace_source "cloned") → CBM configuration → skills setup. The skills
+// stage is code-kind only: chat and pkm workspaces skip it (ADR 0041).
 //
 // The machine itself is podman-independent: all container-facing work
 // goes through the Stager seam, so tests inject fake stage runners and
@@ -96,7 +97,9 @@ const (
 // Machine drives the first-run setup state machine. Flag discipline:
 // setup_clone_complete / setup_cbm_complete / setup_skills_complete flip
 // true only after their stage succeeded (sandboxcfg.PatchBool — one
-// atomic field-patch each); setup_complete is written LAST.
+// atomic field-patch each); setup_complete is written LAST. On chat/pkm
+// workspaces the skills stage is never planned (ADR 0041): those finish
+// after CBM with setup_skills_complete legitimately still false.
 type Machine struct {
 	home   string
 	root   string
@@ -133,7 +136,9 @@ func NewMachine(d Deps) (*Machine, error) {
 
 // buildPlan derives the remaining stages from configuration (the start
 // stage always leads; the clone runs only for a cloned source whose flag
-// is still false).
+// is still false). The skills stage is code-only: chat and pkm workspaces
+// skip it entirely (ADR 0041) — setup_complete, written after the last
+// planned stage, stays their sole completion authority.
 func (m *Machine) buildPlan(cfg sandboxcfg.Config) []Stage {
 	plan := []Stage{StageStart}
 	if cfg.WorkspaceSource == "cloned" && !cfg.SetupCloneComplete {
@@ -142,10 +147,18 @@ func (m *Machine) buildPlan(cfg sandboxcfg.Config) []Stage {
 	if !cfg.SetupCBMComplete {
 		plan = append(plan, StageCBM)
 	}
-	if !cfg.SetupSkillsComplete {
+	if !cfg.SetupSkillsComplete && skillsStageApplies(cfg.WorkspaceKind) {
 		plan = append(plan, StageSkills)
 	}
 	return plan
+}
+
+// skillsStageApplies reports whether the workspace kind runs the skills
+// setup: only code workspaces do. Absent and unknown kinds read as code
+// (default-on fallback — an unparseable kind never drops the stage), so
+// exactly "chat" and "pkm" skip (ADR 0041).
+func skillsStageApplies(kind string) bool {
+	return kind != "chat" && kind != "pkm"
 }
 
 // Root returns the workspace root the flow operates on.
