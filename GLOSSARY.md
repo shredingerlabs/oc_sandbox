@@ -61,7 +61,7 @@ Deregistering a registered workspace from the Edit Workspace settings screen: de
 _Avoid_: delete workspace (reads like delete container or file deletion), unregister workspace, project list (the pre-rename label).
 
 **favorite**:
-Per-workspace display-only flag recorded as `favorite` in workspaces.json (absent reads as false) that moves the workspace into the Favorite workspaces section at the top of the Workspace › Open screen, independent of the last-used sort: sections are disjoint (a favorite is removed from the Registered workspaces list), favorites keep the same last-used comparator among themselves, and an empty section renders no heading. Toggled by the card's always-visible star button (outline when not favorited, filled when favorited), placed between the mic and the settings gear — anchored immediately left of the gear when the mic is absent (stopped or dictation-off cards). Affects nothing else — not default_workspace_path, not the sidebar count pill, not start behavior, and not the Workspace settings screen's card grid; the flag dies with the registry entry on remove workspace from list.
+Per-workspace display-only flag recorded as `favorite` in workspaces.json (absent reads as false) that moves the workspace into the Favorite workspaces section at the top of the Workspace › Open screen, independent of the last-used sort: sections are disjoint (a favorite is removed from the Registered workspaces list), favorites keep the same last-used comparator among themselves, and an empty section renders no heading. Toggled by the card's always-visible star button (outline when not favorited, filled when favorited) in the card icon grid's top-right cell — a fixed slot, kept whether or not the mic renders (a stopped or dictation-off card leaves the mic's cell empty; the star never shifts). Affects nothing else — not default_workspace_path, not the sidebar count pill, not start behavior; the flag dies with the registry entry on remove workspace from list.
 _Avoid_: pin/pinned (the favorite is grouping, not pinning), starred, bookmark.
 
 ### Catalogs
@@ -314,8 +314,12 @@ _Avoid_: yes/no dialog (Create Workspace uses Confirm/Back), exit prompt (reserv
 The Open Workspace card's third content row (Console / OpenCode / Web) that chains start + access in one gesture: clicking a button on the selected card (or Enter, or double-click) starts a stopped container, waits for verified success, and lands in the chosen variant — no separate access prompt. On a running container the chosen variant is entered directly (Web announces a fresh pair link, never a browser). Buttons on unselected cards merely select the card. Left/right on the card grid cycles the preselection; the settings pane's Start option row still changes the configured start option.
 _Avoid_: access prompt (removed from the card flow), per-card start menu.
 
+**card icon grid**:
+The Open Workspace card's fixed 3×2 button grid anchoring the card's top-right corner: top row empty cell / mic / star, bottom row settings / restart / stop. Slots are fixed — the top-left cell is always empty, an absent mic (stopped or dictation-off card) leaves its cell empty, and the star never shifts. A layout-only reflow of the card's five existing icon buttons: same actions and handlers, keyboard and screen-reader order follows the visual row-major order.
+_Avoid_: icon cluster (the pre-grid one-row toprow layout), flow wrap (slots are placed explicitly, not wrapped).
+
 **card last-used row**:
-The workspace cards' second content row in both card grids (Open Workspace and the Workspace settings screen): the registry's last_used stamp rendered as a relative date — `Today 13:04` (same local day), `Yesterday`, `n d ago` (up to six days), else the absolute local date. A workspace never stamped (legacy registry) keeps rendering its path instead of a blank row.
+The Open Workspace card's second content row: the registry's last_used stamp rendered as a relative date — `Today 13:04` (same local day), `Yesterday`, `n d ago` (up to six days), else the absolute local date. A workspace never stamped (legacy registry) keeps rendering its path instead of a blank row.
 _Avoid_: path row (superseded on stamped workspaces), last open date.
 
 **muted card frame**:

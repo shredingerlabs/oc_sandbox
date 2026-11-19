@@ -449,11 +449,14 @@ func TestWorkspacesSttMicButton(t *testing.T) {
 		!(iMic < iStar && iStar < iGear && iGear < iRestart && iRestart < iStop) {
 		t.Fatalf("running dictation card must carry mic · star · gear · restart · stop in order:\n%s", liveCard)
 	}
+	if !strings.Contains(liveCard, `class="icongrid"`) {
+		t.Fatal("card icons must sit in the icongrid wrapper")
+	}
 	if !strings.Contains(liveCard, `title="dictation sidecar — record audio, copy the transcript"`) {
 		t.Fatal("mic button missing its tooltip")
 	}
-	// Cards without a mic anchor the star immediately left of the gear,
-	// and the row still reads star · gear · restart · stop.
+	// Cards without a mic leave the grid's mic cell empty, and the card
+	// still renders star · gear · restart · stop in order.
 	for _, c := range []struct{ name, card string }{{"dark", darkCard}, {"idle", idleCard}} {
 		iStar := strings.Index(c.card, `title="add to favorites"`)
 		iGear := strings.Index(c.card, `title="workspace settings"`)

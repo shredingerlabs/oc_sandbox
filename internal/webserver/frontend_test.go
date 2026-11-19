@@ -69,6 +69,11 @@ func TestFrontendCardStyles(t *testing.T) {
 		`.busy`,                     // busy row
 		`.confirm`,                  // stop/delete confirm row
 		`.confirm-backdrop[hidden]`, // display:flex must not beat the hidden attribute
+		// The card icon grid: 3×2 fixed slots anchored top-right, the
+		// star's slot pinned top-right (an absent mic never shifts it).
+		`.icongrid`,
+		`.card .icongrid .btn.icon[data-act="favorite"] { grid-area:1 / 3`,
+		`.card .icongrid .btn.icon[data-act="stt"] { grid-area:1 / 2`,
 		// The card star's two states (#174): outline default, the
 		// filled/accent treatment carried by the stored flag marker.
 		`.toprow .btn.icon[data-favorite="true"]`,

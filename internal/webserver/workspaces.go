@@ -128,6 +128,7 @@ var wsTemplate = template.Must(template.New("ws").
       <div class="name">{{.Name}}{{if .Running}}<span class="dot" data-running title="running"></span>{{end}}</div>
       <div class="sub">last used {{.LastUsed}}</div>
     </div>
+    <div class="icongrid">
     {{if .Stt}}<button class="btn icon"{{if .SetupPending}} disabled title="refused — first-run setup session pending"{{else}} title="dictation sidecar — record audio, copy the transcript"{{end}} data-act="stt">
       <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/></svg>
     </button>{{end}}
@@ -143,6 +144,7 @@ var wsTemplate = template.Must(template.New("ws").
     <button class="btn icon" data-confirm="stop"{{if .SetupPending}} disabled title="refused — first-run setup session pending"{{else}} title="Stop this workspace"{{end}}>
       <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/></svg>
     </button>
+    </div>
   </div>
   <div class="meta">
     <span class="chip" data-chip="edition">{{.Edition}}</span>
