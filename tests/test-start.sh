@@ -141,16 +141,26 @@ if ! grep -q -- '-e XDG_STATE_HOME=/home/dev/.local/state' <<<"$run_line"; then
 fi
 # XDG_CACHE_HOME: ohne Pin leitet der Daemon (HOME=/home/dev/workspace) den
 # Cache-Default ($HOME/.cache) in den Workspace-Inhalt (workspace/) —
-# .cache/opencode (jeder detached Boot) und die CBM-DB (codebase-memory-mcp
-# als Daemon-Kind, opencode.json spawn ohne --cache-dir) landen in
-# workspace/. Der Pin haelt opencode unter /home/dev/.cache/opencode; dieser
-# Pfad ist aus .opencode_data/cache/opencode gemountet, damit der npm-Install
-# des models-discovery-Plugins die Container-Neuanlage ueberlebt (sonst 503
-# auf /api/* beim ersten Client). CBM landet auf dem .cbm_cache-Mount
-# (/home/dev/.cache/codebase-memory-mcp), wo auch die CBM-Stage
-# (exec-Client) ihre Config schreibt.
+# .cache/opencode (jeder detached Boot) landet in workspace/. Der Pin haelt
+# opencode unter /home/dev/.cache/opencode; dieser Pfad ist aus
+# .opencode_data/cache/opencode gemountet, damit der npm-Install des
+# models-discovery-Plugins die Container-Neuanlage ueberlebt (sonst 503
+# auf /api/* beim ersten Client).
 if ! grep -q -- '-e XDG_CACHE_HOME=/home/dev/.cache' <<<"$run_line"; then
   printf 'start did not pin XDG_CACHE_HOME into the container env: %s\n' "$run_line" >&2
+  exit 1
+fi
+# CBM_CACHE_DIR: CBM loest den Cache-Default aus $HOME/.cache ab und ignoriert
+# XDG_CACHE_HOME — der XDG-Pin oben leitet es also NICHT um. Der Service laeuft
+# mit HOME=/home/dev/workspace (CONTAINER_COMMAND), also startet die Service-
+# Session (opencode.json MCP-Spawn) den CBM-Daemon mit Root
+# workspace/.cache/codebase-memory-mcp (DB im Git-Working-Tree!), waehrend die
+# CBM-Stage (podman exec, HOME=/home/dev) den .cbm_cache-Mount anfordert — der
+# Daemon weist den Client als cache-root-Konflikt ab ("active account daemon
+# uses a different cache directory"). Der Pin richtet Service-Session, Daemon
+# und alle exec-Clients auf denselben persistenten .cbm_cache-Mount.
+if ! grep -q -- '-e CBM_CACHE_DIR=/home/dev/.cache/codebase-memory-mcp' <<<"$run_line"; then
+  printf 'start did not pin CBM_CACHE_DIR into the container env: %s\n' "$run_line" >&2
   exit 1
 fi
 grep -q -- '-e START_WEB=false' "$PODMAN_LOG"

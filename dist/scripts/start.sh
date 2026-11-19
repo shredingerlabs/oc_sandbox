@@ -888,6 +888,7 @@ podman run --rm "${RUN_MODE[@]}" \
   -e XDG_DATA_HOME="/home/dev/.local/share" \
   -e XDG_STATE_HOME="/home/dev/.local/state" \
   -e XDG_CACHE_HOME="/home/dev/.cache" \
+  -e CBM_CACHE_DIR="/home/dev/.cache/codebase-memory-mcp" \
   -e GIT_CONFIG_GLOBAL="/home/dev/.git_local/gitconfig" \
   -e GH_CONFIG_DIR="/home/dev/.git_local/gh-cli" \
   -e GLAB_CONFIG_DIR="/home/dev/.git_local/glab-cli" \
