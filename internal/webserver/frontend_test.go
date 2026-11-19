@@ -106,6 +106,9 @@ func TestFrontendWorkspaceOpsWiring(t *testing.T) {
 	js := body(t, get(t, s.URL()+"js/main.js"))
 	for _, want := range []string{
 		`runWorkspaceOp(card, "restart")`, // the Restart confirm row's op (ADR-0033)
+		`btn.dataset.confirm === "stop"`,  // the Stop button's click branch
+		`Stop this workspace?`,            // the stop confirm row's question
+		`runWorkspaceOp(card, "stop")`,    // the stop confirm row's op (ADR-0033 update)
 		`post(card, "adopt")`,             // the adopt confirm's action
 		`mismatch`,                        // the #115 verdict handling in the start chain
 		`running_edition`,                 // the mismatch prompt names what runs

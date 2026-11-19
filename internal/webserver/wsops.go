@@ -164,11 +164,18 @@ func (s *Server) restartOp(ws registry.Workspace) func(emit func(string)) error 
 // handleWorkspaceStop serves POST /workspaces/{name}/stop (#154) — the
 // existing graceful stop flow through the op runner (the pod-as-unit
 // stop, verified gone before the registry flip): the same op the
-// Container center's stop confirm launches, keyed on the workspace's
-// container name.
+// Container center's stop confirm launches and, since ADR-0033's
+// update, the workspace card's stop confirm. Always re-checked fresh at
+// click time (ADR-0037's server-as-gatekeeper, mirroring restart): a
+// workspace whose fresh ps reads not-running refuses — the stop op
+// would error against the already-gone unit.
 func (s *Server) handleWorkspaceStop(w http.ResponseWriter, r *http.Request) {
 	_, cname, refused := s.guardWorkspaceOp(w, r)
 	if refused {
+		return
+	}
+	if !slices.Contains(discovery.RunningContainers(s.runnerSeam()), cname) {
+		refuseSidecar(w, "stopped — nothing to stop")
 		return
 	}
 	s.queue.Launch(webOp{Key: cname, Run: s.stopOp(cname)})

@@ -140,6 +140,9 @@ var wsTemplate = template.Must(template.New("ws").
     <button class="btn icon" data-confirm="restart"{{if .SetupPending}} disabled title="refused — first-run setup session pending"{{else}} title="Restart this workspace"{{end}}>
       <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
     </button>
+    <button class="btn icon" data-confirm="stop"{{if .SetupPending}} disabled title="refused — first-run setup session pending"{{else}} title="Stop this workspace"{{end}}>
+      <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/></svg>
+    </button>
   </div>
   <div class="meta">
     <span class="chip" data-chip="edition">{{.Edition}}</span>

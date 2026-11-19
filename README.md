@@ -100,7 +100,7 @@ version and the update banner when an update is available.
 
 | Screen                          | Function                                                                                                                                                                    |
 | ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Workspace → Open**            | Registered workspaces as cards (favorite workspaces pinned on top, sorted by last use with relative dates) with start buttons **Console / OpenCode / Web**, gear, restart, and dictation-sidecar access while running |
+| **Workspace → Open**            | Registered workspaces as cards (favorite workspaces pinned on top, sorted by last use with relative dates) with start buttons **Console / OpenCode / Web**, gear, restart, stop, and dictation-sidecar access while running |
 | **Workspace → New**             | Create a workspace (the wizard below)                                                                                                                                       |
 | **Settings → Workspace Settings** | Per-workspace settings (edition, modes incl. HIL, start option, VCS/AI provider, proxy toggle) with Standard/Advanced matrix rows, import, remove-from-list          |
 | **Settings → VCS Tracker / AI-Provider** | Reusable catalogs feeding the wizard and settings screens (token-free, per ADR-0031)                                                                          |

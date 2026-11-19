@@ -281,6 +281,16 @@
       runWorkspaceOp(card, "restart");
       return;
     }
+    if (btn.dataset.confirm === "stop") {
+      showStopConfirm(card);
+      return;
+    }
+    if (btn.dataset.act === "confirm-stop") {
+      // ADR-0033 update: the stop confirm runs the pod-as-unit stop —
+      // companions go down with it; the sidecar surfaces refusals.
+      runWorkspaceOp(card, "stop");
+      return;
+    }
     if (btn.dataset.act === "mismatch-use") {
       // Use current (#115): route into the requested access — the
       // running container is untouched.
@@ -610,11 +620,10 @@
     log.innerHTML = '<div class="row note-row">' + html + '</div>' + log.innerHTML;
   }
 
-  // Restart confirm row (§9 confirm set): the confirm-gate ask before
+  // Card confirm rows (§9 confirm set): the confirm-gate ask before
   // acting — the question on its own line, Confirm/Cancel underneath
   // (ADR-0037 layout). Confirm posts the workspace op, Cancel restores
-  // the plain card (stop/delete left the cards; Container center owns
-  // them).
+  // the plain card (delete left the cards; Container center owns it).
   function showRestartConfirm(card) {
     var box = card.querySelector(".confirms");
     if (!box) return;
@@ -623,6 +632,21 @@
       '<span class="card-confirm-label">Restart this workspace?</span>' +
       '<span class="card-confirm-acts">' +
       '<button class="btn danger" data-act="confirm-restart">Confirm</button>' +
+      '<button class="btn ghost" data-act="cancel-confirm">Cancel</button>' +
+      '</span>' +
+      '</span>';
+  }
+
+  // Stop confirm row (ADR-0033 update): the session-kill warning rides
+  // the question — stopping the pod terminates its OpenCode sessions.
+  function showStopConfirm(card) {
+    var box = card.querySelector(".confirms");
+    if (!box) return;
+    box.innerHTML =
+      '<span class="card-confirm" data-confirm-row="stop">' +
+      '<span class="card-confirm-label">Stop this workspace? Running OpenCode sessions will be terminated.</span>' +
+      '<span class="card-confirm-acts">' +
+      '<button class="btn danger" data-act="confirm-stop">Confirm</button>' +
       '<button class="btn ghost" data-act="cancel-confirm">Cancel</button>' +
       '</span>' +
       '</span>';

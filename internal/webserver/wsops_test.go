@@ -229,6 +229,20 @@ func TestWorkspaceStopRefusesWhileBusy(t *testing.T) {
 	}
 }
 
+// The fresh-state gate (ADR-0037's server-as-gatekeeper, mirroring
+// restart): a workspace whose fresh ps reads not-running refuses —
+// stopUnitOnce would error against the already-gone unit ("no such
+// container") instead of a truthful refusal.
+func TestWorkspaceStopRefusesWhenStopped(t *testing.T) {
+	reg, _ := fixtureRegistry(t, "alpha")
+	run := fakePodman(nil, nil, nil, nil, nil) // the ps probe answers nothing
+	s := depsServer(t, run, reg)
+	v := postSidecar(t, s.URL()+"workspaces/alpha/stop", "")
+	if v["ok"] != false || !strings.Contains(v["error"].(string), "nothing to stop") {
+		t.Fatalf("stop sidecar = %v, want the not-running refusal", v)
+	}
+}
+
 // POST /workspaces/{name}/adopt (#154, spec §9) — behind the new
 // web-native adopt confirm (§9 confirms): both running-container
 // replacements ride it. Happy-path mismatch switch: the TUI

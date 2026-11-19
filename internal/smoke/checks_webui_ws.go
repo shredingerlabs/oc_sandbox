@@ -132,7 +132,8 @@ func checkWebUIWorkspaces(home, root string) Item {
 	}
 
 	// Cards: all three accesses render on every card (Web · OpenCode ·
-	// Console, ADR-0033 cards — no Open button, no card stop/delete).
+	// Console, ADR-0033 cards — no Open button, no card delete; the
+	// card stop is back, ADR-0033 update).
 	resp, body := get(s.URL() + "workspaces")
 	if resp == nil || resp.StatusCode != http.StatusOK {
 		p.reasonf("GET /workspaces: want 200, got %v", respStatusCT(resp))
@@ -142,13 +143,13 @@ func checkWebUIWorkspaces(home, root string) Item {
 			`data-edition="swdev"`, `data-edition="web"`,
 			`data-chip="hil"`,
 			`data-act="web"`, `data-act="opencode"`, `data-act="console"`,
-			`data-confirm="restart"`,
+			`data-confirm="restart"`, `data-confirm="stop"`,
 		} {
 			if !strings.Contains(body, want) {
 				p.reasonf("cards missing %q", want)
 			}
 		}
-		for _, banned := range []string{`data-act="open"`, `data-confirm="stop"`, `data-confirm="delete"`} {
+		for _, banned := range []string{`data-act="open"`, `data-confirm="delete"`} {
 			if strings.Contains(body, banned) {
 				p.reasonf("cards must not carry the retired action (%s)", banned)
 			}

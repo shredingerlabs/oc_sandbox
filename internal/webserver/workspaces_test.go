@@ -344,10 +344,10 @@ func TestWorkspacesRunningDot(t *testing.T) {
 }
 
 // Card start options (ADR-0033 cards): all three accesses render on
-// every card in the Web · OpenCode · Console order — the stop/delete
-// confirms left the cards (Container center owns them), and the
-// Restart confirm gates the running-container replacement (ADR-0037:
-// always accessible).
+// every card in the Web · OpenCode · Console order — the delete confirm
+// left the cards (Container center owns it) while the stop confirm is
+// back (ADR-0033 update), and the Restart confirm gates the
+// running-container replacement (ADR-0037: always accessible).
 func TestWorkspacesCardActions(t *testing.T) {
 	home := t.TempDir()
 	root := seedWorkspace(t, home, "alpha", "swdev", nil)
@@ -366,15 +366,15 @@ func TestWorkspacesCardActions(t *testing.T) {
 		`data-act="opencode"`,
 		`data-act="console"`,
 		`data-confirm="restart"`,
+		`data-confirm="stop"`,
 	} {
 		if !wantB(doc, want) {
 			t.Fatalf("card missing %q, got:\n%s", want, doc)
 		}
 	}
 	if strings.Contains(doc, `data-act="open"`) ||
-		strings.Contains(doc, `data-confirm="stop"`) ||
 		strings.Contains(doc, `data-confirm="delete"`) {
-		t.Fatal("Open and stop/delete confirm rows left the cards")
+		t.Fatal("Open and delete confirm rows left the cards")
 	}
 	if !strings.Contains(doc, `data-act="console" data-advanced-only`) ||
 		!strings.Contains(doc, `data-act="opencode" data-advanced-only`) ||
@@ -444,22 +444,24 @@ func TestWorkspacesSttMicButton(t *testing.T) {
 	iStar := strings.Index(liveCard, `title="add to favorites"`)
 	iGear := strings.Index(liveCard, `title="workspace settings"`)
 	iRestart := strings.Index(liveCard, `data-confirm="restart"`)
-	if iMic < 0 || iStar < 0 || iGear < 0 || iRestart < 0 ||
-		!(iMic < iStar && iStar < iGear && iGear < iRestart) {
-		t.Fatalf("running dictation card must carry mic · star · gear · restart in order:\n%s", liveCard)
+	iStop := strings.Index(liveCard, `data-confirm="stop"`)
+	if iMic < 0 || iStar < 0 || iGear < 0 || iRestart < 0 || iStop < 0 ||
+		!(iMic < iStar && iStar < iGear && iGear < iRestart && iRestart < iStop) {
+		t.Fatalf("running dictation card must carry mic · star · gear · restart · stop in order:\n%s", liveCard)
 	}
 	if !strings.Contains(liveCard, `title="dictation sidecar — record audio, copy the transcript"`) {
 		t.Fatal("mic button missing its tooltip")
 	}
 	// Cards without a mic anchor the star immediately left of the gear,
-	// and the row still reads star · gear · restart.
+	// and the row still reads star · gear · restart · stop.
 	for _, c := range []struct{ name, card string }{{"dark", darkCard}, {"idle", idleCard}} {
 		iStar := strings.Index(c.card, `title="add to favorites"`)
 		iGear := strings.Index(c.card, `title="workspace settings"`)
 		iRestart := strings.Index(c.card, `data-confirm="restart"`)
-		if iStar < 0 || iGear < 0 || iRestart < 0 ||
-			!(iStar < iGear && iGear < iRestart) {
-			t.Fatalf("%s card must render star · gear · restart in order:\n%s", c.name, c.card)
+		iStop := strings.Index(c.card, `data-confirm="stop"`)
+		if iStar < 0 || iGear < 0 || iRestart < 0 || iStop < 0 ||
+			!(iStar < iGear && iGear < iRestart && iRestart < iStop) {
+			t.Fatalf("%s card must render star · gear · restart · stop in order:\n%s", c.name, c.card)
 		}
 	}
 	if strings.Contains(darkCard, `data-act="stt"`) {

@@ -13,3 +13,24 @@ The WebUI previously forbade replacing a running container outside the adopt con
 **Alternatives rejected**: restart-always-available (a pointless session-killing bounce on unchanged configs); config-hash-only evidence (misses image rebuilds); live-apply of settings into a running container (the running container keeps reading its bind-mounted files — start.sh flags are process env and cannot re-apply).
 
 Decided 2026-11-10 via Grilling (this session, shared understanding confirmed in R3Q1–R3Q3 and the final task list).
+
+## Update — Stop back on the workspace cards (added later)
+
+The card's top row gains a **Stop** button right of Restart (Lucide
+square glyph, always rendered like Restart — disabled with the refusal
+title only while a first-run setup session is pending). Its confirm row
+asks "Stop this workspace? Running OpenCode sessions will be
+terminated." and posts the existing `POST /workspaces/{name}/stop`
+(#154): the pod-as-unit stop, verified gone before the registry flips
+truthful, the same op the Container center's stop confirm launches.
+ADR-0037's server-as-gatekeeper shape carries over — a workspace whose
+fresh ps reads not-running refuses with "stopped — nothing to stop"
+(stopUnitOnce would error against the already-gone unit), so the two
+lifecycle buttons behave uniformly. Delete stays off the cards; the
+Container center owns it. This reverses the stop half of the removal
+recorded above ("the workspace cards' stop/delete confirms gone") —
+with Restart always available (ADR-0037), the card is the workspace's
+lifecycle surface, and the session-kill warning is the confirm row's
+job exactly as Restart's is.
+
+Decided 2026-11-19 via Grilling.
