@@ -104,7 +104,7 @@ version and the update banner when an update is available.
 | **Workspace → New**             | Create a workspace (the wizard below)                                                                                                                                       |
 | **Settings → Workspace Settings** | Per-workspace settings (edition, modes incl. HIL, start option, VCS/AI provider, proxy toggle) with Standard/Advanced matrix rows, import, remove-from-list          |
 | **Settings → VCS Tracker / AI-Provider** | Reusable catalogs feeding the wizard and settings screens (token-free, per ADR-0031)                                                                          |
-| **Settings → Images / Containers** | Image build (`● built` / `○ missing` markers) and delete (`● in use` / `○ unused`, with sizes); container start/stop/delete (graceful stop, verified-gone registry flip) |
+| **Settings → Images / Containers** | Image build (`● built` / `○ missing` markers) and delete (`● in use` / `○ unused`, with sizes); container start/stop/delete (graceful pod-as-unit stop/delete — companions ride the pod — verified-gone registry flip) |
 | **Settings → Export / Restore Config** | Named config backup round trip (advanced-only)                                                                                                                 |
 | **Settings → Update / Uninstall** | Update card (§ update below) and the typed-`uninstall` wizard                                                                                                        |
 | **Settings → Proxy**            | Per-workspace proxy member: start/stop/rebuild and the inline allowlist editor (advanced-only)                                                                              |

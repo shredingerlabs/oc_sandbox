@@ -45,6 +45,7 @@ func checkWebUIStopAdopt(home, root string) Item {
 	running := false   // fake ps: the container is live
 	runningImage := "" // the image the live container runs (the truth about what runs, #115)
 	podExists := false // the workspace's pod exists (pod-as-unit stop)
+	podRunning := true // the fake pod ps status when podExists (delete's running refusal)
 	built := map[string]bool{"opencode-sandbox-swdev": true, "opencode-sandbox-web": true}
 	published := false             // fake podman port 4096/tcp
 	startFail := false             // the next start.sh run fails
@@ -95,7 +96,10 @@ func checkWebUIStopAdopt(home, root string) Item {
 			return "", nil
 		case strings.HasPrefix(rest, "pod ps --format"):
 			if podExists {
-				return pod + "\trunning", nil
+				if podRunning {
+					return pod + "\trunning", nil
+				}
+				return pod + "\texited", nil
 			}
 			return "", nil
 		case strings.HasPrefix(rest, "pod exists"):
@@ -111,6 +115,7 @@ func checkWebUIStopAdopt(home, root string) Item {
 		case strings.HasPrefix(rest, "pod rm"):
 			rmCalls = append(rmCalls, args[2])
 			podExists = false
+			podRunning = false
 			return "Removed: " + pod, nil
 		case strings.HasPrefix(rest, "stop "):
 			stopCalls = append(stopCalls, args[1])
@@ -435,17 +440,20 @@ func checkWebUIStopAdopt(home, root string) Item {
 
 	// Delete stays danger-confirmed and mirrors the Container-center
 	// semantics: a running unit is refused with the stop-first hint; the
-	// stopped workspace's container removes and mirrors the registry.
+	// stopped workspace's pod removes as the unit (pod rm, members ride
+	// it) and mirrors the registry.
 	liveWith("opencode-sandbox-swdev:latest")
 	mu.Lock()
 	podExists = true
+	podRunning = true
 	mu.Unlock()
 	v = sidecar(s.URL()+"workspaces/atlas/delete", nil)
 	if scOK(v) || !strings.Contains(scStr(v, "error"), "stop it first") {
 		p.reasonf("running delete sidecar = %v, want the stop-first refusal", v)
 	}
 	mu.Lock()
-	podExists = false // stopped unit
+	podExists = true   // stopped pod: the delete resolves the pod (ADR 0029)
+	podRunning = false // exited pod → pod rm
 	running = false
 	mu.Unlock()
 	if err := (&registry.Registry{Home: home}).UpdateStatus(rootA, "stopped"); err != nil {
@@ -457,10 +465,10 @@ func checkWebUIStopAdopt(home, root string) Item {
 	}
 	waitQueueIdle("delete")
 	mu.Lock()
-	containerRemoved := len(rmCalls) >= 1 && rmCalls[len(rmCalls)-1] == cname
+	podRemoved := len(rmCalls) >= 1 && rmCalls[len(rmCalls)-1] == pod
 	mu.Unlock()
-	if !containerRemoved {
-		p.reasonf("podman rm calls = %v, want [%s]", rmCalls, cname)
+	if !podRemoved {
+		p.reasonf("pod rm calls = %v, want [%s]", rmCalls, pod)
 	}
 	waitRegistry(p, home, "atlas", "stopped")
 

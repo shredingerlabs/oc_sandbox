@@ -266,12 +266,14 @@ func (s *Server) handleContainerDelete(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write([]byte(s.renderContainers("")))
 }
 
-// runningUnit reports whether the named pod or container is live right
-// now (fresh podman state, the confirm-time guard).
+// runningUnit reports whether the unit a delete removes is live right
+// now (fresh podman state, the confirm-time guard): pod-aware — a pod
+// running covers the workspace container and any member still up (a
+// crashed container leaves companions running inside the pod).
 func (s *Server) runningUnit(name string) bool {
-	if registry.IsPodName(name) {
+	if unit := deleteUnitTarget(s.deps.Run, name); registry.IsPodName(unit) {
 		for _, p := range discovery.AllPods(s.deps.Run) {
-			if p.Name == name && p.State == "running" {
+			if p.Name == unit && p.State == "running" {
 				return true
 			}
 		}
@@ -280,11 +282,13 @@ func (s *Server) runningUnit(name string) bool {
 	return slices.Contains(discovery.RunningContainers(s.deps.Run), name)
 }
 
-// stopFirstHint is the running-unit refusal: pods and containers each
-// carry their own stop hint (TUI uninstall parity).
+// stopFirstHint is the running-unit refusal: the hint names the unit
+// the delete actually removes — the pod (podman pod stop, what the
+// Stop button runs) when one exists, the bare container for pod-less
+// runs (TUI uninstall parity).
 func (s *Server) stopFirstHint(name string) string {
-	if registry.IsPodName(name) {
-		return errStopFirstPod(name).Error()
+	if unit := deleteUnitTarget(s.deps.Run, name); registry.IsPodName(unit) {
+		return errStopFirstPod(unit).Error()
 	}
 	return errStopFirst(name).Error()
 }
@@ -455,44 +459,62 @@ func (s *Server) stopUnitOnce(name string, emit func(string)) error {
 	return nil
 }
 
+// deleteUnitTarget resolves the unit a delete removes (ADR 0029
+// pod-as-unit, stopUnitOnce's shape): a container name resolves to the
+// workspace's pod when one exists — pod rm takes the members down with
+// it — and stays the bare container for pod-less runs (pre-upgrade,
+// --offline). A pod-row name is always the pod it names.
+func deleteUnitTarget(run cmdrun.Runner, name string) string {
+	if registry.IsPodName(name) {
+		return name
+	}
+	pod := registry.PodName(registry.ContainerID(name))
+	if discovery.PodExists(run, pod) {
+		return pod
+	}
+	return name
+}
+
 // deleteContainerOp mirrors the TUI Container-center delete
 // (containerview launchDelete, one unit): never force-killing a
 // running unit (stop-first refusal, the pre-op guard re-checks),
-// podman pod rm / podman rm, verified gone before any registry touch.
+// pod-aware (ADR 0029) — podman pod rm when the workspace's pod exists
+// (members ride the pod), podman rm for pod-less runs, verified gone
+// before any registry touch.
 func (s *Server) deleteContainerOp(name string) func(emit func(string)) error {
 	d := s.deps
 	return func(emit func(string)) error {
-		if registry.IsPodName(name) {
+		unit := deleteUnitTarget(d.Run, name)
+		if registry.IsPodName(unit) {
 			for _, p := range discovery.AllPods(d.Run) {
-				if p.Name == name && p.State == "running" {
-					return errStopFirstPod(name)
+				if p.Name == unit && p.State == "running" {
+					return errStopFirstPod(unit)
 				}
 			}
-		} else if slices.Contains(discovery.RunningContainers(d.Run), name) {
-			return errStopFirst(name)
+			out, err := d.Run.Output("podman", "pod", "rm", unit)
+			for _, l := range cmdrun.Lines(out) {
+				emit(l)
+			}
+			if err != nil {
+				return err
+			}
+			if slices.ContainsFunc(discovery.AllPods(d.Run), func(p discovery.PodState) bool { return p.Name == unit }) {
+				return errStillExists(unit)
+			}
+			return s.mirrorStopped(name)
 		}
-		if registry.IsPodName(name) {
-			out, err := d.Run.Output("podman", "pod", "rm", name)
-			for _, l := range cmdrun.Lines(out) {
-				emit(l)
-			}
-			if err != nil {
-				return err
-			}
-			if slices.ContainsFunc(discovery.AllPods(d.Run), func(p discovery.PodState) bool { return p.Name == name }) {
-				return errStillExists(name)
-			}
-		} else {
-			out, err := d.Run.Output("podman", "rm", name)
-			for _, l := range cmdrun.Lines(out) {
-				emit(l)
-			}
-			if err != nil {
-				return err
-			}
-			if slices.ContainsFunc(discovery.AllContainers(d.Run), func(c discovery.ContainerState) bool { return c.Name == name }) {
-				return errStillExists(name)
-			}
+		if slices.Contains(discovery.RunningContainers(d.Run), unit) {
+			return errStopFirst(unit)
+		}
+		out, err := d.Run.Output("podman", "rm", unit)
+		for _, l := range cmdrun.Lines(out) {
+			emit(l)
+		}
+		if err != nil {
+			return err
+		}
+		if slices.ContainsFunc(discovery.AllContainers(d.Run), func(c discovery.ContainerState) bool { return c.Name == unit }) {
+			return errStillExists(unit)
 		}
 		return s.mirrorStopped(name)
 	}

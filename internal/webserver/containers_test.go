@@ -56,6 +56,14 @@ func fakePodman(running []string, pods []string, containers []string, images []s
 			return strings.Join(containers, "\n"), nil
 		case strings.HasPrefix(rest, "pod ps --format"):
 			return strings.Join(pods, "\n"), nil
+		case strings.HasPrefix(rest, "pod exists"):
+			pod := args[len(args)-1]
+			for _, row := range pods {
+				if strings.SplitN(row, "\t", 2)[0] == pod {
+					return "", nil
+				}
+			}
+			return "", fmt.Errorf("no such pod %s", pod)
 		case strings.HasPrefix(rest, "images --format"):
 			return strings.Join(images, "\n"), nil
 		case strings.HasPrefix(rest, "image exists"):
@@ -593,6 +601,93 @@ func TestDeletePodAsUnit(t *testing.T) {
 			t.Fatalf("bare podman rm ran for a pod unit: %v", c.Args)
 		}
 	}
+}
+
+// Delete resolves the workspace's pod for a registry row (ADR 0029
+// pod-as-unit): a container-name delete runs podman pod rm — members
+// ride the pod — refused on a running pod with the pod stop hint; the
+// pod-less row keeps the bare container rm (the fallback above).
+func TestDeleteResolvesPodForRegistryRow(t *testing.T) {
+	reg, roots := fixtureRegistry(t, "alpha")
+	root := roots["alpha"]
+	id := registry.ContainerIdentity(root)
+	cname := "opencode-sandbox-" + id
+	pod := registry.PodName(id)
+
+	newEnv := func(podRunning bool) (*cmdrun.Fake, *syncList, *syncList) {
+		pods := newSyncSet(pod)
+		podRms := &syncList{}
+		bareRms := &syncList{}
+		run := fakePodman(nil, nil, nil, nil, nil)
+		base := run.Script
+		run.Script = func(name string, args []string) (string, error) {
+			rest := ""
+			if name == "podman" {
+				rest = strings.Join(args, " ")
+			}
+			switch {
+			case name == "podman" && strings.HasPrefix(rest, "pod exists"):
+				if pods.has(args[len(args)-1]) {
+					return "", nil
+				}
+				return "", fmt.Errorf("no such pod")
+			case name == "podman" && strings.HasPrefix(rest, "pod ps --format"):
+				var rows []string
+				if pods.has(pod) {
+					state := "exited"
+					if podRunning {
+						state = "running"
+					}
+					rows = append(rows, podState(pod, state))
+				}
+				return strings.Join(rows, "\n"), nil
+			case name == "podman" && strings.HasPrefix(rest, "pod rm "):
+				podRms.add(args[2])
+				pods.set(args[2], false)
+				return "Removed: " + args[2], nil
+			case name == "podman" && strings.HasPrefix(rest, "rm "):
+				bareRms.add(args[1])
+				return "Removed: " + args[1], nil
+			case name == "podman" && strings.HasPrefix(rest, "ps -a --format {{.Names}}"):
+				return containerState(cname, "exited"), nil
+			}
+			return base(name, args)
+		}
+		return run, podRms, bareRms
+	}
+
+	// running pod → refused with the pod stop hint: the container-name
+	// row deletes the pod, so the refusal is the pod's (a running pod
+	// covers the workspace container and any member still up).
+	run, podRms, bareRms := newEnv(true)
+	s := depsServer(t, run, reg)
+	doc := body(t, post(t, s.URL()+"containers/"+cname+"/delete", ""))
+	if !strings.Contains(doc, "stop it first: podman pod stop "+pod) {
+		t.Fatalf("running-pod delete missing the pod stop-first hint:\n%s", doc)
+	}
+	if calls := podRms.snapshot(); len(calls) != 0 {
+		t.Fatalf("pod rm ran on a running pod")
+	}
+	if calls := bareRms.snapshot(); len(calls) != 0 {
+		t.Fatalf("bare rm ran on a running pod")
+	}
+
+	// exited pod → podman pod rm (members ride the pod), no bare rm,
+	// the registry mirrors the stale status to stopped.
+	run2, podRms2, bareRms2 := newEnv(false)
+	s2 := depsServer(t, run2, reg)
+	post(t, s2.URL()+"containers/"+cname+"/delete", "")
+	waitFor(t, "pod rm call", func() bool {
+		calls := podRms2.snapshot()
+		return len(calls) == 1 && calls[0] == pod
+	})
+	if calls := bareRms2.snapshot(); len(calls) != 0 {
+		t.Fatalf("bare podman rm ran for a pod unit: %v", calls)
+	}
+	waitFor(t, "registry mirror flip to stopped", func() bool {
+		ws, err := reg.ByName("alpha")
+		return err == nil && ws.ContainerStatus == "stopped"
+	})
 }
 
 // Conflict semantics (#158, spec §9): ops queue per workspace key —
