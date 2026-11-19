@@ -1,0 +1,29 @@
+# oc-searxng - SearXNG Einstellungen
+#
+# Benutzer-editierbar (Custom-Edition-Dockerfile-Regel, ADR 0019):
+# dieses File wird bei Updates niemals ueberschrieben; es wird nur neu
+# erzeugt, wenn es fehlt. start.sh bind-mountet es in den oc-searxng-
+# Container, Aenderungen wirken beim naechsten Start ohne Rebuild.
+#
+# WICHTIG: "formats: json" ist Pflicht - das SearXNG-MCP im Projekt-
+# Container spricht die JSON-API dieser Instanz.
+#
+# use_default_settings: true: alle hier nicht gesetzten Werte kommen aus
+# den eingebauten SearXNG-Defaults (Engines ueber Engine-Eintraege
+# sperrbar/aktivierbar).
+
+use_default_settings: true
+
+server:
+  # Rootless-Podman meldet den Container nur an 127.0.0.1 (start.sh
+  # published nur dorthin); der limiter ist fuer so eine private
+  # Single-User-Instanz sinnlos und wuerde die MCP-Suchrate bremsen.
+  bind_address: "0.0.0.0"
+  limiter: false
+  image_proxy: false
+  public_instance: false
+
+search:
+  formats:
+    - html
+    - json
