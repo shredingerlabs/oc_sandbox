@@ -162,8 +162,18 @@ if [[ "$WORKSPACE_KIND" == "pkm" ]]; then
     fi
   fi
 
-  # Vault skeleton in the workspace repo
+  # Vault skeleton in the workspace repo; wiki/index.md seeds the OKF bundle
+  # metadata (AGENTS.md: keep this frontmatter on every index update)
   mkdir -p "${WORKSPACE_ROOT}/workspace/notes" "${WORKSPACE_ROOT}/workspace/raw" "${WORKSPACE_ROOT}/workspace/wiki"
+  if [[ ! -f "${WORKSPACE_ROOT}/workspace/wiki/index.md" ]]; then
+    cat > "${WORKSPACE_ROOT}/workspace/wiki/index.md" <<'EOF'
+---
+okf_version: "0.3"
+title: Personal Knowledge Wiki
+description: Sources, concepts, entities and syntheses built from the owner's notes and from ingested articles and papers. Start here for wiki questions.
+---
+EOF
+  fi
 fi
 
 SKILLS_TARGET="${WORKSPACE_ROOT}/.opencode_config/skills"

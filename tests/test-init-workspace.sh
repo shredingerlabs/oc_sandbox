@@ -224,10 +224,12 @@ for entry in '.obsidian/workspace*.json' '.obsidian/cache' '.trash/' '.DS_Store'
 done
 [[ "$(grep -c '^\.opencode_config/$' "$root_pkm/.gitignore")" == 1 ]]
 
-# Vault-Skelett: notes/, raw/, wiki/
+# Vault-Skelett: notes/, raw/, wiki/ — index.md mit OKF-Bundle-Metadaten
 for d in notes raw wiki; do
   [[ -d "$root_pkm/workspace/$d" ]]
 done
+grep -q 'okf_version: "0.3"' "$root_pkm/workspace/wiki/index.md"
+grep -q 'title: Personal Knowledge Wiki' "$root_pkm/workspace/wiki/index.md"
 
 printf 'init-workspace pkm seeding tests passed\n'
 
@@ -265,6 +267,7 @@ seed_files=(
   "workspace/notes"
   "workspace/raw"
   "workspace/wiki"
+  "workspace/wiki/index.md"
 )
 seed_state() {
   ( cd "$root_pkm" && for f in "${seed_files[@]}"; do
