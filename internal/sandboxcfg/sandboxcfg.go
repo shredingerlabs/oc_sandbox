@@ -45,6 +45,7 @@ type Config struct {
 	CBMAutoWatch        bool
 	AIProvider          string
 	WorkspaceSource     string
+	WorkspaceKind       string
 	RepoURL             string
 	VCSTracking         string
 	UseProxy            bool
@@ -98,6 +99,7 @@ func Read(path string) (Config, error) {
 		CBMAutoWatch:        doc.GetBool("cbm_auto_watch", false),
 		AIProvider:          doc.GetString("ai_provider", ""),
 		WorkspaceSource:     doc.GetString("workspace_source", "empty"),
+		WorkspaceKind:       doc.GetString("workspace_kind", "code"),
 		RepoURL:             doc.GetString("repo_url", ""),
 		VCSTracking:         doc.GetString("vcs_tracking", "none"),
 		UseProxy:            doc.GetBool("use_proxy", false),

@@ -212,10 +212,36 @@ func lastLines(out string, n int) string {
 
 // probeScript / cloneScript mirror the in-container bash of
 // run_first_run_clone (start-tui.sh:1452): URL match marks the flag
-// without re-cloning; the clone cleans the target first.
+// without re-cloning; the clone cleans the target first. For a pkm
+// workspace ($2 == pkm) the creation-time vault skeleton (notes/raw/
+// wiki with the OKF wiki/index.md bundle metadata, #122) is stashed
+// before the wipe and restored no-clobber after the clone — the repo
+// content wins over the seed, matching init-workspace.sh's
+// "seed index.md only when absent" guard; a failed clone restores for
+// the retry.
 const probeScript = `[[ "$(git -C /home/dev/workspace config --get remote.origin.url 2>/dev/null)" == "$1" ]] && git -C /home/dev/workspace rev-parse --verify -q HEAD >/dev/null 2>&1`
 
-const cloneScript = `rm -rf /home/dev/workspace/* /home/dev/workspace/.[!.]* 2>/dev/null || true; git clone -- "$1" /home/dev/workspace`
+const cloneScript = `stash=/tmp/pkm_vault_preserve; kind="${2:-}"
+if [[ "$kind" == pkm ]]; then
+  rm -rf "$stash"; mkdir -p "$stash"
+  for d in notes raw wiki; do
+    [[ -e /home/dev/workspace/$d ]] && cp -a /home/dev/workspace/$d "$stash/"
+  done
+fi
+rm -rf /home/dev/workspace/* /home/dev/workspace/.[!.]* 2>/dev/null || true
+git clone -- "$1" /home/dev/workspace; rc=$?
+if [[ "$kind" == pkm ]]; then
+  for d in notes raw wiki; do
+    if [[ -d "$stash/$d" ]]; then
+      if [[ -e /home/dev/workspace/$d ]]; then
+        cp -an "$stash/$d/." /home/dev/workspace/$d/ 2>/dev/null || true
+      else
+        cp -a "$stash/$d" /home/dev/workspace/
+      fi
+    fi
+  done
+fi
+rm -rf "$stash"; exit $rc`
 
 // cbmScript is the hardcoded CBM configuration (start-tui.sh:1543):
 // auto_index / auto_index_limit / auto_watch.
@@ -251,7 +277,7 @@ func (p *PipelineStager) cloneStage(emit func(string)) error {
 
 	emit("Cloning repository…")
 	out, err = p.Runner.Output("podman", "exec", "--user", "dev", name,
-		"bash", "-c", cloneScript, "_", repoURL)
+		"bash", "-c", cloneScript, "_", repoURL, config.WorkspaceKind)
 	for _, l := range cmdrun.Lines(out) {
 		emit(l)
 	}
