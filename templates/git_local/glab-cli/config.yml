@@ -1,0 +1,16 @@
+# Projekt-lokale glab-Konfiguration (.git_local/glab-cli/config.yml)
+#
+# GLAB_CONFIG_DIR zeigt auf dieses Verzeichnis.
+#
+# glab liest Host-Credentials aus dem hosts:-Block in DIESER Datei
+# (eine separate hosts.yml wird von glab ignoriert - das ist gh-Konvention).
+# Token erzeugen: GitLab -> Settings -> Access Tokens (glpat-...)
+# Host, Token und Protokoll pro Projekt/Kunde anpassen.
+
+editor: vi
+
+# hosts:-Block vom Wizard ergänzt (oder hier auskommentieren + ausfüllen):
+# hosts:
+#   gitlab.example.com:
+#     token: glpat-xxxxxxxxxxxxxxxxxxxx
+#     api_protocol: https
