@@ -49,3 +49,4 @@ Never overwrite originals blindly: keep user-provided files intact, work on copy
 Rootless Podman container.
 Only persistent directory: /home/dev/workspace.
 Anything outside is lost on restart. Save deliverables inside it.
+Use searxng-mcp for web search.
