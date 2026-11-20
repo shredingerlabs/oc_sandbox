@@ -315,7 +315,14 @@ func (s *Server) handleWorkspaceStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if s.setupHolds(name) {
-		http.Error(w, setupRefusal(name), http.StatusConflict)
+		// The variant path (the Open chain's fetch) answers the JSON
+		// sidecar the card renders — a plain-text 409 reads as a
+		// fetch failure ("start failed — retry"), not the refusal.
+		if r.PostFormValue("variant") != "" {
+			refuseSidecar(w, setupRefusal(name))
+		} else {
+			http.Error(w, setupRefusal(name), http.StatusConflict)
+		}
 		return
 	}
 	if variant := r.PostFormValue("variant"); variant != "" {

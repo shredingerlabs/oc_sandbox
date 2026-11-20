@@ -391,6 +391,47 @@ func TestSetupHeadlessShowsManualCommand(t *testing.T) {
 	waitFlag(t, f.root, "setup_complete", true)
 }
 
+// A skills-less workspace (chat/pkm, ADR 0041) completes after CBM with
+// no skills stage and no status-file relay — the machine's terminal
+// state must retire the session (the table doc: removed on completion,
+// abort, failure and cancel). Regression: the session used to stay in
+// the table forever, so every action kept answering "refused —
+// first-run setup session pending" with no recovery row left.
+func TestSetupSkillslessCompletionRetiresSession(t *testing.T) {
+	f := newSetupFixture(t, false)
+	if err := sandboxcfg.PatchString(f.home, sandboxcfg.Path(f.root), "workspace_kind", "pkm"); err != nil {
+		t.Fatalf("patch workspace_kind: %v", err)
+	}
+	if resp := postSetup(t, f.s, "alpha", "retry"); resp.StatusCode != http.StatusOK {
+		t.Fatalf("setup/retry status = %d, want 200", resp.StatusCode)
+	}
+
+	waitFlag(t, f.root, "setup_complete", true)
+
+	deadline := time.Now().Add(2 * time.Second)
+	for f.s.setupHolds("alpha") {
+		if time.Now().After(deadline) {
+			t.Fatal("setup session must retire once the machine completes without a skills stage")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	// the card renders a set-up workspace: neither slot nor retry row.
+	card := cardOf(t, f.s, "alpha")
+	if strings.Contains(card, `data-setup-slot`) || strings.Contains(card, `data-act="setup-retry"`) {
+		t.Fatalf("completed workspace must render neither slot nor retry row:\n%s", card)
+	}
+
+	// start answers normally — not the setup-hold refusal.
+	resp, err := http.PostForm(f.s.URL()+"workspaces/alpha/start", url.Values{"variant": {"web"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b := body(t, resp); resp.StatusCode != http.StatusOK || strings.Contains(b, "first-run setup") {
+		t.Fatalf("start after completed setup = %d %q, want a normal start", resp.StatusCode, b)
+	}
+}
+
 // While a setup session is pending it behaves like a busy op for the
 // one-at-a-time-per-workspace rule: the workspace's other actions are
 // disabled with a disabled-reason, and the action POSTs refuse.
@@ -438,5 +479,20 @@ func TestSetupPendingBlocksWorkspaceActions(t *testing.T) {
 		if resp.StatusCode != wantStatus || !strings.Contains(b, "first-run setup") {
 			t.Fatalf("POST %s during pending setup = %d %q, want %d with the setup reason", route, resp.StatusCode, b, wantStatus)
 		}
+	}
+
+	// the variant start POST (the Open chain's fetch) answers the JSON
+	// sidecar refusal the card renders — not the plain-text 409 the
+	// fetch misreads as "start failed — retry".
+	resp, err := http.PostForm(f.s.URL()+"workspaces/alpha/start", url.Values{"variant": {"web"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var side opSidecar
+	if err := jsonDecode(body(t, resp), &side); err != nil {
+		t.Fatalf("variant start refusal must be a JSON sidecar: %v", err)
+	}
+	if side.OK || !strings.Contains(side.Error, "first-run setup") {
+		t.Fatalf("variant start refusal = %+v, want the setup-hold refusal", side)
 	}
 }

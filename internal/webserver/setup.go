@@ -48,6 +48,7 @@ type setupSession struct {
 	statusFile string           // the relay file the wrapper's exit code lands in
 	window     bool             // a host terminal window opened (false = headless)
 	pending    bool             // the skills stage is awaiting the status file
+	finished   bool             // the machine settled done (op-goroutine only)
 }
 
 // setupState is the server-side session table. Sessions are removed on
@@ -140,7 +141,21 @@ func (s *Server) launchSetup(ws registry.Workspace) string {
 		Key: key,
 		Run: func(emit func(string)) error { return s.runSetupStages(sess, emit) },
 		Done: func(err error) {
-			if err == nil || errors.Is(err, setupflow.ErrAbort) {
+			// Terminal machine states retire the session (the table
+			// doc: removed on completion, abort, failure); only a
+			// pending skills stage keeps it — the status-file relay
+			// owns its exit. Skills-less kinds (chat/pkm, ADR 0041)
+			// have no relay, so without this their completed session
+			// holds the workspace forever.
+			if !sess.pending {
+				s.setups.remove(sess.name)
+			}
+			if err == nil {
+				if sess.finished {
+					s.hub.PublishLine(opID, "First-run setup finished — the workspace is ready.")
+				}
+				s.hub.PublishWorkspaceOp(opID, "done")
+			} else if errors.Is(err, setupflow.ErrAbort) {
 				s.hub.PublishWorkspaceOp(opID, "done")
 			} else {
 				s.hub.PublishWorkspaceOp(opID, "failed")
@@ -187,6 +202,12 @@ func (s *Server) runSetupStages(sess *setupSession, emit func(string)) error {
 		err := sess.stager.Run(stage, emit)
 		if doneErr := sess.machine.Done(err); doneErr != nil {
 			return doneErr
+		}
+		// The skills-less kinds settle here (ADR 0041): record the
+		// terminal state for the op's Done callback — same goroutine,
+		// so the machine read never races the relay poller's writes.
+		if sess.machine.Phase() == setupflow.PhaseDone {
+			sess.finished = true
 		}
 	}
 }
