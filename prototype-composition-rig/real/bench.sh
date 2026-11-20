@@ -72,6 +72,21 @@ echo "== M2 warm: same assembly + one component rebuild, nothing wiped"
 timed M2-assembly-warm "$P" build -t localhost/rig-set2:latest --network=host -f "build/sets/Dockerfile.$SET2" .
 timed M2-comp-tc-go-warm "$P" build -t localhost/rig-comp-tc-go:latest --network=host -f build/toolchains/Dockerfile.tc-go .
 
+echo "== M3d: incremental delta add-one (parent set1 image + tc-cpp payload only)"
+./scripts/gen-set-delta.sh set2-delta localhost/rig-set1:latest tc-cpp
+timed M3d-add-one-delta-assembly "$P" build -t localhost/rig-set2-delta:latest --network=host -f build/sets/Dockerfile.set2-delta .
+timed M3d-add-one-delta-warm "$P" build -t localhost/rig-set2-delta:latest --network=host -f build/sets/Dockerfile.set2-delta .
+
+echo "== sizes summary"
+{
+  echo "--- image sizes"
+  "$P" image list --format '{{.Repository}}:{{.Tag}} {{.Size}}' | grep -E 'rig-|opencode-sandbox-base' | sort
+  echo "--- payload archives"
+  for tc in $CANON; do
+    "$P" run --rm "localhost/rig-comp-$tc:latest" bash -c 'stat -c "%n %s" /rig-out/*' || true
+  done
+} | tee sizes-summary.txt
+
 echo "== payload archive sizes (inside component images)"
 for tc in $CANON; do
   echo "--- $tc"
