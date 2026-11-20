@@ -1,0 +1,9 @@
+#!/bin/bash
+# PROTOTYPE throwaway: podman invocation wrapper.
+# Expects a host with podman >= 4.3 (Ubuntu 24.04 pocket / Debian 12 baseline).
+set -euo pipefail
+if command -v podman >/dev/null 2>&1; then
+  exec podman "$@"
+fi
+echo "error: podman not found in PATH — run this rig on a host with podman >= 4.3" >&2
+exit 1
