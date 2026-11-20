@@ -55,8 +55,8 @@ timed M0-base-inspect "$P" image inspect "$BASE_IMG" --format '{{.Size}}' || tru
 
 echo "== generate component/set Dockerfiles"
 for tc in $CANON; do ./scripts/gen-component.sh "$tc"; done
-./scripts/gen-set.sh "$SET1" $SET1
-./scripts/gen-set.sh "$SET2" $SET2
+./scripts/gen-set.sh "${SET1// /-}" $SET1
+./scripts/gen-set.sh "${SET2// /-}" $SET2
 
 echo "== M3 (runs first so cold numbers stay uncontaminated): set1 cold, then add-one"
 wipe_caches
