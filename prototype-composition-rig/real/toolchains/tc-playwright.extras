@@ -1,5 +1,6 @@
 /usr/lib/node_modules/playwright
 /usr/lib/node_modules/playwright-core
 /usr/lib/node_modules/@playwright
-/usr/local/bin/playwright
+/usr/bin/playwright
+/usr/bin/playwright-core
 /usr/local/share/playwright-browsers
