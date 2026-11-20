@@ -10,6 +10,10 @@
 #
 # "Newly installed" = current dpkg status minus the pre-fragment snapshot the
 # generated Dockerfile took (/rig-snap/).
+#
+# tar is run with --no-recursion everywhere: dpkg -L lists every owned file
+# (dirs included as plain dir members), and recursion would swallow the whole
+# filesystem the moment a package owns / (base-files does — measured in #186).
 set -euo pipefail
 tc="${1:-unknown}"
 out=/rig-out
@@ -42,6 +46,8 @@ def installed_stanzas(path):
 cur = installed_stanzas('/var/lib/dpkg/status')
 base = installed_stanzas('/rig-snap/dpkg-status')
 new_pkgs = sorted(cur - base)
+print('dump: dpkg status cur=%d base=%d new=%d' % (len(cur), len(base), len(new_pkgs)))
+print('dump: new packages: %s' % (', '.join(new_pkgs) if new_pkgs else '(none)'))
 
 dpkg_paths = []
 for p in new_pkgs:
@@ -71,26 +77,35 @@ for rec in find_records():
             if row and row[0]:
                 pip_paths.append(os.path.normpath(os.path.join(site_root, row[0])))
 
-# --- fragment-declared extras (one absolute path per line; may be absent)
-extras = []
+# --- fragment-declared extras (one absolute path per line; may be absent).
+# Declared dirs are opaque trees the fragment owns wholesale: expand them to
+# their full contents (tar runs --no-recursion, see header).
+extra_paths = []
 if os.path.exists('/rig/extras.txt'):
-    extras = [l.strip() for l in open('/rig/extras.txt') if l.strip()]
+    for e in [l.strip() for l in open('/rig/extras.txt') if l.strip()]:
+        extra_paths.append(e)
+        if os.path.isdir(e) and not os.path.islink(e):
+            for root, dirs, files in os.walk(e):
+                extra_paths.extend(os.path.join(root, d) for d in dirs)
+                extra_paths.extend(os.path.join(root, f) for f in files)
 
-# write the payload list (only paths that exist), sorted, deduped
-paths = sorted(set(dpkg_paths + pip_paths + extras))
+# write the payload list (only paths that exist), sorted, deduped, no root entry
+paths = sorted(set(dpkg_paths + pip_paths + extra_paths)
+               - {'/', '/.', './', '.'})
 existing = [p for p in paths if os.path.lexists(p)]
 missing = [p for p in paths if not os.path.lexists(p)]
 if missing:
-    print('dump: skipping %d nonexistent declared paths' % len(missing))
+    print('dump: skipping %d nonexistent declared paths (e.g. %s)'
+          % (len(missing), missing[0]))
 if not existing:
     existing = ['/rig/dump.sh']  # keep the tar well-formed
 with open('/rig/payload-list.txt', 'w') as f:
     for p in existing:
         f.write(p + '\n')
-print('dump: %d dpkg-new pkgs, %d payload paths' % (len(new_pkgs), len(existing)))
+print('dump: %d payload paths' % len(existing))
 PY
 
-tar -C / --verbatim-files-from -czf "$out/payload.tar.gz" -T /rig/payload-list.txt
+tar -C / --verbatim-files-from --no-recursion -czf "$out/payload.tar.gz" -T /rig/payload-list.txt
 
 cp /var/lib/dpkg/status "$out/pm-status"
 tar -C /var/lib/dpkg -czf "$out/pm-info.tar.gz" info
