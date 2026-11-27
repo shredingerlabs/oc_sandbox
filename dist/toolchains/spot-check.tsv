@@ -1,0 +1,51 @@
+# spot-check.tsv — the Tier-2 spot-check table (spec toolchain-sets §12),
+# maintained alongside the catalog: one row per binary invocation / module
+# import a set image must be able to run, keyed by toolchain id. Consumed by
+# tests/verify-set-image.sh, which runs every row for the base and the set's
+# members inside the set container (bash -lc, cwd /home/dev). tests/
+# test-verify-set-image.sh pins the table's integrity: base + every catalog
+# id present, no stale ids, every snippet parses.
+# Format: <id><TAB><snippet>  ('#' comment lines and blank lines are skipped).
+base	git --version
+base	curl --version
+base	jq --version
+base	python3 --version
+cpp	g++ -dumpversion
+cpp	clang++ --version
+cpp	cmake --version
+cpp	ninja --version
+cpp	gdb --version
+cpp	pkg-config --version
+rust	cargo --version
+rust	rustc --version
+java	javac -version
+java	mvn -version
+go	go version
+node-dev	tsc --version
+node-dev	jest --version
+node-dev	pnpm --version
+node-dev	corepack --version
+playwright	playwright --version
+arm-embedded	arm-none-eabi-gcc --version
+arm-embedded	gdb-multiarch --version
+arduino	arduino-cli version
+platformio	pio --version
+micropython	mpremote --version
+micropython	esptool version
+picoscope	python3 -c 'import picoscope, picosdk'
+pyvisa	python3 -c 'import pyvisa, pyvisa_py, usb'
+usb	lsusb --version
+usb	ldconfig -p | grep -q libusb-1.0
+ros2	ros2 --help
+octave	octave --version
+python-science	python3 -c 'import numpy, scipy, matplotlib, pandas, openpyxl, PIL'
+latex	latexmk --version
+latex	biber --version
+latex	chktex --version
+latex	xelatex --version
+latex	lualatex --version
+pdf-tools	gs --version
+pdf-tools	pdftotext -v
+pandoc	pandoc --version
+fonts	fc-list | grep -qi liberation && fc-list | grep -qi noto
+libreoffice	libreoffice --version
