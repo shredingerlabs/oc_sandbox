@@ -201,9 +201,20 @@ func (r *opRunner) run(op *webOp) {
 // sandboxcfg/openworkspace so the web handlers mirror the TUI's start
 // validations (openworkspace + containerview semantics). ---
 
-// readSandboxCfg loads the workspace's stored sandbox_config.json.
-func readSandboxCfg(root string) (sandboxcfg.Config, error) {
-	return sandboxcfg.Read(sandboxcfg.Path(root))
+// readSandboxCfg loads the workspace's stored sandbox_config.json through
+// the toolchain-sets migration read path (spec §10): the server's
+// toolchains dir supplies the legacy-expansion bundle map.
+func (s *Server) readSandboxCfg(root string) (sandboxcfg.Config, error) {
+	return sandboxcfg.Read(sandboxcfg.Path(root), s.toolchainsRoot())
+}
+
+// toolchainsRoot resolves the toolchains dir: the wired Deps path, else
+// the install layout under the server's home.
+func (s *Server) toolchainsRoot() string {
+	if s.deps != nil && s.deps.Toolchains != "" {
+		return s.deps.Toolchains
+	}
+	return LayoutFor(s.home()).Toolchains
 }
 
 // validateStartCfg mirrors the TUI's pre-start validations: offline +
@@ -225,8 +236,7 @@ func validateStartCfg(cfg sandboxcfg.Config) error {
 // container center's and the restart's default — the cards grant the
 // other access variants explicitly.
 func startScriptArgs(root, containerID string, cfg sandboxcfg.Config) []string {
-	return openworkspace.StartArgs(root, cfg.ContainerEdition, containerID,
-		cfg.ContainerModes, "web", cfg.UseProxy, cfg.UseStt, cfg.SearchMode)
+	return openworkspace.StartArgs(root, cfg, containerID, "web")
 }
 
 func errImageMissing(edition string) error {

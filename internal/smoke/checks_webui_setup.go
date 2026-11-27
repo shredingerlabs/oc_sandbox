@@ -181,13 +181,13 @@ func checkWebUISetup(home, root string) Item {
 	waitFlag := func(rt, flag string, want bool) {
 		deadline := time.Now().Add(3 * time.Second)
 		for time.Now().Before(deadline) {
-			cfg, err := sandboxcfg.Read(sandboxcfg.Path(rt))
+			cfg, err := sandboxcfg.Read(sandboxcfg.Path(rt), toolchainsRoot(root))
 			if err == nil && setupFlag(cfg, flag) == want {
 				return
 			}
 			time.Sleep(10 * time.Millisecond)
 		}
-		cfg, rerr := sandboxcfg.Read(sandboxcfg.Path(rt))
+		cfg, rerr := sandboxcfg.Read(sandboxcfg.Path(rt), toolchainsRoot(root))
 		p.reasonf("%s flag never reached %v (read err %v, cfg %+v)", flag, want, rerr, cfg)
 	}
 

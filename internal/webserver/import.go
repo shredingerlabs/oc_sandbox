@@ -94,7 +94,7 @@ var importStageTmpl = template.Must(template.New("importstage").Funcs(fragmentFu
 <input id="import-name" class="field" type="text" name="name" value="{{.Name}}" required>
 <dl class="kv">
 <dt>Path</dt><dd>{{.Path}}</dd>
-<dt>Edition</dt><dd>{{.Config.ContainerEdition}}</dd>
+<dt>Edition</dt><dd>{{.Config.SelectionLabel}}</dd>
 <dt>Modes</dt><dd>{{joinModes .Config.ContainerModes}}</dd>
 <dt>Start option</dt><dd>{{.Config.StartOption}}</dd>
 <dt>Status</dt><dd>stopped (starts on demand via Open Workspace)</dd>
@@ -133,7 +133,7 @@ func (s *Server) handleImportScreen(w http.ResponseWriter, r *http.Request) {
 // /import-workspace {path}) and renders the next stage.
 func (s *Server) handleImportWorkspace(w http.ResponseWriter, r *http.Request) {
 	root := canonicalImportPath(r.FormValue("path"))
-	res, err := importcheck.Check(root, s.regView())
+	res, err := importcheck.Check(root, s.regView(), s.toolchainsRoot())
 	switch {
 	case err != nil:
 		renderT(w, importStageTmpl, importStageData{Broken: true, Path: root})
@@ -168,7 +168,7 @@ func (s *Server) handleImportRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	root := canonicalImportPath(r.FormValue("path"))
-	cfg, err := sandboxcfg.Read(sandboxcfg.Path(root))
+	cfg, err := s.readSandboxCfg(root)
 	name := strings.TrimSpace(r.FormValue("name"))
 	req := registry.AddRequest{Name: name, Path: root}
 	if err == nil { // stored config drives the VCS link, like the TUI

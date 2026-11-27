@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/shredingerlabs/oc-sandbox/internal/cmdrun"
+	"github.com/shredingerlabs/oc-sandbox/internal/openworkspace"
 	"github.com/shredingerlabs/oc-sandbox/internal/registry"
 	"github.com/shredingerlabs/oc-sandbox/internal/sandboxcfg"
 )
@@ -21,12 +22,13 @@ type RunnerFactory func(root string) Stager
 // NewStagerFor returns the production stage runner for a workspace root.
 // The script paths are constructor args so the wiring decides the
 // install layout (the wiring resolves it via webserver.LayoutFor), not this package.
-func NewStagerFor(run cmdrun.Runner, home string, reg *registry.Registry, startScript, configureScript string) RunnerFactory {
+func NewStagerFor(run cmdrun.Runner, home string, reg *registry.Registry, startScript, configureScript, toolchains string) RunnerFactory {
 	return func(root string) Stager {
 		return &PipelineStager{
 			Home: home, Root: root, Reg: reg, Runner: run,
 			StartScript:     startScript,
 			ConfigureScript: configureScript,
+			Toolchains:      toolchains,
 		}
 	}
 }
@@ -43,6 +45,7 @@ type PipelineStager struct {
 
 	StartScript     string
 	ConfigureScript string
+	Toolchains      string // toolchains dir — the config read's bundle-map root
 
 	cloned bool // memoized from sandbox config on first Run
 }
@@ -62,7 +65,7 @@ func (p *PipelineStager) ExecFor(stage Stage, root string) []string {
 	if stage != StageSkills {
 		return nil
 	}
-	config, err := sandboxcfg.Read(sandboxcfg.Path(p.Root))
+	config, err := p.config()
 	if err != nil {
 		return nil
 	}
@@ -88,9 +91,10 @@ func (p *PipelineStager) Run(stage Stage, emit func(string)) error {
 	}
 }
 
-// config reads the sandbox config lazily (fresh per call).
+// config reads the sandbox config lazily (fresh per call) through the
+// toolchain-sets migration read path (spec §10).
 func (p *PipelineStager) config() (sandboxcfg.Config, error) {
-	return sandboxcfg.Read(sandboxcfg.Path(p.Root))
+	return sandboxcfg.Read(sandboxcfg.Path(p.Root), p.Toolchains)
 }
 
 func (p *PipelineStager) workspace() (registry.Workspace, error) {
@@ -152,9 +156,9 @@ func (p *PipelineStager) startContainer(emit func(string)) error {
 	if err != nil {
 		return err
 	}
-	args := []string{"bash", p.StartScript, p.Root,
-		"--edition", config.ContainerEdition,
-		"--container-id", proj.ContainerID}
+	args := append([]string{"bash", p.StartScript, p.Root},
+		openworkspace.SelectionFlags(config)...)
+	args = append(args, "--container-id", proj.ContainerID)
 	args = append(args, containerModeFlags(config.ContainerModes)...)
 	if config.UseProxy {
 		args = append(args, "--use_proxy")

@@ -6,6 +6,8 @@ package webserver
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -26,7 +28,29 @@ func restartSeed(t *testing.T, home string) (string, *registry.Registry) {
 	if err := reg.AddWorkspace(registry.AddRequest{Name: "alpha", Path: root}); err != nil {
 		t.Fatalf("AddWorkspace: %v", err)
 	}
-	if err := sandboxcfg.Create(home, sandboxcfg.Path(root), "swdev", nil, "web", "", sandboxcfg.SearchSearxng); err != nil {
+	// A LEGACY config (container_edition): these tests pin the legacy
+	// missing-image refusal and the --edition start vector the shipped
+	// read support keeps serving (spec §10).
+	if err := os.MkdirAll(filepath.Join(root, ".opencode_config"), 0o755); err != nil {
+		t.Fatalf("seed config dir: %v", err)
+	}
+	if err := os.WriteFile(sandboxcfg.Path(root), []byte(`{
+  "container_edition": "swdev",
+  "container_modes": [],
+  "start_option": "web",
+  "cbm_auto_index": true,
+  "cbm_auto_watch": true,
+  "ai_provider": "none",
+  "workspace_source": "empty",
+  "repo_url": "",
+  "search_mode": "searxng",
+  "use_stt": true,
+  "setup_clone_complete": false,
+  "setup_cbm_complete": false,
+  "setup_skills_complete": false,
+  "setup_complete": false,
+  "version": "2.0"
+}`), 0o644); err != nil {
 		t.Fatalf("seed config: %v", err)
 	}
 	return root, reg

@@ -81,10 +81,10 @@ func checkConfigCompat(home, root string) Item {
 			p.reasonf("last_used not parsed as stored: %q", got.LastUsed)
 		}
 	}
-	cfg, err := sandboxcfg.Read(sandboxcfg.Path(proj))
+	cfg, err := sandboxcfg.Read(sandboxcfg.Path(proj), toolchainsRoot(root))
 	if err != nil {
 		p.reasonf("sandbox_config read: %v", err)
-	} else if cfg.ContainerEdition != "swdev" || !reflect.DeepEqual(cfg.ContainerModes, []string{"offline", "hil_mode"}) || cfg.StartOption != "console" || cfg.AIProvider != "gwdg-saia" || cfg.WorkspaceSource != "empty" || cfg.Version != "2.0" {
+	} else if !cfg.Resolved || cfg.ToolchainsStored || !reflect.DeepEqual(cfg.Toolchains, swdevToolchains) || !reflect.DeepEqual(cfg.ContainerModes, []string{"offline", "hil_mode"}) || cfg.StartOption != "console" || cfg.AIProvider != "gwdg-saia" || cfg.WorkspaceSource != "empty" || cfg.Version != "2.0" {
 		p.reasonf("sandbox_config read mismatch: got %+v", cfg)
 	}
 	after, err := snapshot(bh)
@@ -117,7 +117,7 @@ func checkConfigCompat(home, root string) Item {
 		p.reasonf("UpdateStatus: %v", err)
 	}
 	gsc := sandboxcfg.Path(gproj)
-	if err := sandboxcfg.Create(goHome, gsc, "swdev", []string{"offline"}, "web", "gwdg-saia", sandboxcfg.SearchWebsearch); err != nil {
+	if err := sandboxcfg.Create(goHome, gsc, swdevToolchains, []string{"offline"}, "web", "gwdg-saia", sandboxcfg.SearchWebsearch); err != nil {
 		p.reasonf("sandboxcfg.Create: %v", err)
 	}
 	if err := sandboxcfg.PatchString(goHome, gsc, "vcs_tracking", "own GitLab"); err != nil {
@@ -143,10 +143,10 @@ func checkConfigCompat(home, root string) Item {
 			p.reasonf("registry round-trip mismatch: got %+v want %+v", got, want)
 		}
 	}
-	gcfg, err := sandboxcfg.Read(gsc)
+	gcfg, err := sandboxcfg.Read(gsc, toolchainsRoot(root))
 	if err != nil {
 		p.reasonf("sandbox_config round-trip read: %v", err)
-	} else if gcfg.ContainerEdition != "swdev" || !reflect.DeepEqual(gcfg.ContainerModes, []string{"offline"}) || gcfg.StartOption != "web" || gcfg.AIProvider != "gwdg-saia" || gcfg.VCSTracking != "own GitLab" {
+	} else if !gcfg.ToolchainsStored || !reflect.DeepEqual(gcfg.Toolchains, swdevToolchains) || !reflect.DeepEqual(gcfg.ContainerModes, []string{"offline"}) || gcfg.StartOption != "web" || gcfg.AIProvider != "gwdg-saia" || gcfg.VCSTracking != "own GitLab" {
 		p.reasonf("sandbox_config round-trip mismatch: got %+v", gcfg)
 	}
 	return p.finish()
@@ -164,7 +164,7 @@ func checkNewProjectWrites(home, root string) Item {
 		p.reasonf("prepare: %v", err)
 		return p.finish()
 	}
-	if err := sandboxcfg.Create(goproj, sandboxcfg.Path(gproj), "swdev", []string{"offline", "hil_mode"}, "console", "gwdg-saia", sandboxcfg.SearchWebsearch); err != nil {
+	if err := sandboxcfg.Create(goproj, sandboxcfg.Path(gproj), swdevToolchains, []string{"offline", "hil_mode"}, "console", "gwdg-saia", sandboxcfg.SearchWebsearch); err != nil {
 		p.reasonf("sandboxcfg.Create: %v", err)
 	}
 	goSandbox, err := os.ReadFile(sandboxcfg.Path(gproj))
@@ -172,10 +172,10 @@ func checkNewProjectWrites(home, root string) Item {
 		p.reasonf("read Go sandbox_config: %v", err)
 		return p.finish()
 	}
-	// Byte shape: the deleted bash TUI's create_sandbox_config produced
-	// exactly this file (fixture, captured from v0.1.13) for the same
-	// arguments — the write shape must not drift.
-	wantSandbox, err := os.ReadFile(filepath.Join(root, "internal", "smoke", "testdata", "bashera", "sandbox_config.json"))
+	// Byte shape: the materialized create payload (spec toolchain-sets
+	// §10 — toolchains first, no container_edition) is pinned by a
+	// checked-in fixture; the write shape must not drift.
+	wantSandbox, err := os.ReadFile(filepath.Join(root, "internal", "smoke", "testdata", "goera", "sandbox_config.json"))
 	if err != nil {
 		p.reasonf("read fixture sandbox_config: %v", err)
 		return p.finish()

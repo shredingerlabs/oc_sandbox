@@ -6,8 +6,11 @@ package sandboxcfg
 import (
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 
 	"github.com/shredingerlabs/oc-sandbox/internal/config"
+	"github.com/shredingerlabs/oc-sandbox/internal/discovery"
 	"github.com/shredingerlabs/oc-sandbox/internal/jsonfmt"
 )
 
@@ -37,8 +40,32 @@ func ValidSearchMode(v string) bool {
 // fall back exactly like the bash jq reads: vcs_tracking // "none",
 // use_proxy // false, use_stt // false, search_mode // "websearch",
 // setup_* // false.
+//
+// The toolchain selection follows the toolchain-sets migration read path
+// (spec §10): a stored toolchains key is the new world; an absent key is
+// legacy — the stored container_edition expands via the manifest bundle
+// map (base → ∅; a bundle name → its members); an edition mapping to no
+// bundle, or both fields absent, reads unresolved.
 type Config struct {
-	ContainerEdition    string
+	// Toolchains is the resolved selection, canonically sorted: the
+	// stored ids when toolchains is present, else the legacy
+	// container_edition expanded via the manifest bundle map. The empty
+	// selection (∅) is valid — base, chat, pkm are base-only.
+	// Meaningful only when Resolved.
+	Toolchains []string
+	// ToolchainsStored reports the new world: the file carries the
+	// toolchains key.
+	ToolchainsStored bool
+	// LegacyEdition is the raw stored container_edition on a legacy read
+	// ("" once toolchains is stored). Never written back — the first
+	// settings write materializes toolchains and omits container_edition
+	// (spec §10: that write is the whole migration).
+	LegacyEdition string
+	// Resolved reports whether Toolchains is meaningful. False is the
+	// §10 unresolved state: LegacyEdition names a stored edition that
+	// maps to no bundle, or — when LegacyEdition is "" — both fields
+	// are absent (corrupt/foreign config).
+	Resolved            bool
 	ContainerModes      []string
 	StartOption         string
 	CBMAutoIndex        bool
@@ -77,23 +104,17 @@ func readDoc(path string) (*jsonfmt.Doc, error) {
 	return jsonfmt.Parse(data)
 }
 
-// Read loads sandbox_config.json with bash fallback semantics.
-func Read(path string) (Config, error) {
+// Read loads sandbox_config.json with bash fallback semantics plus the
+// toolchain-sets migration read path (spec §10). toolchainsRoot is the
+// toolchains dir whose manifest.json carries the bundle map the legacy
+// container_edition expands through.
+func Read(path, toolchainsRoot string) (Config, error) {
 	doc, err := readDoc(path)
 	if err != nil {
 		return Config{}, err
 	}
-	modes := []string{}
-	if arr, ok := doc.GetArray("container_modes"); ok {
-		for _, m := range arr {
-			if s, ok := m.(string); ok {
-				modes = append(modes, s)
-			}
-		}
-	}
-	return Config{
-		ContainerEdition:    doc.GetString("container_edition", ""),
-		ContainerModes:      modes,
+	c := Config{
+		ContainerModes:      []string{},
 		StartOption:         doc.GetString("start_option", ""),
 		CBMAutoIndex:        doc.GetBool("cbm_auto_index", false),
 		CBMAutoWatch:        doc.GetBool("cbm_auto_watch", false),
@@ -110,14 +131,83 @@ func Read(path string) (Config, error) {
 		SetupSkillsComplete: doc.GetBool("setup_skills_complete", false),
 		SetupComplete:       doc.GetBool("setup_complete", false),
 		Version:             doc.GetString("version", ""),
-	}, nil
+	}
+	if arr, ok := doc.GetArray("container_modes"); ok {
+		for _, m := range arr {
+			if s, ok := m.(string); ok {
+				c.ContainerModes = append(c.ContainerModes, s)
+			}
+		}
+	}
+	c.Toolchains, c.ToolchainsStored, c.LegacyEdition, c.Resolved = readSelection(doc, toolchainsRoot)
+	return c, nil
 }
 
-// Create writes the initial payload: fixed defaults, all setup flags false,
-// cbm_* true, workspace_source "empty", repo_url "", search_mode per the
-// wizard's Search row (empty → websearch). Field order matches the
-// bash create_sandbox_config jq output.
-func Create(home, path, edition string, modes []string, startOption, aiProvider, searchMode string) error {
+// readSelection resolves the toolchain selection per §10: a stored
+// toolchains key wins (the new world); an absent key is legacy — the
+// stored container_edition expands via the manifest bundle map with
+// base → ∅; an unknown edition, or both fields absent, reads unresolved.
+func readSelection(doc *jsonfmt.Doc, toolchainsRoot string) (ids []string, stored bool, legacyEdition string, resolved bool) {
+	if arr, ok := doc.GetArray("toolchains"); ok {
+		for _, v := range arr {
+			if s, ok := v.(string); ok {
+				ids = append(ids, s)
+			}
+		}
+		slices.Sort(ids)
+		return ids, true, "", true
+	}
+	edition := doc.GetString("container_edition", "")
+	if edition == "" {
+		return nil, false, "", false // both fields absent — corrupt/foreign
+	}
+	if edition == "base" {
+		return []string{}, false, edition, true // fixed infrastructure, ∅
+	}
+	members, ok := discovery.ManifestBundles(toolchainsRoot)[edition]
+	if !ok {
+		return nil, false, edition, false // unknown edition — §10 unresolved
+	}
+	out := slices.Clone(members)
+	slices.Sort(out)
+	return out, false, edition, true
+}
+
+// SelectionLabel renders the resolved selection for the identity
+// surfaces (import summary; the derived-label re-key is #207): the
+// legacy edition name in the legacy world, the sorted ids in the
+// new world.
+func (c Config) SelectionLabel() string {
+	if c.ToolchainsStored {
+		return strings.Join(c.Toolchains, ", ")
+	}
+	return c.LegacyEdition
+}
+
+// ExpandBundle maps a bundle/edition name to its member ids via the
+// manifest bundle map — the alias expansion the wizard's and settings'
+// edition rows write through (spec §3; start.sh §8 keeps --edition as
+// the same alias). base → ∅ (fixed infrastructure, no manifest entry).
+// ok=false when the name maps to no bundle — the §10 unresolved mapping.
+func ExpandBundle(toolchainsRoot, name string) (ids []string, ok bool) {
+	if name == "base" {
+		return []string{}, true
+	}
+	members, found := discovery.ManifestBundles(toolchainsRoot)[name]
+	if !found {
+		return nil, false
+	}
+	out := slices.Clone(members)
+	slices.Sort(out)
+	return out, true
+}
+
+// Create writes the initial payload: the toolchain selection as the
+// first entry (the materialized new-world shape — container_edition is
+// never written back, spec §10), all setup flags false, cbm_* true,
+// workspace_source "empty", repo_url "", search_mode per the wizard's
+// Search row (empty → websearch).
+func Create(home, path string, toolchains []string, modes []string, startOption, aiProvider, searchMode string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
@@ -129,7 +219,7 @@ func Create(home, path, edition string, modes []string, startOption, aiProvider,
 		searchMode = SearchWebsearch
 	}
 	doc := &jsonfmt.Doc{Entries: []jsonfmt.Entry{
-		{Key: "container_edition", Val: edition},
+		{Key: "toolchains", Val: idVals(toolchains)},
 		{Key: "container_modes", Val: modeVals},
 		{Key: "start_option", Val: startOption},
 		{Key: "cbm_auto_index", Val: true},
@@ -172,9 +262,10 @@ func PatchBool(home, path, field string, value bool) error {
 }
 
 // Settings is the revisit-rewrite payload (change workspace settings /
-// failure-recovery retry path). Applies on next container start.
+// failure-recovery retry path). The toolchain selection is always
+// materialized — the write drops a legacy container_edition (§10).
 type Settings struct {
-	Edition     string
+	Toolchains  []string
 	Modes       []string
 	StartOption string
 	VCS         string
@@ -186,7 +277,8 @@ type Settings struct {
 
 // Rewrite applies the whole-settings change as ONE atomic write, preserving
 // every other field and key order (bash revisit_project_settings jq
-// pipeline over the full document).
+// pipeline over the full document). The write materializes toolchains and
+// omits container_edition — that write is the migration (spec §10).
 func Rewrite(home, path string, s Settings) error {
 	doc, err := readDoc(path)
 	if err != nil {
@@ -196,7 +288,25 @@ func Rewrite(home, path string, s Settings) error {
 	for _, m := range s.Modes {
 		modeVals = append(modeVals, m)
 	}
-	doc.Set("container_edition", s.Edition)
+	vals := idVals(s.Toolchains)
+	if _, ok := doc.Get("toolchains"); ok {
+		doc.Set("toolchains", vals)
+	} else {
+		// Take the legacy container_edition's slot in the key order —
+		// the materialization replaces the legacy entry in place.
+		replaced := false
+		for i := range doc.Entries {
+			if doc.Entries[i].Key == "container_edition" {
+				doc.Entries[i] = jsonfmt.Entry{Key: "toolchains", Val: vals}
+				replaced = true
+				break
+			}
+		}
+		if !replaced {
+			doc.Set("toolchains", vals)
+		}
+	}
+	doc.Delete("container_edition") // never written back (§10)
 	doc.Set("container_modes", modeVals)
 	doc.Set("start_option", s.StartOption)
 	doc.Set("vcs_tracking", s.VCS)
@@ -205,4 +315,16 @@ func Rewrite(home, path string, s Settings) error {
 	doc.Set("use_stt", s.UseStt)
 	doc.Set("search_mode", s.SearchMode)
 	return config.AtomicWrite(home, path, jsonfmt.Marshal(doc))
+}
+
+// idVals canonicalizes the selection (sorted — ADR 0042: canonical order
+// derived at every use, never stored) and boxes it for the doc.
+func idVals(ids []string) []any {
+	out := slices.Clone(ids)
+	slices.Sort(out)
+	vals := make([]any, len(out))
+	for i, id := range out {
+		vals[i] = id
+	}
+	return vals
 }

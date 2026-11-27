@@ -314,16 +314,46 @@ func checkWebUIWorkspaces(home, root string) Item {
 }
 
 // seedWSFixture writes one workspace fixture under the smoke home:
-// registry entry + sandbox_config.json.
+// registry entry + a LEGACY sandbox_config.json (container_edition).
+// The start-path flows stay pinned on the legacy world here — a legacy
+// workspace starts unchanged via the --edition alias (spec §10); the
+// materialized-world StartArgs vector is pinned in the openworkspace
+// unit tests.
 func seedWSFixture(home, name, edition string, modes []string, startOption string) string {
 	root := filepath.Join(home, "workspaces", name)
-	if err := os.MkdirAll(root, 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(root, ".opencode_config"), 0o755); err != nil {
 		return ""
 	}
 	reg := &registry.Registry{Home: home}
 	_ = reg.CreateWorkspacesFile()
 	_ = reg.AddWorkspace(registry.AddRequest{Name: name, Path: root})
-	_ = sandboxcfg.Create(home, sandboxcfg.Path(root), edition, modes, startOption, "", sandboxcfg.SearchSearxng)
+	quoted := func(ss []string) string {
+		out := make([]string, len(ss))
+		for i, s := range ss {
+			out[i] = `"` + s + `"`
+		}
+		return "[" + strings.Join(out, ", ") + "]"
+	}
+	cfg := `{
+  "container_edition": "` + edition + `",
+  "container_modes": ` + quoted(modes) + `,
+  "start_option": "` + startOption + `",
+  "cbm_auto_index": true,
+  "cbm_auto_watch": true,
+  "ai_provider": "none",
+  "workspace_source": "empty",
+  "repo_url": "",
+  "search_mode": "searxng",
+  "use_stt": true,
+  "setup_clone_complete": false,
+  "setup_cbm_complete": false,
+  "setup_skills_complete": false,
+  "setup_complete": false,
+  "version": "2.0"
+}`
+	if err := os.WriteFile(sandboxcfg.Path(root), []byte(cfg), 0o644); err != nil {
+		return ""
+	}
 	return root
 }
 

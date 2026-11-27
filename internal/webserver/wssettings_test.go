@@ -280,13 +280,14 @@ func TestWsSettingsPostPersistsNextStart(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d, want 200", resp.StatusCode)
 	}
-	cfg, err := sandboxcfg.Read(sandboxcfg.Path(root))
+	cfg, err := sandboxcfg.Read(sandboxcfg.Path(root), tcRootOf(fx.home))
 	if err != nil {
 		t.Fatal(err)
 	}
 	// The start_option radio is retired (ADR-0033): the stored value
 	// keeps its legacy shape and the write must not touch it.
-	if cfg.ContainerEdition != "embedded" || cfg.StartOption != "web" ||
+	if !slices.Equal(cfg.Toolchains, []string{"arduino", "arm-embedded", "go", "micropython", "picoscope", "platformio", "pyvisa", "usb"}) ||
+		cfg.StartOption != "web" ||
 		!cfg.UseProxy || cfg.SearchMode != "none" {
 		t.Fatalf("next-start values not persisted: %+v", cfg)
 	}
@@ -314,7 +315,7 @@ func TestWsSettingsPostProxyUnchecked(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("disable: status = %d, want 200", resp.StatusCode)
 	}
-	cfg, err := sandboxcfg.Read(sandboxcfg.Path(root))
+	cfg, err := sandboxcfg.Read(sandboxcfg.Path(root), tcRootOf(fx.home))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -331,7 +332,7 @@ func TestWsSettingsPostProxyUnchecked(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("empty post: status = %d, want 200", resp.StatusCode)
 	}
-	cfg, err = sandboxcfg.Read(sandboxcfg.Path(root))
+	cfg, err = sandboxcfg.Read(sandboxcfg.Path(root), tcRootOf(fx.home))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -356,7 +357,7 @@ func TestWsSettingsPostSttMerge(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("no-stt post: status = %d, want 200", resp.StatusCode)
 	}
-	cfg, err := sandboxcfg.Read(sandboxcfg.Path(root))
+	cfg, err := sandboxcfg.Read(sandboxcfg.Path(root), tcRootOf(fx.home))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -369,7 +370,7 @@ func TestWsSettingsPostSttMerge(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("disable: status = %d, want 200", resp.StatusCode)
 	}
-	cfg, err = sandboxcfg.Read(sandboxcfg.Path(root))
+	cfg, err = sandboxcfg.Read(sandboxcfg.Path(root), tcRootOf(fx.home))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -382,7 +383,7 @@ func TestWsSettingsPostSttMerge(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("enable: status = %d, want 200", resp.StatusCode)
 	}
-	cfg, err = sandboxcfg.Read(sandboxcfg.Path(root))
+	cfg, err = sandboxcfg.Read(sandboxcfg.Path(root), tcRootOf(fx.home))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -402,7 +403,7 @@ func TestWsSettingsPostSttMerge(t *testing.T) {
 	if doc := body(t, resp); strings.Contains(doc, `role="alert"`) {
 		t.Fatalf("offline+stt must not refuse:\n%s", doc)
 	}
-	cfg, err = sandboxcfg.Read(sandboxcfg.Path(root))
+	cfg, err = sandboxcfg.Read(sandboxcfg.Path(root), tcRootOf(fx.home))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -471,11 +472,11 @@ func TestWsSettingsCrossEditStickiness(t *testing.T) {
 	}
 
 	// The stored truth survives the mode switch untouched.
-	cfg, err := sandboxcfg.Read(sandboxcfg.Path(root))
+	cfg, err := sandboxcfg.Read(sandboxcfg.Path(root), tcRootOf(fx.home))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.SearchMode != "none" || !cfg.UseProxy || cfg.ContainerEdition != "swdev" {
+	if cfg.SearchMode != "none" || !cfg.UseProxy || !slices.Equal(cfg.Toolchains, []string{"cpp", "go", "java", "rust"}) {
 		t.Fatalf("mode switch disturbed the stored truth: %+v", cfg)
 	}
 
@@ -493,11 +494,12 @@ func TestWsSettingsCrossEditStickiness(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("second advanced edit: status = %d", resp.StatusCode)
 	}
-	cfg, err = sandboxcfg.Read(sandboxcfg.Path(root))
+	cfg, err = sandboxcfg.Read(sandboxcfg.Path(root), tcRootOf(fx.home))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.ContainerEdition != "embedded" || cfg.SearchMode != "none" || !cfg.UseProxy {
+	if !slices.Equal(cfg.Toolchains, []string{"arduino", "arm-embedded", "go", "micropython", "picoscope", "platformio", "pyvisa", "usb"}) ||
+		cfg.SearchMode != "none" || !cfg.UseProxy {
 		t.Fatalf("second edit lost the first edit's values: %+v", cfg)
 	}
 }
@@ -575,7 +577,7 @@ func TestWsVCSCredentialsSave(t *testing.T) {
 	}
 
 	// The tracker persists as the stored vcs_tracking label.
-	cfg, err := sandboxcfg.Read(sandboxcfg.Path(root))
+	cfg, err := sandboxcfg.Read(sandboxcfg.Path(root), tcRootOf(fx.home))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -600,7 +602,7 @@ func TestWsVCSCredentialsFreshAndNone(t *testing.T) {
 		t.Fatalf("fresh save: status = %d", resp.StatusCode)
 	}
 	waitForNoOp(t, fx)
-	cfg, _ := sandboxcfg.Read(sandboxcfg.Path(root))
+	cfg, _ := sandboxcfg.Read(sandboxcfg.Path(root), tcRootOf(fx.home))
 	if cfg.VCSTracking != "github.com" {
 		t.Fatalf("vcs_tracking = %q, want github.com", cfg.VCSTracking)
 	}
@@ -614,7 +616,7 @@ func TestWsVCSCredentialsFreshAndNone(t *testing.T) {
 	// none: tracker unlinked, no script call.
 	postForm(t, fx.s.URL()+"workspaces/alpha/vcs-credentials", map[string]string{"kind": "none"})
 	waitForNoOp(t, fx)
-	cfg, _ = sandboxcfg.Read(sandboxcfg.Path(root))
+	cfg, _ = sandboxcfg.Read(sandboxcfg.Path(root), tcRootOf(fx.home))
 	if cfg.VCSTracking != "none" {
 		t.Fatalf("vcs_tracking = %q, want none", cfg.VCSTracking)
 	}
@@ -666,7 +668,7 @@ func TestWsVCSCredentialsReplaceGate(t *testing.T) {
 			t.Fatalf("keep must not write credentials: %v", c.Args)
 		}
 	}
-	cfg, _ := sandboxcfg.Read(sandboxcfg.Path(root))
+	cfg, _ := sandboxcfg.Read(sandboxcfg.Path(root), tcRootOf(fx.home))
 	if cfg.VCSTracking != "own GitLab" {
 		t.Fatalf("vcs_tracking = %q", cfg.VCSTracking)
 	}
@@ -718,7 +720,7 @@ func TestWsVCSCredentialsValidation(t *testing.T) {
 			t.Fatalf("refused save must not run the script: %v", c.Args)
 		}
 	}
-	cfg, _ := sandboxcfg.Read(sandboxcfg.Path(root))
+	cfg, _ := sandboxcfg.Read(sandboxcfg.Path(root), tcRootOf(fx.home))
 	if cfg.VCSTracking != "none" {
 		t.Fatalf("refused save must not move vcs_tracking: %q", cfg.VCSTracking)
 	}
@@ -766,7 +768,7 @@ func TestWsVCSCredentialsGrandfatheredOther(t *testing.T) {
 	if !ran {
 		t.Fatalf("grandfathered write must run the custom writer:\n%v", fx.fake.Snapshot())
 	}
-	cfg, _ := sandboxcfg.Read(sandboxcfg.Path(root))
+	cfg, _ := sandboxcfg.Read(sandboxcfg.Path(root), tcRootOf(fx.home))
 	if cfg.VCSTracking != "others" {
 		t.Fatalf("vcs_tracking = %q, want others", cfg.VCSTracking)
 	}

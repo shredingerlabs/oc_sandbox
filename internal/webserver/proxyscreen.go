@@ -138,7 +138,7 @@ func (s *Server) renderProxy(w http.ResponseWriter, errMsg, warnMsg string) {
 		running := discovery.RunningContainers(s.runnerSeam())
 		proxyStates := discovery.AllProxyMembers(s.runnerSeam())
 		for _, ws := range s.proxyWorkspaces() {
-			cfg, err := readSandboxCfg(ws.Path)
+			cfg, err := s.readSandboxCfg(ws.Path)
 			if err != nil || !cfg.UseProxy {
 				continue // unreadable or non-proxied: no row
 			}
@@ -146,7 +146,7 @@ func (s *Server) renderProxy(w http.ResponseWriter, errMsg, warnMsg string) {
 			row := proxyRow{
 				Name:    ws.Name,
 				Letter:  wsLetter(ws.Name),
-				Hue:     editionFor(cfg.ContainerEdition).Hue,
+				Hue:     editionFor(cfg.LegacyEdition).Hue,
 				Running: slices.Contains(running, cname),
 				Busy:    s.queue.BusyKey(cname),
 			}
@@ -282,7 +282,7 @@ func (s *Server) proxyGuard(w http.ResponseWriter, r *http.Request) (ws registry
 	if s.setupHolds(ws.Name) {
 		return ws, cname, cfg, setupRefusal(ws.Name)
 	}
-	cfg, err = readSandboxCfg(ws.Path)
+	cfg, err = s.readSandboxCfg(ws.Path)
 	if err != nil {
 		return ws, cname, cfg, err.Error()
 	}

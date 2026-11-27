@@ -38,7 +38,7 @@ func TestNewStagerForUsesConfiguredScriptPaths(t *testing.T) {
 	home, root, reg, _ := fixture(t, "cloned")
 	fake := &cmdrun.Fake{}
 	podmanStates(fake)
-	p := NewStagerFor(fake, home, reg, "/opt/oc/start.sh", "/opt/oc/configure-workspace.sh")(root)
+	p := NewStagerFor(fake, home, reg, "/opt/oc/start.sh", "/opt/oc/configure-workspace.sh", "")(root)
 
 	var emitted []string
 	if err := p.Run(StageStart, func(l string) { emitted = append(emitted, l) }); err != nil {
@@ -71,14 +71,16 @@ func TestStartStageRunsStartShWithRebuiltArgs(t *testing.T) {
 	if err := p.Run(StageStart, func(l string) { emitted = append(emitted, l) }); err != nil {
 		t.Fatalf("start stage failed: %v", err)
 	}
-	// Recorded start.sh args: root, edition, container-id, modes, proxy, detach.
+	// Recorded start.sh args: root, the materialized toolchain selection
+	// (the fixture config carries the swdev ids — spec §10), container-id,
+	// modes, proxy, detach.
 	found := false
 	for _, c := range fake.Calls {
 		if c.Name == "bash" && len(c.Args) > 0 && c.Args[0] == p.StartScript {
 			found = true
 			joined := strings.Join(c.Args, " ")
 			for _, want := range []string{
-				root, "--edition", "swdev", "--container-id", proj.ContainerID,
+				root, "--toolchains", "cpp,go,java,rust", "--container-id", proj.ContainerID,
 				"--offline", "--use_proxy", "--detach",
 			} {
 				if !strings.Contains(joined, want) {

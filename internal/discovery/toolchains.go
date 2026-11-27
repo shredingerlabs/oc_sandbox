@@ -420,6 +420,25 @@ func ParseImageRef(ref string) ImageRef {
 	return ImageRef{Kind: RefLegacy, ID: name, Tag: tag}
 }
 
+// ManifestBundles returns the manifest's bundle map (name → member ids,
+// unordered, exactly as stored) — the legacy container_edition expansion
+// mapping (spec toolchain-sets §3/§10). A missing or unparseable
+// manifest returns nil (every legacy read then resolves to nothing but
+// base).
+func ManifestBundles(root string) map[string][]string {
+	raw, err := os.ReadFile(filepath.Join(root, "manifest.json"))
+	if err != nil {
+		return nil
+	}
+	var manifest struct {
+		Bundles map[string][]string `json:"bundles"`
+	}
+	if err := json.Unmarshal(raw, &manifest); err != nil {
+		return nil
+	}
+	return manifest.Bundles
+}
+
 // --- discovery -----------------------------------------------------------------
 
 // Unit is one discovered toolchain recipe (recipes/ shipped first, custom/

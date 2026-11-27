@@ -5,6 +5,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"sync"
@@ -157,12 +158,14 @@ func checkWebUISettings(home, root string) Item {
 	if resp == nil || resp.StatusCode != http.StatusOK {
 		p.reasonf("settings POST: want 200, got %v", respStatusCT(resp))
 	}
-	cfg, err := sandboxcfg.Read(sandboxcfg.Path(rootA))
+	cfg, err := sandboxcfg.Read(sandboxcfg.Path(rootA), toolchainsRoot(root))
 	if err != nil {
 		p.reasonf("sandbox_config unreadable: %v", err)
 		return p.finish()
 	}
-	if cfg.ContainerEdition != "embedded" ||
+	// The edition POST expands to the embedded bundle's ids, materialized.
+	if !reflect.DeepEqual(cfg.Toolchains, []string{"arduino", "arm-embedded", "go", "micropython", "picoscope", "platformio", "pyvisa", "usb"}) ||
+		!cfg.ToolchainsStored ||
 		!cfg.UseProxy || cfg.SearchMode != "none" ||
 		len(cfg.ContainerModes) != 2 || !cfg.UseStt {
 		p.reasonf("next-start values not persisted: %+v", cfg)
@@ -185,7 +188,7 @@ func checkWebUISettings(home, root string) Item {
 	if resp == nil || resp.StatusCode != http.StatusOK {
 		p.reasonf("second advanced edit: want 200, got %v", respStatusCT(resp))
 	}
-	cfg, _ = sandboxcfg.Read(sandboxcfg.Path(rootA))
+	cfg, _ = sandboxcfg.Read(sandboxcfg.Path(rootA), toolchainsRoot(root))
 	if cfg.SearchMode != "none" || !cfg.UseProxy || cfg.UseStt {
 		p.reasonf("second edit lost the first edit's values (or re-imposed stt): %+v", cfg)
 	}
@@ -194,7 +197,7 @@ func checkWebUISettings(home, root string) Item {
 	// hard-exits on).
 	before := cfg
 	post(s.URL()+"workspaces/mural/settings", map[string]string{"search_mode": "searxng"})
-	cfg, _ = sandboxcfg.Read(sandboxcfg.Path(rootA))
+	cfg, _ = sandboxcfg.Read(sandboxcfg.Path(rootA), toolchainsRoot(root))
 	if cfg.SearchMode != before.SearchMode {
 		p.reasonf("refused search_mode must not persist")
 	}
@@ -209,7 +212,7 @@ func checkWebUISettings(home, root string) Item {
 		p.reasonf("vcs save: want 200, got %v", respStatusCT(resp))
 	}
 	waitForIdleQueue(p, s)
-	cfg, _ = sandboxcfg.Read(sandboxcfg.Path(rootA))
+	cfg, _ = sandboxcfg.Read(sandboxcfg.Path(rootA), toolchainsRoot(root))
 	if cfg.VCSTracking != "own GitLab" {
 		p.reasonf("vcs_tracking = %q, want own GitLab", cfg.VCSTracking)
 	}

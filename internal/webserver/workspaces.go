@@ -21,7 +21,6 @@ import (
 
 	"github.com/shredingerlabs/oc-sandbox/internal/config"
 	"github.com/shredingerlabs/oc-sandbox/internal/registry"
-	"github.com/shredingerlabs/oc-sandbox/internal/sandboxcfg"
 )
 
 // editionMeta is the per-edition card metadata: Lucide glyph file under
@@ -270,7 +269,7 @@ func (s *Server) cardFor(e registry.Workspace, mode string) cardView {
 		c.OpID = s.queue.CurrentOpID(registry.ContainerName(e.ContainerID))
 	}
 	hasSession := s.setups.sessionFor(e.Name) != nil
-	cfg, err := sandboxcfg.Read(sandboxcfg.Path(e.Path))
+	cfg, err := s.readSandboxCfg(e.Path)
 	if err != nil {
 		// Unreadable sandbox_config must not dead-end the card: base
 		// tile, no chips — the restart POST refuses with the read
@@ -288,9 +287,12 @@ func (s *Server) cardFor(e registry.Workspace, mode string) cardView {
 			c.OpID = opID // the relay's outcome lines find the card log
 		}
 	}
-	meta := editionFor(cfg.ContainerEdition)
-	c.Icon = cfg.ContainerEdition
-	if _, ok := editions[cfg.ContainerEdition]; !ok {
+	// The card identity still keys on the legacy edition name; the
+	// toolchain-sets derived-label re-key is #207 (WP-5). A materialized
+	// (new-world) config reads as an unknown name — base tile, neutral hue.
+	meta := editionFor(cfg.LegacyEdition)
+	c.Icon = cfg.LegacyEdition
+	if _, ok := editions[cfg.LegacyEdition]; !ok {
 		c.Icon = "base"
 	}
 	c.Hue = meta.Hue

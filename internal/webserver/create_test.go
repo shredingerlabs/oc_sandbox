@@ -37,6 +37,39 @@ FROM opencode-sandbox-base AS opencode-sandbox-swdev
 FROM opencode-sandbox-base AS opencode-sandbox-embedded
 `
 
+// toolchainsManifestFixture is the shipped bundle map (spec toolchain-sets
+// §3 — also the legacy container_edition migration mapping).
+const toolchainsManifestFixture = `{"bundles": {
+  "web": ["node-dev", "playwright"],
+  "embedded": ["go", "arm-embedded", "arduino", "platformio", "micropython", "picoscope", "pyvisa", "usb"],
+  "swdev": ["cpp", "rust", "java", "go"],
+  "matlab": ["octave", "python-science"],
+  "ros2": ["ros2"],
+  "writing": ["libreoffice", "pandoc", "fonts"],
+  "latex": ["latex", "pdf-tools", "pandoc", "fonts", "python-science"],
+  "chat": [],
+  "pkm": []
+}}`
+
+// tcRootOf resolves a fixture install layout's toolchains dir — the
+// bundle-map root the config read path expands legacy editions through.
+func tcRootOf(home string) string {
+	return filepath.Join(home, ".oc-sandbox", "toolchains")
+}
+
+// seedToolchainsManifest writes the bundle map into the fixture install
+// layout (both the server's LayoutFor resolution and direct reads use it).
+func seedToolchainsManifest(t *testing.T, home string) {
+	t.Helper()
+	dir := tcRootOf(home)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "manifest.json"), []byte(toolchainsManifestFixture), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // errTestImageMissing mirrors podman's non-zero exit for a missing image.
 var errTestImageMissing = errors.New("exit status 1")
 
@@ -50,6 +83,7 @@ func newCreateFixture(t *testing.T, script func(name string, args []string) (str
 	if err := os.WriteFile(filepath.Join(install, "Dockerfile"), []byte(dockerfileFixture), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	seedToolchainsManifest(t, home)
 	fake := &cmdrun.Fake{Script: script}
 	s := New(Options{
 		BasePort: 0,
@@ -309,11 +343,12 @@ func TestCreateChainBlank(t *testing.T) {
 	}
 
 	// sandbox_config.json records the §6 presets
-	cfg, err := sandboxcfg.Read(sandboxcfg.Path(root))
+	cfg, err := sandboxcfg.Read(sandboxcfg.Path(root), tcRootOf(f.home))
 	if err != nil {
 		t.Fatalf("sandbox_config.json: %v", err)
 	}
-	if cfg.ContainerEdition != "swdev" || cfg.StartOption != "web" || cfg.SearchMode != "searxng" ||
+	if !cfg.ToolchainsStored || !slices.Equal(cfg.Toolchains, []string{"cpp", "go", "java", "rust"}) ||
+		cfg.StartOption != "web" || cfg.SearchMode != "searxng" ||
 		cfg.AIProvider != "none" || cfg.WorkspaceSource != "empty" || cfg.VCSTracking != "none" ||
 		len(cfg.ContainerModes) != 0 {
 		t.Fatalf("presets not recorded: %+v", cfg)
@@ -350,7 +385,7 @@ func TestCreateChainSttPatchSemantics(t *testing.T) {
 	f.confirm(t, vals)
 	waitDone(t, sse)
 	root := registry.CanonicalPath(f.home + "/ws/demo")
-	cfg, err := sandboxcfg.Read(sandboxcfg.Path(root))
+	cfg, err := sandboxcfg.Read(sandboxcfg.Path(root), tcRootOf(f.home))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -375,7 +410,7 @@ func TestCreateChainSttPatchSemantics(t *testing.T) {
 		t.Fatal("offline+stt wizard post must not refuse")
 	}
 	root2 := registry.CanonicalPath(f2.home + "/ws/demo")
-	cfg2, err := sandboxcfg.Read(sandboxcfg.Path(root2))
+	cfg2, err := sandboxcfg.Read(sandboxcfg.Path(root2), tcRootOf(f.home))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -402,7 +437,7 @@ func TestCreateChainFromRepo(t *testing.T) {
 		t.Fatalf("init args miss --repo_url: %v", calls[0])
 	}
 	root := registry.CanonicalPath(f.home + "/ws/demo")
-	cfg, err := sandboxcfg.Read(sandboxcfg.Path(root))
+	cfg, err := sandboxcfg.Read(sandboxcfg.Path(root), tcRootOf(f.home))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -449,8 +484,8 @@ func TestCreateChainAgentKinds(t *testing.T) {
 		t.Fatalf("pkm init args = %v", calls2)
 	}
 	root2 := registry.CanonicalPath(f2.home + "/ws/demo")
-	if cfg, err := sandboxcfg.Read(sandboxcfg.Path(root2)); err != nil || cfg.ContainerEdition != "pkm" {
-		t.Fatalf("pkm edition = %+v, %v", cfg, err)
+	if cfg, err := sandboxcfg.Read(sandboxcfg.Path(root2), tcRootOf(f2.home)); err != nil || !cfg.ToolchainsStored || len(cfg.Toolchains) != 0 {
+		t.Fatalf("pkm selection = %+v (want the materialized empty set), %v", cfg, err)
 	}
 }
 
@@ -707,7 +742,7 @@ func TestCreateWizardHidesRetiredKindEntries(t *testing.T) {
 		}
 	}
 	root := registry.CanonicalPath(f.home + "/ws/demo")
-	cfg, err := sandboxcfg.Read(sandboxcfg.Path(root))
+	cfg, err := sandboxcfg.Read(sandboxcfg.Path(root), tcRootOf(f.home))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -755,7 +790,7 @@ func TestCreateChainCredentialOrder(t *testing.T) {
 		}
 	}
 
-	cfg, err := sandboxcfg.Read(sandboxcfg.Path(root))
+	cfg, err := sandboxcfg.Read(sandboxcfg.Path(root), tcRootOf(f.home))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -824,7 +859,7 @@ func TestCreateChainConflictSemantics(t *testing.T) {
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
-	if _, err := sandboxcfg.Read(sandboxcfg.Path(root)); err != nil {
+	if _, err := sandboxcfg.Read(sandboxcfg.Path(root), tcRootOf(f.home)); err != nil {
 		t.Fatalf("parallel chain did not complete: %v", err)
 	}
 

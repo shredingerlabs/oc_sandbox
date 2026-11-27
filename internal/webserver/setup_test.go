@@ -130,7 +130,7 @@ func waitFlag(t *testing.T, root, flag string, want bool) {
 	t.Helper()
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		cfg, err := sandboxcfg.Read(sandboxcfg.Path(root))
+		cfg, err := sandboxcfg.Read(sandboxcfg.Path(root), "")
 		if err == nil && cfgField(cfg, flag) == want {
 			return
 		}
