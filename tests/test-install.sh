@@ -1351,7 +1351,21 @@ test_macos_shortcut_without_osascript_warns() {
 
 # --- Custom-Edition-Dockerfile-Erhalt (Dist/Dockerfile.custom) ---------------
 
-# Fake-Quellverzeichnis mit Template-Datei bauen (wie dist/ im Repo)
+# Flaches Runtime-Layout (Release-Branch): die dist/-Inhalte liegen auf
+# Root-Ebene — der reale Install-/Update-Fall. Die dist/-präfisxten Fixtures
+# unten faken das Legacy-Layout (nicht-flattened), das reale Installationen
+# seit dem Release-Branch so nie hatten.
+setup_flattened_source() {
+  local src_dir="$1"
+  mkdir -p "$src_dir/searxng" "$src_dir/proxy"
+  cp "$PROJECT_ROOT/dist/Dockerfile" "$src_dir/Dockerfile"
+  cp "$PROJECT_ROOT/dist/Dockerfile.custom" "$src_dir/Dockerfile.custom"
+  cp "$PROJECT_ROOT/dist/searxng/settings.yml" "$src_dir/searxng/settings.yml"
+  cp "$PROJECT_ROOT/dist/searxng/Dockerfile" "$src_dir/searxng/Dockerfile"
+  cp "$PROJECT_ROOT/dist/proxy/allowlist.txt" "$src_dir/proxy/allowlist.txt"
+}
+
+# Fake-Quellverzeichnis mit Template-Datei bauen (Legacy dist/-Präfix)
 setup_custom_dockerfile_source() {
   local src_dir="$1"
   mkdir -p "$src_dir/dist"
@@ -1376,20 +1390,20 @@ test_custom_dockerfile_fresh_install_lands() {
   local src="$test_dir/src"
   local target="$test_dir/target"
 
-  setup_custom_dockerfile_source "$src"
+  setup_flattened_source "$src"
 
   local rc=0
   run_install_files "$src" "$target" || rc=$?
 
   assert_equals "0" "$rc" "install_files mit leerem Ziel" || { cleanup_test_env "$test_dir"; return 1; }
-  assert_file_exists "$target/dist/Dockerfile.custom" || { cleanup_test_env "$test_dir"; return 1; }
-  cmp -s "$PROJECT_ROOT/dist/Dockerfile.custom" "$target/dist/Dockerfile.custom" || {
+  assert_file_exists "$target/Dockerfile.custom" || { cleanup_test_env "$test_dir"; return 1; }
+  cmp -s "$PROJECT_ROOT/dist/Dockerfile.custom" "$target/Dockerfile.custom" || {
     echo "Template unterscheidet sich nach Fresh-Install"
     cleanup_test_env "$test_dir"
     return 1
   }
-  cmp -s "$PROJECT_ROOT/dist/Dockerfile" "$target/dist/Dockerfile" || {
-    echo "dist/Dockerfile abweichend nach Fresh-Install"
+  cmp -s "$PROJECT_ROOT/dist/Dockerfile" "$target/Dockerfile" || {
+    echo "Dockerfile abweichend nach Fresh-Install"
     cleanup_test_env "$test_dir"
     return 1
   }
@@ -1402,24 +1416,24 @@ test_custom_dockerfile_update_preserves_edited_file() {
   local src="$test_dir/src"
   local target="$test_dir/target"
 
-  setup_custom_dockerfile_source "$src"
+  setup_flattened_source "$src"
   run_install_files "$src" "$target" >/dev/null 2>&1
 
   # User editiert die Datei (eigene Edition ergänzt)
-  echo "FROM opencode-sandbox-base AS opencode-sandbox-mytool" >> "$target/dist/Dockerfile.custom"
-  cp "$target/dist/Dockerfile.custom" "$test_dir/expected"
+  echo "FROM opencode-sandbox-base AS opencode-sandbox-mytool" >> "$target/Dockerfile.custom"
+  cp "$target/Dockerfile.custom" "$test_dir/expected"
 
   local rc=0
   run_install_files "$src" "$target" || rc=$?
 
   assert_equals "0" "$rc" "install_files bei Update mit editierter Datei" || { cleanup_test_env "$test_dir"; return 1; }
-  cmp -s "$test_dir/expected" "$target/dist/Dockerfile.custom" || {
+  cmp -s "$test_dir/expected" "$target/Dockerfile.custom" || {
     echo "Editierte Dockerfile.custom wurde überschrieben (nicht erhalten)"
     cleanup_test_env "$test_dir"
     return 1
   }
-  cmp -s "$PROJECT_ROOT/dist/Dockerfile" "$target/dist/Dockerfile" || {
-    echo "dist/Dockerfile muss weiterhin aktualisiert werden"
+  cmp -s "$PROJECT_ROOT/dist/Dockerfile" "$target/Dockerfile" || {
+    echo "Dockerfile muss weiterhin aktualisiert werden"
     cleanup_test_env "$test_dir"
     return 1
   }
@@ -1432,16 +1446,16 @@ test_custom_dockerfile_recreated_if_absent() {
   local src="$test_dir/src"
   local target="$test_dir/target"
 
-  setup_custom_dockerfile_source "$src"
+  setup_flattened_source "$src"
   run_install_files "$src" "$target" >/dev/null 2>&1
-  rm "$target/dist/Dockerfile.custom"
+  rm "$target/Dockerfile.custom"
 
   local rc=0
   run_install_files "$src" "$target" || rc=$?
 
   assert_equals "0" "$rc" "install_files nach Löschen der Datei" || { cleanup_test_env "$test_dir"; return 1; }
-  assert_file_exists "$target/dist/Dockerfile.custom" || { cleanup_test_env "$test_dir"; return 1; }
-  cmp -s "$PROJECT_ROOT/dist/Dockerfile.custom" "$target/dist/Dockerfile.custom" || {
+  assert_file_exists "$target/Dockerfile.custom" || { cleanup_test_env "$test_dir"; return 1; }
+  cmp -s "$PROJECT_ROOT/dist/Dockerfile.custom" "$target/Dockerfile.custom" || {
     echo "Fehlende Datei wurde nicht aus Template neu angelegt"
     cleanup_test_env "$test_dir"
     return 1
@@ -1459,7 +1473,7 @@ test_stale_rename_scripts_removed_on_update() {
   local src="$test_dir/src"
   local target="$test_dir/target"
 
-  setup_custom_dockerfile_source "$src"
+  setup_flattened_source "$src"
 
   # Bestehende Installation mit den vor-rename Scripts (vor dem Update)
   mkdir -p "$target/scripts"
@@ -1483,36 +1497,27 @@ test_stale_rename_scripts_removed_on_update() {
 
 # SearXNG settings.yml: gleiche Custom-Edition-Dockerfile-Regel wie
 # Dockerfile.custom (Benutzer-editierbar, Update erhält, Löschen
-# reinkarniert).
-setup_searxng_source() {
-  local src_dir="$1"
-  setup_custom_dockerfile_source "$src_dir"
-  cp "$PROJECT_ROOT/dist/searxng/settings.yml" "$src_dir/dist/searxng/settings.yml" 2>/dev/null || {
-    mkdir -p "$src_dir/dist/searxng"
-    cp "$PROJECT_ROOT/dist/searxng/settings.yml" "$src_dir/dist/searxng/settings.yml"
-  }
-  cp "$PROJECT_ROOT/dist/searxng/Dockerfile" "$src_dir/dist/searxng/Dockerfile"
-}
-
+# reinkarniert). Hauptfall: flaches Layout (Root-Level) — setup_flattened_source
+# bringt searxng/ + proxy/ mit.
 test_searxng_settings_update_preserves_edited_file() {
   local test_dir
   test_dir=$(setup_test_env "searxng-settings-preserve")
   local src="$test_dir/src"
   local target="$test_dir/target"
 
-  setup_searxng_source "$src"
+  setup_flattened_source "$src"
   run_install_files "$src" "$target" >/dev/null 2>&1
 
   # User editiert die Einstellungen (z.B. eigene Engine-Sperre)
-  echo "  # user tweak" >> "$target/dist/searxng/settings.yml"
-  cp "$target/dist/searxng/settings.yml" "$test_dir/expected"
+  echo "  # user tweak" >> "$target/searxng/settings.yml"
+  cp "$target/searxng/settings.yml" "$test_dir/expected"
 
   local rc=0
   run_install_files "$src" "$target" || rc=$?
 
   assert_equals "0" "$rc" "install_files bei Update mit editierter settings.yml" || { cleanup_test_env "$test_dir"; return 1; }
-  cmp -s "$test_dir/expected" "$target/dist/searxng/settings.yml" || {
-    echo "Editierte dist/searxng/settings.yml wurde überschrieben (nicht erhalten)"
+  cmp -s "$test_dir/expected" "$target/searxng/settings.yml" || {
+    echo "Editierte searxng/settings.yml wurde überschrieben (nicht erhalten)"
     cleanup_test_env "$test_dir"
     return 1
   }
@@ -1525,16 +1530,16 @@ test_searxng_settings_recreated_if_absent() {
   local src="$test_dir/src"
   local target="$test_dir/target"
 
-  setup_searxng_source "$src"
+  setup_flattened_source "$src"
   run_install_files "$src" "$target" >/dev/null 2>&1
-  rm "$target/dist/searxng/settings.yml"
+  rm "$target/searxng/settings.yml"
 
   local rc=0
   run_install_files "$src" "$target" || rc=$?
 
   assert_equals "0" "$rc" "install_files nach Löschen der settings.yml" || { cleanup_test_env "$test_dir"; return 1; }
-  assert_file_exists "$target/dist/searxng/settings.yml" || { cleanup_test_env "$test_dir"; return 1; }
-  cmp -s "$PROJECT_ROOT/dist/searxng/settings.yml" "$target/dist/searxng/settings.yml" || {
+  assert_file_exists "$target/searxng/settings.yml" || { cleanup_test_env "$test_dir"; return 1; }
+  cmp -s "$PROJECT_ROOT/dist/searxng/settings.yml" "$target/searxng/settings.yml" || {
     echo "Fehlende settings.yml wurde nicht aus Template neu angelegt"
     cleanup_test_env "$test_dir"
     return 1
@@ -1542,7 +1547,193 @@ test_searxng_settings_recreated_if_absent() {
   cleanup_test_env "$test_dir"
 }
 
+# Nicht-flattened Legacy-Layouts (dist/-Präfix, ältere Installationen)
+# bleiben erhalten: die Preserve-Pfade finden die Dateien auch dort.
+test_legacy_dist_layout_preserved_on_update() {
+  local test_dir
+  test_dir=$(setup_test_env "legacy-dist-preserve")
+  local src="$test_dir/src"
+  local target="$test_dir/target"
 
+  setup_custom_dockerfile_source "$src"
+  mkdir -p "$src/dist/searxng"
+  cp "$PROJECT_ROOT/dist/searxng/settings.yml" "$src/dist/searxng/settings.yml"
+  run_install_files "$src" "$target" >/dev/null 2>&1
+
+  echo "FROM opencode-sandbox-base AS opencode-sandbox-mytool" >> "$target/dist/Dockerfile.custom"
+  echo "  # user tweak" >> "$target/dist/searxng/settings.yml"
+
+  local rc=0
+  run_install_files "$src" "$target" || rc=$?
+
+  assert_equals "0" "$rc" "install_files bei Legacy-Layout" || { cleanup_test_env "$test_dir"; return 1; }
+  grep -q "opencode-sandbox-mytool" "$target/dist/Dockerfile.custom" || {
+    echo "Editierte dist/Dockerfile.custom wurde überschrieben (nicht erhalten)"
+    cleanup_test_env "$test_dir"
+    return 1
+  }
+  grep -q "# user tweak" "$target/dist/searxng/settings.yml" || {
+    echo "Editierte dist/searxng/settings.yml wurde überschrieben (nicht erhalten)"
+    cleanup_test_env "$test_dir"
+    return 1
+  }
+  cleanup_test_env "$test_dir"
+}
+
+# proxy/allowlist.txt: gepromptet, Default-keep (PRESERVE_ALLOWLIST=true)
+test_allowlist_preserved_by_default_on_update() {
+  local test_dir
+  test_dir=$(setup_test_env "allowlist-preserve")
+  local src="$test_dir/src"
+  local target="$test_dir/target"
+
+  setup_flattened_source "$src"
+  run_install_files "$src" "$target" >/dev/null 2>&1
+
+  echo "10.0.0.0/8" >> "$target/proxy/allowlist.txt"
+  cp "$target/proxy/allowlist.txt" "$test_dir/expected"
+
+  local rc=0
+  run_install_files "$src" "$target" || rc=$?
+
+  assert_equals "0" "$rc" "install_files bei Update mit editierter allowlist" || { cleanup_test_env "$test_dir"; return 1; }
+  cmp -s "$test_dir/expected" "$target/proxy/allowlist.txt" || {
+    echo "proxy/allowlist.txt wurde überschrieben (Default: erhalten)"
+    cleanup_test_env "$test_dir"
+    return 1
+  }
+  cleanup_test_env "$test_dir"
+}
+
+test_allowlist_overwritten_on_explicit_decline() {
+  local test_dir
+  test_dir=$(setup_test_env "allowlist-decline")
+  local src="$test_dir/src"
+  local target="$test_dir/target"
+
+  setup_flattened_source "$src"
+  run_install_files "$src" "$target" >/dev/null 2>&1
+  echo "10.0.0.0/8" >> "$target/proxy/allowlist.txt"
+
+  local rc=0
+  (
+    source "$INSTALL_SCRIPT" --help >/dev/null 2>&1
+    VERBOSE=false
+    PRESERVE_ALLOWLIST=false
+    install_files "$src" "$target"
+  ) || rc=$?
+
+  assert_equals "0" "$rc" "install_files mit abgelehnter allowlist" || { cleanup_test_env "$test_dir"; return 1; }
+  cmp -s "$PROJECT_ROOT/dist/proxy/allowlist.txt" "$target/proxy/allowlist.txt" || {
+    echo "proxy/allowlist.txt wurde bei Ablehnung nicht überschrieben"
+    cleanup_test_env "$test_dir"
+    return 1
+  }
+  cleanup_test_env "$test_dir"
+}
+
+
+
+# Flaches Runtime-Layout (der reale Update-Fall): User-Dateien liegen auf
+# Root-Ebene, die alten dist/-checks verfehlten sie und überschrieben sie.
+test_flattened_searxng_settings_update_preserves_edited_file() {
+  local test_dir
+  test_dir=$(setup_test_env "flat-searxng-preserve")
+  local src="$test_dir/src"
+  local target="$test_dir/target"
+
+  setup_flattened_source "$src"
+  run_install_files "$src" "$target" >/dev/null 2>&1
+
+  # User editiert die Einstellungen (z.B. eigene Engine-Sperre)
+  echo "  # user tweak" >> "$target/searxng/settings.yml"
+  cp "$target/searxng/settings.yml" "$test_dir/expected"
+
+  local rc=0
+  run_install_files "$src" "$target" || rc=$?
+
+  assert_equals "0" "$rc" "install_files bei Update mit editierter settings.yml" || { cleanup_test_env "$test_dir"; return 1; }
+  cmp -s "$test_dir/expected" "$target/searxng/settings.yml" || {
+    echo "Editierte searxng/settings.yml wurde überschrieben (nicht erhalten)"
+    cleanup_test_env "$test_dir"
+    return 1
+  }
+  cleanup_test_env "$test_dir"
+}
+
+test_flattened_dockerfile_custom_update_preserves_edited_file() {
+  local test_dir
+  test_dir=$(setup_test_env "flat-dockerfile-preserve")
+  local src="$test_dir/src"
+  local target="$test_dir/target"
+
+  setup_flattened_source "$src"
+  run_install_files "$src" "$target" >/dev/null 2>&1
+
+  # User editiert die Datei (eigene Edition ergänzt)
+  echo "FROM opencode-sandbox-base AS opencode-sandbox-mytool" >> "$target/Dockerfile.custom"
+  cp "$target/Dockerfile.custom" "$test_dir/expected"
+
+  local rc=0
+  run_install_files "$src" "$target" || rc=$?
+
+  assert_equals "0" "$rc" "install_files bei Update mit editierter Dockerfile.custom" || { cleanup_test_env "$test_dir"; return 1; }
+  cmp -s "$test_dir/expected" "$target/Dockerfile.custom" || {
+    echo "Editierte Dockerfile.custom wurde überschrieben (nicht erhalten)"
+    cleanup_test_env "$test_dir"
+    return 1
+  }
+  cleanup_test_env "$test_dir"
+}
+
+# toolchains/custom/ + toolchains/snapshots/ always-keep (§11): User-Rezepte
+# und Editor-Snapshots überleben Updates komplett — forward-kompatibel gegen
+# das Release getestet, das toolchains/ dann mitliefert (#197).
+test_toolchains_custom_and_snapshots_preserved_on_update() {
+  local test_dir
+  test_dir=$(setup_test_env "toolchains-always-keep")
+  local src="$test_dir/src"
+  local target="$test_dir/target"
+
+  setup_flattened_source "$src"
+  # Release liefert toolchains/ mit (Template in custom/, recipes/ overwrite)
+  mkdir -p "$src/toolchains/custom" "$src/toolchains/recipes"
+  printf '# example template\n' > "$src/toolchains/custom/example.Dockerfile"
+  printf 'FROM base\n' > "$src/toolchains/recipes/go.Dockerfile"
+
+  run_install_files "$src" "$target" >/dev/null 2>&1
+
+  # User bestand: Beispiel-Template angepasst, eigenes Rezept, Editor-Snapshot
+  # (snapshots/ wird lazy erzeugt, nie shipped)
+  echo "RUN go install example-extra@v1" >> "$target/toolchains/custom/example.Dockerfile"
+  printf 'RUN go install example@v1\n' > "$target/toolchains/custom/mytool.Dockerfile"
+  mkdir -p "$target/toolchains/snapshots"
+  printf 'RUN go install draft\n' > "$target/toolchains/snapshots/draft.Dockerfile"
+  cp "$target/toolchains/custom/example.Dockerfile" "$test_dir/expected-example"
+
+  local rc=0
+  run_install_files "$src" "$target" || rc=$?
+
+  assert_equals "0" "$rc" "install_files bei Update mit toolchains/" || { cleanup_test_env "$test_dir"; return 1; }
+  cmp -s "$test_dir/expected-example" "$target/toolchains/custom/example.Dockerfile" || {
+    echo "Editiertes toolchains/custom Template wurde überschrieben (nicht erhalten)"
+    cleanup_test_env "$test_dir"
+    return 1
+  }
+  cmp -s <(printf 'RUN go install example@v1\n') "$target/toolchains/custom/mytool.Dockerfile" || {
+    echo "toolchains/custom/ User-Rezept wurde überschrieben (nicht erhalten)"
+    cleanup_test_env "$test_dir"
+    return 1
+  }
+  cmp -s <(printf 'RUN go install draft\n') "$target/toolchains/snapshots/draft.Dockerfile" || {
+    echo "toolchains/snapshots/ Snapshot wurde überschrieben (nicht erhalten)"
+    cleanup_test_env "$test_dir"
+    return 1
+  }
+  assert_file_exists "$target/toolchains/custom/example.Dockerfile" || { cleanup_test_env "$test_dir"; return 1; }
+  assert_file_exists "$target/toolchains/recipes/go.Dockerfile" || { cleanup_test_env "$test_dir"; return 1; }
+  cleanup_test_env "$test_dir"
+}
 
 main() {
   echo "========================================="
@@ -1608,12 +1799,18 @@ main() {
   # Custom-Edition-Dockerfile-Erhalt
   echo ""
   echo "Running custom edition Dockerfile preservation tests..."
-  run_test "Fresh install: dist/Dockerfile.custom landet" test_custom_dockerfile_fresh_install_lands
-  run_test "Update: editierte dist/Dockerfile.custom bleibt erhalten" test_custom_dockerfile_update_preserves_edited_file
+  run_test "Fresh install: Dockerfile.custom landet" test_custom_dockerfile_fresh_install_lands
+  run_test "Update: editierte Dockerfile.custom bleibt erhalten" test_custom_dockerfile_update_preserves_edited_file
   run_test "Update ohne Datei: wird erneut angelegt" test_custom_dockerfile_recreated_if_absent
   run_test "Update: stale Rename-Scripts werden entfernt" test_stale_rename_scripts_removed_on_update
-  run_test "Update: editierte dist/searxng/settings.yml bleibt erhalten" test_searxng_settings_update_preserves_edited_file
+  run_test "Update: editierte searxng/settings.yml bleibt erhalten" test_searxng_settings_update_preserves_edited_file
   run_test "Update ohne settings.yml: wird erneut angelegt" test_searxng_settings_recreated_if_absent
+  run_test "Legacy dist/-Layout: Dateien bleiben erhalten" test_legacy_dist_layout_preserved_on_update
+  run_test "Update: proxy/allowlist.txt bleibt erhalten (Default)" test_allowlist_preserved_by_default_on_update
+  run_test "Update: proxy/allowlist.txt überschrieben bei Ablehnung" test_allowlist_overwritten_on_explicit_decline
+  run_test "Flaches Layout: editierte searxng/settings.yml bleibt erhalten" test_flattened_searxng_settings_update_preserves_edited_file
+  run_test "Flaches Layout: editierte Dockerfile.custom bleibt erhalten" test_flattened_dockerfile_custom_update_preserves_edited_file
+  run_test "toolchains/custom + snapshots bleiben erhalten" test_toolchains_custom_and_snapshots_preserved_on_update
 
   
   # Zusammenfassung
