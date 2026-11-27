@@ -300,12 +300,15 @@ func TestWorkspacesCards(t *testing.T) {
 		// the member list rides the chip tooltip ("n toolchains: …")
 		`title="4 toolchains: cpp, go, java, rust"`,
 		`title="8 toolchains: arduino, arm-embedded, go, micropython, picoscope, platformio, pyvisa, usb"`,
+		// the tile tints with the matching bundle's hue (WP-5)
+		`data-ws="alpha" style="--ed:#2f6fed"`,
+		`data-ws="hil-lab" style="--ed:#0ea5a4"`,
 	} {
 		if !strings.Contains(doc, want) {
 			t.Fatalf("card fragment missing %q", want)
 		}
 	}
-	for _, banned := range []string{`--ed:#`, `data-edition=`} {
+	for _, banned := range []string{`data-edition=`} {
 		if strings.Contains(doc, banned) {
 			t.Fatalf("card fragment carries the retired per-edition identity (%s)", banned)
 		}
@@ -747,3 +750,38 @@ func TestWorkspacesEmpty(t *testing.T) {
 
 // The unresolved card keeps the workspace reachable (§10: nothing
 // destroyed) — covered by TestWorkspacesCardUnresolved.
+
+// The hue rides the same derivation as the label (WP-5, spec §9): the
+// matching bundle tints the tile — the empty set matches chat and pkm
+// and the legacy edition/kind preference disambiguates which one's hue
+// applies — and every unmatched or unresolved selection renders the
+// neutral accent.
+func TestWorkspacesCardDerivedHue(t *testing.T) {
+	home := t.TempDir()
+	// legacy edition chat: the empty set matches chat and pkm — the
+	// stored edition names which bundle's hue applies
+	seedWorkspace(t, home, "chat-ed", "chat", nil)
+	// a workspace_kind disambiguates the other way (pkm kind)
+	seedWorkspace(t, home, "pkm-kind", "pkm", nil)
+	// a non-matching selection → Custom, the neutral accent
+	rootCustom := seedWorkspace(t, home, "custom", "swdev", nil)
+	custom := `{"toolchains": ["go", "fonts"], "container_modes": [], "start_option": "web", "ai_provider": "none", "search_mode": "websearch", "setup_complete": false, "version": "2.0"}`
+	if err := os.WriteFile(sandboxcfg.Path(rootCustom), []byte(custom), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	s := startFixtureServer(t, home)
+	doc := body(t, get(t, s.URL()+"workspaces"))
+	for _, want := range []string{
+		`data-ws="chat-ed" style="--ed:#0891b2"`,  // chat bundle's hue
+		`data-ws="pkm-kind" style="--ed:#db2777"`, // pkm bundle's hue
+	} {
+		if !strings.Contains(doc, want) {
+			t.Fatalf("card fragment missing %q", want)
+		}
+	}
+	customCard := doc[strings.Index(doc, `data-ws="custom"`):]
+	if strings.Contains(customCard[:strings.Index(customCard, "</article>")], "style=\"--ed:") {
+		t.Fatalf("a Custom selection must render the neutral accent:\n%s", customCard)
+	}
+}

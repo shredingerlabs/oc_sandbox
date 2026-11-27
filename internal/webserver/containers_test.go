@@ -1000,7 +1000,8 @@ func TestStartRefusesUnresolvedEdition(t *testing.T) {
 
 // The container row carries the derived identity (WP-5): the bundle
 // label in the sub row, the member list as its tooltip — the letter
-// tile tints with the neutral accent, no per-edition hues.
+// tile tints with the matching bundle's hue, the neutral accent
+// otherwise.
 func TestContainersRowDerivedIdentity(t *testing.T) {
 	reg, roots := fixtureRegistry(t, "alpha")
 	sandboxConfigFixture(t, roots["alpha"]) // legacy swdev → the manifest's swdev members
@@ -1010,13 +1011,11 @@ func TestContainersRowDerivedIdentity(t *testing.T) {
 	doc := body(t, get(t, s.URL()+"containers"))
 	for _, want := range []string{
 		`<span class="unit-sub" title="4 toolchains: cpp, go, java, rust">swdev</span>`,
+		`<div class="ic" style="--ed:#2f6fed">`, // the swdev bundle's hue
 	} {
 		if !strings.Contains(doc, want) {
 			t.Fatalf("containers screen missing %q:\n%s", want, doc)
 		}
-	}
-	if strings.Contains(doc, `--ed:#`) {
-		t.Fatalf("containers screen carries a retired per-edition hue:\n%s", doc)
 	}
 }
 

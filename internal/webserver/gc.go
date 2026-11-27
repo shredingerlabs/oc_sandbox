@@ -15,8 +15,6 @@ package webserver
 // host dir — image GC never touches it by construction.
 
 import (
-	"path/filepath"
-
 	"github.com/shredingerlabs/oc-sandbox/internal/cmdrun"
 	"github.com/shredingerlabs/oc-sandbox/internal/discovery"
 	"github.com/shredingerlabs/oc-sandbox/internal/identity"
@@ -48,7 +46,7 @@ func (s *Server) updateGCPass(emit func(string)) error {
 func (s *Server) imageGCPass(emit func(string)) (string, error) {
 	run := s.deps.Run
 	root := s.toolchainsRoot()
-	basePath := filepath.Join(root, "base.Dockerfile")
+	basePath := s.baseRecipePath()
 	cat := discovery.Discover(root)
 	refs := s.imageRefs()
 	storedSets := s.storedSetTags()
@@ -149,13 +147,9 @@ func derivableTag(basePath string, cat discovery.Catalog, r discovery.ImageRef) 
 // derivableSetTag reports whether a set image's tag derives from its
 // own members label over the current recipes (all members valid).
 func derivableSetTag(basePath string, cat discovery.Catalog, set discovery.SetImage) bool {
-	members := make([]identity.Member, 0, len(set.Members))
-	for _, id := range set.Members {
-		u, ok := cat.Unit(id)
-		if !ok || !u.Valid {
-			return false
-		}
-		members = append(members, identity.Member{ID: id, RecipePath: u.Path})
+	members, ok := discovery.MembersFor(cat, set.Members)
+	if !ok {
+		return false
 	}
 	h, err := identity.SetHash12(basePath, members)
 	if err != nil {

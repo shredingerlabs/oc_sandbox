@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/shredingerlabs/oc-sandbox/internal/cmdrun"
+	"github.com/shredingerlabs/oc-sandbox/internal/identity"
 )
 
 // Toolchain recipe lint/parse/discovery (spec toolchain-sets §2) — the Go
@@ -199,6 +200,35 @@ func TestDiscoverUnitsSortedWithPaths(t *testing.T) {
 	// no manifest → all bundles invalidated with the one warning
 	if len(c.Bundles) != 0 || len(c.Warnings) != 1 || !strings.Contains(c.Warnings[0], "manifest.json is missing or unreadable") {
 		t.Fatalf("warnings/bundles = %q/%+v", c.Warnings, c.Bundles)
+	}
+}
+
+// MembersFor derives identity set members from an id list against live
+// discovery (§6): every id must resolve to a valid unit — an unknown or
+// invalid id names an underivable member list (ok=false), the honest
+// missing-set-image state every derivation surface renders.
+func TestMembersFor(t *testing.T) {
+	root := discoverTree(t, map[string]string{
+		"go":  validRecipe,
+		"cpp": "USER root\nRUN apt-get update && apt-get install -y build-essential\n",
+	}, nil, "")
+	c := Discover(root)
+
+	members, ok := MembersFor(c, []string{"cpp", "go"})
+	if !ok {
+		t.Fatal("valid ids must derive")
+	}
+	want := []identity.Member{
+		{ID: "cpp", RecipePath: filepath.Join(root, "recipes", "cpp.Dockerfile")},
+		{ID: "go", RecipePath: filepath.Join(root, "recipes", "go.Dockerfile")},
+	}
+	if !reflect.DeepEqual(members, want) {
+		t.Fatalf("members = %+v, want %+v", members, want)
+	}
+
+	// an unknown id refuses the whole list
+	if _, ok := MembersFor(c, []string{"go", "nosuch"}); ok {
+		t.Fatal("an unknown id must not derive")
 	}
 }
 

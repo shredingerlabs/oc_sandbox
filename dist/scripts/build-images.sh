@@ -169,10 +169,34 @@ podman_floor() {
 # Base-build budget (§7 item 2): the known base size ballpark.
 BASE_DISK_BUDGET_BYTES=$((2 * 1024 * 1024 * 1024))
 
-# Per-component budget when no same-id image exists on host: the §4 budget
-# formula (≈ base + 2× payload) floored at 1 GiB.
+# Per-component budget when no same-id image exists on host: the §7 item-2
+# budget formula with the largest known payload on host (the biggest
+# existing component image's size delta over the base — see
+# largest_component_delta_bytes), floored at 1 GiB.
 COMPONENT_DISK_BUDGET_BYTES=$((1024 * 1024 * 1024))
 
+# largest_component_delta_bytes <base_tag> — the budget formula's payload
+# term: the largest known payload on host. The payload archive lives
+# inside the image and the dump step records no host-side size marker, so
+# the honest measurable proxy is the largest existing component image's
+# size delta over the base image — that delta already sums the extracted
+# payload + compressed archive the formula reads as ≈ 2× payload (base
+# excluded). 0 when no base or no component image exists (no known
+# payload) — the caller floors at COMPONENT_DISK_BUDGET_BYTES.
+largest_component_delta_bytes() {
+  local base_tag=$1 base_size tag size best=0 delta
+  [[ -n "$base_tag" ]] || { printf '0\n'; return 0; }
+  base_size="$(podman image inspect --format '{{.Size}}' "$base_tag" 2>/dev/null || true)"
+  [[ "$base_size" =~ ^[0-9]+$ ]] || { printf '0\n'; return 0; }
+  while IFS= read -r tag; do
+    [[ -n "$tag" ]] || continue
+    size="$(podman image inspect --format '{{.Size}}' "$tag" 2>/dev/null || true)"
+    [[ "$size" =~ ^[0-9]+$ ]] || continue
+    delta=$((size - base_size))
+    ((delta > best)) && best=$delta
+  done < <(podman images --filter 'reference=opencode-sandbox-tc-*' --format '{{.Repository}}:{{.Tag}}')
+  printf '%s\n' "$best"
+}
 # Set-assembly budget (§7 item 2, "sets via the formula"): the assembly's own
 # layer cost — the COPY'd payload archives plus their extracted trees. The
 # base and component layers are shared with images already on host (an
@@ -180,10 +204,12 @@ COMPONENT_DISK_BUDGET_BYTES=$((1024 * 1024 * 1024))
 # builds); floored at 1 GiB.
 SET_DISK_BUDGET_BYTES=$((1024 * 1024 * 1024))
 
-# component_estimate_bytes <id> — same-id existing image size where one exists
-# (a stale-hash tag still sizes the rebuild honestly), else the floored budget.
+# component_estimate_bytes <id> <base_tag> — same-id existing image size
+# where one exists (a stale-hash tag still sizes the rebuild honestly),
+# else the §7 item-2 budget formula with the largest known payload on
+# host (largest_component_delta_bytes), floored at the flat budget.
 component_estimate_bytes() {
-  local id=$1 tag size
+  local id=$1 base_tag=$2 tag size floor
   tag="$(podman images --filter "reference=opencode-sandbox-tc-$id" \
     --format '{{.Repository}}:{{.Tag}}' | head -n 1)"
   if [[ -n "$tag" ]]; then
@@ -193,7 +219,10 @@ component_estimate_bytes() {
       return 0
     fi
   fi
-  printf '%s\n' "$COMPONENT_DISK_BUDGET_BYTES"
+  floor=$COMPONENT_DISK_BUDGET_BYTES
+  delta="$(largest_component_delta_bytes "$base_tag")"
+  ((delta > floor)) && floor=$delta
+  printf '%s\n' "$floor"
 }
 
 # disk_preflight [estimate-bytes] — refuse-with-reason when free < estimate +
@@ -454,7 +483,7 @@ build_plan() {
     est=0
     ((base_exists == 0)) && est=$((est + BASE_DISK_BUDGET_BYTES))
     for id in "${build_ids[@]}"; do
-      est=$((est + $(component_estimate_bytes "$id")))
+      est=$((est + $(component_estimate_bytes "$id" "$base_tag")))
     done
     disk_preflight "$est"
     _network_probe
@@ -890,7 +919,7 @@ set_plan() {
   est=$SET_DISK_BUDGET_BYTES
   ((base_exists == 0)) && est=$((est + BASE_DISK_BUDGET_BYTES))
   for id in "${build_ids[@]}"; do
-    est=$((est + $(component_estimate_bytes "$id")))
+    est=$((est + $(component_estimate_bytes "$id" "$base_tag")))
   done
   disk_preflight "$est"
   # the download-needing probe (§7 item 3) skips assembly-only plans: only a

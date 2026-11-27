@@ -25,6 +25,8 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+
+	"github.com/shredingerlabs/oc-sandbox/internal/identity"
 )
 
 // RecipeRecord is one parse record of a valid recipe: the directive kind
@@ -487,6 +489,25 @@ func (c Catalog) Bundle(name string) (Bundle, bool) {
 		}
 	}
 	return Bundle{}, false
+}
+
+// MembersFor derives the identity set members of an id list against live
+// discovery (spec toolchain-sets §6): every id must resolve to a valid
+// unit — its recipe file feeds the content hash. ok=false names an
+// underivable member list (an unknown or invalid id) — the honest
+// missing-set-image state every derivation surface renders. The one
+// helper behind every set-tag derivation (openworkspace.SetTagFor, the
+// webserver's create/gc/buildpreflight paths).
+func MembersFor(cat Catalog, ids []string) ([]identity.Member, bool) {
+	var members []identity.Member
+	for _, id := range ids {
+		u, ok := cat.Unit(id)
+		if !ok || !u.Valid {
+			return nil, false
+		}
+		members = append(members, identity.Member{ID: id, RecipePath: u.Path})
+	}
+	return members, true
 }
 
 var (

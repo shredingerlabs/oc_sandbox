@@ -43,12 +43,14 @@ fake_bin="$test_home/bin"
 mkdir -p "$fake_bin"
 
 # podman mock: logs every invocation's args (one line each) into $PODMAN_LOG.
-# PODMAN_VERSION overrides the --version answer; the tags named in
+# answers PODMAN_VERSION overrides the --version answer; the tags named in
 # PODMAN_MISSING_IMAGES fail `image exists` (all others exist). `build -q`
 # answers PODMAN_STAGE_ID; `images --filter reference=X` answers PODMAN_IMAGES
-# (tags, one per line — only lines matching the requested reference);
-# `image inspect --format {{.Size}}` answers PODMAN_IMAGE_SIZE; `image inspect
-# --format {{ index .Labels "X" }}` answers from PODMAN_LABELS_FILE —
+# (tags, one per line — lines matching the requested reference: a glob
+# reference like opencode-sandbox-tc-* matches fnmatch-style, a bare one as a
+# prefix); `image inspect --format {{.Size}}` answers PODMAN_IMAGE_SIZES
+# (<tag><TAB><bytes> rows) with PODMAN_IMAGE_SIZE as the flat fallback;
+# `image inspect --format {{ index .Labels "X" }}` answers from PODMAN_LABELS_FILE —
 # three-column rows <tag><TAB><label><TAB><value> first, then the legacy
 # two-column <tag><TAB><value> rows for tc.pkgs; `image mount` answers
 # PODMAN_MOUNT_DIR (the test places the dump's tc.pkgs there).
@@ -77,7 +79,11 @@ case "$1" in
         fi
       done
       while IFS= read -r line; do
-        [[ -z "$ref" || "$line" == "$ref"* ]] && printf '%s\n' "$line"
+        if [[ "$ref" == *'*'* ]]; then
+          [[ "$line" == $ref ]] && printf '%s\n' "$line"
+        else
+          [[ "$line" == "$ref"* ]] && printf '%s\n' "$line"
+        fi
       done <<< "$PODMAN_IMAGES"
     fi
     exit 0
@@ -106,6 +112,12 @@ case "$1 $2" in
         awk -F'\t' -v t="$tag" '$1 == t && NF == 2 { print $2; exit }' "$PODMAN_LABELS_FILE"
       fi
       exit 0
+    fi
+    tag="${@: -1}"
+    if [[ -n "${PODMAN_IMAGE_SIZES:-}" ]]; then
+      while IFS=$'\t' read -r t s; do
+        [[ "$t" == "$tag" ]] && { printf '%s\n' "$s"; exit 0; }
+      done <<< "$PODMAN_IMAGE_SIZES"
     fi
     printf '%s\n' "${PODMAN_IMAGE_SIZE:-1073741824}"
     exit 0
@@ -463,6 +475,37 @@ DF_AVAIL_BYTES=3865470566 PODMAN_MISSING_IMAGES="$go_tag" \
   run_script --tc go
 grep -q -- "build -q --network host -t $go_tag" "$PODMAN_LOG"
 printf 'same-id image size estimate test passed\n'
+
+# 9i: the budget formula's largest-known-payload term (§7 item 2) — no
+# same-id image, but an existing component image sizes the estimate at its
+# delta over the base image (floored at the 1 GiB budget)
+rust_tag="opencode-sandbox-tc-rust:000000000000"
+: > "$PODMAN_LOG"
+DF_AVAIL_BYTES=4294967296 PODMAN_MISSING_IMAGES="$go_tag" \
+  PODMAN_IMAGES="$expected_tag
+$rust_tag" \
+  PODMAN_IMAGE_SIZES="$expected_tag	2147483648
+$rust_tag	6442450944" \
+  run_script_failing --tc go
+grep -q '4.0 GiB free' "$test_home/err.log"
+grep -q '4.8 GiB needed (4.0 GiB estimate + 20% headroom)' "$test_home/err.log"
+grep -q -- 'images --filter reference=opencode-sandbox-tc-\*' "$PODMAN_LOG"
+grep -q -- "image inspect --format {{.Size}} $expected_tag" "$PODMAN_LOG"
+grep -q -- "image inspect --format {{.Size}} $rust_tag" "$PODMAN_LOG"
+if grep -q '^build' "$PODMAN_LOG"; then
+  printf 'disk-refused formula-path build reached podman\n' >&2
+  exit 1
+fi
+# the exact headroom boundary passes and builds
+: > "$PODMAN_LOG"
+DF_AVAIL_BYTES=5153960755 PODMAN_MISSING_IMAGES="$go_tag" \
+  PODMAN_IMAGES="$expected_tag
+$rust_tag" \
+  PODMAN_IMAGE_SIZES="$expected_tag	2147483648
+$rust_tag	6442450944" \
+  run_script --tc go
+grep -q -- "build -q --network host -t $go_tag" "$PODMAN_LOG"
+printf 'largest-known-payload estimate test passed\n'
 
 # --- 10: --all = base + every discovered component, invalid recipes refuse -----------
 

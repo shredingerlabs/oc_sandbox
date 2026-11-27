@@ -326,7 +326,7 @@ func (s *Server) handleSetupRetry(w http.ResponseWriter, r *http.Request) {
 	// {build} sidecar prompt, no op launch; the config file is never
 	// rewritten (picking toolchains in settings is the resolution).
 	if cfg, cfgErr := s.readSandboxCfg(ws.Path); cfgErr == nil && !cfg.Resolved {
-		http.Error(w, errUnresolvedSelection(cfg).Error(), http.StatusConflict)
+		http.Error(w, cfg.UnresolvedError().Error(), http.StatusConflict)
 		return
 	}
 	if !build {

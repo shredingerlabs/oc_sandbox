@@ -165,6 +165,22 @@ rules in `docs/porting-dockerfile-custom.md`) — it appears automatically in
 the WebUI's toolchain multi-select, in `build-images.sh --tc <id>`, and in
 `start.sh --toolchains <ids>`. The directory is never overwritten on updates.
 
+### Build-time egress
+
+Toolchain and image builds fetch directly from their sources — **build-time
+only**: running workspaces never build, and the per-workspace squid proxy
+never sees a build (builds ride `--network host` over the host's own proxy
+environment, so no allowlist entries are ever needed for them). The complete
+list of build-time source hosts, for restricted-host administrators:
+`archive.ubuntu.com`, `security.ubuntu.com`, `docker.io`, `pypi.org`,
+`files.pythonhosted.org`, `registry.npmjs.org`, `deb.nodesource.com`,
+`sh.rustup.rs`, `static.rust-lang.org`, `github.com`,
+`objects.githubusercontent.com`, `raw.githubusercontent.com`, `gitlab.com`,
+`opencode.ai`, `cdn.playwright.dev`, `packages.ros.org`, `labs.picotech.com`,
+`downloads.arduino.cc` — plus the infra-only hosts (the shared infrastructure
+images build outside `build-images.sh`'s contract, same build-time-only rule):
+`dl-cdn.alpinelinux.org`, `huggingface.co`.
+
 ## Installation & Update
 
 Install or update via the bash one-liner (downloads the latest release from
