@@ -108,16 +108,17 @@ func portCarries(line string) bool {
 	return false
 }
 
+// portingGistLead is the shared warning copy both surfaces open with.
+const portingGistLead = "Dockerfile.custom still holds custom stages — port each to toolchain sets: one toolchain per file, its RUN/ENV/USER lines land in toolchains/custom/<id>.Dockerfile (adapt to the recipe grammar — pins, no ARG/COPY/WORKDIR/ENTRYPOINT; the porting doc lives in the repo's docs/, linked from the release notes)"
+
 // portingGistText renders the porting gist as the one-line plain text
 // the settings warning shows: the copy, then per stage the mapping into
 // its custom recipe file ("; "-joined — a single escaped text node).
 func portingGistText(stages []portStage) string {
 	var b strings.Builder
-	b.WriteString("Dockerfile.custom still holds custom stages — port each to toolchain sets: ")
-	for i, st := range stages {
-		if i > 0 {
-			b.WriteString("; ")
-		}
+	b.WriteString(portingGistLead)
+	for _, st := range stages {
+		b.WriteString("; ")
 		b.WriteString(st.ID + " → toolchains/custom/" + st.ID + ".Dockerfile: " + strings.Join(st.Lines, " ; "))
 	}
 	return b.String()
