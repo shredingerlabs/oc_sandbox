@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"html"
 	"net/http"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"slices"
@@ -12,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/shredingerlabs/oc-sandbox/internal/cmdrun"
+	"github.com/shredingerlabs/oc-sandbox/internal/config"
 	"github.com/shredingerlabs/oc-sandbox/internal/discovery"
 	"github.com/shredingerlabs/oc-sandbox/internal/identity"
 )
@@ -54,17 +56,19 @@ const (
 
 // imageRow is one row of the image screen.
 type imageRow struct {
-	Kind    string   // row family (kindBase … kindLegacy)
-	Name    string   // row title: the unit id / "Base" / the sorted member list / the infra name / the legacy ref
-	Tag     string   // the row's image ref (data-tag; delete payload: family ref for base/component, exact tag otherwise)
-	Tags    []string // every tagged image the row's delete removes (base/component families)
-	Size    string   // human-readable size, "" when missing
-	Cached  bool     // the derived content-addressed tag exists (base/component rows)
-	Built   bool     // at least one tagged image exists
-	InUse   bool     // pinned by a container ref (set/infra/legacy rows — base/components are never pinned)
-	Reason  string   // invalid-recipe refusal or "recipe missing" (orphan image)
-	Warning string   // user/shipped collision warning line (the shipped row)
-	Busy    bool
+	Kind       string   // row family (kindBase … kindLegacy)
+	Name       string   // row title: the unit id / "Base" / the sorted member list / the infra name / the legacy ref
+	Tag        string   // the row's image ref (data-tag; delete payload: family ref for base/component, exact tag otherwise)
+	Tags       []string // every tagged image the row's delete removes (base/component families)
+	Size       string   // human-readable size, "" when missing
+	Cached     bool     // the derived content-addressed tag exists (base/component rows)
+	Built      bool     // at least one tagged image exists
+	InUse      bool     // pinned by a container ref (set/infra/legacy rows — base/components are never pinned)
+	Reason     string   // invalid-recipe refusal or "recipe missing" (orphan image)
+	Warning    string   // user/shipped collision warning line (the shipped row)
+	EditID     string   // the recipe editor's row payload ("base" / the unit id; "" — no editor: set/infra/Legacy/orphan rows)
+	EditCustom bool     // the recipe lives in custom/ — durable across updates (shipped/base edits are ephemeral by design)
+	Busy       bool
 }
 
 // imageRefs computes the enriched ref list pinning images in use
@@ -159,6 +163,7 @@ func (s *Server) imageRows() []imageRow {
 			Kind: kindBase, Name: "Base", Tag: discovery.BaseImageRef, Tags: baseTags,
 			Cached: baseCachedTag != "" && discovery.ImageExistsTag(d.Run, baseCachedTag),
 			Built:  len(baseTags) > 0, Busy: busy,
+			EditID: "base",
 		}
 		if row.Cached {
 			row.Size = sizes[baseCachedTag]
@@ -200,7 +205,9 @@ func (s *Server) imageRows() []imageRow {
 			Kind: kindComponent, Name: u.ID,
 			Tag:  identity.ComponentRepo + u.ID,
 			Tags: tags, Built: len(tags) > 0, Busy: busy,
-			Warning: collisionWarn[u.ID],
+			Warning:    collisionWarn[u.ID],
+			EditID:     u.ID,
+			EditCustom: filepath.Base(filepath.Dir(u.Path)) == "custom",
 		}
 		if u.Valid {
 			if tag, err := identity.ComponentTag(baseRecipe, u.ID, u.Path); err == nil {
@@ -290,12 +297,14 @@ func keysOf[V any](m map[string]V) []string {
 // buttons render always — their disabled state carries the refusal
 // (busy queue, invalid recipe, nothing to delete, in-use pin). Toast
 // (a refused confirm or the last failed op) rides at the top when msg
-// is non-empty.
-func (s *Server) renderImages(msg string, opID int) string {
+// is non-empty. editID opens the per-row recipe editor ("" — all
+// closed); the editor is an AdvancedOnly presentation-matrix row.
+func (s *Server) renderImages(msg string, opID int, editID string) string {
 	busy := s.queue.BusyKey(imagesKey)
 	if msg == "" {
 		msg = s.queue.LastError(imagesKey) // the last failed op's honest reason
 	}
+	editVisible := RowVisible(s.displayMode(), "images", "edit-recipe")
 	var b strings.Builder
 	b.WriteString(`<section class="panel plist" data-screen="images">`)
 	b.WriteString(`<div class="card-head"><h2>Images</h2>`)
@@ -363,7 +372,11 @@ func (s *Server) renderImages(msg string, opID int) string {
 		b.WriteString(`</div></div><div class="rc">`)
 		s.writeBuildButton(&b, row, busy)
 		s.writeDeleteButton(&b, row, busy)
+		s.writeEditButton(&b, row, busy, editVisible)
 		b.WriteString(`</div></div>`)
+		if editVisible && row.EditID != "" && row.EditID == editID {
+			s.writeRecipeEditor(&b, row)
+		}
 	}
 	b.WriteString(`<pre class="logpane" data-role="log" data-op="` + itoa(opID) + `"></pre>`)
 	s.writeImagesFooter(&b, busy)
@@ -435,6 +448,255 @@ func (s *Server) writeDeleteButton(b *strings.Builder, row imageRow, busy bool) 
 		html.EscapeString(row.Tag) + `" data-confirm="` + html.EscapeString(confirm) + `" data-danger` + disabled + `>Delete</button>`)
 }
 
+// writeEditButton renders the row's Edit recipe button (WP-9): the
+// proxy-editor pattern's per-row affordance on component and base rows —
+// set/infra/Legacy rows and orphan images (recipe missing) edit nothing,
+// and the affordance is an AdvancedOnly presentation-matrix row
+// (Standard renders none). Opening the editor writes nothing.
+func (s *Server) writeEditButton(b *strings.Builder, row imageRow, busy, editVisible bool) {
+	if !editVisible || row.EditID == "" {
+		return
+	}
+	if busy {
+		b.WriteString(`<button class="btn ghost" disabled title="an image operation is queued or running">Edit recipe</button>`)
+		return
+	}
+	b.WriteString(`<button class="btn ghost" data-action="edit-recipe" data-href="images/edit" data-tag="` +
+		html.EscapeString(row.EditID) + `">Edit recipe</button>`)
+}
+
+// writeRecipeEditor renders the open per-row recipe editor (the proxy
+// editor pattern, proxyscreen.go): an inline textarea over the recipe
+// file, Save linting with the builder's same loud rules, Reset from
+// shipped confirm-gated and enabled only when a snapshot exists and
+// differs. The durability copy is honest: shipped/base edits are
+// ephemeral by design (an update wholesale-overwrites the shipped
+// recipes), custom edits are durable; a base bump re-addresses every
+// image at next build.
+func (s *Server) writeRecipeEditor(b *strings.Builder, row imageRow) {
+	path := s.recipePath(row.EditID)
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return // the recipe vanished between render and open — nothing to edit
+	}
+	b.WriteString(`<div class="row" data-row="recipe-edit-` + html.EscapeString(row.EditID) + `">`)
+	b.WriteString(`<form class="add-form" hx-post="images/recipe/save" hx-target="closest section" hx-swap="outerHTML" data-draft-key="recipe:` + html.EscapeString(row.EditID) + `">`)
+	b.WriteString(`<label class="flabel">Recipe of ` + html.EscapeString(row.Name) + ` <span class="unit-sub">` + html.EscapeString(path) + `</span></label>`)
+	b.WriteString(`<textarea name="content" rows="14" spellcheck="false">` + html.EscapeString(string(raw)) + `</textarea>`)
+	b.WriteString(`<input type="hidden" name="id" value="` + html.EscapeString(row.EditID) + `">`)
+	b.WriteString(`<div class="actions"><button type="submit" class="btn">Save recipe</button>`)
+	s.writeResetButton(b, row)
+	b.WriteString(`</div>`)
+	b.WriteString(`<div class="field-hint">`)
+	switch {
+	case row.Kind == kindBase:
+		b.WriteString(`edits here are ephemeral by design — an update wholesale-overwrites the shipped recipes; re-applied your bump may be lost at the next update; fork to toolchains/custom/ for a durable copy. A base bump re-addresses every image at next build. `)
+	case row.EditCustom:
+		b.WriteString(`custom edits are durable — kept across updates. `)
+	default:
+		b.WriteString(`edits here are ephemeral by design — an update wholesale-overwrites the shipped recipes; re-applied your bump may be lost at the next update; fork to toolchains/custom/ for a durable copy. `)
+	}
+	b.WriteString(`The builder's lint runs on save — an invalid or un-pinned edit is refused.</div>`)
+	b.WriteString(`</form></div>`)
+}
+
+// writeResetButton renders the editor's Reset from shipped: confirm-gated,
+// enabled only when a snapshot exists and differs — the odd post-update
+// case (the update re-shipped the file) gets the truthful copy: the
+// snapshot is the version from before the last edit and may be older
+// than the latest update. Custom rows have no snapshot and no reset.
+func (s *Server) writeResetButton(b *strings.Builder, row imageRow) {
+	if row.EditCustom {
+		return
+	}
+	snap := s.recipeSnapshotPath(row.EditID)
+	raw, err := os.ReadFile(snap)
+	if err != nil {
+		b.WriteString(`<button type="button" class="btn ghost" disabled title="no snapshot — save an edit first">Reset from shipped</button>`)
+		return
+	}
+	cur, err := os.ReadFile(s.recipePath(row.EditID))
+	differ := err != nil || string(cur) != string(raw)
+	confirm := "Reset the recipe of " + row.Name + " from the snapshot? Restores the version from before your last edit — it may be older than the latest update."
+	switch {
+	case !differ:
+		b.WriteString(`<button type="button" class="btn ghost" disabled title="recipe matches the snapshot — nothing to reset">Reset from shipped</button>`)
+	default:
+		b.WriteString(`<button type="submit" class="btn ghost" name="action" value="reset" data-confirm-popup data-confirm-title="Reset from shipped" data-confirm-question="` +
+			html.EscapeString(confirm) + `" data-confirm-label="Reset">Reset from shipped</button>`)
+	}
+}
+
+// recipePath resolves the editor target's recipe file: the base recipe
+// for "base", the discovered unit's path otherwise; "" when the seam is
+// unwired or the id is unknown (orphan images have no recipe to edit).
+func (s *Server) recipePath(id string) string {
+	if id == "base" {
+		return s.baseRecipePath()
+	}
+	if s.deps.Toolchains == "" {
+		return ""
+	}
+	if u, ok := discovery.Discover(s.deps.Toolchains).Unit(id); ok {
+		return u.Path
+	}
+	return ""
+}
+
+// recipeSnapshotPath resolves the write-once snapshot of a pristine
+// shipped recipe (toolchains/snapshots/, ADR 0044): base.Dockerfile for
+// the base row, <id>.Dockerfile for shipped components — custom rows
+// never snapshot (their pristine copy is theirs alone).
+func (s *Server) recipeSnapshotPath(id string) string {
+	if s.deps.Toolchains == "" {
+		return ""
+	}
+	name := id + ".Dockerfile"
+	if id == "base" {
+		name = "base.Dockerfile"
+	}
+	return filepath.Join(s.deps.Toolchains, "snapshots", name)
+}
+
+// snapshotPristine write-once snapshots the pristine recipe file before
+// the first edit lands: an existing snapshot is never overwritten (the
+// update flow keeps the dir; a stale snapshot stays harmless — the
+// truthful reset copy covers it).
+func snapshotPristine(recipePath, snapPath string) {
+	if snapPath == "" || recipePath == "" {
+		return
+	}
+	if _, err := os.Stat(snapPath); err == nil {
+		return // write-once
+	}
+	raw, err := os.ReadFile(recipePath)
+	if err != nil {
+		return
+	}
+	if err := os.MkdirAll(filepath.Dir(snapPath), 0o755); err != nil {
+		return
+	}
+	_ = os.WriteFile(snapPath, raw, 0o644)
+}
+
+// handleImagesEdit serves POST /images/edit {tag=…} — the Edit recipe
+// affordance: re-renders the screen with that row's inline editor open.
+// Pure browsing: nothing is written, nothing is created. An unknown id
+// (no recipe — an orphan image, a typo) refuses.
+func (s *Server) handleImagesEdit(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	tag := strings.TrimSpace(r.FormValue("tag"))
+	if s.recipePath(tag) == "" {
+		_, _ = w.Write([]byte(s.renderImages("no recipe to edit: "+tag, 0, "")))
+		return
+	}
+	_, _ = w.Write([]byte(s.renderImages("", 0, tag)))
+}
+
+// handleImagesRecipeSave serves POST /images/recipe/save — the editor's
+// Save and Reset from shipped (the proxy-editor pattern): synchronous,
+// no task key. Save lints first (the builder's same loud lint — pin
+// enforcement rides it, a pure-file parse always available): a refusal
+// writes nothing and renders the reasons loudly. The write is atomic
+// (config.AtomicWrite), the first save snapshots the pristine file
+// write-once, and a follow-up image GC pass launches as its own op on
+// the shared images key — skip-if-busy, never queued. Reset restores
+// the write-once snapshot (confirm-gated client-side).
+func (s *Server) handleImagesRecipeSave(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := r.ParseForm(); err != nil {
+		_, _ = w.Write([]byte(s.renderImages("bad form", 0, "")))
+		return
+	}
+	id := strings.TrimSpace(r.PostFormValue("id"))
+	path := s.recipePath(id)
+	if path == "" {
+		_, _ = w.Write([]byte(s.renderImages("no recipe to edit: "+id, 0, "")))
+		return
+	}
+	if r.PostFormValue("action") == "reset" {
+		s.recipeReset(w, id, path)
+		return
+	}
+	content := r.PostFormValue("content")
+	if reasons := lintContent(path, content); len(reasons) > 0 {
+		msg := "saved nothing — the recipe lint refused the edit: " + strings.Join(reasons, "; ")
+		_, _ = w.Write([]byte(s.renderImages(msg, 0, id)))
+		return
+	}
+	snapshotPristine(path, s.recipeSnapshotPath(id))
+	if err := config.AtomicWrite(s.home(), path, content); err != nil {
+		_, _ = w.Write([]byte(s.renderImages("recipe could not be written: "+err.Error(), 0, id)))
+		return
+	}
+	markDraftSaved(w)
+	_, _ = w.Write([]byte(s.renderImages("", s.launchEditorGC(), "")))
+}
+
+// recipeReset restores the write-once snapshot (the Reset from shipped
+// action's server side — the confirm ran client-side). A missing
+// snapshot (custom rows never have one) refuses; the screen re-renders
+// with the editor open showing the restored content.
+func (s *Server) recipeReset(w http.ResponseWriter, id, path string) {
+	snap := s.recipeSnapshotPath(id)
+	raw, err := os.ReadFile(snap)
+	if err != nil {
+		_, _ = w.Write([]byte(s.renderImages("no snapshot to reset — save an edit first", 0, id)))
+		return
+	}
+	if err := config.AtomicWrite(s.home(), path, string(raw)); err != nil {
+		_, _ = w.Write([]byte(s.renderImages("recipe could not be written: "+err.Error(), 0, id)))
+		return
+	}
+	markDraftSaved(w)
+	_, _ = w.Write([]byte(s.renderImages("", 0, id)))
+}
+
+// lintContent runs the builder's same loud lint over unsaved editor
+// content (a pure-file parse, always available): the content lands in a
+// throwaway file beside the recipe and LintRecipe reads it back.
+func lintContent(path, content string) []string {
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".edit-lint-*.Dockerfile")
+	if err != nil {
+		return []string{"the edit could not be linted: " + err.Error()}
+	}
+	tmpPath := tmp.Name()
+	defer os.Remove(tmpPath)
+	if _, err := tmp.WriteString(content); err != nil {
+		tmp.Close()
+		return []string{"the edit could not be linted: " + err.Error()}
+	}
+	tmp.Close()
+	return discovery.LintRecipe(tmpPath)
+}
+
+// launchEditorGC launches the save's follow-up image GC pass (§11's
+// second trigger) as its own op on the shared images key — skip-if-busy,
+// never queued: a busy key runs its own op to completion and the pass is
+// simply skipped (the next save, update pass or Clean intermediates
+// sweep reclaims). Returns the op's log-pane id (0 — nothing launched).
+func (s *Server) launchEditorGC() int {
+	if s.queue.BusyKey(imagesKey) {
+		return 0
+	}
+	id := s.queue.reserve()
+	s.queue.Launch(webOp{ID: id, Key: imagesKey, Run: s.editorGCOp()})
+	return id
+}
+
+// editorGCOp is the recipe-editor save's follow-up GC pass: the §11
+// host-wide dangling-only sweep as ONE sequential op (the shared
+// reclaim core — the rmi auto-prune's sweep, the #214 update pass's
+// engine). Recipe edits re-address their image's hash; the superseded
+// intermediates die here.
+func (s *Server) editorGCOp() func(emit func(string)) error {
+	return func(emit func(string)) error {
+		emit("==> gc (recipe edit saved — host-wide dangling sweep)")
+		_, err := s.pruneDangling(emit)
+		return err
+	}
+}
+
 // writeImagesFooter renders the screen footer: the host free space and
 // the Clean intermediates button with the fresh reclaimable estimate
 // ("~X GB reclaimable — removes dangling (untagged, unused) images
@@ -476,7 +738,7 @@ func itoa(n int) string {
 
 func (s *Server) handleImages(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_, _ = w.Write([]byte(s.renderImages("", 0)))
+	_, _ = w.Write([]byte(s.renderImages("", 0, "")))
 }
 
 // handleImagesBuild serves POST /images/build — the confirm's action.
@@ -489,7 +751,7 @@ func (s *Server) handleImages(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleImagesBuild(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if s.queue.BusyKey(imagesKey) {
-		_, _ = w.Write([]byte(s.renderImages("an image operation is already queued or running", 0)))
+		_, _ = w.Write([]byte(s.renderImages("an image operation is already queued or running", 0, "")))
 		return
 	}
 	tag := strings.TrimSpace(r.FormValue("tag"))
@@ -505,14 +767,14 @@ func (s *Server) handleImagesBuild(w http.ResponseWriter, r *http.Request) {
 		if s.deps.Toolchains != "" {
 			if u, ok := discovery.Discover(s.deps.Toolchains).Unit(tag); ok && u.Valid {
 				s.queue.Launch(webOp{ID: id, Key: imagesKey, Run: s.buildOneOp("--tc", tag)})
-				_, _ = w.Write([]byte(s.renderImages("", id)))
+				_, _ = w.Write([]byte(s.renderImages("", id, "")))
 				return
 			}
 		}
-		_, _ = w.Write([]byte(s.renderImages("unknown image: "+tag, 0)))
+		_, _ = w.Write([]byte(s.renderImages("unknown image: "+tag, 0, "")))
 		return
 	}
-	_, _ = w.Write([]byte(s.renderImages("", id)))
+	_, _ = w.Write([]byte(s.renderImages("", id, "")))
 }
 
 // handleImagesDelete serves POST /images/delete {tag=…} — the danger
@@ -525,11 +787,11 @@ func (s *Server) handleImagesDelete(w http.ResponseWriter, r *http.Request) {
 	tag := strings.TrimSpace(r.FormValue("tag"))
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if tag == "" {
-		_, _ = w.Write([]byte(s.renderImages("no image selected", 0)))
+		_, _ = w.Write([]byte(s.renderImages("no image selected", 0, "")))
 		return
 	}
 	if s.queue.BusyKey(imagesKey) {
-		_, _ = w.Write([]byte(s.renderImages("an image operation is already queued or running", 0)))
+		_, _ = w.Write([]byte(s.renderImages("an image operation is already queued or running", 0, "")))
 		return
 	}
 	switch discovery.ParseImageRef(tag).Kind {
@@ -537,12 +799,12 @@ func (s *Server) handleImagesDelete(w http.ResponseWriter, r *http.Request) {
 		// never in-use-pinned — the cache, not a dependency
 	default:
 		if pinnedRef(s.imageRefs(), tag) {
-			_, _ = w.Write([]byte(s.renderImages(errInUseHint(tag).Error(), 0)))
+			_, _ = w.Write([]byte(s.renderImages(errInUseHint(tag).Error(), 0, "")))
 			return
 		}
 	}
 	s.queue.Launch(webOp{Key: imagesKey, Run: s.deleteImageOp(tag)})
-	_, _ = w.Write([]byte(s.renderImages("", 0)))
+	_, _ = w.Write([]byte(s.renderImages("", 0, "")))
 }
 
 // handleImagesClean serves POST /images/clean — the Clean intermediates
@@ -552,12 +814,12 @@ func (s *Server) handleImagesDelete(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleImagesClean(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if s.queue.BusyKey(imagesKey) {
-		_, _ = w.Write([]byte(s.renderImages("an image operation is already queued or running", 0)))
+		_, _ = w.Write([]byte(s.renderImages("an image operation is already queued or running", 0, "")))
 		return
 	}
 	id := s.queue.reserve()
 	s.queue.Launch(webOp{ID: id, Key: imagesKey, Run: s.cleanIntermediatesOp()})
-	_, _ = w.Write([]byte(s.renderImages("", id)))
+	_, _ = w.Write([]byte(s.renderImages("", id, "")))
 }
 
 // buildAllOp runs build-images.sh --all as ONE sequential op — base +

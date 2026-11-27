@@ -33,6 +33,11 @@ func (s *Server) wireRoutes(inner *http.ServeMux) {
 	inner.HandleFunc("POST /images/build", s.handleImagesBuild)
 	inner.HandleFunc("POST /images/delete", s.handleImagesDelete)
 	inner.HandleFunc("POST /images/clean", s.handleImagesClean)
+	// Recipe version editor (WP-9): the per-row Edit recipe affordance
+	// and its synchronous save/reset — no task key, the follow-up GC
+	// pass rides the shared images key skip-if-busy.
+	inner.HandleFunc("POST /images/edit", s.handleImagesEdit)
+	inner.HandleFunc("POST /images/recipe/save", s.handleImagesRecipeSave)
 	// Proxy screen (ADR 0034): member lifecycle + the per-workspace
 	// allowlist editor; the ops share the workspace container-name key.
 	inner.HandleFunc("GET /proxy", s.handleProxyScreen)
