@@ -1,0 +1,13 @@
+{
+  "bundles": {
+    "web": ["node-dev", "playwright"],
+    "embedded": ["go", "arm-embedded", "arduino", "platformio", "micropython", "picoscope", "pyvisa", "usb"],
+    "swdev": ["cpp", "rust", "java", "go"],
+    "matlab": ["octave", "python-science"],
+    "ros2": ["ros2"],
+    "writing": ["libreoffice", "pandoc", "fonts"],
+    "latex": ["latex", "pdf-tools", "pandoc", "fonts", "python-science"],
+    "chat": [],
+    "pkm": []
+  }
+}
