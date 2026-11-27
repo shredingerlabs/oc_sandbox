@@ -90,10 +90,11 @@ func (s *Server) validateAllowlist(content string) error {
 
 // proxyRow is one workspace card of the proxy screen.
 type proxyRow struct {
-	Name    string
-	Letter  string
-	Hue     string
-	Running bool // the workspace container runs (the pod the member lives in)
+	Name     string
+	Letter   string
+	Label    string // derived bundle name (exact member-match), else "Custom"
+	Subtitle string // member-list tooltip ("n toolchains: …")
+	Running  bool   // the workspace container runs (the pod the member lives in)
 
 	MemberState string // running / exited / created / missing
 	MemberUp    bool
@@ -146,9 +147,15 @@ func (s *Server) renderProxy(w http.ResponseWriter, errMsg, warnMsg string) {
 			row := proxyRow{
 				Name:    ws.Name,
 				Letter:  wsLetter(ws.Name),
-				Hue:     editionFor(cfg.LegacyEdition).Hue,
 				Running: slices.Contains(running, cname),
 				Busy:    s.queue.BusyKey(cname),
+			}
+			// The derived identity (WP-5): the member list rides the
+			// avatar's tooltip; every tile tints with the neutral
+			// accent — the per-edition hues died with the stage world.
+			if err == nil {
+				id := setIdentityFor(cfg, s.toolchainsRoot(), cfg.WorkspaceKind)
+				row.Label, row.Subtitle = id.Label, id.Subtitle
 			}
 			member := proxyMemberName(ws.ContainerID)
 			for _, c := range proxyStates {
@@ -199,7 +206,7 @@ var proxyTemplate = template.Must(template.New("proxy").Parse(`
   {{range .Rows}}
   <div class="row" data-row="proxy-{{.Name}}"{{if .Busy}} data-busy{{end}}>
     <div class="rl">
-      <div class="t"><span class="avatar"{{if .Hue}} style="--ed:{{.Hue}}"{{end}}>{{.Letter}}</span> {{.Name}}</div>
+      <div class="t"><span class="avatar" title="{{.Subtitle}}">{{.Letter}}</span> {{.Name}} <span class="unit-sub">{{.Label}}</span></div>
       <div class="s">
         {{if .Running}}<span class="marker st-running">● workspace running</span>{{else}}<span class="marker st-off">○ workspace stopped</span>{{end}}
         {{if .MemberUp}}<span class="marker st-running">● proxy member running</span>{{else}}<span class="marker st-off">○ proxy member {{.MemberState}}</span>{{end}}

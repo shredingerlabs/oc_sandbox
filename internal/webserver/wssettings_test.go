@@ -138,7 +138,6 @@ func TestWsSettingsScreenStandard(t *testing.T) {
 		`data-screen="ws-settings"`,
 		`data-ws="alpha"`,
 		`data-role="ws-selector"`,    // menu-entry workspace selector dropdown
-		`style="--ed:#2f6fed"`,       // letter-tinted avatar (Signal hue)
 		`apply on <b>next start</b>`, // the next-start note
 		`data-row="provider"`,        // Standard row: AI-Provider
 		`data-row="vcs"`,             // Standard row: VCS Tracking

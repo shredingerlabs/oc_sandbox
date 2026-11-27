@@ -80,9 +80,12 @@ func fakePodman(running []string, pods []string, containers []string, images []s
 }
 
 // depsServer starts a Server wired with the given runner and registry
-// plus the discovery testdata Dockerfile (edition registry fixture).
+// plus the discovery testdata Dockerfile (edition registry fixture) and
+// the fixture bundle map — the legacy expansion and the derived
+// identity derive through it (spec toolchain-sets §10/WP-5).
 func depsServer(t *testing.T, run *cmdrun.Fake, reg *registry.Registry) *Server {
 	t.Helper()
+	seedToolchainsManifest(t, reg.Home)
 	s := New(Options{
 		BasePort: 0,
 		Deps: &Deps{
@@ -91,6 +94,7 @@ func depsServer(t *testing.T, run *cmdrun.Fake, reg *registry.Registry) *Server 
 			BuildScript: "/opt/oc-sandbox/scripts/build-container.sh",
 			StartScript: "/opt/oc-sandbox/scripts/start.sh",
 			Dockerfile:  "../discovery/testdata/Dockerfile",
+			Toolchains:  tcRootOf(reg.Home),
 		},
 	})
 	if err := s.Start(); err != nil {
@@ -206,6 +210,19 @@ func sandboxConfigFixture(t *testing.T, root string) {
 
 // podState renders a `podman pod ps` row "name\tstatus".
 func podState(name, state string) string { return name + "\t" + state }
+
+// writeRawConfig writes a raw sandbox_config.json fixture verbatim —
+// the broken/legacy/unresolved shapes the start guards read.
+func writeRawConfig(t *testing.T, root, cfg string) {
+	t.Helper()
+	dir := filepath.Join(root, ".opencode_config")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "sandbox_config.json"), []byte(cfg), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
 
 // imageLine renders a `podman images` row "repo:tag\tsize".
 func imageLine(tag, size string) string { return tag + "\t" + size }
@@ -801,5 +818,72 @@ func TestContainerStopRefusesConfirmWhileBusy(t *testing.T) {
 	defer mu.Unlock()
 	if stopCalls != 0 {
 		t.Fatalf("stop ran while the workspace was busy")
+	}
+}
+
+// The §10 unresolved refusal (WP-10): an unknown stored edition — or a
+// config with both selection fields absent — refuses every start POST
+// before any prompt machinery or op launch. One refusal everywhere,
+// with the settings pointer; the old image/container is never touched.
+func TestStartRefusesUnresolvedEdition(t *testing.T) {
+	reg, roots := fixtureRegistry(t, "alpha", "beta")
+	writeRawConfig(t, roots["alpha"], `{"container_edition": "vanished", "container_modes": [], "start_option": "web", "search_mode": "websearch", "version": "2.0"}`)
+	writeRawConfig(t, roots["beta"], `{"container_modes": [], "start_option": "web", "search_mode": "websearch", "version": "2.0"}`)
+	startCalls := &syncList{}
+	run := fakePodman(nil, nil, nil, nil, nil)
+	base := run.Script
+	run.Script = func(name string, args []string) (string, error) {
+		if name == "bash" && len(args) > 0 && args[0] == "/opt/oc-sandbox/scripts/start.sh" {
+			startCalls.add(strings.Join(args, "\x1f"))
+			return "started", nil
+		}
+		return base(name, args)
+	}
+	s := depsServer(t, run, reg)
+
+	// Plain Containers-center start: the refusal rides the screen toast
+	// (html-escaped like every interpolated fragment string).
+	doc := body(t, post(t, s.URL()+"workspaces/alpha/start", ""))
+	if !strings.Contains(doc, "stored edition &#39;vanished&#39; maps to no bundle") {
+		t.Fatalf("unresolved start not refused with the §10 reason:\n%s", doc)
+	}
+
+	// Variant (Open chain) start: the same refusal as the {ok:false}
+	// sidecar the card renders.
+	v := sidecarPOST(t, s.URL()+"workspaces/beta/start", "variant=web")
+	if scOK(v) || !strings.Contains(scStr(v, "error"), "no stored toolchain selection") {
+		t.Fatalf("unresolved variant start sidecar = %v, want the §10 refusal", v)
+	}
+
+	// Nothing launched, nothing touched.
+	if n := len(startCalls.snapshot()); n != 0 {
+		t.Fatalf("start.sh calls = %d, want 0 (the refusal precedes any op)", n)
+	}
+	for _, name := range []string{"alpha", "beta"} {
+		if ws, err := reg.ByName(name); err != nil || ws.ContainerStatus == "running" {
+			t.Fatalf("workspace %s: status = %v (refusal must not touch the registry)", name, err)
+		}
+	}
+}
+
+// The container row carries the derived identity (WP-5): the bundle
+// label in the sub row, the member list as its tooltip — the letter
+// tile tints with the neutral accent, no per-edition hues.
+func TestContainersRowDerivedIdentity(t *testing.T) {
+	reg, roots := fixtureRegistry(t, "alpha")
+	sandboxConfigFixture(t, roots["alpha"]) // legacy swdev → the manifest's swdev members
+	run := fakePodman(nil, nil, nil, nil, nil)
+	s := depsServer(t, run, reg)
+
+	doc := body(t, get(t, s.URL()+"containers"))
+	for _, want := range []string{
+		`<span class="unit-sub" title="4 toolchains: cpp, go, java, rust">swdev</span>`,
+	} {
+		if !strings.Contains(doc, want) {
+			t.Fatalf("containers screen missing %q:\n%s", want, doc)
+		}
+	}
+	if strings.Contains(doc, `--ed:#`) {
+		t.Fatalf("containers screen carries a retired per-edition hue:\n%s", doc)
 	}
 }

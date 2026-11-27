@@ -13,10 +13,13 @@ import (
 
 // wiredServer starts a Server wired for one fixture home (import_test
 // slices): real registry, its own op queue, no uninstall script needed
-// yet. Returns the server and the fixture home.
+// yet. The fixture install layout carries the bundle map (the legacy
+// expansion and the derived identity derive through it). Returns the
+// server and the fixture home.
 func wiredServer(t *testing.T) (*Server, string) {
 	t.Helper()
 	home := t.TempDir()
+	seedToolchainsManifest(t, home)
 	s := New(Options{BasePort: 0, Home: home})
 	if err := s.Start(); err != nil {
 		t.Fatalf("Start: %v", err)
@@ -107,8 +110,9 @@ func TestImportCheckMatchingRoot(t *testing.T) {
 		"Import summary",
 		`name="name"`,
 		`value="my_root"`,
-		"swdev", // edition from the stored config
-		"web",   // start option
+		"swdev",                             // the derived bundle name (exact member-match, WP-5)
+		"4 toolchains: cpp, go, java, rust", // the member list as subtitle
+		"web",                               // start option
 		`hx-post="import-register"`,
 		`data-screen="import"`,
 		`data-draft-key="import-name"`,        // the edited name survives page changes
@@ -116,6 +120,19 @@ func TestImportCheckMatchingRoot(t *testing.T) {
 	} {
 		if !strings.Contains(doc, want) {
 			t.Fatalf("summary missing %q in:\n%s", want, doc)
+		}
+	}
+	// The summary accepts both stored shapes: a materialized toolchains
+	// config derives the same identity as its legacy twin.
+	root2 := seedCanonicalRoot(t)
+	if err := os.WriteFile(filepath.Join(root2, ".opencode_config", "sandbox_config.json"),
+		[]byte(`{"workspace_kind":"code","toolchains":["playwright","node-dev"],"start_option":"web","vcs_tracking":"github"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, doc2 := postFormDoc(t, s.URL()+"import-workspace", url.Values{"path": {root2}})
+	for _, want := range []string{">web</dd>", "2 toolchains: node-dev, playwright"} {
+		if !strings.Contains(doc2, want) {
+			t.Fatalf("materialized summary missing %q in:\n%s", want, doc2)
 		}
 	}
 	// The summary carries the path for the Register step, hidden.
@@ -194,5 +211,32 @@ func TestImportCheckBrokenConfig(t *testing.T) {
 	_, doc := postFormDoc(t, s.URL()+"import-workspace", url.Values{"path": {root}})
 	if !strings.Contains(doc, "not valid JSON") {
 		t.Fatalf("broken-config prompt missing:\n%s", doc)
+	}
+}
+
+// An unresolved stored config (§10 — an edition mapping to no bundle)
+// imports with the warning in the summary: the refusal reason plus the
+// settings pointer, honest Custom identity, registration still offered
+// (register-only — the workspace's start refuses everywhere with the
+// same refusal; the settings write materializes toolchains).
+func TestImportSummaryUnresolved(t *testing.T) {
+	s, _ := wiredServer(t)
+	root := seedCanonicalRoot(t)
+	if err := os.WriteFile(filepath.Join(root, ".opencode_config", "sandbox_config.json"),
+		[]byte(`{"workspace_kind":"code","container_edition":"vanished","start_option":"web"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, doc := postFormDoc(t, s.URL()+"import-workspace", url.Values{"path": {root}})
+	for _, want := range []string{
+		"Import summary",
+		"notice warn",
+		"stored edition &#39;vanished&#39; maps to no bundle",
+		"choose toolchains",
+		"Custom",
+		`hx-post="import-register"`,
+	} {
+		if !strings.Contains(doc, want) {
+			t.Fatalf("unresolved summary missing %q in:\n%s", want, doc)
+		}
 	}
 }

@@ -97,8 +97,6 @@ func TestShellAssets(t *testing.T) {
 	for _, c := range []struct{ path, ct string }{
 		{"css/main.css", "text/css"},
 		{"js/main.js", "text/javascript"},
-		{"img/editions/swdev.svg", "image/svg+xml"},
-		{"img/editions/base.svg", "image/svg+xml"},
 	} {
 		resp := get(t, s.URL()+c.path)
 		if resp.StatusCode != http.StatusOK {

@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strings"
 
 	"github.com/shredingerlabs/oc-sandbox/internal/config"
 	"github.com/shredingerlabs/oc-sandbox/internal/discovery"
@@ -171,17 +170,6 @@ func readSelection(doc *jsonfmt.Doc, toolchainsRoot string) (ids []string, store
 	out := slices.Clone(members)
 	slices.Sort(out)
 	return out, false, edition, true
-}
-
-// SelectionLabel renders the resolved selection for the identity
-// surfaces (import summary; the derived-label re-key is #207): the
-// legacy edition name in the legacy world, the sorted ids in the
-// new world.
-func (c Config) SelectionLabel() string {
-	if c.ToolchainsStored {
-		return strings.Join(c.Toolchains, ", ")
-	}
-	return c.LegacyEdition
 }
 
 // ExpandBundle maps a bundle/edition name to its member ids via the

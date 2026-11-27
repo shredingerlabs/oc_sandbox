@@ -3,6 +3,7 @@ package importcheck
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/shredingerlabs/oc-sandbox/internal/registry"
@@ -139,5 +140,28 @@ func TestDeriveName(t *testing.T) {
 		if got := DeriveName(c.in); got != c.want {
 			t.Errorf("DeriveName(%q) = %q, want %q", c.in, got, c.want)
 		}
+	}
+}
+
+// Import validation accepts both stored shapes (WP-5): the materialized
+// toolchains key derives the same resolved selection the legacy
+// container_edition expands to — neither shape is rejected or rewritten.
+func TestCheckAcceptsBothConfigShapes(t *testing.T) {
+	legacy := seedRoot(t, goodCfg, "workspace")
+	resLegacy, err := Check(legacy, nil, tcRoot(t))
+	if err != nil || resLegacy.Kind != KindMatch {
+		t.Fatalf("legacy shape: Kind = %v err = %v, want KindMatch", resLegacy.Kind, err)
+	}
+	if resLegacy.Config.ToolchainsStored || !slices.Equal(resLegacy.Config.Toolchains, []string{"cpp", "go", "java", "rust"}) {
+		t.Fatalf("legacy expansion = %+v, want the swdev bundle members", resLegacy.Config)
+	}
+
+	materialized := seedRoot(t, `{"workspace_kind":"code","toolchains":["rust","cpp","go","java"],"start_option":"web"}`, "workspace")
+	resMat, err := Check(materialized, nil, tcRoot(t))
+	if err != nil || resMat.Kind != KindMatch {
+		t.Fatalf("materialized shape: Kind = %v err = %v, want KindMatch", resMat.Kind, err)
+	}
+	if !resMat.Config.ToolchainsStored || !slices.Equal(resMat.Config.Toolchains, []string{"cpp", "go", "java", "rust"}) {
+		t.Fatalf("materialized read = %+v, want the sorted stored ids", resMat.Config)
 	}
 }

@@ -12,7 +12,21 @@ import (
 
 // The sidebar count pills ride one GET /counts fragment: registered
 // workspaces, catalog entries, running sandbox containers and built
-// edition images — the numbers all five pills show after one fetch.
+// sandbox-family images — the numbers all five pills show after one
+// fetch.
+
+// familyImages is the fake `podman images` output the family-count
+// cases share: one image per sandbox family plus the never-counted
+// rows (infra images, a Legacy old-world ref, an unrelated host image).
+var familyImages = []string{
+	"opencode-sandbox-base:abc123def456\t1.7GB",  // base — counted
+	"opencode-sandbox-tc-go:abc123def456\t300MB", // component — counted
+	"opencode-sandbox-set:abc123def456\t1.2GB",   // set — counted
+	"oc-searxng:latest\t300MB",                   // infra — never counted
+	"oc-proxy:latest\t100MB",                     // infra — never counted
+	"opencode-sandbox-web\t900MB",                // Legacy (old-world ref) — never counted
+	"ubuntu:24.04\t80MB",                         // unrelated host image — never counted
+}
 
 // countsServer starts a Server on a scratch home with two registered
 // workspaces ("alpha", "beta") and the given podman fake.
@@ -31,7 +45,7 @@ func TestCountsAllFive(t *testing.T) {
 	s := countsServer(t, fakePodman(
 		[]string{"opencode-sandbox-alpha"}, // one running container
 		nil, nil,
-		[]string{"opencode-sandbox-swdev\t1.2GB", "oc-searxng:latest\t300MB"},
+		familyImages,
 		nil,
 	))
 	postForm(t, s.URL()+"catalogs/trackers", map[string]string{
@@ -55,7 +69,9 @@ func TestCountsAllFive(t *testing.T) {
 		`data-trackers="1"`,   // tracker catalog entries
 		`data-providers="2"`,  // provider catalog entries
 		`data-containers="1"`, // running sandbox containers
-		`data-images="1"`,     // built edition images (infra excluded)
+		`data-images="3"`,     // sandbox-family images: base + component + set
+		// (infra, Legacy and unrelated host images never count —
+		// mirrors the Images screen's family rows)
 	} {
 		if !strings.Contains(doc, want) {
 			t.Fatalf("GET /counts missing %q:\n%s", want, doc)
