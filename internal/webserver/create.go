@@ -32,7 +32,6 @@ import (
 	"html/template"
 	"net/http"
 	"net/url"
-	"path/filepath"
 	"slices"
 	"sort"
 	"strings"
@@ -395,7 +394,7 @@ func (s *Server) fillWizardSelection(f *wizardForm, cat discovery.Catalog) {
 // content-addressed component image exists (identity.ComponentTag + a
 // per-tag podman query).
 func (s *Server) componentCached(u discovery.Unit) bool {
-	tag, err := identity.ComponentTag(filepath.Join(s.toolchainsRoot(), "base.Dockerfile"), u.ID, u.Path)
+	tag, err := identity.ComponentTag(s.baseRecipePath(), u.ID, u.Path)
 	return err == nil && discovery.ImageExistsTag(s.runner(), tag)
 }
 
@@ -404,15 +403,11 @@ func (s *Server) componentCached(u discovery.Unit) bool {
 // ok=false names an underivable tag (an invalid member, no base
 // recipe) — honestly rendered as a missing set image.
 func (s *Server) setTagFor(cat discovery.Catalog, ids []string) (string, bool) {
-	var members []identity.Member
-	for _, id := range ids {
-		u, ok := cat.Unit(id)
-		if !ok || !u.Valid {
-			return "", false
-		}
-		members = append(members, identity.Member{ID: id, RecipePath: u.Path})
+	members, ok := discovery.MembersFor(cat, ids)
+	if !ok {
+		return "", false
 	}
-	tag, err := identity.SetTag(filepath.Join(s.toolchainsRoot(), "base.Dockerfile"), members)
+	tag, err := identity.SetTag(s.baseRecipePath(), members)
 	if err != nil {
 		return "", false
 	}

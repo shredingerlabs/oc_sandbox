@@ -628,7 +628,8 @@ func TestSettingsEnableSeedsAllowlist(t *testing.T) {
 
 // The proxy row carries the derived identity (WP-5): the bundle label
 // beside the workspace name, the member list as the avatar's tooltip —
-// every tile tints with the neutral accent, no per-edition hues.
+// the avatar tints with the matching bundle's hue, the neutral accent
+// otherwise.
 func TestProxyRowDerivedIdentity(t *testing.T) {
 	f := newProxyFixture(t)
 	f.advancedMode(t)
@@ -636,12 +637,10 @@ func TestProxyRowDerivedIdentity(t *testing.T) {
 	for _, want := range []string{
 		`<span class="unit-sub">swdev</span>`, // derived bundle label
 		`title="4 toolchains: cpp, go, java, rust"`,
+		`<span class="avatar" style="--ed:#2f6fed" title="4 toolchains: cpp, go, java, rust">`, // the swdev hue
 	} {
 		if !strings.Contains(doc, want) {
 			t.Fatalf("proxy screen missing %q:\n%s", want, doc)
 		}
-	}
-	if strings.Contains(doc, `--ed:#`) {
-		t.Fatalf("proxy screen carries a retired per-edition hue:\n%s", doc)
 	}
 }

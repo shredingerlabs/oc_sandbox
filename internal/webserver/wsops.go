@@ -141,7 +141,7 @@ func (s *Server) handleWorkspaceRestart(w http.ResponseWriter, r *http.Request) 
 	if !cfg.Resolved {
 		// The §10 unresolved refusal (WP-10): before any machinery —
 		// the old image/container is never touched.
-		refuseSidecar(w, errUnresolvedSelection(cfg).Error())
+		refuseSidecar(w, cfg.UnresolvedError().Error())
 		return
 	}
 	s.queue.Launch(webOp{Key: cname, Run: s.restartOp(ws)})
@@ -397,7 +397,7 @@ func (s *Server) handleWorkspaceAdopt(w http.ResponseWriter, r *http.Request) {
 	if !cfg.Resolved {
 		// The §10 unresolved refusal (WP-10): before any prompt
 		// machinery — the old image/container is never touched.
-		refuseSidecar(w, errUnresolvedSelection(cfg).Error())
+		refuseSidecar(w, cfg.UnresolvedError().Error())
 		return
 	}
 	if !slices.Contains(discovery.RunningContainers(s.runnerSeam()), cname) {

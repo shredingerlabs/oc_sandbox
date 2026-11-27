@@ -58,6 +58,7 @@ type unitRow struct {
 	State     string // running / exited / created / missing
 	Busy      bool
 	Label     string // derived bundle name (exact member-match), else "Custom" ("" unreadable config)
+	Hue       string // the matching bundle's hue (CSS --ed), "" → the neutral accent
 	Subtitle  string // member-list tooltip ("n toolchains: …")
 }
 
@@ -100,13 +101,14 @@ func (s *Server) containerRows() []unitRow {
 			registryContainers[cname] = true
 		}
 		// The row's tile tints with the workspace's derived identity
-		// (WP-5): the neutral accent for every set. The derived label rides the
+		// (WP-5): the matching bundle's hue, the neutral accent
+		// otherwise. The derived label rides the
 		// sub row, the member list its tooltip; an unreadable config
 		// renders no label at all.
-		label, subtitle := "", ""
+		label, subtitle, hue := "", "", ""
 		if cfg, err := s.readSandboxCfg(p.Path); err == nil {
 			id := setIdentityFor(cfg, s.toolchainsRoot(), cfg.WorkspaceKind)
-			label, subtitle = id.Label, id.Subtitle
+			label, subtitle, hue = id.Label, id.Subtitle, id.Hue
 		}
 		rows = append(rows, unitRow{
 			Workspace: p.Name,
@@ -115,6 +117,7 @@ func (s *Server) containerRows() []unitRow {
 			State:     state,
 			Busy:      s.queue.BusyKey(cname),
 			Label:     label,
+			Hue:       hue,
 			Subtitle:  subtitle,
 		})
 	}
@@ -172,7 +175,11 @@ func (s *Server) renderContainers(msg string) string {
 		}
 		b.WriteString(`>`)
 		if row.Workspace != "" {
-			b.WriteString(`<div class="ic">`)
+			b.WriteString(`<div class="ic"`)
+			if row.Hue != "" {
+				b.WriteString(` style="--ed:` + html.EscapeString(row.Hue) + `"`)
+			}
+			b.WriteString(`>`)
 			b.WriteString(html.EscapeString(wsLetter(row.Workspace)) + `</div>`)
 		} else {
 			b.WriteString(`<div class="ic muted">` + string(iconSVG("container")) + `</div>`)
@@ -348,7 +355,7 @@ func (s *Server) handleWorkspaceStart(w http.ResponseWriter, r *http.Request) {
 	// The same refusal answers both paths; an unreadable config keeps
 	// today's behavior (the queued op re-verifies).
 	if cfg, cfgErr := s.readSandboxCfg(ws.Path); cfgErr == nil && !cfg.Resolved {
-		refusal := errUnresolvedSelection(cfg).Error()
+		refusal := cfg.UnresolvedError().Error()
 		if r.PostFormValue("variant") != "" {
 			refuseSidecar(w, refusal)
 		} else {
@@ -523,7 +530,7 @@ func (s *Server) freshStart(ws registry.Workspace, emit func(string)) error {
 	// The §10 unresolved refusal re-checked at op time (WP-10): the
 	// config may have changed between the handler's guard and the run.
 	if !cfg.Resolved {
-		return errUnresolvedSelection(cfg)
+		return cfg.UnresolvedError()
 	}
 	// The derived set image must exist (WP-6 re-key): the tag rides the
 	// stored selection's content hash, so a recipe edit honestly

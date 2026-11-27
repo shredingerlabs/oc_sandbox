@@ -13,6 +13,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -20,6 +21,7 @@ import (
 	"testing"
 
 	"github.com/shredingerlabs/oc-sandbox/internal/cmdrun"
+	"github.com/shredingerlabs/oc-sandbox/internal/identity"
 	"github.com/shredingerlabs/oc-sandbox/internal/registry"
 )
 
@@ -445,5 +447,222 @@ func TestImagesRowBuildEstimateSizesFromExistingImage(t *testing.T) {
 	}
 	if len(*builds) != 0 {
 		t.Fatalf("build-images.sh ran %v behind a refused preflight", *builds)
+	}
+}
+
+// The estimate's largest-known-payload term (§7 item 2): with no same-id
+// image, the largest existing component image's size delta over the base
+// sizes the rebuild honestly — floored at the flat 1 GiB budget (the
+// mirror of build-images.sh's component_estimate_bytes fallback; the
+// agreement test below pins the two together).
+func TestImagesRowBuildEstimateUsesLargestKnownPayload(t *testing.T) {
+	reg, _ := fixtureRegistry(t, "alpha")
+	seedToolchains(t, reg.Home)
+	run, builds := preflightRunner(t, "")
+	s := depsServer(t, run, reg)
+	baseTag, err := identity.BaseTag(s.baseRecipePath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	run.Script = func(name string, args []string) (string, error) {
+		rest := strings.Join(args, " ")
+		switch {
+		case name == "df":
+			return "Avail\n4294967296\n", nil // 4.0 GiB free
+		case name == "podman" && strings.HasPrefix(rest, "images --format"):
+			// base 2 GiB + a rust image carrying a 4 GiB payload delta
+			return baseTag + "\t2147483648 B\n" +
+				"opencode-sandbox-tc-rust:rust0000rust0\t6442450944 B\n", nil
+		case name == "podman" && strings.HasPrefix(rest, "image exists"):
+			if rest == "image exists "+baseTag {
+				return "", nil // the base image exists — the estimate is component-only
+			}
+			return "", fmt.Errorf("no such image") // the derived tags are missing
+		case name == "bash" && len(args) > 0 && strings.HasSuffix(args[0], "build-images.sh"):
+			*builds = append(*builds, rest)
+			return "", fmt.Errorf("must not run")
+		}
+		return "", nil
+	}
+
+	resp := post(t, s.URL()+"images/build", "tag=go")
+	body := readAll(t, resp)
+	if !strings.Contains(body, "4.0 GiB free is below the 4.8 GiB needed (4.0 GiB estimate + 20% headroom)") {
+		t.Fatalf("estimate did not size from the largest known payload on host:\n%.300s", body)
+	}
+	if len(*builds) != 0 {
+		t.Fatalf("build-images.sh ran %v behind a refused preflight", *builds)
+	}
+}
+
+// --- the Go ↔ bash disk-refusal agreement -----------------------------------
+
+// buildImagesScript locates the reference builder (the repo tree runs
+// `go test` from the package dir; the script sits at
+// dist/scripts/build-images.sh).
+func buildImagesScript(t *testing.T) string {
+	t.Helper()
+	for _, rel := range []string{"../../dist/scripts/build-images.sh", "../../../dist/scripts/build-images.sh"} {
+		if _, err := os.Stat(rel); err == nil {
+			abs, err := filepath.Abs(rel)
+			if err != nil {
+				t.Fatal(err)
+			}
+			return abs
+		}
+	}
+	t.Skip("dist/scripts/build-images.sh not found (not the repo tree)")
+	return ""
+}
+
+// refusalSentence extracts the one disk-refusal sentence from a builder
+// or preflight output: the "refusing to build: … then retry" span (the
+// Go side embeds it in the streamed HTML toast, the bash side prefixes
+// it with "build-images: "; the network refusal's em dash after
+// "refusing to build" never matches).
+func refusalSentence(out string) string {
+	const head, tail = "refusing to build:", "then retry"
+	for _, l := range strings.Split(out, "\n") {
+		i := strings.Index(l, head)
+		if i < 0 {
+			continue
+		}
+		j := strings.Index(l[i:], tail)
+		if j < 0 {
+			return l[i:]
+		}
+		return l[i : i+j+len(tail)]
+	}
+	return ""
+}
+
+// TestDiskRefusalAgreesWithBash pins the Go preflight's disk-refusal
+// sentence to the builder's own (dist/scripts/build-images.sh, spec §7
+// item 2): for the same host numbers the two must refuse with the same
+// words. One fixture runs both sides over a plan that rides the
+// largest-known-payload formula path — the internal/discovery agreement
+// pattern, here against the builder instead of the discovery helper.
+// The fixture root carries the shipped base recipe and go recipe (the
+// builder lints them as shipped; the minimal fixture recipes would trip
+// the base-lint's own refusal).
+func TestDiskRefusalAgreesWithBash(t *testing.T) {
+	script := buildImagesScript(t)
+	dist := filepath.Dir(filepath.Dir(script))
+	reg, _ := fixtureRegistry(t, "alpha")
+	seedToolchains(t, reg.Home)
+
+	// The Go side: the images row build behind the fakes — df answers the
+	// free number, podman lists the two images and only the base tag
+	// exists, the builder never runs. (baseTag is filled in below, after
+	// the fixture carries the shipped base recipe.)
+	var baseTag string
+	run := &cmdrun.Fake{Script: func(name string, args []string) (string, error) {
+		rest := strings.Join(args, " ")
+		switch {
+		case name == "df":
+			return "Avail\n1073741824\n", nil
+		case name == "podman" && strings.HasPrefix(rest, "images --format"):
+			return baseTag + "\t2147483648 B\n" +
+				"opencode-sandbox-tc-rust:rust0000rust0\t6442450944 B\n", nil
+		case name == "podman" && strings.HasPrefix(rest, "image exists"):
+			if rest == "image exists "+baseTag {
+				return "", nil
+			}
+			return "", fmt.Errorf("no such image")
+		case name == "bash":
+			return "", fmt.Errorf("the Go side never launches the builder")
+		}
+		return "", nil
+	}}
+	s := depsServer(t, run, reg)
+
+	// The fixture root carries the shipped base recipe and go recipe (the
+	// builder lints them as shipped; the minimal fixture base would trip
+	// the base-lint's own refusal). Written after the seeder ran — it
+	// would overwrite them back.
+	root := tcRootOf(reg.Home)
+	for _, f := range []string{"base.Dockerfile", filepath.Join("recipes", "go.Dockerfile")} {
+		raw, err := os.ReadFile(filepath.Join(dist, "toolchains", f))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, f), raw, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// The shared host numbers: 1.0 GiB free; the base image existing
+	// (2 GiB — the plan's estimate is component-only) and a 6 GiB rust
+	// component image on host, its delta over the base the formula's
+	// largest-known-payload term; the go component image missing. Both
+	// sides derive the same tags from the same fixture base recipe.
+	b, err := identity.BaseTag(filepath.Join(root, "base.Dockerfile"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	baseTag = b
+
+	resp := post(t, s.URL()+"images/build", "tag=go")
+	goLine := refusalSentence(readAll(t, resp))
+
+	// The bash side: the builder itself behind a PATH-mocked podman/df/
+	// curl (the tests/test-build-images.sh mock pattern).
+	bin := t.TempDir()
+	writeMock := func(name, body string) {
+		t.Helper()
+		path := filepath.Join(bin, name)
+		if err := os.WriteFile(path, []byte(body), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeMock("podman", `#!/usr/bin/env bash
+base_tag="opencode-sandbox-base:$(sha256sum "$TOOLCHAINS_ROOT/base.Dockerfile" | cut -c1-12)"
+case "$1" in
+  --version)
+    printf 'podman version 4.9.3\n'
+    exit 0
+    ;;
+  images)
+    ref=""
+    args=("$@")
+    for ((i = 0; i < ${#args[@]}; i++)); do
+      [[ "${args[$i]}" == "--filter" ]] && ref="${args[$((i + 1))]:-}"
+    done
+    ref="${ref#reference=}"
+    # the glob filter lists the rust image; the per-id one lists nothing
+    [[ "$ref" == 'opencode-sandbox-tc-*' ]] && printf 'opencode-sandbox-tc-rust:rust0000rust0\n'
+    exit 0
+    ;;
+esac
+case "$1 $2" in
+  "image exists")
+    [[ "${@: -1}" == "$base_tag" ]] && exit 0
+    exit 1
+    ;;
+  "image inspect")
+    [[ "${@: -1}" == "opencode-sandbox-tc-rust:rust0000rust0" ]] && printf '6442450944\n' || printf '2147483648\n'
+    exit 0
+    ;;
+esac
+exit 0
+`)
+	writeMock("df", "#!/usr/bin/env bash\nprintf 'Avail\\n1073741824\\n'\n")
+	writeMock("curl", "#!/usr/bin/env bash\nexit 0\n")
+	cmd := exec.Command("bash", script, "--tc", "go")
+	cmd.Env = append(os.Environ(),
+		"PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"),
+		"TOOLCHAINS_ROOT="+root)
+	out, err := cmd.CombinedOutput() // the preflight refusal exits 1
+	t.Logf("bash out (%v): %s", err, out)
+	bashLine := refusalSentence(string(out))
+	if bashLine == "" {
+		t.Fatalf("bash side did not refuse (err=%v):\n%s", err, out)
+	}
+
+	if goLine == "" {
+		t.Fatal("Go side did not refuse")
+	}
+	if goLine != bashLine {
+		t.Fatalf("disk refusal drifted:\nGo:   %s\nbash: %s", goLine, bashLine)
 	}
 }

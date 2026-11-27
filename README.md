@@ -254,6 +254,34 @@ install (grammar and pin rules in `docs/porting-dockerfile-custom.md`); it
 appears automatically in the WebUI's toolchain multi-select and Images screen.
 The file is never overwritten on updates.
 
+### Build-time egress
+
+Toolchain and image builds fetch directly from their sources — **build-time
+only**: running workspaces never build, and the per-workspace squid proxy
+never sees a build (builds ride `--network host` over the host's own proxy
+environment, so no allowlist entries are ever needed for them). The complete
+list of build-time source hosts, for restricted-host administrators:
+
+| Host | Feeds |
+| --- | --- |
+| `archive.ubuntu.com`, `security.ubuntu.com` | apt packages (every recipe) |
+| `docker.io` | the base image's `FROM ubuntu:24.04` pull |
+| `pypi.org`, `files.pythonhosted.org` | pip packages |
+| `registry.npmjs.org` | npm packages |
+| `deb.nodesource.com` | the base's node runtime |
+| `sh.rustup.rs`, `static.rust-lang.org` | rustup installs |
+| `github.com`, `objects.githubusercontent.com`, `raw.githubusercontent.com` | GitHub release assets and raw scripts |
+| `gitlab.com` | GitLab release assets (glab) |
+| `opencode.ai` | OpenCode release channel (older pins) |
+| `cdn.playwright.dev` | the playwright browser CDN (browser downloads) |
+| `packages.ros.org` | the ROS 2 apt repository key |
+| `labs.picotech.com` | the PicoScope apt repository |
+| `downloads.arduino.cc` | arduino-cli release assets |
+
+Infra-only (the shared infrastructure images build outside
+`build-images.sh`'s §7 contract — same build-time-only rule):
+`dl-cdn.alpinelinux.org`, `huggingface.co`.
+
 ## HIL Mode
 
 For HIL tests with USB oscilloscope and microcontrollers, install the udev

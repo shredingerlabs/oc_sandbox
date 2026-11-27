@@ -60,13 +60,9 @@ func SelectionFlags(cfg sandboxcfg.Config) []string {
 // state every start path renders.
 func SetTagFor(toolchainsDir string, ids []string) (string, bool) {
 	cat := discovery.Discover(toolchainsDir)
-	var members []identity.Member
-	for _, id := range ids {
-		u, ok := cat.Unit(id)
-		if !ok || !u.Valid {
-			return "", false
-		}
-		members = append(members, identity.Member{ID: id, RecipePath: u.Path})
+	members, ok := discovery.MembersFor(cat, ids)
+	if !ok {
+		return "", false
 	}
 	tag, err := identity.SetTag(filepath.Join(toolchainsDir, "base.Dockerfile"), members)
 	if err != nil {

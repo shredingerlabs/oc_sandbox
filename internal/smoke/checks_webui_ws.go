@@ -141,7 +141,8 @@ func checkWebUIWorkspaces(home, root string) Item {
 		for _, want := range []string{
 			`data-ws="mural"`, `data-ws="lab"`,
 			// WP-5 derived identity: bundle-name chips with the member
-			// list as tooltip, one generic glyph, no per-edition hues.
+			// list as tooltip, one generic glyph, the matching bundle's
+			// hue (the retired per-edition glyph attribute stays banned).
 			`>swdev</span>`, `>web</span>`,
 			`title="4 toolchains: cpp, go, java, rust"`,
 			`title="2 toolchains: node-dev, playwright"`,

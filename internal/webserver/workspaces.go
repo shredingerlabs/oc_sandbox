@@ -30,11 +30,32 @@ import (
 
 // setIdentity is the derived identity of a workspace's toolchain set
 // (spec toolchain-sets WP-5): the bundle whose members exactly match the
-// stored set names it, any other selection is Custom. Every set renders
-// the neutral accent and the one generic glyph — matched or Custom.
+// stored set names it, any other selection is Custom. Hue is the
+// matching bundle's Signal hue (the card tile, the containers/proxy row
+// tiles tint with it via CSS --ed); unmatched, base-only-unmatched and
+// unresolved sets render the neutral accent ("").
 type setIdentity struct {
 	Label    string // derived bundle name, else "Custom"
 	Subtitle string // "n toolchains: a, b" / "base only" / the unresolved reason
+	Hue      string // the matching bundle's hue, "" → the neutral accent
+}
+
+// bundleHues is the bundle→hue map of the signed-off Signal mockup
+// (prototype-webui-design.html, §5): the deleted per-edition palette's
+// values where the bundle names match (the editions map on main before
+// #215), the base-only chat bundle re-keyed onto the same palette
+// (no edition ever carried it). Unmatched selections render the neutral
+// accent — no entry for "Custom".
+var bundleHues = map[string]string{
+	"web":      "#8b5cf6",
+	"embedded": "#0ea5a4",
+	"swdev":    "#2f6fed",
+	"matlab":   "#e8721c",
+	"ros2":     "#16a34a",
+	"writing":  "#d97757",
+	"latex":    "#4f46e5",
+	"chat":     "#0891b2",
+	"pkm":      "#db2777",
 }
 
 // setIdentityFor derives a stored config's identity against the
@@ -78,16 +99,12 @@ func setIdentityFor(cfg sandboxcfg.Config, toolchainsRoot, workspaceKind string)
 	if n := len(cfg.Toolchains); n > 0 {
 		subtitle = strconv.Itoa(n) + " toolchains: " + strings.Join(cfg.Toolchains, ", ")
 	}
-	return setIdentity{Label: label, Subtitle: subtitle}
-}
-
-// errUnresolvedSelection is the §10 unresolved refusal — the one
-// refusal everywhere a start flow reads an unknown stored edition,
-// before any prompt machinery (WP-10). The old image/container is
-// never touched. The message lives in sandboxcfg (every surface shows
-// the same words — the setup flow's op-time refusal included).
-func errUnresolvedSelection(cfg sandboxcfg.Config) error {
-	return cfg.UnresolvedError()
+	// The hue rides the same disambiguation as the label: the bundle the
+	// selection was named with tints the tile — the empty set matches
+	// chat and pkm, the legacy edition/kind preference names one of
+	// them (spec §9 WP-5: hue from the matching bundle, else the
+	// neutral accent).
+	return setIdentity{Label: label, Subtitle: subtitle, Hue: bundleHues[label]}
 }
 
 // glyphFuncs carries the card tile's one generic set glyph (WP-5: one
@@ -101,6 +118,7 @@ type cardView struct {
 	Name       string
 	OpID       int    // op id of the in-flight op (start response) — line events match it
 	Label      string // derived bundle name chip (exact member-match), else "Custom"
+	Hue        string // the matching bundle's hue (CSS --ed), "" → the neutral accent
 	Subtitle   string // member list tooltip ("n toolchains: …"), base only, or the unresolved reason
 	Hil        bool   // HIL chip: hil_mode recorded in the modes
 	Proxy      bool   // advanced-only chips: stored truth straight from sandbox_config
@@ -140,7 +158,7 @@ var wsTemplate = template.Must(template.New("ws").
 	Funcs(glyphFuncs).
 	Parse(`
 {{define "card"}}
-<article class="card" data-ws="{{.Name}}"{{if .OpID}} data-op-id="{{.OpID}}"{{end}}>
+<article class="card" data-ws="{{.Name}}"{{if .Hue}} style="--ed:{{.Hue}}"{{end}}{{if .OpID}} data-op-id="{{.OpID}}"{{end}}>
   <div class="toprow">
     <div class="tile">{{seticon}}</div>
     <div class="body">
@@ -312,6 +330,7 @@ func (s *Server) cardFor(e registry.Workspace, mode string) cardView {
 	// Custom naming the reason, the card stays up, nothing destroyed.
 	id := setIdentityFor(cfg, s.toolchainsRoot(), cfg.WorkspaceKind)
 	c.Label = id.Label
+	c.Hue = id.Hue
 	c.Subtitle = id.Subtitle
 	for _, m := range cfg.ContainerModes {
 		switch m {

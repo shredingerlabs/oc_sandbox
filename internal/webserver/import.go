@@ -168,7 +168,7 @@ func (s *Server) handleImportWorkspace(w http.ResponseWriter, r *http.Request) {
 	}
 	v.Identity = setIdentityFor(res.Config, s.toolchainsRoot(), res.Config.WorkspaceKind)
 	if !res.Config.Resolved {
-		v.Unresolved = errUnresolvedSelection(res.Config).Error()
+		v.Unresolved = res.Config.UnresolvedError().Error()
 	}
 	renderT(w, importStageTmpl, v)
 }

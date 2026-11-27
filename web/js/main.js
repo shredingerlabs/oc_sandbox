@@ -956,17 +956,26 @@
   function syncBundleRow(form) {
     var row = q(form, '[data-role="wizard-bundle"]');
     if (!row) return;
-    var sel = checkedUnits(form);
-    var custom = true;
-    row.querySelectorAll(".edopt").forEach(function (b) {
-      var pressed = b.dataset.members !== undefined &&
-        sameSet((b.dataset.members || "").split(",").filter(Boolean), sel);
-      if (pressed) custom = false;
-      b.setAttribute("aria-pressed", String(pressed));
-    });
-    var customChip = row.querySelector('.edopt[data-bundle="custom"]');
-    if (customChip) customChip.setAttribute("aria-pressed", String(custom));
+    syncChipRow(row.querySelectorAll(".edopt"),
+      row.querySelector('.edopt[data-bundle="custom"]'),
+      checkedUnits(form));
     syncUnitsCount(form);
+  }
+
+  // syncChipRow re-derives a bundle-chip row's pressed states from the
+  // picked set — the one derivation behind both chip rows (the wizard's
+  // and the workspace settings', #205/#208): the chip whose members
+  // match the picked set exactly presses, the Custom chip presses when
+  // nothing matched (the same derivation the Go identity renders).
+  function syncChipRow(chips, customChip, picked) {
+    var custom = true;
+    chips.forEach(function (chip) {
+      var match = chip.dataset.members !== undefined &&
+        sameSet((chip.dataset.members || "").split(",").filter(Boolean), picked);
+      if (match) custom = false;
+      chip.setAttribute("aria-pressed", String(match));
+    });
+    if (customChip) customChip.setAttribute("aria-pressed", String(custom));
   }
 
   // applyHILPreset: the §3 rule — ON iff the selection contains any
@@ -1011,16 +1020,9 @@
       count.textContent = picked.length + " of " +
         holder.querySelectorAll('input[name="toolchains"]').length + " selected";
     }
-    var custom = true;
-    holder.querySelectorAll('[data-role="settings-bundles"] .edopt').forEach(function (chip) {
-      var members = (chip.dataset.members || "").split(",").filter(Boolean).sort();
-      var match = members.length === picked.length &&
-                  members.every(function (m, i) { return m === picked[i]; });
-      if (match) custom = false;
-      chip.setAttribute("aria-pressed", String(match));
-    });
-    var customChip = holder.querySelector('[data-role="settings-bundles"] .edopt[data-bundle="custom"]');
-    if (customChip) customChip.setAttribute("aria-pressed", String(custom));
+    syncChipRow(holder.querySelectorAll('[data-role="settings-bundles"] .edopt'),
+      holder.querySelector('[data-role="settings-bundles"] .edopt[data-bundle="custom"]'),
+      picked);
   }
 
   document.addEventListener("click", function (ev) {

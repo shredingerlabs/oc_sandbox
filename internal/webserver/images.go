@@ -89,13 +89,13 @@ func (s *Server) imageRefs() []string {
 	return append(refs, discovery.ProxyImageTag, discovery.SearxngImageTag, discovery.SttImageTag)
 }
 
-// baseRecipePath resolves the toolchains dir's fixed base recipe (§1);
-// "" when the seam is unwired (no cached markers, no base row).
+// baseRecipePath resolves the toolchains dir's fixed base recipe (§1) —
+// the wired seam's dir, else the install layout under the server's home
+// (toolchainsRoot). The one base-recipe resolver every base-tag
+// derivation goes through (cached markers, base row, create/gc/
+// buildpreflight plans).
 func (s *Server) baseRecipePath() string {
-	if s.deps.Toolchains == "" {
-		return ""
-	}
-	return filepath.Join(s.deps.Toolchains, "base.Dockerfile")
+	return filepath.Join(s.toolchainsRoot(), "base.Dockerfile")
 }
 
 // pinnedRef reports whether any container image reference is the same

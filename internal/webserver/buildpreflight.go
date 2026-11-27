@@ -35,7 +35,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"path/filepath"
 	"regexp"
 	"slices"
 	"strconv"
@@ -134,13 +133,12 @@ func (s *Server) builderPlanSet(ids []string) (buildPlan, bool) {
 	if !ok {
 		return buildPlan{}, false
 	}
-	var members []identity.Member
-	for _, id := range ids {
-		u, ok := cat.Unit(id)
-		if !ok || !u.Valid {
-			return buildPlan{}, false
-		}
-		members = append(members, identity.Member{ID: id, RecipePath: u.Path})
+	members, ok := discovery.MembersFor(cat, ids)
+	if !ok {
+		return buildPlan{}, false
+	}
+	for _, m := range members {
+		u, _ := cat.Unit(m.ID) // MembersFor validated every member — cannot miss
 		s.addUnit(&p, u)
 	}
 	setTag, err := identity.SetTag(p.BaseFile, members)
@@ -160,7 +158,7 @@ func (s *Server) builderPlanSet(ids []string) (buildPlan, bool) {
 // ok=false when the seam is unwired or the base recipe is unreadable
 // (the builder refuses with its own reason).
 func (s *Server) newPlan(assembly bool) (buildPlan, bool) {
-	baseFile := filepath.Join(s.toolchainsRoot(), "base.Dockerfile")
+	baseFile := s.baseRecipePath()
 	tag, err := identity.BaseTag(baseFile)
 	if err != nil {
 		return buildPlan{}, false
@@ -220,7 +218,8 @@ func (s *Server) diskPreflight(p buildPlan) error {
 // estimateBytes is the §7 item-2 estimate: the base budget when the
 // base image is missing, per missing component the same-id image's
 // size where one exists (a stale-hash tag still sizes the rebuild
-// honestly) else the floored budget, plus the assembly's own layer
+// honestly) else the budget formula with the largest known payload on
+// host floored at the flat budget, plus the assembly's own layer
 // budget when an assembly builds.
 func (s *Server) estimateBytes(p buildPlan) int64 {
 	if p.empty() {
@@ -230,12 +229,13 @@ func (s *Server) estimateBytes(p buildPlan) int64 {
 	if p.BaseMissing {
 		est += baseDiskBudgetBytes
 	}
-	sizes := s.componentSizes()
+	sizes := s.hostSizes()
+	largest := largestComponentDelta(sizes)
 	for _, u := range p.Missing {
-		if sz := sizes[u.ID]; sz > 0 {
+		if sz := sizes.component[u.ID]; sz > 0 {
 			est += int64(sz)
 		} else {
-			est += componentDiskBudgetBytes
+			est += componentEstimateBytes(largest)
 		}
 	}
 	if p.Assembly {
@@ -244,19 +244,64 @@ func (s *Server) estimateBytes(p buildPlan) int64 {
 	return est
 }
 
-// componentSizes reads the existing component images' sizes by id (one
-// podman images query — the same-id estimate input; the first tag per
-// id, like the builder's component_estimate_bytes).
-func (s *Server) componentSizes() map[string]float64 {
-	sizes := map[string]float64{}
+// componentEstimateBytes is the §7 item-2 budget formula's component
+// term: the largest known payload on host, floored at the flat budget
+// (1 GiB) — the mirror of the builder's component_estimate_bytes
+// fallback, pinned together by the disk-refusal agreement test.
+func componentEstimateBytes(largestDelta int64) int64 {
+	if largestDelta > componentDiskBudgetBytes {
+		return largestDelta
+	}
+	return componentDiskBudgetBytes
+}
+
+// hostSizes is what the host's existing images size the estimate with:
+// per-id component sizes (the same-id estimate input; the first tag per
+// id, like the builder's component_estimate_bytes) and the base image's
+// size (the delta term's denominator).
+type hostSizes struct {
+	component map[string]float64
+	base      float64
+}
+
+// largestComponentDelta reports the largest known payload on host (§7
+// item 2): the largest existing component image's size delta over the
+// base image. The payload archive lives inside the image and the dump
+// step records no host-side size marker, so the delta is the honest
+// measurable proxy — it already sums the extracted payload + compressed
+// archive the budget formula reads as ≈ 2× payload. 0 when no base or
+// no component image exists (no known payload) — the caller floors at
+// the flat budget.
+func largestComponentDelta(sizes hostSizes) int64 {
+	if sizes.base <= 0 || len(sizes.component) == 0 {
+		return 0
+	}
+	var best int64
+	for _, sz := range sizes.component {
+		if d := int64(sz) - int64(sizes.base); d > best {
+			best = d
+		}
+	}
+	return best
+}
+
+// hostSizes reads the existing images' sizes from one podman images
+// query: component sizes keyed by id (first tag per id, like the
+// builder's component_estimate_bytes) and the base image's size.
+func (s *Server) hostSizes() hostSizes {
+	sizes := hostSizes{component: map[string]float64{}}
 	for _, img := range discovery.SandboxImages(s.runnerSeam()) {
 		r := discovery.ParseImageRef(img.Tag)
-		if r.Kind != discovery.RefToolchain {
-			continue
-		}
-		if _, seen := sizes[r.ID]; !seen {
-			if sz := parseSizeBytes(img.Size); sz > 0 {
-				sizes[r.ID] = sz
+		if sz := parseSizeBytes(img.Size); sz > 0 {
+			switch r.Kind {
+			case discovery.RefToolchain:
+				if _, seen := sizes.component[r.ID]; !seen {
+					sizes.component[r.ID] = sz
+				}
+			case discovery.RefBase:
+				if sizes.base == 0 {
+					sizes.base = sz
+				}
 			}
 		}
 	}
