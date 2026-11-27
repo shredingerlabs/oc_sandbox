@@ -32,6 +32,7 @@ func (s *Server) wireRoutes(inner *http.ServeMux) {
 	inner.HandleFunc("GET /images", s.handleImages)
 	inner.HandleFunc("POST /images/build", s.handleImagesBuild)
 	inner.HandleFunc("POST /images/delete", s.handleImagesDelete)
+	inner.HandleFunc("POST /images/clean", s.handleImagesClean)
 	// Proxy screen (ADR 0034): member lifecycle + the per-workspace
 	// allowlist editor; the ops share the workspace container-name key.
 	inner.HandleFunc("GET /proxy", s.handleProxyScreen)
