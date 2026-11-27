@@ -19,6 +19,7 @@ cp "$PROJECT_ROOT/dist/scripts/build-images.sh" "$fixture_dist/scripts/"
 cp "$PROJECT_ROOT/dist/scripts/lib-identity.sh" "$fixture_dist/scripts/"
 cp "$PROJECT_ROOT/dist/scripts/toolchains.sh" "$fixture_dist/scripts/"
 cp "$PROJECT_ROOT/dist/scripts/dump.sh" "$fixture_dist/scripts/"
+cp "$PROJECT_ROOT/dist/scripts/merge-pm.py" "$fixture_dist/scripts/"
 cp -r "$PROJECT_ROOT/dist/toolchains" "$fixture_dist/toolchains"
 
 # Generated-Dockerfile directory determinism: the builder writes per-component
@@ -43,9 +44,12 @@ mkdir -p "$fake_bin"
 # podman mock: logs every invocation's args (one line each) into $PODMAN_LOG.
 # PODMAN_VERSION overrides the --version answer; the tags named in
 # PODMAN_MISSING_IMAGES fail `image exists` (all others exist). `build -q`
-# answers PODMAN_STAGE_ID; `images --filter` answers PODMAN_IMAGES (tags, one
-# per line); `image inspect` answers PODMAN_IMAGE_SIZE; `image mount` answers
-# PODMAN_MOUNT_DIR (the test places the dump's tc.pkgs there).
+# answers PODMAN_STAGE_ID; `images --filter reference=X` answers PODMAN_IMAGES
+# (tags, one per line — only lines matching the requested reference);
+# `image inspect --format {{.Size}}` answers PODMAN_IMAGE_SIZE; `image inspect
+# --format {{ index .Labels "tc.pkgs" }}` answers from PODMAN_LABELS_FILE
+# (<tag><TAB><value>); `image mount` answers PODMAN_MOUNT_DIR (the test places
+# the dump's tc.pkgs there).
 cat > "$fake_bin/podman" <<'EOF'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "${PODMAN_LOG}"
@@ -61,7 +65,19 @@ case "$1" in
     exit 0
     ;;
   images)
-    [[ -n "${PODMAN_IMAGES:-}" ]] && printf '%s\n' "$PODMAN_IMAGES"
+    if [[ -n "${PODMAN_IMAGES:-}" ]]; then
+      ref=""
+      args=("$@")
+      for ((i = 0; i < ${#args[@]}; i++)); do
+        if [[ "${args[$i]}" == "--filter" ]]; then
+          f="${args[$((i + 1))]:-}"
+          [[ "$f" == reference=* ]] && ref="${f#reference=}"
+        fi
+      done
+      while IFS= read -r line; do
+        [[ -z "$ref" || "$line" == "$ref"* ]] && printf '%s\n' "$line"
+      done <<< "$PODMAN_IMAGES"
+    fi
     exit 0
     ;;
 esac
@@ -73,6 +89,11 @@ case "$1 $2" in
     exit 0
     ;;
   "image inspect")
+    if [[ "$*" == *'tc.pkgs'* && -n "${PODMAN_LABELS_FILE:-}" ]]; then
+      tag="${@: -1}"
+      grep -F "$tag"$'\t' "$PODMAN_LABELS_FILE" | head -n 1 | cut -f2-
+      exit 0
+    fi
     printf '%s\n' "${PODMAN_IMAGE_SIZE:-1073741824}"
     exit 0
     ;;
@@ -454,5 +475,155 @@ if run_script --all --base; then
   exit 1
 fi
 printf -- '--all flag conflict test passed\n'
+
+# --- 11: --set full-canonical set assembly (ticket #200, spec §5) ----------------------
+
+go_recipe="$fixture_dist/toolchains/recipes/go.Dockerfile"
+usb_recipe="$fixture_dist/toolchains/recipes/usb.Dockerfile"
+set_two="$(tc_set_tag "$base_dockerfile" go "$go_recipe" usb "$usb_recipe")"
+set_base_only="$(tc_set_tag "$base_dockerfile")"
+set_gen="$test_home/oc-build-gen-$(id -u)/set-${set_two#*:}"
+set_gen_base_only="$test_home/oc-build-gen-$(id -u)/set-${set_base_only#*:}"
+go_sha="$(sha256sum "$go_recipe" | cut -d' ' -f1)"
+usb_sha="$(sha256sum "$usb_recipe" | cut -d' ' -f1)"
+
+# label reads: the mock podman answers tc.pkgs label inspects from this file
+# (<tag><TAB><label value>)
+labels_tsv="$test_home/labels.tsv"
+printf '%s\t%s\n' "$go_tag" 'golang-go' > "$labels_tsv"
+usb_tag="$(component_tag usb)"
+printf '%s\t%s\n' "$usb_tag" 'usbutils libusb-1.0-0' >> "$labels_tsv"
+
+# 11a: an unknown id refuses before any podman call
+: > "$PODMAN_LOG"
+run_script_failing --set nosuch-toolchain
+grep -q "unknown toolchain id 'nosuch-toolchain'" "$test_home/err.log"
+[[ "$(wc -l < "$PODMAN_LOG")" -eq 0 ]]
+printf -- '--set flag contract (unknown id) test passed\n'
+
+# 11b: missing base + components build first (canonical order), then the set
+# assembles in ONE build pinned --network=none; the tc.pkgs labels are read
+# from the member images (no container start) for the merged-union label
+: > "$PODMAN_LOG"
+PODMAN_MISSING_IMAGES="$expected_tag $go_tag $usb_tag $set_two" \
+  PODMAN_LABELS_FILE="$labels_tsv" run_script --set usb,go
+grep -q -- "build --network host -t $expected_tag -f $fixture_dist/toolchains/base.Dockerfile" "$PODMAN_LOG"
+go_build=$(grep -n -- "build -q --network host -t $go_tag " "$PODMAN_LOG" | cut -d: -f1)
+usb_build=$(grep -n -- "build -q --network host -t $usb_tag " "$PODMAN_LOG" | cut -d: -f1)
+set_build=$(grep -n -- "build --network=none -t $set_two -f $set_gen/Dockerfile $set_gen" "$PODMAN_LOG" | cut -d: -f1)
+[[ -n "$go_build" && -n "$usb_build" && -n "$set_build" && "$go_build" -lt "$usb_build" && "$usb_build" -lt "$set_build" ]]
+grep -q -- "image inspect --format {{ index .Labels \"tc.pkgs\" }} $go_tag" "$PODMAN_LOG"
+grep -q -- "image inspect --format {{ index .Labels \"tc.pkgs\" }} $usb_tag" "$PODMAN_LOG"
+printf -- '--set build order and podman-arg pins test passed\n'
+
+# 11b': the generated set Dockerfile — canonical COPY order, uniform footer,
+# enumeration labels
+[[ "$(sed -n '1p' "$set_gen/Dockerfile")" == '# syntax=docker/dockerfile:1' ]]
+grep -q -- "FROM opencode-sandbox-base:$(sha256sum "$base_dockerfile" | cut -c1-12)" "$set_gen/Dockerfile"
+grep -q '^LABEL kind="set"$' "$set_gen/Dockerfile"
+grep -q '^LABEL members="go usb"$' "$set_gen/Dockerfile"
+grep -q "^LABEL member.hashes=\"go:$go_sha usb:$usb_sha\"\$" "$set_gen/Dockerfile"
+grep -q '^LABEL tc.pkgs="golang-go libusb-1.0-0 usbutils"$' "$set_gen/Dockerfile"
+grep -q '^COPY merge-pm.py /tmp/merge-pm.py$' "$set_gen/Dockerfile"
+grep -q -- "COPY --from=$go_tag /oc-dump/payload.tar.gz /tmp/oc-merge/go/payload.tar.gz" "$set_gen/Dockerfile"
+grep -q -- "COPY --from=$go_tag /oc-dump/pm /tmp/oc-merge/go/pm" "$set_gen/Dockerfile"
+grep -q -- "COPY --from=$usb_tag /oc-dump/payload.tar.gz /tmp/oc-merge/usb/payload.tar.gz" "$set_gen/Dockerfile"
+grep -q -- "COPY --from=$usb_tag /oc-dump/pm /tmp/oc-merge/usb/pm" "$set_gen/Dockerfile"
+go_copy=$(grep -n -- "COPY --from=$go_tag " "$set_gen/Dockerfile" | head -n 1 | cut -d: -f1)
+usb_copy=$(grep -n -- "COPY --from=$usb_tag " "$set_gen/Dockerfile" | head -n 1 | cut -d: -f1)
+[[ -n "$go_copy" && -n "$usb_copy" && "$go_copy" -lt "$usb_copy" ]]
+grep -q '^RUN python3 /tmp/merge-pm.py /tmp/oc-merge / && ldconfig && rm -rf /tmp/oc-merge /tmp/merge-pm.py$' "$set_gen/Dockerfile"
+[[ "$(tail -n 2 "$set_gen/Dockerfile" | head -n 1)" == 'USER dev' ]]
+[[ "$(tail -n 1 "$set_gen/Dockerfile")" == 'ENTRYPOINT ["/bin/bash","-l"]' ]]
+printf 'generated set Dockerfile shape test passed\n'
+
+# 11c: unordered member input renders byte-identically to sorted input
+: > "$PODMAN_LOG"
+PODMAN_MISSING_IMAGES="$expected_tag $go_tag $usb_tag $set_two" \
+  PODMAN_LABELS_FILE="$labels_tsv" run_script --set go,usb
+cp "$PODMAN_LOG" "$test_home/log-set1"
+cp "$set_gen/Dockerfile" "$test_home/gen-set1"
+: > "$PODMAN_LOG"
+PODMAN_MISSING_IMAGES="$expected_tag $go_tag $usb_tag $set_two" \
+  PODMAN_LABELS_FILE="$labels_tsv" run_script --set usb,go
+cmp "$test_home/log-set1" "$PODMAN_LOG"
+cmp "$test_home/gen-set1" "$set_gen/Dockerfile"
+printf 'unordered-input identity test passed\n'
+
+# 11d: determinism — the same input twice is byte-identical (log + Dockerfile)
+: > "$PODMAN_LOG"
+PODMAN_MISSING_IMAGES="$expected_tag $go_tag $usb_tag $set_two" \
+  PODMAN_LABELS_FILE="$labels_tsv" run_script --set go,usb
+cmp "$test_home/log-set1" "$PODMAN_LOG"
+printf 'set determinism test passed\n'
+
+# 11e: cached-skip when the set tag exists
+: > "$PODMAN_LOG"
+PODMAN_MISSING_IMAGES="" PODMAN_LABELS_FILE="$labels_tsv" run_script --set go,usb
+grep -q -- "image exists $set_two" "$PODMAN_LOG"
+grep -q "$set_two already exists — skipping" "$test_home/out.log"
+if grep -q '^build' "$PODMAN_LOG"; then
+  printf 'existing set image was rebuilt\n' >&2
+  exit 1
+fi
+printf 'set cached-skip test passed\n'
+
+# 11f: --set "" assembles the base-only set (no member COPYs, empty labels)
+: > "$PODMAN_LOG"
+PODMAN_MISSING_IMAGES="$expected_tag $set_base_only" \
+  PODMAN_LABELS_FILE="$labels_tsv" run_script --set ""
+grep -q -- "build --network=none -t $set_base_only -f $set_gen_base_only/Dockerfile $set_gen_base_only" "$PODMAN_LOG"
+if grep -q '^COPY --from=' "$set_gen_base_only/Dockerfile"; then
+  printf 'the base-only set COPYs a member payload\n' >&2
+  exit 1
+fi
+grep -q '^LABEL members=""$' "$set_gen_base_only/Dockerfile"
+grep -q '^LABEL tc.pkgs=""$' "$set_gen_base_only/Dockerfile"
+printf 'base-only set test passed\n'
+
+# 11g: disk preflight — an assembly-only plan estimates at the 1 GiB set budget
+# (+20 % headroom refusal); it never runs the download-needing network probe seam
+: > "$PODMAN_LOG"
+DF_AVAIL_BYTES=1100000000 PODMAN_MISSING_IMAGES="$set_two" \
+  PODMAN_LABELS_FILE="$labels_tsv" run_script_failing --set go,usb
+grep -q 'refusing to build' "$test_home/err.log"
+grep -q '1.2 GiB needed (1.0 GiB estimate + 20% headroom)' "$test_home/err.log"
+if grep -q '^build' "$PODMAN_LOG"; then
+  printf 'disk-refused set assembly reached podman\n' >&2
+  exit 1
+fi
+: > "$PODMAN_LOG"
+DF_AVAIL_BYTES=1288490188 PODMAN_MISSING_IMAGES="$set_two" \
+  PODMAN_LABELS_FILE="$labels_tsv" run_script --set go,usb
+grep -q -- "build --network=none -t $set_two" "$PODMAN_LOG"
+printf 'set disk preflight test passed\n'
+
+# 11h: --set conflicts with the other build flags
+for conflict in "--set go,usb --base" "--set go,usb --tc go" "--set go,usb --all" "--base --set go,usb"; do
+  if run_script $conflict; then
+    printf -- '--set flag conflict unexpectedly succeeded: %s\n' "$conflict" >&2
+    exit 1
+  fi
+  grep -q 'takes no other flags' "$test_home/err.log"
+done
+if run_script --set; then
+  printf -- '--set without a value unexpectedly succeeded\n' >&2
+  exit 1
+fi
+printf -- '--set flag conflict test passed\n'
+
+# 11i: fragment ENV re-emission — the builder renders each member's ENV pairs
+# into the staging envs file (COPY'd, the merge core re-emits them)
+pw_tag="$(component_tag playwright)"
+pw_set="$(tc_set_tag "$base_dockerfile" playwright "$fixture_dist/toolchains/recipes/playwright.Dockerfile")"
+pw_gen="$test_home/oc-build-gen-$(id -u)/set-${pw_set#*:}"
+printf '%s\t%s\n' "$pw_tag" 'playwright' > "$labels_tsv"
+: > "$PODMAN_LOG"
+PODMAN_MISSING_IMAGES="$expected_tag $pw_tag $pw_set" \
+  PODMAN_LABELS_FILE="$labels_tsv" run_script --set playwright
+grep -q -- "COPY oc-envs/playwright.env /tmp/oc-merge/playwright/envs" "$pw_gen/Dockerfile"
+[[ "$(sed -n '1p' "$pw_gen/oc-envs/playwright.env")" == 'PLAYWRIGHT_BROWSERS_PATH=/usr/local/share/playwright-browsers' ]]
+[[ "$(sed -n '2p' "$pw_gen/oc-envs/playwright.env")" == 'PLAYWRIGHT_DOWNLOAD_CONNECTION_TIMEOUT=0' ]]
+printf 'fragment ENV re-emission staging test passed\n'
 
 printf 'build-images tests passed\n'

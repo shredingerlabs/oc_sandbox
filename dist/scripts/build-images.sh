@@ -23,17 +23,37 @@
 # against live discovery (toolchains.sh resolve); an unknown or invalid
 # fragment refuses the build.
 #
+# --set <ids> (#200, full-canonical assembly, spec §5 — the path every start
+# flow calls): assembles opencode-sandbox-set:<hash12> (set hash = sorted
+# (id, recipe content hash) pairs + base recipe hash, lib-identity.sh). The
+# generated set Dockerfile is FROM base:hash12 → USER root → the COPY'd merge
+# core (merge-pm.py) → each member's payload archive + PM dump COPY'd
+# --from=opencode-sandbox-tc-<id>:<hash12> in alphabetical id order (plus the
+# member's builder-rendered ENV pairs file when its fragment declares ENVs) →
+# ONE RUN: extract in canonical order, stanza-union the PM state (package
+# stanzas deduped by name, info entries unioned, last canonical writer wins a
+# contested package), re-emit the fragment ENVs (duplicate keys:
+# alphabetical-last wins), then ldconfig and the staging-tree removal → the
+# uniform footer USER dev + ENTRYPOINT ["/bin/bash","-l"]. Labels: kind, the
+# sorted member list, the member recipe content hashes, the merged tc.pkgs
+# union (read host-side from the member images via podman image inspect — no
+# container start). Missing base/components are built first (lazy); an
+# existing set tag is never rebuilt — cached-skip. Assemblies pin
+# --network=none (structural honesty: no recipe or merge step can phone home);
+# an assembly-only plan skips the download-needing network probe seam.
+#
 # Preflight, before any build: podman >= 4.0 floor (RUN cache mounts) and a
 # disk estimate + 20 % headroom refuse-with-reason (missing components only,
 # lazy; same-id existing image size where one exists, else the budget formula
 # floored at 1 GiB).
 #
-# Later tickets: --set <ids> (#201, assembly) and the pre-build network probe
-# (#212, §7 item 3 — the seam is _network_probe below).
+# Later tickets: the pre-build network probe (#212, §7 item 3 — the seam is
+# _network_probe below).
 #
 # Usage:
 #   build-images.sh --base              build the base image
 #   build-images.sh --tc <id>[,<id>…]   build toolchain components
+#   build-images.sh --set <ids>         assemble a set image ("" = base-only)
 #   build-images.sh --all               build base + every discovered component
 #   build-images.sh -h|--help           show the help
 #
@@ -48,7 +68,7 @@ source "$script_dir/lib-identity.sh"
 
 usage() {
   cat <<'EOF'
-Usage: build-images.sh [--base] | [--tc <id>[,<id>…]] | [--all]
+Usage: build-images.sh [--base] | [--tc <id>[,<id>…]] | [--set <ids>] | [--all]
 
 Builds the content-addressed toolchain-sets images. An existing tag is never
 rebuilt — the build is skipped; delete the image to force a rebuild.
@@ -57,6 +77,10 @@ rebuilt — the build is skipped; delete the image to force a rebuild.
   --tc <id>[,<id>…]   build toolchain components (comma-separated ids,
                       validated against live discovery; the base image is
                       built first when it is missing)
+  --set <ids>         assemble the set image opencode-sandbox-set:<hash12>
+                      from comma-separated members (validated against live
+                      discovery; missing base/components are built first;
+                      "" assembles the base-only set)
   --all               build the base and every discovered toolchain component
   -h, --help          show this help
 EOF
@@ -124,6 +148,13 @@ BASE_DISK_BUDGET_BYTES=$((2 * 1024 * 1024 * 1024))
 # Per-component budget when no same-id image exists on host: the §4 budget
 # formula (≈ base + 2× payload) floored at 1 GiB.
 COMPONENT_DISK_BUDGET_BYTES=$((1024 * 1024 * 1024))
+
+# Set-assembly budget (§7 item 2, "sets via the formula"): the assembly's own
+# layer cost — the COPY'd payload archives plus their extracted trees. The
+# base and component layers are shared with images already on host (an
+# assembly requires them built first, so their cost was budgeted by their own
+# builds); floored at 1 GiB.
+SET_DISK_BUDGET_BYTES=$((1024 * 1024 * 1024))
 
 # component_estimate_bytes <id> — same-id existing image size where one exists
 # (a stale-hash tag still sizes the rebuild honestly), else the floored budget.
@@ -337,13 +368,223 @@ build_plan() {
   done
 }
 
+# --- set generation and assembly (§5/§6) -----------------------------------------------
+
+# set_gen_dir <set-tag> — the content-keyed generation directory of a set
+# assembly (identical inputs render to the same path, byte-identically).
+set_gen_dir() {
+  local hash12=${1##*:}
+  printf '%s/oc-build-gen-%s/set-%s\n' "${TMPDIR:-/tmp}" "$(id -u)" "$hash12"
+}
+
+# recipe_envs <recipe> — the fragment's ENV pairs as KEY=value lines, keys
+# unique (the last directive wins, Dockerfile semantics), lines sorted (C
+# order). Parsed from toolchains.sh parse records ('env' lines with
+# continuations already joined); the token grammar is the lint's own.
+recipe_envs() {
+  local recipe=$1
+  local -A pairs=()
+  local -a toks
+  local rest tok key val
+  while IFS= read -r rest; do
+    [[ -z "$rest" ]] && continue
+    read -r -a toks <<< "$rest"
+    if [[ "${toks[0]}" == *=* ]]; then
+      for tok in "${toks[@]}"; do
+        [[ "$tok" == *=* ]] || continue
+        pairs["${tok%%=*}"]="${tok#*=}"
+      done
+    else
+      # legacy 'ENV KEY value' form — the first token is the only key
+      key="${toks[0]}"
+      val="${rest#"$key"}"
+      val="${val#"${val%%[![:space:]]*}"}"
+      pairs["$key"]="$val"
+    fi
+  done < <("$script_dir/toolchains.sh" parse "$recipe" 2>/dev/null |
+    awk -F'\t' '$1 == "env" { $1 = ""; sub(/^\t/, ""); print }')
+  local k
+  for k in "${!pairs[@]}"; do
+    printf '%s=%s\n' "$k" "${pairs[$k]}"
+  done | LC_ALL=C sort
+}
+
+# member_tc_pkgs <tag> — a component image's tc.pkgs label, read host-side via
+# podman image inspect (a filesystem/JSON read, never a container start).
+member_tc_pkgs() {
+  podman image inspect --format '{{ index .Labels "tc.pkgs" }}' "$1" 2>/dev/null || true
+}
+
+# generate_set <dir> <base-file> [<id> <recipe>]… — render the set Dockerfile
+# plus the merge core and the members' ENV staging files. Members arrive
+# canonically sorted by id (the caller's argument order is the render order).
+generate_set() {
+  local dir=$1 base_file=$2
+  shift 2
+  mkdir -p "$dir/oc-envs"
+  cp "$script_dir/merge-pm.py" "$dir/merge-pm.py"
+  local id_list="" hash_list="" tag pkgs
+  local -a ids=() recipes=() tags=() envs=()
+  local -a pkgs_raw=()
+  while (($#)); do
+    id=$1
+    recipe=$2
+    shift 2
+    tag="$(tc_component_tag "$base_file" "$id" "$recipe")"
+    ids+=("$id")
+    recipes+=("$recipe")
+    tags+=("$tag")
+    id_list+="${id} "
+    hash_list+="${id}:$(tc_content_hash "$recipe") "
+    # the fragment's ENV pairs, staged for the merge core's re-emission
+    recipe_envs "$recipe" > "$dir/oc-envs/$id.env"
+    if [[ -s "$dir/oc-envs/$id.env" ]]; then
+      envs+=("$id")
+    else
+      rm -f "$dir/oc-envs/$id.env"
+    fi
+    pkgs_raw+=("$(member_tc_pkgs "$tag")")
+  done
+  id_list="${id_list% }"
+  hash_list="${hash_list% }"
+  # the merged union label (§6): every member's tc.pkgs names, sorted, deduped
+  pkgs="$(printf '%s\n' "${pkgs_raw[@]:-}" | tr ' ' '\n' | sed '/^$/d' |
+    LC_ALL=C sort -u | paste -sd' ' -)"
+  {
+    printf '# syntax=docker/dockerfile:1\n'
+    printf "# Generated by build-images.sh — full-canonical set assembly for\n"
+    printf "# toolchains '%s'. Do not edit; the members' recipe contents are\n" "$id_list"
+    printf '# content-hashed into the tag and the members are merged in\n'
+    printf '# canonical (alphabetical id) order — spec toolchain-sets §5.\n'
+    printf 'FROM opencode-sandbox-base:%s\n' "$(tc_base_hash12 "$base_file")"
+    printf 'LABEL kind="set"\n'
+    printf 'LABEL members="%s"\n' "$id_list"
+    printf 'LABEL member.hashes="%s"\n' "$hash_list"
+    printf 'LABEL tc.pkgs="%s"\n' "$pkgs"
+    printf 'USER root\n'
+    printf 'COPY merge-pm.py /tmp/merge-pm.py\n'
+    for i in "${!ids[@]}"; do
+      id="${ids[$i]}"
+      tag="${tags[$i]}"
+      printf 'COPY --from=%s /oc-dump/payload.tar.gz /tmp/oc-merge/%s/payload.tar.gz\n' "$tag" "$id"
+      printf 'COPY --from=%s /oc-dump/pm /tmp/oc-merge/%s/pm\n' "$tag" "$id"
+      if [[ " ${envs[*]:-} " == *" $id "* ]]; then
+        printf 'COPY oc-envs/%s.env /tmp/oc-merge/%s/envs\n' "$id" "$id"
+      fi
+    done
+    printf 'RUN python3 /tmp/merge-pm.py /tmp/oc-merge / && ldconfig && rm -rf /tmp/oc-merge /tmp/merge-pm.py\n'
+    printf 'USER dev\n'
+    printf 'ENTRYPOINT ["/bin/bash","-l"]\n'
+  } > "$dir/Dockerfile"
+}
+
+build_set() {
+  local base_file=$1
+  shift
+  local set_tag dir i
+  local -a pairs=("$@") tag_args=("$base_file")
+  for ((i = 0; i < ${#pairs[@]}; i += 2)); do
+    tag_args+=("${pairs[$i]}" "${pairs[$((i + 1))]}")
+  done
+  set_tag="$(tc_set_tag "${tag_args[@]}")"
+  dir="$(set_gen_dir "$set_tag")"
+  generate_set "$dir" "$base_file" "$@"
+  printf 'build-images: assembling %s\n' "$set_tag"
+  # structural honesty (§5): an assembly never phones home — always offline
+  podman build --network=none -t "$set_tag" -f "$dir/Dockerfile" "$dir"
+  printf 'build-images: built %s\n' "$set_tag"
+}
+
+# set_plan [<id> <recipe>]… — the --set plan: validate ids against live
+# discovery, build the missing base/components first (lazy), then assemble
+# full-canonical. A missing recipe/refusal refuses the whole plan; an existing
+# set tag is never rebuilt.
+set_plan() {
+  local root base_file base_tag id recipe tag est
+  root="$(toolchains_root)"
+  base_file="$root/base.Dockerfile"
+  [[ -f "$base_file" ]] || die "base recipe not found: $base_file — is the toolchains tree installed?"
+
+  # id validation against live discovery, before any podman call (members
+  # arrive canonically sorted by id — the canonical order is derived here)
+  local -a ids=()
+  if (($# > 0)); then
+    mapfile -t ids < <(printf '%s\n' "$@" | LC_ALL=C sort -u)
+  fi
+  local -A recipe_of=()
+  for id in "${ids[@]}"; do
+    recipe_of["$id"]="$(resolve_id "$root" "$id")"
+  done
+
+  lint_base "$base_file"
+  podman_floor
+
+  base_tag="$(tc_base_tag "$base_file")"
+  local base_exists=0
+  podman image exists "$base_tag" && base_exists=1
+
+  # cached-skip: an existing set tag never rebuilds (the set image is
+  # self-contained; a member image deleted afterwards changes nothing)
+  local -a tag_args=("$base_file")
+  for id in "${ids[@]}"; do
+    tag_args+=("$id" "${recipe_of[$id]}")
+  done
+  local set_tag
+  set_tag="$(tc_set_tag "${tag_args[@]}")"
+  if podman image exists "$set_tag"; then
+    printf 'build-images: set image %s already exists — skipping (delete the image to force a rebuild)\n' "$set_tag"
+    return 0
+  fi
+
+  local -a build_ids=()
+  local -A tag_of=()
+  for id in "${ids[@]}"; do
+    recipe="${recipe_of[$id]}"
+    tag="$(tc_component_tag "$base_file" "$id" "$recipe")"
+    tag_of["$id"]="$tag"
+    if podman image exists "$tag"; then
+      printf 'build-images: component image %s already exists — skipping (delete the image to force a rebuild)\n' "$tag"
+    else
+      build_ids+=("$id")
+    fi
+  done
+
+  # disk preflight over what this invocation will actually build: the set's
+  # own layer budget plus the missing base/components
+  est=$SET_DISK_BUDGET_BYTES
+  ((base_exists == 0)) && est=$((est + BASE_DISK_BUDGET_BYTES))
+  for id in "${build_ids[@]}"; do
+    est=$((est + $(component_estimate_bytes "$id")))
+  done
+  disk_preflight "$est"
+  # the download-needing probe (§7 item 3) skips assembly-only plans: only a
+  # missing base/component needs the network; the assembly never does
+  if ((base_exists == 0)) || ((${#build_ids[@]} > 0)); then
+    _network_probe
+  fi
+
+  # build: base first (every component's FROM needs it), then the missing
+  # components in canonical (sorted) order, then the assembly
+  if ((base_exists == 0)); then
+    build_base_now "$root" "$base_file" "$base_tag"
+  fi
+  for id in "${build_ids[@]}"; do
+    build_component "$base_file" "$id" "${recipe_of[$id]}"
+  done
+  local -a set_args=()
+  for id in "${ids[@]}"; do
+    set_args+=("$id" "${recipe_of[$id]}")
+  done
+  build_set "$base_file" "${set_args[@]}"
+}
+
 main() {
   if (($# == 0)); then
     usage >&2
     exit 2
   fi
-  local want_base=0 want_all=0 saw_tc=0
-  local -a tc_ids=() parts=()
+  local want_base=0 want_all=0 saw_tc=0 saw_set=0
+  local -a tc_ids=() set_ids=() parts=()
   local id
   while (($#)); do
     case "$1" in
@@ -366,6 +607,20 @@ main() {
           tc_ids+=("$id")
         done
         ;;
+      --set)
+        saw_set=1
+        shift
+        (($# > 0)) || {
+          usage >&2
+          exit 2
+        }
+        # an empty value is the base-only set — only missing commas are dropped
+        IFS=',' read -r -a parts <<< "$1"
+        for id in "${parts[@]}"; do
+          [[ -n "$id" ]] || continue
+          set_ids+=("$id")
+        done
+        ;;
       -h | --help)
         usage
         exit 0
@@ -378,8 +633,14 @@ main() {
     shift
   done
   if ((want_all)); then
-    if ((want_base)) || ((saw_tc)); then
+    if ((want_base)) || ((saw_tc)) || ((saw_set)); then
       printf 'build-images: --all takes no other flags\n' >&2
+      exit 2
+    fi
+  fi
+  if ((saw_set)); then
+    if ((want_base)) || ((saw_tc)) || ((want_all)); then
+      printf 'build-images: --set takes no other flags\n' >&2
       exit 2
     fi
   fi
@@ -387,7 +648,11 @@ main() {
     usage >&2
     exit 2
   fi
-  build_plan "$want_base" "$want_all" "${tc_ids[@]}"
+  if ((saw_set)); then
+    set_plan "${set_ids[@]}"
+  else
+    build_plan "$want_base" "$want_all" "${tc_ids[@]}"
+  fi
 }
 
 main "$@"
