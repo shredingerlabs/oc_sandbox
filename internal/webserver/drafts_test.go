@@ -199,7 +199,7 @@ func TestDraftClearOnSettingsAndAllowlist(t *testing.T) {
 		t.Fatalf("refused settings combination must keep the draft, header = %q", got)
 	}
 	good := postForm(t, fx.s.URL()+"workspaces/alpha/settings", map[string]string{
-		"edition": "embedded", "proxy": "yes", "search_mode": "none",
+		"toolchains_present": "1", "toolchains": "go", "proxy": "yes", "search_mode": "none",
 		"modes_present": "1", "offline": "on", "hil": "on",
 	})
 	if got := good.Header.Get(draftClearHeader); got != "1" {
