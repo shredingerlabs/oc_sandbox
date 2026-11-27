@@ -30,7 +30,10 @@ Usage:
   STAGING  per-member staging tree; every direct subdirectory is one member
            (in-image: /tmp/oc-merge, one dir per member id) carrying
            payload.tar.gz, pm/ (status + info/) and — when the fragment
-           declares ENVs — envs (KEY=value lines).
+           declares ENVs — envs (KEY=value lines). payload.tar.gz is
+           optional: a member dir without one contributes PM state / envs
+           only (the incremental delta assembly stages parent members as
+           env-only — their payload already lives in the parent image).
   ROOT     target filesystem root (default /; fixture suites pass a fixture
            root, env OC_MERGE_ROOT overrides).
 """
@@ -72,10 +75,16 @@ def parse_status(path):
 
 
 def extract_payload(member_dir, root):
-    """Extract one member's payload archive into the target root."""
+    """Extract one member's payload archive into the target root.
+
+    A member staging dir without payload.tar.gz contributes PM state / envs
+    only — the incremental delta assembly (spec §5) stages the parent
+    members as env-only dirs because their payload already lives in the
+    parent image; only the new members carry archives.
+    """
     payload = os.path.join(member_dir, "payload.tar.gz")
     if not os.path.isfile(payload):
-        fail(f"member staging dir '{member_dir}' has no payload.tar.gz")
+        return
     try:
         with tarfile.open(payload, "r:gz") as tar:
             tar.extractall(path=root, filter="tar")
