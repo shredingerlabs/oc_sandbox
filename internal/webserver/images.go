@@ -37,19 +37,15 @@ type imageRow struct {
 
 // imageRefs computes the enriched ref list pinning images in use
 // (the deleted TUI view's imageRefs parity, #163): every container's image reference
-// in any state, plus — while an edition image is in use — the parent
-// stages and the infra refs. Errors yield an empty list.
+// in any state, plus — while a sandbox-family image is in use — the base
+// image the family builds FROM and the infra refs. Errors yield an empty
+// list.
 func (s *Server) imageRefs() []string {
 	refs := discovery.ContainerImageRefs(s.deps.Run)
 	if !slices.ContainsFunc(refs, func(ref string) bool {
-		return discovery.EditionFromImage(ref) != ""
+		return discovery.ParseImageRef(ref).Kind != discovery.RefUnrelated
 	}) {
 		return refs
-	}
-	for _, parent := range discovery.ParentStages(s.deps.Dockerfile, s.deps.DockerfileCustom) {
-		if discovery.EditionFromImage(parent) != "" && !slices.Contains(refs, parent) {
-			refs = append(refs, parent)
-		}
 	}
 	if !slices.Contains(refs, discovery.BaseImageRef) {
 		refs = append(refs, discovery.BaseImageRef)

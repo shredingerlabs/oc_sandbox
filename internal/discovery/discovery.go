@@ -77,39 +77,6 @@ func SelectableEditions(dockerfile, dockerfileCustom string) ([]string, error) {
 	return selectable, nil
 }
 
-// ParentStages maps each discovered edition stage to its FROM parent
-// image (Dockerfile stages first, custom stages appended, custom
-// duplicates of a Dockerfile stage ignored — same precedence as
-// Editions). dockerfileCustom may be "" / missing; unreadable files
-// contribute nothing.
-func ParentStages(dockerfile, dockerfileCustom string) map[string]string {
-	parents := map[string]string{}
-	add := func(path string) {
-		f, err := os.Open(path)
-		if err != nil {
-			return
-		}
-		defer f.Close()
-		sc := bufio.NewScanner(f)
-		for sc.Scan() {
-			line := sc.Text()
-			if strings.HasPrefix(strings.TrimSpace(line), "#") {
-				continue
-			}
-			if m := stageRe.FindStringSubmatch(line); m != nil {
-				if _, dup := parents[m[2]]; !dup { // first definition wins (Editions precedent)
-					parents[m[2]] = m[1]
-				}
-			}
-		}
-	}
-	add(dockerfile)
-	if dockerfileCustom != "" {
-		add(dockerfileCustom)
-	}
-	return parents
-}
-
 func extractStages(path string) []string {
 	f, err := os.Open(path)
 	if err != nil {
@@ -371,11 +338,11 @@ func infraImage(ref string) bool {
 }
 
 // SandboxImageTag reports whether a podman image reference belongs to
-// the sandbox family: tagged `opencode-sandbox-<edition>` (any registry
-// prefix, tag/digest suffix) or one of the infra images (oc-proxy,
-// oc-searxng, oc-stt).
+// the sandbox family: any base/tc/set/Legacy `opencode-sandbox-*` ref
+// (any registry prefix, tag/digest suffix) or one of the infra images
+// (oc-proxy, oc-searxng, oc-stt).
 func SandboxImageTag(ref string) bool {
-	return EditionFromImage(ref) != "" || infraImage(ref)
+	return ParseImageRef(ref).Kind != RefUnrelated || infraImage(ref)
 }
 
 // SandboxImages lists every sandbox-family image with its tag and size
