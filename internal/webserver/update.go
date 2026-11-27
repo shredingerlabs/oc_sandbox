@@ -82,6 +82,11 @@ type Updater struct {
 	check       func() (string, error)
 	fetchScript func() (string, error)
 	runScript   func(script string, args []string, emit func(string)) error
+	// gc is the §11 update-completion image GC pass (the server wires
+	// it when a podman runner is; nil — the shell skeleton, tests
+	// without podman — skips the pass entirely). Never fails the
+	// update: the release already applied.
+	gc func(emit func(string)) error
 }
 
 func newUpdater(hub *Hub, queue *opRunner, installRoot, version string) *Updater {
@@ -148,11 +153,21 @@ func (u *Updater) Run() {
 	u.mu.Unlock()
 
 	u.queue.Launch(webOp{
-		ID:        opID,
-		Key:       "update",
+		ID:  opID,
+		Key: "update",
 		Exclusive: true,
 		Run: func(emit func(string)) error {
-			return u.runInstallScript(emit)
+			if err := u.runInstallScript(emit); err != nil {
+				return err
+			}
+			// §11: the update ships the transition without building
+			// anything — the completion step reclaims superseded
+			// images instead (inside the update op chain, the summary
+			// streams into this log pane).
+			if u.gc != nil {
+				return u.gc(emit)
+			}
+			return nil
 		},
 		Done: func(err error) {
 			u.mu.Lock()

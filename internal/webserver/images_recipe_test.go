@@ -5,6 +5,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -190,6 +191,31 @@ func TestImagesRecipeSaveRoundTrip(t *testing.T) {
 	if err != nil || string(snap2) != string(pristine) {
 		t.Fatalf("snapshot must be write-once, got %q", string(snap2))
 	}
+}
+
+// The save's follow-up GC pass is the §11 full pass: a recipe edit
+// re-addresses its image's hash, so the pre-edit tagged image (now
+// superseded, no container referencing it) dies in the pass — the
+// next build rebuilds it once, every workspace reuses it thereafter.
+func TestImagesRecipeSaveGCReclaimsSupersededTag(t *testing.T) {
+	reg, _ := fixtureRegistry(t)
+	_, _, _ = recipeEditorSeed(t, reg.Home)
+	baseTag, _ := tcSeed(t, reg.Home)
+	_ = baseTag
+	stale := "opencode-sandbox-tc-go:aaaaaaaaaaaaaaaa" // the pre-edit hash
+	rmi := &syncList{}
+	run := fakePodman(nil, nil, nil, []string{imageLine(stale, "0.5 GB")}, nil)
+	run = fakePodmanImages(nil, nil, nil, nil, nil, fakeImages{run: run, rmi: rmi})
+	s := recipeServer(t, run, reg)
+	setAdvanced(t, reg.Home)
+
+	resp := post(t, s.URL()+"images/recipe/save", urlEscape("go", "RUN apt-get install -y ca-certificates curl\n"))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	waitFor(t, "editor GC pass", func() bool {
+		return slices.Contains(rmi.snapshot(), stale)
+	})
 }
 
 // A refused save is loud and writes nothing: an edit that un-pins is
