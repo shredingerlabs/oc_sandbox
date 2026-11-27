@@ -134,7 +134,7 @@ func checkWebUIScreens(home, root string) Item {
 		Run:               fake,
 		Registry:          reg,
 		BuildScript:       filepath.Join(root, "dist", "scripts", "build-container.sh"),
-		ImagesBuildScript: filepath.Join(root, "dist", "scripts", "build-images.sh"),
+		BuildImagesScript: filepath.Join(root, "dist", "scripts", "build-images.sh"),
 		StartScript:       filepath.Join(root, "dist", "scripts", "start.sh"),
 		Dockerfile:        filepath.Join(root, "dist", "Dockerfile"),
 		DockerfileCustom:  filepath.Join(root, "dist", "Dockerfile.custom"),

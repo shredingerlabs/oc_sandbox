@@ -568,7 +568,7 @@ func (s *Server) buildAllOp() func(emit func(string)) error {
 	d := s.deps
 	return func(emit func(string)) error {
 		emit("==> build all (base + every discovered toolchain component)")
-		out, err := d.Run.Output("bash", d.ImagesBuildScript, "--all")
+		out, err := d.Run.Output("bash", d.BuildImagesScript, "--all")
 		for _, l := range cmdrun.Lines(out) {
 			emit(l)
 		}
@@ -583,7 +583,7 @@ func (s *Server) buildOneOp(args ...string) func(emit func(string)) error {
 	d := s.deps
 	return func(emit func(string)) error {
 		emit("==> build " + strings.Join(args, " "))
-		out, err := d.Run.Output("bash", append([]string{d.ImagesBuildScript}, args...)...)
+		out, err := d.Run.Output("bash", append([]string{d.BuildImagesScript}, args...)...)
 		for _, l := range cmdrun.Lines(out) {
 			emit(l)
 		}

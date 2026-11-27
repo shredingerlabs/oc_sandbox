@@ -9,7 +9,12 @@
 #     info entries unioned, last canonical writer wins a contested package;
 #     the target root's own status is the first writer),
 #   - re-emit the fragment ENVs (duplicate keys: alphabetical-last wins,
-#     emitted sorted) into /etc/profile.d/oc-toolchains-env.sh.
+#     emitted sorted) into /etc/profile.d/oc-toolchains-env.sh,
+#   - treat a member staging dir without payload.tar.gz as env-only (the
+#     incremental delta assembly, toolchain sets #201, stages parent members
+#     as env-only dirs — their payload already lives in the parent image;
+#     the root's own status is the parent's merged state, so the merge is
+#     parent status ∪ new dumps and multi-add stays alphabetical).
 set -euo pipefail
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -171,5 +176,71 @@ cmp "$noop/status-before" "$noop/var/lib/dpkg/status" \
   || fail "an assembly with no ENVs wrote an ENV re-emission file"
 rm -rf "$noop"
 printf 'empty-staging no-op test passed\n'
+
+# --- 7: incremental delta fixture (toolchain sets #201, spec §5) ----------------------
+# The root's own status carries the parent image's merged state (hello v1 +
+# pkg-parent); the staging tree stages the new members' payload archives + PM
+# dumps (multi-add: a-new, then m-mid — alphabetically) and the parent member
+# z-parent as env-only (no payload.tar.gz, no pm/ — its payload already lives
+# in the parent image). Expected: extraction applies the delta members
+# alphabetically (the last payload writer wins a contested path), the merged
+# status is parent status ∪ new dumps, and the re-emitted envs resolve
+# duplicate keys alphabetical-last across ALL staged members.
+
+inc="$(mktemp -d)"
+mkdir -p "$inc/var/lib/dpkg" "$inc/etc/profile.d" "$inc/usr/bin" \
+  "$inc/staging/a-new/pm" "$inc/staging/m-mid/pm" "$inc/staging/z-parent" \
+  "$inc/tree-a/usr/bin" "$inc/tree-m/usr/bin"
+cat > "$inc/var/lib/dpkg/status" <<'EOF'
+Package: hello
+Status: install ok installed
+Version: 1.0-parent
+
+Package: pkg-parent
+Status: install ok installed
+EOF
+printf 'content-from-a-new\n' > "$inc/tree-a/usr/bin/tool"
+tar -C "$inc/tree-a" -cf - usr | gzip -n > "$inc/staging/a-new/payload.tar.gz"
+cat > "$inc/staging/a-new/pm/status" <<'EOF'
+Package: hello
+Status: install ok installed
+Version: 2.0-a-new
+
+Package: pkg-new
+Status: install ok installed
+EOF
+printf 'COMMON=from-a-new\nNEW_ONLY=1\n' > "$inc/staging/a-new/envs"
+printf 'content-from-m-mid\n' > "$inc/tree-m/usr/bin/tool"
+tar -C "$inc/tree-m" -cf - usr | gzip -n > "$inc/staging/m-mid/payload.tar.gz"
+cat > "$inc/staging/m-mid/pm/status" <<'EOF'
+Package: pkg-mid
+Status: install ok installed
+EOF
+printf 'COMMON=from-z-parent\nPARENT_ONLY=1\n' > "$inc/staging/z-parent/envs"
+
+"$MERGE" "$inc/staging" "$inc" 2> "$inc/.merge-err" \
+  || fail "merge-pm.py refused the incremental fixture: $(cat "$inc/.merge-err")"
+grep -q 'content-from-m-mid' "$inc/usr/bin/tool" \
+  || fail "multi-add payload extraction did not resolve to the alphabetically last member (m-mid)"
+inc_status="$inc/var/lib/dpkg/status"
+grep -q '^Version: 2.0-a-new$' "$inc_status" \
+  || fail "the delta member's contested hello stanza did not win over the parent seed"
+if grep -q '^Version: 1.0-parent$' "$inc_status"; then
+  fail "the parent's superseded hello stanza survived the delta member's"
+fi
+grep -q '^Package: pkg-new$' "$inc_status" || fail "the delta member's package is missing from the merged status"
+grep -q '^Package: pkg-mid$' "$inc_status" || fail "the second delta member's package is missing from the merged status"
+grep -q '^Package: pkg-parent$' "$inc_status" \
+  || fail "the parent's merged status was dropped (expected parent status ∪ new dumps)"
+names="$(sed -n 's/^Package: //p' "$inc_status")"
+[[ "$names" == "$(LC_ALL=C sort -u <<< "$names")" ]] \
+  || fail "the incrementally merged status stanzas are not sorted by package name"
+inc_env="$inc/etc/profile.d/oc-toolchains-env.sh"
+grep -q "^export COMMON='from-z-parent'$" "$inc_env" \
+  || fail "the env-only parent member's contested ENV key did not win (alphabetically last)"
+grep -q "^export PARENT_ONLY='1'$" "$inc_env" || fail "the env-only parent member's unique ENV key is missing"
+grep -q "^export NEW_ONLY='1'$" "$inc_env" || fail "the delta member's unique ENV key is missing"
+rm -rf "$inc"
+printf 'incremental delta merge (env-only parent member, parent-status union, multi-add) test passed\n'
 
 printf 'test-merge: all checks passed\n'

@@ -92,7 +92,7 @@ func depsServer(t *testing.T, run *cmdrun.Fake, reg *registry.Registry) *Server 
 			Run:               run,
 			Registry:          reg,
 			BuildScript:       "/opt/oc-sandbox/scripts/build-container.sh",
-			ImagesBuildScript: "/opt/oc-sandbox/scripts/build-images.sh",
+			BuildImagesScript: "/opt/oc-sandbox/scripts/build-images.sh",
 			StartScript:       "/opt/oc-sandbox/scripts/start.sh",
 			Dockerfile:        "../discovery/testdata/Dockerfile",
 			Toolchains:        tcRootOf(reg.Home),

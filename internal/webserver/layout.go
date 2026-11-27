@@ -11,7 +11,7 @@ type Layout struct {
 	InstallRoot       string // $HOME/.oc-sandbox
 	StartScript       string // scripts/start.sh
 	BuildScript       string // scripts/build-container.sh (infra images)
-	ImagesBuildScript string // scripts/build-images.sh (the toolchain-sets builder, WP-7)
+	BuildImagesScript string // scripts/build-images.sh (the toolchain-sets builder, WP-7)
 	InitScript        string // scripts/init-workspace.sh
 	ConfigureScript   string // scripts/configure-workspace.sh
 	UninstallScript   string // scripts/uninstall.sh
@@ -28,7 +28,7 @@ func LayoutFor(home string) Layout {
 		InstallRoot:       root,
 		StartScript:       filepath.Join(scripts, "start.sh"),
 		BuildScript:       filepath.Join(scripts, "build-container.sh"),
-		ImagesBuildScript: filepath.Join(scripts, "build-images.sh"),
+		BuildImagesScript: filepath.Join(scripts, "build-images.sh"),
 		InitScript:        filepath.Join(scripts, "init-workspace.sh"),
 		ConfigureScript:   filepath.Join(scripts, "configure-workspace.sh"),
 		UninstallScript:   filepath.Join(scripts, "uninstall.sh"),

@@ -42,6 +42,30 @@
 # --network=none (structural honesty: no recipe or merge step can phone home);
 # an assembly-only plan skips the download-needing network probe seam.
 #
+# --set incremental delta assembly (#201, spec §5 — an optimization, never a
+# second semantics): when a valid parent set image exists on host — its
+# members (by recipe content hash + base hash, i.e. the full component
+# version) a strict subset of the new set's members — and the contest check
+# passes (the new members' dpkg/pip names, read from their tc.pkgs component
+# labels, intersect the parent's merged-union set label in nothing — all
+# host-side via podman image inspect, ms-scale, never a container start), the
+# set builds FROM the parent image: every member's ENV pairs staged, only the
+# new members' payload archives + PM dumps COPY'd, one RUN applying them
+# alphabetically over the parent's own state (parent status ∪ new dumps).
+# The enumeration labels match the full canonical assembly byte-for-byte,
+# so the result is itself a self-healing parent; an optional non-normative
+# oc.provenance label (mode + parent tag) serves diagnostics only — the
+# identity stays content alone (no parent hash in the tag). Everything else
+# is full canonical: fresh sets, member drops, base bumps/recipe changes,
+# deleted parents, pre-label parents (an image without the labels reads as
+# no parent — honest full, self-healing), any contest; alphabetical-
+# last-wins stays the only contested resolution. A sanity-gate failure on an
+# incremental assembly (the gate: every new member's dpkg names, from the
+# component's own PM dump, present in the merged status — read via image
+# mounts, never a container start) auto-falls-back to the full canonical
+# assembly with one honest log line — that fallback IS the repair path;
+# the full canonical assembly's own gate is verify-set-image.sh (Tier 2).
+#
 # Preflight, before any build: podman >= 4.0 floor (RUN cache mounts) and a
 # disk estimate + 20 % headroom refuse-with-reason (missing components only,
 # lazy; same-id existing image size where one exists, else the budget formula
@@ -377,6 +401,14 @@ set_gen_dir() {
   printf '%s/oc-build-gen-%s/set-%s\n' "${TMPDIR:-/tmp}" "$(id -u)" "$hash12"
 }
 
+# set_gen_dir_delta <set-tag> — the incremental assembly's generation
+# directory (keyed like set_gen_dir but distinct, so a gate-failure
+# fallback's full canonical re-render never clobbers the delta render).
+set_gen_dir_delta() {
+  local hash12=${1##*:}
+  printf '%s/oc-build-gen-%s/set-%s-delta\n' "${TMPDIR:-/tmp}" "$(id -u)" "$hash12"
+}
+
 # recipe_envs <recipe> — the fragment's ENV pairs as KEY=value lines, keys
 # unique (the last directive wins, Dockerfile semantics), lines sorted (C
 # order). Parsed from toolchains.sh parse records ('env' lines with
@@ -413,6 +445,144 @@ recipe_envs() {
 # podman image inspect (a filesystem/JSON read, never a container start).
 member_tc_pkgs() {
   podman image inspect --format '{{ index .Labels "tc.pkgs" }}' "$1" 2>/dev/null || true
+}
+
+# label_of <tag> <label> — any image label, read host-side via podman image
+# inspect (never a container start); empty when the image or label is absent
+# (a pre-label parent reads as no parent — honest full, self-healing).
+label_of() {
+  podman image inspect --format "{{ index .Labels \"$2\" }}" "$1" 2>/dev/null || true
+}
+
+# select_parent <base-file> [<id> <recipe>]… — the incremental delta
+# assembly's parent selection (§5): among the host's set images (ordered
+# deterministically — most members first, fewest new members; tag as the
+# tie-break), pick the first that is a valid parent AND passes the contest
+# check. A valid parent: every label present, same base hash, its members a
+# strict subset of ours by full component version (recipe content hash + base
+# hash), delta non-empty. The contest check: the new members' dpkg/pip names
+# (their tc.pkgs component labels) intersect the parent's merged-union set
+# label in nothing. Prints "<parent-tag> <delta-id…>" when one is found,
+# nothing otherwise (full canonical). Everything host-side via image inspect —
+# ms-scale, never a container start.
+select_parent() {
+  local base_file=$1
+  shift
+  (($# > 0)) || return 0
+  local -a ids=() recipes=()
+  while (($#)); do
+    ids+=("$1")
+    recipes+=("$2")
+    shift 2
+  done
+  local base_hash id
+  base_hash="$(tc_content_hash "$base_file")"
+  local -A hash_of=() tag_of=()
+  local i
+  for i in "${!ids[@]}"; do
+    hash_of["${ids[$i]}"]="$(tc_content_hash "${recipes[$i]}")"
+    tag_of["${ids[$i]}"]="$(tc_component_tag "$base_file" "${ids[$i]}" "${recipes[$i]}")"
+  done
+
+  # candidates, deterministically ordered: most members first (fewest new
+  # members), tag asc as the tie-break — podman images' own order is not
+  # guaranteed
+  local -a cands=() rows=() ordered=()
+  local cand pmembers count row
+  while IFS= read -r cand; do
+    [[ -n "$cand" ]] && cands+=("$cand")
+  done < <(podman images --filter reference=opencode-sandbox-set \
+    --format '{{.Repository}}:{{.Tag}}' | LC_ALL=C sort)
+  for cand in "${cands[@]}"; do
+    pmembers="$(label_of "$cand" members)"
+    count="$(printf '%s\n' "$pmembers" | wc -w | tr -d ' ')"
+    rows+=("$count $cand")
+  done
+  while IFS= read -r row; do
+    [[ -n "$row" ]] && ordered+=("${row#* }")
+  done < <(printf '%s\n' "${rows[@]:-}" | LC_ALL=C sort -k1,1nr -k2,2)
+
+  local ptag phashes pbase punion pid tok
+  for ptag in "${ordered[@]}"; do
+    pmembers="$(label_of "$ptag" members)"
+    phashes="$(label_of "$ptag" member.hashes)"
+    pbase="$(label_of "$ptag" base.hash)"
+    punion="$(label_of "$ptag" tc.pkgs)"
+    # pre-label parent (labels absent) or a different base — honest full
+    [[ -n "$pmembers" && -n "$phashes" && "$pbase" == "$base_hash" ]] || continue
+    # parent members must be ours, at the same component version (the recipe
+    # content hash + this base hash pin it), and the subset must be strict
+    local -A phash_of=()
+    for tok in $phashes; do
+      phash_of["${tok%%:*}"]="${tok#*:}"
+    done
+    local ok=1
+    for pid in $pmembers; do
+      if [[ -z "${hash_of[$pid]:-}" || "${phash_of[$pid]:-}" != "${hash_of[$pid]}" ]]; then
+        ok=0
+        break
+      fi
+    done
+    ((ok)) || continue
+    local -a delta=()
+    for id in "${ids[@]}"; do
+      [[ " $pmembers " == *" $id "* ]] || delta+=("$id")
+    done
+    ((${#delta[@]} > 0)) || continue
+    # contest check: the new members' dpkg/pip names ∩ the parent's merged
+    # union = ∅ — a contest forces full canonical (alphabetical-last-wins
+    # stays the only contested resolution, and only full canonical owns it)
+    local pkgs name contest=0
+    for id in "${delta[@]}"; do
+      pkgs="$(member_tc_pkgs "${tag_of[$id]}")"
+      for name in $pkgs; do
+        if [[ " $punion " == *" $name "* ]]; then
+          contest=1
+          break 2
+        fi
+      done
+    done
+    ((contest)) && continue
+    printf '%s %s\n' "$ptag" "${delta[*]}"
+    return 0
+  done
+}
+
+# _sanity_gate <set-tag> [<component-tag>…] — the incremental assembly's
+# post-build sanity gate: every new member's dpkg package names (read from
+# the component's own PM dump) must be present in the assembled image's
+# merged dpkg status. Host-side via image mounts — never a container start.
+# Any mount/refusal/read failure fails the gate; the caller falls back to the
+# full canonical assembly, which is the repair path (the full canonical
+# assembly's own gate is verify-set-image.sh, Tier 2 — never a build flag).
+_sanity_gate() {
+  local set_tag=$1
+  shift
+  local mnt cmnt name ctag rc=0
+  mnt="$(podman image mount "$set_tag" 2>/dev/null)" || return 1
+  if [[ -z "$mnt" || ! -f "$mnt/var/lib/dpkg/status" ]]; then
+    podman image umount "$set_tag" >/dev/null 2>&1 || true
+    return 1
+  fi
+  for ctag in "$@"; do
+    cmnt="$(podman image mount "$ctag" 2>/dev/null)" || { rc=1; break; }
+    if [[ -z "$cmnt" || ! -f "$cmnt/oc-dump/pm/status" ]]; then
+      podman image umount "$ctag" >/dev/null 2>&1 || true
+      rc=1
+      break
+    fi
+    while IFS= read -r name; do
+      [[ -z "$name" ]] && continue
+      if ! grep -q "^Package: ${name}\$" "$mnt/var/lib/dpkg/status"; then
+        rc=1
+        break
+      fi
+    done < <(sed -n 's/^Package: //p' "$cmnt/oc-dump/pm/status")
+    podman image umount "$ctag" >/dev/null 2>&1 || true
+    ((rc == 0)) || break
+  done
+  podman image umount "$set_tag" >/dev/null 2>&1 || true
+  ((rc == 0))
 }
 
 # generate_set <dir> <base-file> [<id> <recipe>]… — render the set Dockerfile
@@ -460,6 +630,7 @@ generate_set() {
     printf 'LABEL kind="set"\n'
     printf 'LABEL members="%s"\n' "$id_list"
     printf 'LABEL member.hashes="%s"\n' "$hash_list"
+    printf 'LABEL base.hash="%s"\n' "$(tc_content_hash "$base_file")"
     printf 'LABEL tc.pkgs="%s"\n' "$pkgs"
     printf 'USER root\n'
     printf 'COPY merge-pm.py /tmp/merge-pm.py\n'
@@ -478,6 +649,14 @@ generate_set() {
   } > "$dir/Dockerfile"
 }
 
+build_set_image() {
+  local set_tag=$1 dir=$2 note=${3:-}
+  printf 'build-images: assembling %s%s\n' "$set_tag" "${note:+ ($note)}"
+  # structural honesty (§5): an assembly never phones home — always offline
+  podman build --network=none -t "$set_tag" -f "$dir/Dockerfile" "$dir"
+  printf 'build-images: built %s\n' "$set_tag"
+}
+
 build_set() {
   local base_file=$1
   shift
@@ -489,10 +668,89 @@ build_set() {
   set_tag="$(tc_set_tag "${tag_args[@]}")"
   dir="$(set_gen_dir "$set_tag")"
   generate_set "$dir" "$base_file" "$@"
-  printf 'build-images: assembling %s\n' "$set_tag"
-  # structural honesty (§5): an assembly never phones home — always offline
-  podman build --network=none -t "$set_tag" -f "$dir/Dockerfile" "$dir"
-  printf 'build-images: built %s\n' "$set_tag"
+  build_set_image "$set_tag" "$dir"
+}
+
+# generate_set_delta <dir> <base-file> <parent-tag> <delta-ids> [<id> <recipe>]…
+# — render the incremental delta set Dockerfile (§5): FROM the parent set
+# image, staging every member's ENV pairs but only the delta members' payload
+# archives + PM dumps (the parent members' payload already lives in the parent
+# image; merge-pm.py treats a payload-less member dir as env-only). Members
+# arrive canonically sorted by id; <delta-ids> is the space-separated sorted
+# subset of new members. The enumeration labels match the full canonical
+# assembly byte-for-byte (the union covers parent ∪ delta), so the result is
+# itself a self-healing parent; the optional non-normative oc.provenance label
+# records mode + parent tag — the identity stays content alone (the tag is
+# derived from the member contents exactly as full canonical derives it).
+generate_set_delta() {
+  local dir=$1 base_file=$2 parent_tag=$3 delta_ids=$4
+  shift 4
+  mkdir -p "$dir/oc-envs"
+  cp "$script_dir/merge-pm.py" "$dir/merge-pm.py"
+  local id_list="" hash_list="" tag pkgs id
+  local -a ids=() tags=() envs=()
+  local -a pkgs_raw=()
+  while (($#)); do
+    id=$1
+    local recipe=$2
+    shift 2
+    tag="$(tc_component_tag "$base_file" "$id" "$recipe")"
+    ids+=("$id")
+    tags+=("$tag")
+    id_list+="${id} "
+    hash_list+="${id}:$(tc_content_hash "$recipe") "
+    # every member's ENV pairs are staged — including the parent members' —
+    # so the re-emitted profile fragment keeps the full canonical semantics
+    # (duplicate keys: alphabetical-last wins across ALL members)
+    recipe_envs "$recipe" > "$dir/oc-envs/$id.env"
+    if [[ -s "$dir/oc-envs/$id.env" ]]; then
+      envs+=("$id")
+    else
+      rm -f "$dir/oc-envs/$id.env"
+    fi
+    pkgs_raw+=("$(member_tc_pkgs "$tag")")
+  done
+  id_list="${id_list% }"
+  hash_list="${hash_list% }"
+  # the merged union label (§6): parent union ∪ new members' names — the
+  # full member set's union, identical to what full canonical would render
+  pkgs="$(printf '%s\n' "${pkgs_raw[@]:-}" | tr ' ' '\n' | sed '/^$/d' |
+    LC_ALL=C sort -u | paste -sd' ' -)"
+  {
+    printf '# syntax=docker/dockerfile:1\n'
+    printf "# Generated by build-images.sh — incremental delta set assembly\n"
+    printf "# for toolchains '%s' from the parent set image %s. Do not\n" "$id_list" "$parent_tag"
+    printf '# edit; the tag is content-addressed from the member recipes alone\n'
+    printf '# (no parent hash in the identity) and the new members are applied\n'
+    printf '# in canonical (alphabetical id) order over the parent state —\n'
+    printf '# spec toolchain-sets §5.\n'
+    printf 'FROM %s\n' "$parent_tag"
+    printf 'LABEL kind="set"\n'
+    printf 'LABEL members="%s"\n' "$id_list"
+    printf 'LABEL member.hashes="%s"\n' "$hash_list"
+    printf 'LABEL base.hash="%s"\n' "$(tc_content_hash "$base_file")"
+    printf 'LABEL tc.pkgs="%s"\n' "$pkgs"
+    printf 'LABEL oc.provenance="mode=incremental parent=%s"\n' "$parent_tag"
+    printf 'USER root\n'
+    printf 'COPY merge-pm.py /tmp/merge-pm.py\n'
+    for id in "${ids[@]}"; do
+      if [[ " ${envs[*]:-} " == *" $id "* ]]; then
+        printf 'COPY oc-envs/%s.env /tmp/oc-merge/%s/envs\n' "$id" "$id"
+      fi
+    done
+    # only the new members' payload archives + PM dumps, applied alphabetically
+    for id in $delta_ids; do
+      for i in "${!ids[@]}"; do
+        [[ "${ids[$i]}" == "$id" ]] || continue
+        tag="${tags[$i]}"
+        printf 'COPY --from=%s /oc-dump/payload.tar.gz /tmp/oc-merge/%s/payload.tar.gz\n' "$tag" "$id"
+        printf 'COPY --from=%s /oc-dump/pm /tmp/oc-merge/%s/pm\n' "$tag" "$id"
+      done
+    done
+    printf 'RUN python3 /tmp/merge-pm.py /tmp/oc-merge / && ldconfig && rm -rf /tmp/oc-merge /tmp/merge-pm.py\n'
+    printf 'USER dev\n'
+    printf 'ENTRYPOINT ["/bin/bash","-l"]\n'
+  } > "$dir/Dockerfile"
 }
 
 # set_plan [<id> <recipe>]… — the --set plan: validate ids against live
@@ -575,7 +833,39 @@ set_plan() {
   for id in "${ids[@]}"; do
     set_args+=("$id" "${recipe_of[$id]}")
   done
-  build_set "$base_file" "${set_args[@]}"
+
+  # incremental delta assembly (§5 — an optimization, never a second
+  # semantics): with a valid parent (members a strict subset of ours by full
+  # component version, same base) AND a contest-free delta, build FROM the
+  # parent; everything else — fresh sets, member drops, base bumps/recipe
+  # changes, deleted or pre-label parents, any contest — is full canonical
+  local parent_sel="" parent_tag delta_ids
+  if ((${#ids[@]} > 0)); then
+    parent_sel="$(select_parent "$base_file" "${set_args[@]}")"
+  fi
+  if [[ -n "$parent_sel" ]]; then
+    read -r parent_tag delta_ids <<< "$parent_sel"
+    local -a delta_list=() delta_tags=()
+    read -r -a delta_list <<< "$delta_ids"
+    for id in "${delta_list[@]}"; do
+      delta_tags+=("$(tc_component_tag "$base_file" "$id" "${recipe_of[$id]}")")
+    done
+    local dir
+    dir="$(set_gen_dir_delta "$set_tag")"
+    generate_set_delta "$dir" "$base_file" "$parent_tag" "$delta_ids" "${set_args[@]}"
+    build_set_image "$set_tag" "$dir" "incremental from $parent_tag"
+    # the sanity gate (§12): a failed incremental assembly auto-falls-back to
+    # the full canonical assembly with one honest log line — the fallback IS
+    # the repair path; the full canonical assembly's own gate stays Tier 2
+    if ! _sanity_gate "$set_tag" "${delta_tags[@]}"; then
+      printf 'build-images: incremental assembly of %s failed its sanity gate — falling back to the full canonical assembly\n' "$set_tag"
+      dir="$(set_gen_dir "$set_tag")"
+      generate_set "$dir" "$base_file" "${set_args[@]}"
+      build_set_image "$set_tag" "$dir"
+    fi
+  else
+    build_set "$base_file" "${set_args[@]}"
+  fi
 }
 
 main() {

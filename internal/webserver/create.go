@@ -867,12 +867,18 @@ func (c *createChain) runSteps(s *Server, emit func(string)) error {
 	}
 
 	// image build (only when the set image is missing and Build now
-	// won). #206 re-keys this step onto build-images.sh (missing
-	// components + assembly) as its own queued op under the
-	// workspace-name key — the interim call passes the selection's ids.
+	// won): build-images.sh --set <ids> builds the missing components
+	// and assembles the set image (lazy, cached-skip per tag); "" is
+	// the base-only set (#206 re-keyed the interim build-container.sh
+	// call onto the builder, spec §9 WP-3).
 	if c.build {
-		emitf("==> Building toolchain set (%s)", strings.Join(c.toolchains, ", "))
-		if err := runScript(s.deps.BuildScript, strings.Join(c.toolchains, ",")); err != nil {
+		ids := strings.Join(c.toolchains, ",")
+		if ids == "" {
+			emit("==> Building base-only set image")
+		} else {
+			emitf("==> Building toolchain set (%s)", strings.Join(c.toolchains, ", "))
+		}
+		if err := runScript(s.deps.BuildImagesScript, "--set", ids); err != nil {
 			return fail("Build failed — the set image is still unavailable. Press Create Workspace to retry.")
 		}
 		if tag, ok := s.setTagFor(s.wizardCatalog(), c.toolchains); !ok ||
