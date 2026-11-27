@@ -523,7 +523,14 @@ Sets a simple user agent identifying the opencode-sandbox install script for Git
 The update check's comparison of the installed release tag against the latest GitHub release; non-comparable or unknown tags count as outdated (update offered). The interactive install script itself still prompts regardless of versions.
 
 **special file handling**:
-Only `proxy/allowlist.txt` gets special treatment during updates; all other files are overwritten.
+Preserved across updates (root-level flattened runtime paths; the legacy
+`dist/`-prefixed locations still work): `proxy/allowlist.txt` (prompted,
+default keep), `Dockerfile.custom`, `searxng/settings.yml`, and the
+always-kept `toolchains/custom/` + `toolchains/snapshots/` (the latter two
+until #197 a no-op — `toolchains/` ships with toolchain sets). Deleted files
+reappear from the shipped template on the next update; everything else
+(`recipes/`, `manifest.json`, `base.Dockerfile` once #197 lands) is
+wholesale-overwritten.
 
 **post-installation message**:
 Shows brief reminder about system requirements (podman, etc.) and suggests next steps after successful installation.
