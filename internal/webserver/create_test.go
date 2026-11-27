@@ -87,6 +87,10 @@ func seedToolchainsManifest(t *testing.T, home string) {
 	if err := os.WriteFile(filepath.Join(dir, "manifest.json"), []byte(toolchainsManifestFixture), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	// The fixed base recipe — every derived tag hashes its bytes (spec §6).
+	if err := os.WriteFile(filepath.Join(dir, "base.Dockerfile"), []byte(tcBaseFixture), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	recipes := filepath.Join(dir, "recipes")
 	if err := os.MkdirAll(recipes, 0o755); err != nil {
 		t.Fatal(err)

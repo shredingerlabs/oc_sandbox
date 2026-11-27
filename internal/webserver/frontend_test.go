@@ -150,9 +150,12 @@ func TestFrontendWorkspaceOpsWiring(t *testing.T) {
 		`runWorkspaceOp(card, "stop")`,    // the stop confirm row's op (ADR-0033 update)
 		`post(card, "adopt")`,             // the adopt confirm's action
 		`mismatch`,                        // the #115 verdict handling in the start chain
-		`running_edition`,                 // the mismatch prompt names what runs
+		`v.running`,                       // the mismatch prompt names what runs (WP-6 re-key)
+		`v.body`,                          // the prompt body is the member delta (WP-6)
 		`an agent may be mid-task`,        // the adopt confirm copy
 		`variant=`,                        // the requested access rides the start POST
+		`v.build`,                         // the missing-set sidecar (WP-6)
+		`build=1`,                         // Build now re-POSTs with the build flag
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("main.js missing %q", want)

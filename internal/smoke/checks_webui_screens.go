@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/shredingerlabs/oc-sandbox/internal/cmdrun"
+	"github.com/shredingerlabs/oc-sandbox/internal/openworkspace"
 	"github.com/shredingerlabs/oc-sandbox/internal/registry"
 	"github.com/shredingerlabs/oc-sandbox/internal/webserver"
 )
@@ -54,7 +55,15 @@ func checkWebUIScreens(home, root string) Item {
 	var mu sync.Mutex
 	running := map[string]bool{}
 	all := map[string]string{} // container name → podman ps -a state
-	images := []string{"opencode-sandbox-swdev\t1.2 GB"}
+	// The stored selection's derived set image rides the built list (the
+	// start op's set-tag check, WP-6) beside the old-world edition image.
+	setTag, tagOK := openworkspace.SetTagFor(
+		filepath.Join(home, ".oc-sandbox", "toolchains"), swdevToolchains)
+	if !tagOK {
+		p.reasonf("fixture set tag underivable")
+		return p.finish()
+	}
+	images := []string{"opencode-sandbox-swdev\t1.2 GB", setTag + "\t1.9 GB"}
 	var startCalls, buildCalls, rmiCalls, rmCalls []string
 	fake := &cmdrun.Fake{Script: func(name string, args []string) (string, error) {
 		rest := ""

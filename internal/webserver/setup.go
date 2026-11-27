@@ -27,6 +27,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/shredingerlabs/oc-sandbox/internal/discovery"
 	"github.com/shredingerlabs/oc-sandbox/internal/registry"
 	"github.com/shredingerlabs/oc-sandbox/internal/setupflow"
 )
@@ -115,7 +116,7 @@ func (st *setupState) view(name string) (pending, window bool, command string, o
 // across workspaces); it refuses while a setup session holds or the
 // workspace's queue slot is busy. The returned message is the refusal
 // ("" on success).
-func (s *Server) launchSetup(ws registry.Workspace) string {
+func (s *Server) launchSetup(ws registry.Workspace, build bool) string {
 	if s.setups.sessionFor(ws.Name) != nil {
 		return "refused — a first-run setup session is already in progress for " + ws.Name
 	}
@@ -140,7 +141,18 @@ func (s *Server) launchSetup(ws registry.Workspace) string {
 	s.queue.Launch(webOp{
 		ID:  opID,
 		Key: key,
-		Run: func(emit func(string)) error { return s.runSetupStages(sess, emit) },
+		Run: func(emit func(string)) error {
+			// Build now (WP-6): the inline pre-build rides the same
+			// queued op — streamed here, then the machine's stages run.
+			if build {
+				if cfg, err := s.readSandboxCfg(ws.Path); err == nil && cfg.Resolved {
+					if err := s.buildSetNow(cfg, emit); err != nil {
+						return err
+					}
+				}
+			}
+			return s.runSetupStages(sess, emit)
+		},
 		Done: func(err error) {
 			// Terminal machine states retire the session (the table
 			// doc: removed on completion, abort, failure); only a
@@ -298,13 +310,32 @@ func (s *Server) relaySkillsExit(sess *setupSession, code int) {
 // handleSetupRetry serves POST /workspaces/{name}/setup/retry (§9,
 // first-run setup recovery): it (re-)starts the machine from the stored
 // flags — partial progress is preserved, completed stages do not rerun.
+// With the derived set image missing the retry answers the {build}
+// sidecar instead (WP-6 — Build now / Build later / Go back);
+// build=1 launches the setup op with the inline Build now pre-building
+// the set (missing components + assembly via build-images.sh) before
+// the machine's stages run.
 func (s *Server) handleSetupRetry(w http.ResponseWriter, r *http.Request) {
 	ws, err := s.lookupWorkspace(r.PathValue("name"))
 	if err != nil {
 		http.NotFound(w, r)
 		return
 	}
-	if msg := s.launchSetup(ws); msg != "" {
+	build := r.PostFormValue("build") == "1"
+	if !build {
+		if cfg, cfgErr := s.readSandboxCfg(ws.Path); cfgErr == nil && cfg.Resolved {
+			if tag, ok := s.savedSetTag(cfg); ok && !discovery.ImageExistsTag(s.runnerSeam(), tag) {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(jsonMarshal(buildSidecar{
+					Build: true,
+					Set:   setIdentityFor(cfg, s.toolchainsRoot(), cfg.WorkspaceKind).Subtitle,
+					Hint:  "build the set image under Settings → Images",
+				})))
+				return
+			}
+		}
+	}
+	if msg := s.launchSetup(ws, build); msg != "" {
 		http.Error(w, msg, http.StatusConflict)
 		return
 	}

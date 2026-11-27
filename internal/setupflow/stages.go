@@ -5,6 +5,8 @@ import (
 	"strings"
 
 	"github.com/shredingerlabs/oc-sandbox/internal/cmdrun"
+	"github.com/shredingerlabs/oc-sandbox/internal/discovery"
+	"github.com/shredingerlabs/oc-sandbox/internal/identity"
 	"github.com/shredingerlabs/oc-sandbox/internal/openworkspace"
 	"github.com/shredingerlabs/oc-sandbox/internal/registry"
 	"github.com/shredingerlabs/oc-sandbox/internal/sandboxcfg"
@@ -131,27 +133,65 @@ func SkillsShellCommand(container string) string {
 }
 
 // startContainer implements build-or-reuse (data-map §3, the start
-// path): a container already running for this workspace is reused (no
-// restart); a missing image is an error the retry menu surfaces (the
-// Build Images flow is the separate deferred-build path).
+// path): a container already running the stored selection's derived set
+// image is reused (set-tag refs only — WP-6/§10; a stale or old-world
+// ref refuses with the mismatch note, the web's Open screen is the
+// prompt); a missing set image refuses with the Images hint (Build now
+// rides setup/retry's build=1 in the web).
 func (p *PipelineStager) startContainer(emit func(string)) error {
 	name, err := p.containerName()
 	if err != nil {
 		return err
 	}
-	running, rerr := runningSet(p.Runner)
-	if rerr != nil {
-		return fmt.Errorf("podman ps reconciliation failed: %v", rerr)
-	}
-	if running[name] {
-		emit("Container already running — reusing " + name)
-		return p.Reg.UpdateStatus(p.Root, "running")
-	}
-
 	config, err := p.config()
 	if err != nil {
 		return err
 	}
+	// The stored selection's derived set tag (spec §6): the reuse
+	// verdict and the image check key on it.
+	tag, tagOK := "", false
+	if config.Resolved {
+		tag, tagOK = openworkspace.SetTagFor(p.Toolchains, config.Toolchains)
+	}
+
+	running, rerr := runningSet(p.Runner)
+	if rerr != nil {
+		return fmt.Errorf("podman ps reconciliation failed: %v", rerr)
+	}
+	liveRef := ""
+	for _, c := range discovery.RunningContainersWithImages(p.Runner) {
+		if c.Name == name {
+			liveRef = c.Image
+		}
+	}
+	if running[name] {
+		if tagOK {
+			if parsed := discovery.ParseImageRef(liveRef); parsed.Kind == discovery.RefSet &&
+				parsed.Tag == strings.TrimPrefix(tag, identity.SetRepo+":") {
+				emit("Container already running — reusing " + name)
+				return p.Reg.UpdateStatus(p.Root, "running")
+			}
+			ref := liveRef
+			if parsed := discovery.ParseImageRef(liveRef); parsed.Kind == discovery.RefLegacy {
+				if _, known := sandboxcfg.ExpandBundle(p.Toolchains, parsed.ID); known {
+					ref = parsed.ID + " (predates toolchain sets)"
+				} else {
+					ref = parsed.ID + " (predates toolchain sets, members unknown)"
+				}
+			}
+			return fmt.Errorf("container runs %s — the workspace's set is %s; open the workspace to use it or switch", ref, tag)
+		}
+		emit("Container already running — reusing " + name)
+		return p.Reg.UpdateStatus(p.Root, "running")
+	}
+	if tagOK {
+		if _, err := p.Runner.Output("podman", "image", "exists", tag); err != nil {
+			return fmt.Errorf("set image %s is not built yet — build it under Settings → Images, or retry and choose Build now", tag)
+		}
+	} else if config.Resolved {
+		return fmt.Errorf("the set image could not be derived from the stored selection — check the toolchain recipes")
+	}
+
 	proj, err := p.workspace()
 	if err != nil {
 		return err

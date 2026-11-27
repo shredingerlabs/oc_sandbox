@@ -1,10 +1,14 @@
 package setupflow
 
 import (
+	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/shredingerlabs/oc-sandbox/internal/cmdrun"
+	"github.com/shredingerlabs/oc-sandbox/internal/openworkspace"
 	"github.com/shredingerlabs/oc-sandbox/internal/sandboxcfg"
 )
 
@@ -18,6 +22,7 @@ func stageFixture(t *testing.T) (*PipelineStager, *cmdrun.Fake, string) {
 		Home: home, Root: root, Reg: reg, Runner: fake,
 		StartScript:     "dist/scripts/start.sh",
 		ConfigureScript: "dist/scripts/configure-workspace.sh",
+		Toolchains:      seedStageToolchains(t),
 	}
 	return p, fake, root
 }
@@ -38,7 +43,7 @@ func TestNewStagerForUsesConfiguredScriptPaths(t *testing.T) {
 	home, root, reg, _ := fixture(t, "cloned")
 	fake := &cmdrun.Fake{}
 	podmanStates(fake)
-	p := NewStagerFor(fake, home, reg, "/opt/oc/start.sh", "/opt/oc/configure-workspace.sh", "")(root)
+	p := NewStagerFor(fake, home, reg, "/opt/oc/start.sh", "/opt/oc/configure-workspace.sh", seedStageToolchains(t))(root)
 
 	var emitted []string
 	if err := p.Run(StageStart, func(l string) { emitted = append(emitted, l) }); err != nil {
@@ -55,8 +60,126 @@ func TestNewStagerForUsesConfiguredScriptPaths(t *testing.T) {
 	}
 }
 
+// seedStageToolchains writes the base recipe + the fixture selection's
+// recipes into a temp toolchains dir — the derived set tag (WP-6) is
+// underivable without them.
+func seedStageToolchains(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "base.Dockerfile"), []byte("FROM ubuntu:24.04\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "recipes"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"cpp", "go", "java", "rust"} {
+		if err := os.WriteFile(filepath.Join(dir, "recipes", id+".Dockerfile"), []byte("RUN apt-get install -y curl\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return dir
+}
+
+// Reuse-running matches the derived set tag only (WP-6/§10): a running
+// container whose image equals the derived set tag is reused; an
+// old-world edition ref refuses with the predates note — old-ref
+// containers prompt on every touch in the web, the setup flow's retry
+// surfaces the refusal.
+func TestStartStageReusesOnlySetTagRefs(t *testing.T) {
+	p, fake, root := stageFixture(t)
+	tag, ok := openworkspace.SetTagFor(p.Toolchains, []string{"cpp", "go", "java", "rust"})
+	if !ok {
+		t.Fatal("fixture set tag underivable")
+	}
+	name, err := p.containerName()
+	if err != nil {
+		t.Fatal(err)
+	}
+	started := false
+	fake.Script = func(name2 string, args []string) (string, error) {
+		rest := strings.Join(args, " ")
+		switch {
+		case name2 == "bash" && len(args) > 0 && args[0] == p.StartScript:
+			started = true
+			return "started", nil
+		case strings.HasPrefix(rest, "ps --format {{.Names}}\t{{.Image}}"):
+			return name + "\tlocalhost/" + tag, nil
+		case strings.HasPrefix(rest, "ps --format {{.Names}}"):
+			return name + "\n", nil
+		}
+		return "", nil
+	}
+
+	// the agreeing set tag: reused, never restarted
+	if err := p.Run(StageStart, func(string) {}); err != nil {
+		t.Fatalf("reuse run failed: %v", err)
+	}
+	if started {
+		t.Fatalf("start.sh ran on an agreeing live container (reuse)")
+	}
+	st, err := p.Reg.ByPath(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.ContainerStatus != "running" {
+		t.Fatalf("container_status = %q, want running on reuse", st.ContainerStatus)
+	}
+
+	// an old-world ref: refused, nothing started
+	fake.Script = func(name2 string, args []string) (string, error) {
+		rest := strings.Join(args, " ")
+		switch {
+		case name2 == "bash" && len(args) > 0 && args[0] == p.StartScript:
+			started = true
+			return "started", nil
+		case strings.HasPrefix(rest, "ps --format {{.Names}}\t{{.Image}}"):
+			return name + "\topencode-sandbox-swdev:latest", nil
+		case strings.HasPrefix(rest, "ps --format {{.Names}}"):
+			return name + "\n", nil
+		}
+		return "", nil
+	}
+	err = p.Run(StageStart, func(string) {})
+	if err == nil || !strings.Contains(err.Error(), "predates toolchain sets") {
+		t.Fatalf("stale-ref start stage error = %v, want the predates refusal", err)
+	}
+	if started {
+		t.Fatalf("start.sh ran on a stale live container")
+	}
+}
+
+// The missing-set refusal (WP-6): the derived set image is not built —
+// the retry surfaces the Images hint (Build now rides setup/retry's
+// build=1 in the web).
+func TestStartStageRefusesMissingSetImage(t *testing.T) {
+	p, fake, _ := stageFixture(t)
+	fake.Script = func(name string, args []string) (string, error) {
+		rest := strings.Join(args, " ")
+		switch {
+		case strings.HasPrefix(rest, "ps --format {{.Names}}"):
+			return "", nil // nothing running
+		case strings.HasPrefix(rest, "image exists"):
+			return "", fmt.Errorf("no such image")
+		}
+		return "", nil
+	}
+
+	var emitted []string
+	err := p.Run(StageStart, func(l string) { emitted = append(emitted, l) })
+	if err == nil || !strings.Contains(err.Error(), "not built") ||
+		!strings.Contains(err.Error(), "Images") {
+		t.Fatalf("missing-image start stage error = %v, want the Images-hint refusal", err)
+	}
+	for _, c := range fake.Calls {
+		if c.Name == "bash" && len(c.Args) > 0 && c.Args[0] == p.StartScript {
+			t.Fatalf("start.sh ran on a missing set image: %v", c.Args)
+		}
+	}
+}
+
 func TestStartStageRunsStartShWithRebuiltArgs(t *testing.T) {
 	p, fake, root := stageFixture(t)
+	p.Toolchains = seedStageToolchains(t)
 	podmanStates(fake) // nothing running
 
 	proj, err := p.Reg.ByPath(root)
@@ -131,13 +254,27 @@ func TestStartStageCarriesUseStt(t *testing.T) {
 
 func TestStartStageReusesRunningContainer(t *testing.T) {
 	p, fake, root := stageFixture(t)
-	name := containerPrefix + "idonotexist"
 	proj, err := p.Reg.ByPath(root)
 	if err != nil {
 		t.Fatal(err)
 	}
-	name = containerPrefix + proj.ContainerID
-	podmanStates(fake, name, "opencode-sandbox-other")
+	name := containerPrefix + proj.ContainerID
+	// The running container rides the derived set tag — reuse matches
+	// set-tag refs only (WP-6).
+	tag, ok := openworkspace.SetTagFor(p.Toolchains, []string{"cpp", "go", "java", "rust"})
+	if !ok {
+		t.Fatal("fixture set tag underivable")
+	}
+	fake.Script = func(name2 string, args []string) (string, error) {
+		rest := strings.Join(args, " ")
+		switch {
+		case strings.HasPrefix(rest, "ps --format {{.Names}}\t{{.Image}}"):
+			return name + "\t" + tag, nil
+		case strings.HasPrefix(rest, "ps --format {{.Names}}"):
+			return name + "\n", nil
+		}
+		return "", nil
+	}
 
 	var emitted []string
 	if err := p.Run(StageStart, func(l string) { emitted = append(emitted, l) }); err != nil {

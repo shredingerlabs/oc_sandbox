@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/shredingerlabs/oc-sandbox/internal/cmdrun"
+	"github.com/shredingerlabs/oc-sandbox/internal/openworkspace"
 	"github.com/shredingerlabs/oc-sandbox/internal/registry"
 	"github.com/shredingerlabs/oc-sandbox/internal/webserver"
 )
@@ -21,17 +22,17 @@ import (
 // #154): the Open screen's card Stop/Delete confirm rows run the real
 // ops (pod-as-unit stop, verified gone before the registry flip;
 // danger-confirmed delete with the stop-first refusal), the Open chain
-// carries the variant and gets the #115 mismatch verdict, and both
-// running-container replacements — the mismatch switch and the web
-// re-adopt — ride the web-native adopt confirm behind the TUI
-// launchSwitch chain (verified stop → start with args rebuilt from the
-// current settings carrying the requested access → verified live),
-// with the missing-image refusal before anything stops (#117), the
-// failed switch leaving the workspace stopped with the error streamed,
-// and the confirms refusing while an op is queued/running. The runner
-// is faked; nothing external is touched.
+// carries the variant and gets the #115 mismatch verdict re-keyed to
+// the derived set tag (WP-6), and both running-container replacements —
+// the mismatch switch and the web re-adopt — ride the web-native adopt
+// confirm through the verified build → stop → start chain (the inline
+// Build now builds the replacement BEFORE anything stops, WP-6), with
+// a failed build stopping nothing, the failed switch leaving the
+// workspace stopped with the error streamed, and the confirms refusing
+// while an op is queued/running. The runner is faked; nothing external
+// is touched.
 func checkWebUIStopAdopt(home, root string) Item {
-	p := newPhase("A14", "Workspace stop/delete/adopt + restart: the Container-center routes run the real ops (pod-as-unit stop verified-gone → registry flip, danger delete with stop-first refusal), the variant start POST carries the #115 mismatch verdict, both replacements ride the adopt confirm through the verified stop → start chain with current settings + requested access, missing-image refusal before anything stops, failed switch leaves the workspace stopped with the error in the log, the card restart runs the verified stop → fresh-start chain from the saved settings (ADR-0033), confirms refuse while an op is queued/running (#154)")
+	p := newPhase("A14", "Workspace stop/delete/adopt + restart: the Container-center routes run the real ops (pod-as-unit stop verified-gone → registry flip, danger delete with stop-first refusal), the variant start POST carries the set-tag mismatch verdict, both replacements ride the adopt confirm through the verified build → stop → start chain with current settings + requested access, a failed inline build stops nothing, failed switch leaves the workspace stopped with the error in the log, the card restart runs the verified stop → fresh-start chain from the saved settings (ADR-0033), confirms refuse while an op is queued/running (#154)")
 
 	// Fixture: one workspace, saved edition swdev with hil_mode, console
 	// start option (the §6 Standard presets hidden, stored truth intact)
@@ -40,6 +41,16 @@ func checkWebUIStopAdopt(home, root string) Item {
 	id := registry.ContainerIdentity(rootA)
 	cname, pod := "opencode-sandbox-"+id, registry.PodName(id)
 	startScript := filepath.Join(home, ".oc-sandbox", "scripts", "start.sh")
+	buildScript := filepath.Join(home, ".oc-sandbox", "scripts", "build-images.sh")
+	// The stored selection's derived set tag (spec §6): legacy swdev
+	// expands through the seeded bundle map; the identity seam is
+	// golden-vector-pinned (tests/test-identity-golden).
+	setTag, tagOK := openworkspace.SetTagFor(
+		filepath.Join(home, ".oc-sandbox", "toolchains"), swdevToolchains)
+	if !tagOK {
+		p.reasonf("fixture set tag underivable")
+		return p.finish()
+	}
 
 	var mu sync.Mutex
 	running := false   // fake ps: the container is live
@@ -47,6 +58,8 @@ func checkWebUIStopAdopt(home, root string) Item {
 	podExists := false // the workspace's pod exists (pod-as-unit stop)
 	podRunning := true // the fake pod ps status when podExists (delete's running refusal)
 	built := map[string]bool{"opencode-sandbox-swdev": true, "opencode-sandbox-web": true}
+	buildOK := false               // the next build-images.sh run lands the set image
+	buildCalls := [][]string{}     // build-images.sh invocation vectors
 	published := false             // fake podman port 4096/tcp
 	startFail := false             // the next start.sh run fails
 	pairCalls := 0                 // each pair call mints its own one-time link (§10)
@@ -57,6 +70,19 @@ func checkWebUIStopAdopt(home, root string) Item {
 	release := make(chan struct{}) // unblocks the blocked start.sh call
 
 	fake := &cmdrun.Fake{Script: func(name string, args []string) (string, error) {
+		if name == "bash" && len(args) > 0 && args[0] == buildScript {
+			mu.Lock()
+			buildCalls = append(buildCalls, args[1:])
+			ok := buildOK
+			if ok {
+				built[setTag] = true // the build lands the set image
+			}
+			mu.Unlock()
+			if !ok {
+				return "offline — preflight refused", fmt.Errorf("preflight refused")
+			}
+			return "build-images output line\n", nil
+		}
 		if name == "bash" && len(args) > 0 && args[0] == startScript {
 			mu.Lock()
 			startArgs = append(startArgs, args[1:])
@@ -145,9 +171,10 @@ func checkWebUIStopAdopt(home, root string) Item {
 	s := webserver.New(webserver.Options{
 		BasePort: 0, Home: home,
 		Deps: &webserver.Deps{
-			Run:         fake,
-			Registry:    &registry.Registry{Home: home},
-			StartScript: startScript,
+			Run:               fake,
+			Registry:          &registry.Registry{Home: home},
+			StartScript:       startScript,
+			BuildImagesScript: buildScript,
 		},
 	})
 	if err := s.Start(); err != nil {
@@ -228,13 +255,14 @@ func checkWebUIStopAdopt(home, root string) Item {
 		}
 	}
 
-	// The #115 mismatch verdict rides the variant start POST: a live
-	// container running a different edition than saved refuses the
+	// The #115 mismatch verdict re-keyed to the derived set tag (WP-6):
+	// a live container running an old-world edition ref refuses the
 	// silent reuse, flips the registry truthful (running + last_used),
-	// and touches nothing.
+	// and touches nothing — the prompt body names the predates line.
 	liveWith("opencode-sandbox-web:latest")
 	v := sidecar(s.URL()+"workspaces/atlas/start", map[string]string{"variant": "web"})
-	if v["mismatch"] != true || scStr(v, "running_edition") != "web" || scStr(v, "saved_edition") != "swdev" {
+	if v["mismatch"] != true || scStr(v, "running") != "opencode-sandbox-web:latest" ||
+		!strings.Contains(scStr(v, "body"), "predates toolchain sets") {
 		p.reasonf("mismatch verdict sidecar = %v", v)
 	}
 	waitRegistry(p, home, "atlas", "running")
@@ -245,22 +273,28 @@ func checkWebUIStopAdopt(home, root string) Item {
 		p.reasonf("mismatch detection must not start or stop anything")
 	}
 
-	// Never destroy without a replacement (#117): the switch refuses
-	// while the saved edition's image is missing — before anything
-	// stops; the container keeps running.
+	// Build the replacement, then stop (WP-6 re-key of #117): the
+	// switch's inline Build now runs the builder FIRST — a failed build
+	// (an offline host's preflight refusal) stops nothing and the
+	// container keeps running.
 	mu.Lock()
-	delete(built, "opencode-sandbox-swdev")
+	buildCalls = nil
 	mu.Unlock()
 	v = sidecar(s.URL()+"workspaces/atlas/adopt", map[string]string{"variant": "web"})
-	if scOK(v) || !strings.Contains(scStr(v, "error"), "not built yet") {
-		p.reasonf("missing-image adopt sidecar = %v, want the build-first refusal", v)
+	if !scOK(v) || scNum(v, "op") < 1 {
+		p.reasonf("build-fails adopt sidecar = %v, want ok with the op id (the failure surfaces in the op)", v)
 	}
+	waitQueueIdle("failed inline build")
 	mu.Lock()
+	oneBuild := len(buildCalls) == 1 && strings.Join(buildCalls[0], " ") == "--set "+strings.Join(swdevToolchains, ",")
 	noStop := len(stopCalls) == 0
-	built["opencode-sandbox-swdev"] = true
+	built[setTag] = true // the retry lands the set image
 	mu.Unlock()
+	if !oneBuild {
+		p.reasonf("build calls = %v, want one build-images.sh --set cpp,go,java,rust", buildCalls)
+	}
 	if !noStop {
-		p.reasonf("missing-image adopt must not stop anything: %v", stopCalls)
+		p.reasonf("a failed inline build must not stop anything: %v", stopCalls)
 	}
 	waitRegistry(p, home, "atlas", "running")
 

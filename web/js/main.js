@@ -300,11 +300,27 @@
     }
     if (btn.dataset.act === "mismatch-switch") {
       // Switch to <saved> (#116): the running-container replacement —
-      // the adopt confirm gates it (§9).
+      // the adopt confirm gates it (§9); the replacement is built
+      // inline before anything stops (WP-6).
       adoptConfirm(card, btn.dataset.variant,
         "Switch to " + btn.dataset.saved + "?",
-        "The running container is stopped and restarted with the new edition — an agent may be mid-task.",
+        "The set image is built if missing, then the running container is stopped and restarted with the stored set — an agent may be mid-task.",
         "Switch");
+      return;
+    }
+    if (btn.dataset.act === "build-now") {
+      // Build now (WP-6): one queued op builds the set (missing
+      // components + assembly), then the start continues into the
+      // originally requested access.
+      var variant = btn.dataset.variant || "";
+      renderWorkspaces();
+      buildNow(cardByWs(card.dataset.ws) || card, variant);
+      return;
+    }
+    if (btn.dataset.act === "build-later") {
+      // Build later (WP-6): stays stopped — the Images screen is the
+      // escape.
+      showNote(card, "stayed stopped — build the set image under Settings → Images");
       return;
     }
     if (btn.dataset.act === "cancel-confirm") {
@@ -360,7 +376,10 @@
   // settings screen alike — the nearest [data-ws] names the workspace;
   // the machine (re-)runs from the stored flags and the SSE workspace
   // push re-renders. Refusals (an op or session holds the workspace)
-  // surface as a warning toast.
+  // surface as a warning toast; a missing set image answers the {build}
+  // sidecar (WP-6) — Build now re-POSTs with build=1 (one queued op:
+  // the builder's missing components + assembly, then the stages),
+  // Build later stays stopped with the Images hint.
   screenEl.addEventListener("click", function (ev) {
     var btn = ev.target.closest('[data-act="setup-retry"]');
     if (!btn || btn.disabled) return;
@@ -370,9 +389,52 @@
     fetch(base + "workspaces/" + encodeURIComponent(holder.dataset.ws) + "/setup/retry", {
       method: "POST",
       referrerPolicy: "no-referrer"
+    })
+      .then(function (r) { return r.text(); })
+      .then(function (txt) {
+        if (!txt) return; // plain 200: the machine launched
+        var v;
+        try { v = JSON.parse(txt); } catch (e) { return; }
+        if (v.build) {
+          var card = cardByWs(holder.dataset.ws) || holder;
+          showRow(card,
+            '<span class="note">The set image (' + v.set + ') is not built — build it now?</span>' +
+            '<button class="btn" data-act="setup-build-now">Build now</button>' +
+            '<button class="btn" data-act="setup-build-later">Build later</button>' +
+            '<button class="btn" data-act="cancel-confirm">Go back</button>');
+          return;
+        }
+      })
+      .catch(function () {
+        toast("setup refused — an op or session holds this workspace", "warn");
+      });
+  });
+
+  // The setup retry build row's moves: Build now re-POSTs with build=1
+  // (the setup op pre-builds, then the machine runs — streamed into the
+  // busy pane); Build later stays stopped with the Images hint.
+  screenEl.addEventListener("click", function (ev) {
+    var btn = ev.target.closest('[data-act="setup-build-now"]');
+    if (!btn || btn.disabled) return;
+    ev.preventDefault();
+    var holder = btn.closest('[data-ws]');
+    if (!holder || !holder.dataset.ws) return;
+    fetch(base + "workspaces/" + encodeURIComponent(holder.dataset.ws) + "/setup/retry", {
+      method: "POST",
+      body: "build=1",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      referrerPolicy: "no-referrer"
     }).catch(function () {
       toast("setup refused — an op or session holds this workspace", "warn");
     });
+  });
+  screenEl.addEventListener("click", function (ev) {
+    var btn = ev.target.closest('[data-act="setup-build-later"]');
+    if (!btn || btn.disabled) return;
+    ev.preventDefault();
+    var holder = btn.closest('[data-ws]');
+    var card = holder ? (cardByWs(holder.dataset.ws) || holder) : null;
+    if (card) showNote(card, "stayed stopped — build the set image under Settings → Images");
   });
 
   // VCS login panel (ADR 0035): copy the one-time code — the card-grid
@@ -389,8 +451,10 @@
   // chainStart runs the start op (queued-not-refused on the shared
   // opRunner) and continues the access chain once the workspace drains.
   // The requested access rides the POST (#154): a running container
-  // whose image edition diverges from the saved one answers the #115
-  // mismatch verdict instead of silently reusing — the card prompts.
+  // whose image diverges from the stored selection's derived set tag
+  // answers the mismatch verdict instead of silently reusing — the card
+  // prompts (#115, WP-6); a missing set image answers the build sidecar
+  // (Build now / Build later / Go back, WP-6).
   function chainStart(card, variant, then) {
     fetch(post(card, "start"), {
       method: "POST",
@@ -404,6 +468,10 @@
           showMismatchRow(card, variant, v);
           return;
         }
+        if (v.build) {
+          showBuildRow(card, variant, v);
+          return;
+        }
         if (v.ok === false) {
           showNote(card, v.error || "start refused");
           return;
@@ -413,18 +481,58 @@
       .catch(function () { showNote(card, "start failed — retry"); });
   }
 
-  // showMismatchRow renders the mismatch prompt (#115): Use current /
-  // Switch to <saved> / Cancel. The switch is the replacement the adopt
-  // confirm gates; the saved edition's image is checked server-side
-  // before anything stops (#117).
+  // showMismatchRow renders the mismatch prompt (#115, WP-6 re-key):
+  // Use current / Switch to <saved> / Cancel — the body is the member
+  // delta the server derived (added/removed ids, "toolchain recipes
+  // updated", the predates line for old-world refs, or the
+  // members-unknown line). The switch is the replacement the adopt
+  // confirm gates; the replacement is built inline before anything
+  // stops (never stop without a replacement, WP-6).
   function showMismatchRow(card, variant, v) {
     showRow(card,
-      '<span class="note">Edition mismatch — the container runs "' + v.running_edition +
-      '", the workspace is set to "' + v.saved_edition + '"</span>' +
+      '<span class="note">Set mismatch — the container runs ' + v.running +
+      ', the workspace is set to "' + v.saved + '"</span>' +
+      '<span class="note">' + v.body + '</span>' +
       '<button class="btn" data-act="mismatch-use" data-variant="' + variant + '">Use current</button>' +
       '<button class="btn danger" data-act="mismatch-switch" data-variant="' + variant +
-      '" data-saved="' + v.saved_edition + '">Switch to ' + v.saved_edition + '</button>' +
+      '" data-saved="' + v.saved + '">Switch to ' + v.saved + '</button>' +
       '<button class="btn" data-act="cancel-confirm">Cancel</button>');
+  }
+
+  // showBuildRow renders the missing-set prompt (WP-6): Build now
+  // re-POSTs the start with build=1 — one queued op (missing components
+  // + assembly via build-images.sh) streamed into the card, then the
+  // start continues; Build later stays stopped with the Images hint;
+  // Go back closes the row.
+  function showBuildRow(card, variant, v) {
+    showRow(card,
+      '<span class="note">The set image (' + v.set + ') is not built — build it now?</span>' +
+      '<button class="btn" data-act="build-now" data-variant="' + variant + '">Build now</button>' +
+      '<button class="btn" data-act="build-later">Build later</button>' +
+      '<button class="btn" data-act="cancel-confirm">Go back</button>');
+  }
+
+  // The build row's moves ride the card's delegated click handler
+  // (data-act build-now / build-later below): Build now carries the
+  // originally requested variant so the access chain continues.
+  function buildNow(card, variant) {
+    fetch(post(card, "start"), {
+      method: "POST",
+      body: "variant=" + encodeURIComponent(variant) + "&build=1",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      referrerPolicy: "no-referrer"
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (v) {
+        if (v.ok === false) {
+          showNote(card, v.error || "build refused");
+          return;
+        }
+        waitForIdle(card).then(function (fresh) {
+          if (variant) continueAccess(fresh, variant);
+        });
+      })
+      .catch(function () { showNote(card, "build failed — retry"); });
   }
 
   // The web-native adopt confirm (§9): both running-container
@@ -1510,11 +1618,22 @@
       );
       return;
     }
-    go(tagParam(btn));
+    go(btn.dataset.form || tagParam(btn));
+  });
+
+  // The Containers screen's missing-set prompt (WP-6): Build later and
+  // Go back both reload the plain screen — stay-stopped, the Images
+  // hint rides the prompt note.
+  screenEl.addEventListener("click", function (ev) {
+    var btn = ev.target.closest('[data-act="containers-reload"]');
+    if (!btn || btn.disabled) return;
+    ev.preventDefault();
+    loadScreen(screenPaths["set-containers"] || "containers");
   });
 
   // tagParam renders the images payload of a tagged screen button
-  // (single-image build/delete); untagged buttons post bare.
+  // (single-image build/delete); untagged buttons post bare. data-form
+  // carries a custom form body (the Containers screen's Build now row).
   function tagParam(btn) {
     return btn.dataset.tag ? "tag=" + encodeURIComponent(btn.dataset.tag) : null;
   }
