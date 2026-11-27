@@ -3,6 +3,7 @@ package webserver
 import (
 	"errors"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
@@ -55,6 +56,70 @@ func seedLegacyConfig(t *testing.T, root, edition string, modes []string, startO
 }`
 	if err := os.WriteFile(sandboxcfg.Path(root), []byte(doc), 0o644); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// seedToolchainsConfig writes a materialized (toolchains-key)
+// sandbox_config.json — the new-world stored shape (spec §10).
+func seedToolchainsConfig(t *testing.T, root string, ids, modes []string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Join(root, ".opencode_config"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	quote := func(ss []string) string {
+		out := make([]string, len(ss))
+		for i, s := range ss {
+			out[i] = `"` + s + `"`
+		}
+		return "[" + strings.Join(out, ", ") + "]"
+	}
+	doc := `{
+    "toolchains": ` + quote(ids) + `,
+    "container_modes": ` + quote(modes) + `,
+    "start_option": "web",
+    "cbm_auto_index": true,
+    "cbm_auto_watch": true,
+    "ai_provider": "none",
+    "workspace_source": "empty",
+    "repo_url": "",
+    "search_mode": "searxng",
+    "use_stt": true,
+    "setup_clone_complete": false,
+    "setup_cbm_complete": false,
+    "setup_skills_complete": false,
+    "setup_complete": false,
+    "version": "2.0"
+}`
+	if err := os.WriteFile(sandboxcfg.Path(root), []byte(doc), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// postVals posts a multi-value form payload — the toolchains checkbox
+// list posts one value per checked box under the shared name.
+func postVals(t *testing.T, target string, vals url.Values) *http.Response {
+	t.Helper()
+	resp, err := http.PostForm(target, vals)
+	if err != nil {
+		t.Fatalf("POST %s: %v", target, err)
+	}
+	t.Cleanup(func() { resp.Body.Close() })
+	return resp
+}
+
+// seedToolchainRecipes writes minimal valid recipes for the given ids —
+// a bundle derives only when every member has a valid recipe (discovery
+// is live per render).
+func seedToolchainRecipes(t *testing.T, home string, ids ...string) {
+	t.Helper()
+	dir := filepath.Join(tcRootOf(home), "recipes")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range ids {
+		if err := os.WriteFile(filepath.Join(dir, id+".Dockerfile"), []byte("RUN apt-get install -y curl\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
 	}
 }
 
@@ -151,19 +216,28 @@ func TestWsSettingsScreenAdvanced(t *testing.T) {
 
 	doc := body(t, get(t, fx.s.URL()+"workspaces/alpha/settings"))
 	for _, want := range []string{
-		`data-row="edition"`,                  // switchable, next-start apply (chips)
-		`data-role="settings-edition"`,        // the chip group the shell's .edopt clicks bind
-		`data-row="modes"`,                    // the wizard's one-line Modes row
-		`data-row="search_mode"`,              // the triad with searxng preselected
-		`name="edition" value="swdev"`,        // stored edition (chip payload)
-		`data-ed="swdev" aria-pressed="true"`, // the chip's pressed state
-		`name="proxy" value="yes" checked`,    // stored proxy checked
-		`value="searxng" checked`,             // §6 preselected
-		`name="hil" value="on" checked`,       // hil_mode recorded in modes
+		`data-row="edition"`,                      // switchable, next-start apply
+		`data-role="settings-bundles"`,            // the bundle chip row
+		`data-role="settings-units"`,              // the toolchain multi-select
+		`data-row="modes"`,                        // the wizard's one-line Modes row
+		`data-row="search_mode"`,                  // the triad with searxng preselected
+		`data-bundle="swdev" aria-pressed="true"`, // derived bundle (exact member match)
+		`name="toolchains" value="cpp" checked`,   // the multi-select prefilled from the stored set
+		`name="toolchains" value="rust" checked`,
+		`name="toolchains" value="java" checked`,
+		`name="toolchains" value="go" checked`,
+		`name="proxy" value="yes" checked`, // stored proxy checked
+		`value="searxng" checked`,          // §6 preselected
+		`name="hil" value="on" checked`,    // hil_mode recorded in modes
 	} {
 		if !strings.Contains(doc, want) {
 			t.Fatalf("Advanced settings screen missing %q:\n%s", want, doc)
 		}
+	}
+	// The edition-name chip payload is gone — the posted truth is the
+	// toolchain-id multi-select (WP-4).
+	if strings.Contains(doc, `name="edition"`) || strings.Contains(doc, `data-ed="swdev"`) {
+		t.Fatalf("the legacy edition chips must be re-keyed to the toolchain multi-select:\n%s", doc)
 	}
 	// Q4a: the start_option row is retired (no radio anywhere).
 	if strings.Contains(doc, `data-row="start_option"`) || strings.Contains(doc, `name="start_option"`) {
@@ -272,9 +346,14 @@ func TestWsSettingsPostPersistsNextStart(t *testing.T) {
 	root := seedWorkspace(t, fx.home, "alpha", "swdev", nil)
 	postForm(t, fx.s.URL()+"settings", map[string]string{"display_mode": "advanced"})
 
-	resp := postForm(t, fx.s.URL()+"workspaces/alpha/settings", map[string]string{
-		"edition": "embedded", "proxy": "yes",
-		"search_mode": "none", "modes_present": "1", "offline": "on", "hil": "on",
+	resp := postVals(t, fx.s.URL()+"workspaces/alpha/settings", url.Values{
+		"toolchains_present": {"1"},
+		"toolchains":         {"go", "usb", "arm-embedded", "arduino", "platformio", "micropython", "picoscope", "pyvisa"},
+		"proxy":              {"yes"},
+		"search_mode":        {"none"},
+		"modes_present":      {"1"},
+		"offline":            {"on"},
+		"hil":                {"on"},
 	})
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d, want 200", resp.StatusCode)
@@ -284,8 +363,10 @@ func TestWsSettingsPostPersistsNextStart(t *testing.T) {
 		t.Fatal(err)
 	}
 	// The start_option radio is retired (ADR-0033): the stored value
-	// keeps its legacy shape and the write must not touch it.
+	// keeps its legacy shape and the write must not touch it. The posted
+	// toolchain ids materialize canonically sorted (ADR 0042).
 	if !slices.Equal(cfg.Toolchains, []string{"arduino", "arm-embedded", "go", "micropython", "picoscope", "platformio", "pyvisa", "usb"}) ||
+		!cfg.ToolchainsStored ||
 		cfg.StartOption != "web" ||
 		!cfg.UseProxy || cfg.SearchMode != "none" {
 		t.Fatalf("next-start values not persisted: %+v", cfg)
@@ -427,15 +508,21 @@ func TestWsSettingsPostValidation(t *testing.T) {
 		"searxng+proxy":   {"search_mode": "searxng", "proxy": "yes"},
 		"searxng+offline": {"search_mode": "searxng", "modes_present": "1", "offline": "on"},
 		"offline+cbm":     {"modes_present": "1", "offline": "on", "cbm_ui": "on"},
-		"bad-edition":     {"edition": "ghost"},
+		"bad-toolchain":   {"toolchains_present": "1", "toolchains": "ghost"},
 		"bad-search":      {"search_mode": "bing"},
 	} {
 		resp := postForm(t, fx.s.URL()+"workspaces/alpha/settings", form)
 		if resp.StatusCode != http.StatusOK {
 			t.Fatalf("%s: status = %d, want 200 (fragment re-render)", name, resp.StatusCode)
 		}
-		if doc := body(t, resp); !strings.Contains(doc, `role="alert"`) {
+		doc := body(t, resp)
+		if !strings.Contains(doc, `role="alert"`) {
 			t.Fatalf("%s: refusal must render the form error:\n%s", name, doc)
+		}
+		if name == "bad-toolchain" {
+			if !strings.Contains(doc, "unknown toolchain") || !strings.Contains(doc, "choose a listed one") {
+				t.Fatalf("bad-toolchain refusal must name the toolchain-id rule:\n%s", doc)
+			}
 		}
 	}
 	after, _ := os.ReadFile(sandboxcfg.Path(root))
@@ -487,8 +574,9 @@ func TestWsSettingsCrossEditStickiness(t *testing.T) {
 	if !strings.Contains(doc, `value="none" checked`) || !strings.Contains(doc, `name="proxy" value="yes" checked`) {
 		t.Fatalf("Advanced edits of Standard-hidden options must stay sticky:\n%s", doc)
 	}
-	resp = postForm(t, fx.s.URL()+"workspaces/alpha/settings", map[string]string{
-		"edition": "embedded",
+	resp = postVals(t, fx.s.URL()+"workspaces/alpha/settings", url.Values{
+		"toolchains_present": {"1"},
+		"toolchains":         {"go", "usb", "arm-embedded", "arduino", "platformio", "micropython", "picoscope", "pyvisa"},
 	})
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("second advanced edit: status = %d", resp.StatusCode)
@@ -1322,15 +1410,18 @@ func TestFrontendWsSettingsWiring(t *testing.T) {
 	s := startTestServer(t)
 	js := body(t, get(t, s.URL()+"js/main.js"))
 	for _, want := range []string{
-		`workspace-settings`, // the menu alias route
-		`/settings`,          // the per-workspace screen route
-		`ws-selector`,        // the dropdown drives the screen
-		`displaychange`,      // the matrix re-renders on a mode switch
-		`setup-retry`,        // the #161 link stub
-		`provider-prefill`,   // AI-Provider catalog prefill
-		`vcs-prefill`,        // VCS catalog prefill
-		`"settings"`,         // the card settings icon jump
-		`data-field="host"`,  // the Tracker kind select toggles Host visibility
+		`workspace-settings`,  // the menu alias route
+		`/settings`,           // the per-workspace screen route
+		`ws-selector`,         // the dropdown drives the screen
+		`displaychange`,       // the matrix re-renders on a mode switch
+		`setup-retry`,         // the #161 link stub
+		`provider-prefill`,    // AI-Provider catalog prefill
+		`vcs-prefill`,         // VCS catalog prefill
+		`"settings"`,          // the card settings icon jump
+		`data-field="host"`,   // the Tracker kind select toggles Host visibility
+		`settings-toolchains`, // #208: the Toolchains row's chip/multi-select sync
+		`settings-bundles`,    // #208: the bundle chips preset the multi-select
+		`tc-count`,            // #208: the n-of-m header re-derives
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("main.js missing %q", want)
@@ -1347,5 +1438,330 @@ func TestFrontendWsSettingsWiring(t *testing.T) {
 		if !strings.Contains(css, want) {
 			t.Fatalf("main.css missing %q", want)
 		}
+	}
+}
+
+// --- Toolchains row re-key (#208, WP-4) ---------------------------------------
+//
+// The Advanced row is the bundle chip row + the toolchain multi-select,
+// prefilled from the stored set (the §10 legacy-expanded read): the
+// derived bundle shows on exact member match, Custom otherwise.
+
+// The stored swdev set derives its bundle chip and prefills the
+// multi-select; the legacy edition chip payload is gone.
+func TestWsSettingsToolchainsRowPrefilled(t *testing.T) {
+	fx := newCreateFixture(t, nil)
+	seedToolchainRecipes(t, fx.home, "cpp", "rust", "java", "go", "node-dev", "playwright", "ros2")
+	seedWorkspace(t, fx.home, "alpha", "swdev", nil)
+	postForm(t, fx.s.URL()+"settings", map[string]string{"display_mode": "advanced"})
+
+	doc := body(t, get(t, fx.s.URL()+"workspaces/alpha/settings"))
+	for _, want := range []string{
+		`data-role="settings-bundles"`,            // the bundle chip row
+		`data-bundle="base" aria-pressed="false"`, // the ∅ alias chip
+		`data-bundle="swdev" aria-pressed="true"`, // derived bundle (exact member match)
+		`data-bundle="web" aria-pressed="false"`,
+		`name="toolchains" value="cpp" checked`, // multi-select prefilled from the stored set
+		`name="toolchains" value="rust" checked`,
+		`name="toolchains" value="java" checked`,
+		`name="toolchains" value="go" checked`,
+		`name="toolchains" value="playwright"`, // listed but unchecked
+		`4 of 21 selected`,                     // the n-of-m header (the fixture seeds all 21 manifest members)
+		`name="toolchains_present"`,            // the presence sentinel (∅ is a selection)
+	} {
+		if !strings.Contains(doc, want) {
+			t.Fatalf("Toolchains row missing %q:\n%s", want, doc)
+		}
+	}
+	if strings.Contains(doc, `name="toolchains" value="playwright" checked`) {
+		t.Fatalf("web member must not preselect from the swdev set:\n%s", doc)
+	}
+}
+
+// Invalid bundles are not selectable but never silently skipped: a
+// bundle whose member recipe is invalid renders disabled with its
+// reason (spec §2 visible-with-reason), and the stored set it can no
+// longer derive now shows Custom.
+func TestWsSettingsToolchainsInvalidBundleReason(t *testing.T) {
+	fx := newCreateFixture(t, nil)
+	seedToolchainRecipes(t, fx.home, "cpp", "rust", "java", "go", "node-dev", "playwright")
+	// Corrupt the cpp recipe — the swdev bundle invalidates.
+	cpp := filepath.Join(tcRootOf(fx.home), "recipes", "cpp.Dockerfile")
+	if err := os.WriteFile(cpp, []byte("ARG CACHEBUST=1\nRUN apt-get install -y curl\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	seedWorkspace(t, fx.home, "alpha", "swdev", nil)
+	postForm(t, fx.s.URL()+"settings", map[string]string{"display_mode": "advanced"})
+
+	doc := body(t, get(t, fx.s.URL()+"workspaces/alpha/settings"))
+	if !strings.Contains(doc, `data-bundle="swdev" disabled`) {
+		t.Fatalf("invalidated bundle must render disabled:\n%s", doc)
+	}
+	if !strings.Contains(doc, "ARG is refused") {
+		t.Fatalf("invalidated bundle must render its reason:\n%s", doc)
+	}
+	if !strings.Contains(doc, `data-bundle="custom" aria-pressed="true"`) {
+		t.Fatalf("a stored set deriving no selectable bundle must show Custom:\n%s", doc)
+	}
+}
+
+// A stored set no bundle matches derives Custom: the Custom chip presses,
+// the stored members still prefill the multi-select.
+func TestWsSettingsToolchainsCustomDerived(t *testing.T) {
+	fx := newCreateFixture(t, nil)
+	seedToolchainRecipes(t, fx.home, "cpp", "rust", "java", "go", "node-dev", "playwright")
+	root := seedWorkspace(t, fx.home, "alpha", "swdev", nil)
+	seedToolchainsConfig(t, root, []string{"go", "playwright"}, nil)
+	postForm(t, fx.s.URL()+"settings", map[string]string{"display_mode": "advanced"})
+
+	doc := body(t, get(t, fx.s.URL()+"workspaces/alpha/settings"))
+	for _, want := range []string{
+		`data-bundle="custom" aria-pressed="true"`, // no exact member match
+		`data-bundle="swdev" aria-pressed="false"`, // superset ≠ match
+		`data-bundle="base" aria-pressed="false"`,  // non-empty ≠ ∅
+		`name="toolchains" value="go" checked`,     // the stored members prefill
+		`name="toolchains" value="playwright" checked`,
+		`2 of 21 selected`,
+	} {
+		if !strings.Contains(doc, want) {
+			t.Fatalf("Custom-derived Toolchains row missing %q:\n%s", want, doc)
+		}
+	}
+}
+
+// Custom is read-only in Standard: the row shows the custom set and an
+// Advanced pointer, but no editable controls (Standard hides, never
+// re-imposes — the editing lives in Advanced alone).
+func TestWsSettingsToolchainsCustomReadOnlyStandard(t *testing.T) {
+	fx := newCreateFixture(t, nil)
+	seedToolchainRecipes(t, fx.home, "cpp", "rust", "java", "go", "node-dev", "playwright")
+	root := seedWorkspace(t, fx.home, "alpha", "swdev", nil)
+	seedToolchainsConfig(t, root, []string{"go", "playwright"}, nil)
+
+	doc := body(t, get(t, fx.s.URL()+"workspaces/alpha/settings"))
+	for _, want := range []string{
+		`data-row="edition"`, // the read-only pointer row renders
+		`Custom`,
+		`go, playwright`, // the stored members, visible
+		`Advanced`,       // the edit hint
+	} {
+		if !strings.Contains(doc, want) {
+			t.Fatalf("Standard Custom row missing %q:\n%s", want, doc)
+		}
+	}
+	if strings.Contains(doc, `name="toolchains"`) || strings.Contains(doc, `data-bundle=`) {
+		t.Fatalf("Standard must render the Custom set read-only:\n%s", doc)
+	}
+}
+
+// A derived bundle is a preset — Standard hides the row entirely (the
+// matrix rule), never re-imposing it.
+func TestWsSettingsToolchainsBundleHiddenInStandard(t *testing.T) {
+	fx := newCreateFixture(t, nil)
+	seedToolchainRecipes(t, fx.home, "cpp", "rust", "java", "go", "node-dev", "playwright")
+	seedWorkspace(t, fx.home, "alpha", "swdev", nil)
+
+	doc := body(t, get(t, fx.s.URL()+"workspaces/alpha/settings"))
+	if strings.Contains(doc, `data-row="edition"`) {
+		t.Fatalf("Standard must hide the derived-bundle row (matrix §6):\n%s", doc)
+	}
+}
+
+// The §10 unresolved state: an unknown stored edition renders the
+// warning with nothing preselected; picking toolchains materializes the
+// new-world key (nothing destroyed — the write is the migration).
+func TestWsSettingsToolchainsUnresolved(t *testing.T) {
+	fx := newCreateFixture(t, nil)
+	seedToolchainRecipes(t, fx.home, "cpp", "rust", "java", "go", "node-dev", "playwright")
+	root := seedWorkspace(t, fx.home, "alpha", "swdev", nil)
+	seedLegacyConfig(t, root, "ghost", nil, "web")
+	postForm(t, fx.s.URL()+"settings", map[string]string{"display_mode": "advanced"})
+
+	doc := body(t, get(t, fx.s.URL()+"workspaces/alpha/settings"))
+	for _, want := range []string{
+		`data-role="tc-unresolved"`,
+		"stored edition &#39;ghost&#39; maps to no bundle — choose toolchains",
+	} {
+		if !strings.Contains(doc, want) {
+			t.Fatalf("unresolved warning missing %q:\n%s", want, doc)
+		}
+	}
+	if strings.Contains(doc, `name="toolchains" value="go" checked`) ||
+		strings.Contains(doc, `aria-pressed="true"`) {
+		t.Fatalf("unresolved state must preselect nothing:\n%s", doc)
+	}
+
+	// Picking materializes: the posted ids write the toolchains key and
+	// the legacy edition dies (the old image/container untouched).
+	resp := postVals(t, fx.s.URL()+"workspaces/alpha/settings", url.Values{
+		"toolchains_present": {"1"}, "toolchains": {"node-dev", "go"},
+	})
+	if doc := body(t, resp); strings.Contains(doc, `role="alert"`) {
+		t.Fatalf("picking must materialize:\n%s", doc)
+	}
+	cfg, err := sandboxcfg.Read(sandboxcfg.Path(root), tcRootOf(fx.home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.ToolchainsStored || !slices.Equal(cfg.Toolchains, []string{"go", "node-dev"}) || cfg.Resolved != true {
+		t.Fatalf("picking must materialize the toolchains key: %+v", cfg)
+	}
+}
+
+// Both fields absent (corrupt/foreign config) is unresolved too — the
+// warning renders without a stored name, nothing preselected.
+func TestWsSettingsToolchainsUnresolvedCorrupt(t *testing.T) {
+	fx := newCreateFixture(t, nil)
+	root := seedWorkspace(t, fx.home, "alpha", "swdev", nil)
+	corrupt := strings.Replace(string(mustRead(t, sandboxcfg.Path(root))), `"container_edition": "swdev",`, ``, 1)
+	if err := os.WriteFile(sandboxcfg.Path(root), []byte(corrupt), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	doc := body(t, get(t, fx.s.URL()+"workspaces/alpha/settings"))
+	if !strings.Contains(doc, `data-role="tc-unresolved"`) ||
+		!strings.Contains(doc, "choose toolchains") {
+		t.Fatalf("corrupt config must render the unresolved warning:\n%s", doc)
+	}
+	if strings.Contains(doc, "stored edition") {
+		t.Fatalf("corrupt config has no stored edition to name:\n%s", doc)
+	}
+}
+
+// mustRead is os.ReadFile with the test failure wired in.
+func mustRead(t *testing.T, path string) []byte {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return data
+}
+
+// The save materializes: a legacy workspace's posted ids write the
+// sorted toolchains key and drop container_edition — the write IS the
+// migration (§10); the unsorted post canonicalizes.
+func TestWsSettingsPostToolchainsMaterialize(t *testing.T) {
+	fx := newCreateFixture(t, nil)
+	seedToolchainRecipes(t, fx.home, "cpp", "rust", "java", "go", "node-dev", "playwright")
+	root := seedWorkspace(t, fx.home, "alpha", "swdev", nil)
+
+	resp := postVals(t, fx.s.URL()+"workspaces/alpha/settings", url.Values{
+		"toolchains_present": {"1"}, "toolchains": {"playwright", "go"},
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	raw, err := os.ReadFile(sandboxcfg.Path(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "container_edition") {
+		t.Fatalf("the materializing write must drop container_edition:\n%s", raw)
+	}
+	cfg, err := sandboxcfg.Read(sandboxcfg.Path(root), tcRootOf(fx.home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.ToolchainsStored || !slices.Equal(cfg.Toolchains, []string{"go", "playwright"}) {
+		t.Fatalf("unsorted post must materialize canonically sorted: %+v", cfg)
+	}
+}
+
+// The empty multi-select is the valid base-only selection (∅ — chat/pkm
+// are base-only), never "row absent": the presence sentinel decides.
+func TestWsSettingsPostToolchainsEmpty(t *testing.T) {
+	fx := newCreateFixture(t, nil)
+	seedToolchainRecipes(t, fx.home, "cpp", "rust", "java", "go", "node-dev", "playwright")
+	root := seedWorkspace(t, fx.home, "alpha", "swdev", nil)
+
+	resp := postForm(t, fx.s.URL()+"workspaces/alpha/settings", map[string]string{
+		"toolchains_present": "1",
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	cfg, err := sandboxcfg.Read(sandboxcfg.Path(root), tcRootOf(fx.home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.ToolchainsStored || len(cfg.Toolchains) != 0 || !cfg.Resolved {
+		t.Fatalf("empty selection must materialize the base-only set: %+v", cfg)
+	}
+}
+
+// An absent row (Standard-hidden) never re-imposes: the stored
+// selection rides the merge unchanged — every write still materializes
+// the toolchains key (WP-2), but the ids are the stored ones.
+func TestWsSettingsPostToolchainsAbsentKeepsStored(t *testing.T) {
+	fx := newCreateFixture(t, nil)
+	seedToolchainRecipes(t, fx.home, "cpp", "rust", "java", "go", "node-dev", "playwright")
+	root := seedWorkspace(t, fx.home, "alpha", "swdev", nil)
+
+	resp := postForm(t, fx.s.URL()+"workspaces/alpha/settings", map[string]string{
+		"search_mode": "none",
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	cfg, err := sandboxcfg.Read(sandboxcfg.Path(root), tcRootOf(fx.home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.ToolchainsStored ||
+		!slices.Equal(cfg.Toolchains, []string{"cpp", "go", "java", "rust"}) {
+		t.Fatalf("absent row must keep the stored selection (materialized): %+v", cfg)
+	}
+}
+
+// The image-missing hint is unchanged: the legacy edition's image check
+// (discovery.ImageExists) still drives the warning.
+func TestWsSettingsToolchainsImageMissingHint(t *testing.T) {
+	fx := newCreateFixture(t, imageExistsScript(false))
+	seedToolchainRecipes(t, fx.home, "cpp", "rust", "java", "go", "node-dev", "playwright")
+	seedWorkspace(t, fx.home, "alpha", "swdev", nil)
+	postForm(t, fx.s.URL()+"settings", map[string]string{"display_mode": "advanced"})
+
+	doc := body(t, get(t, fx.s.URL()+"workspaces/alpha/settings"))
+	if !strings.Contains(doc, "image missing — build it under Settings › Images") {
+		t.Fatalf("image-missing hint must render unchanged:\n%s", doc)
+	}
+}
+
+// pkm is not pinned here: a pkm-kind workspace's Toolchains row stays
+// editable in Advanced and both-direction switches persist (the card
+// owns the kind access; settings never re-imposes the kind).
+func TestWsSettingsPkmNotPinned(t *testing.T) {
+	fx := newCreateFixture(t, nil)
+	seedToolchainRecipes(t, fx.home, "cpp", "rust", "java", "go", "node-dev", "playwright")
+	root := seedWorkspace(t, fx.home, "notes", "base", nil)
+	if err := sandboxcfg.PatchString(fx.home, sandboxcfg.Path(root), "workspace_kind", "pkm"); err != nil {
+		t.Fatal(err)
+	}
+	postForm(t, fx.s.URL()+"settings", map[string]string{"display_mode": "advanced"})
+
+	// The base-only set derives the base chip; the row is editable.
+	doc := body(t, get(t, fx.s.URL()+"workspaces/notes/settings"))
+	if !strings.Contains(doc, `data-bundle="base" aria-pressed="true"`) {
+		t.Fatalf("pkm workspace must render the editable base-only row:\n%s", doc)
+	}
+
+	// Both directions stand: pick toolchains, then go back to ∅.
+	resp := postVals(t, fx.s.URL()+"workspaces/notes/settings", url.Values{
+		"toolchains_present": {"1"}, "toolchains": {"node-dev"},
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("pick: status = %d", resp.StatusCode)
+	}
+	cfg, _ := sandboxcfg.Read(sandboxcfg.Path(root), tcRootOf(fx.home))
+	if !slices.Equal(cfg.Toolchains, []string{"node-dev"}) {
+		t.Fatalf("pick must persist: %+v", cfg)
+	}
+	resp = postForm(t, fx.s.URL()+"workspaces/notes/settings", map[string]string{
+		"toolchains_present": "1",
+	})
+	cfg, _ = sandboxcfg.Read(sandboxcfg.Path(root), tcRootOf(fx.home))
+	if !cfg.ToolchainsStored || len(cfg.Toolchains) != 0 {
+		t.Fatalf("un-pick must persist the base-only set: %+v", cfg)
 	}
 }
