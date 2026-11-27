@@ -1,6 +1,6 @@
 /* oc_sandbox WebUI — Signal design language (spec §5, variant C),
    aligned with the signed-off prototype (web/prototype-webui-design.html,
-   .v-c block): cool slate/navy palette, per-edition hue via CSS --ed on
+   .v-c block): cool slate/navy palette, the neutral accent via CSS --ed on
    the accent bar + solid tile, soft elevation (--shadow) instead of
    hairline outlines on objects, bold weights. Dark AND bright color
    modes via [data-theme] on <html>. */
@@ -230,7 +230,7 @@ body { background:var(--bg); color:var(--ink);
 .create-confirm .summary li { padding:6px 0; border-bottom:1px solid var(--hairline); }
 .create-confirm .summary li:last-child { border-bottom:0; }
 [data-repo-only="1"] { display:none; }
-[data-pkm-pin] { display:none; } /* pkm pins the edition — the row hides */
+[data-pkm-pin] { display:none; } /* pkm pins the toolchain set — the row hides */
 
 /* create-chain log line children: the pane itself streams from the
    shared .logpane styles (#158); lines append as divs here. */
@@ -293,7 +293,7 @@ body { background:var(--bg); color:var(--ink);
 
 /* prototype list rows (C .panel > .row), shared by the Images screen
    and the catalogs: a panel whose segments are full-bleed rows — icon
-   tile on the edition/accent hue + title/sub + right actions, hairline
+   tile on the neutral accent hue + title/sub + right actions, hairline
    separated, no outline. (The Containers screen keeps the .unit strip.)
    Declared after .panel so the plist variant drops its padding. */
 .plist { background:var(--surface); border-radius:13px; box-shadow:var(--shadow);
@@ -346,8 +346,8 @@ body { background:var(--bg); color:var(--ink);
 .optrow label { display:flex; gap:8px; align-items:center; }
 .inline { display:inline; }
 
-/* --- Workspace Settings screen (#157): edition-hued solid selector
-   avatar, rows and the Keep/Replace confirm block --- */
+/* --- Workspace Settings screen (#157): solid selector avatar, rows and
+   the Keep/Replace confirm block --- */
 .wssettings .selrow { display:flex; gap:12px; align-items:center; }
 .wssettings input, .wssettings select { background:var(--surface2); color:var(--ink);
   border:1px solid var(--hairline); border-radius:9px; padding:6px 10px;

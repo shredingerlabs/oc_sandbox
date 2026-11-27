@@ -28,7 +28,7 @@ func checkWebUIScreens(home, root string) Item {
 	p := newPhase("A10", "Container/Image screens: auth-gated routes, one container list (running marker, confirm attrs), start.sh StartArgs vector + reuse, verified-gone registry flip, stop-first/in-use refusals, build-images.sh --all (WP-7) + SSE line streaming")
 
 	// Fixture registry: one workspace "alpha" with a sandbox_config.json
-	// (edition swdev, hil_mode, start option web).
+	// (legacy stored edition swdev, hil_mode, start option web).
 	rootPath := filepath.Join(home, "alpha")
 	if err := os.MkdirAll(filepath.Join(rootPath, ".opencode_config"), 0o755); err != nil {
 		p.reasonf("fixture root: %v", err)
@@ -56,7 +56,7 @@ func checkWebUIScreens(home, root string) Item {
 	running := map[string]bool{}
 	all := map[string]string{} // container name → podman ps -a state
 	// The stored selection's derived set image rides the built list (the
-	// start op's set-tag check, WP-6) beside the old-world edition image.
+	// start op's set-tag check, WP-6) beside the old-world legacy image.
 	setTag, tagOK := openworkspace.SetTagFor(
 		filepath.Join(home, ".oc-sandbox", "toolchains"), swdevToolchains)
 	if !tagOK {
@@ -82,9 +82,10 @@ func checkWebUIScreens(home, root string) Item {
 			// the toolchain-sets builder (WP-7): Build all rides --all
 			buildCalls = append(buildCalls, strings.Join(args[1:], " "))
 			return "build line one\nbuild line two", nil
-		case name == "bash" && len(args) > 0 && strings.HasSuffix(args[0], "build-container.sh"):
-			// the infra builds (oc-searxng/oc-stt) keep today's script
-			buildCalls = append(buildCalls, strings.Join(args[1:], " "))
+		case name == "podman" && len(args) > 1 && args[0] == "build":
+			// the infra builds (oc-searxng/oc-stt) ride the direct
+			// podman build vectors (the start.sh lazy-build parity)
+			buildCalls = append(buildCalls, strings.Join(args, " "))
 			return "build line one\nbuild line two", nil
 		case name == "podman" && strings.HasPrefix(rest, "stop "):
 			delete(running, args[1])
@@ -142,11 +143,9 @@ func checkWebUIScreens(home, root string) Item {
 	s := webserver.New(webserver.Options{BasePort: 0, Home: home, Deps: &webserver.Deps{
 		Run:               fake,
 		Registry:          reg,
-		BuildScript:       filepath.Join(root, "dist", "scripts", "build-container.sh"),
+		InfraRoot:         filepath.Join(root, "dist"),
 		BuildImagesScript: filepath.Join(root, "dist", "scripts", "build-images.sh"),
 		StartScript:       filepath.Join(root, "dist", "scripts", "start.sh"),
-		Dockerfile:        filepath.Join(root, "dist", "Dockerfile"),
-		DockerfileCustom:  filepath.Join(root, "dist", "Dockerfile.custom"),
 	}})
 	if err := s.Start(); err != nil {
 		p.reasonf("start: %v", err)
@@ -346,8 +345,8 @@ func checkWebUIScreens(home, root string) Item {
 	}
 	waitIdle("build")
 
-	// Per-image build of the STT infra tag (#167): the infra rows keep
-	// today's path — `tag=oc-stt` goes straight to build-container.sh.
+	// Per-image build of the STT infra tag (#167): the infra rows build
+	// directly via podman — `tag=oc-stt` rides the start.sh STT vector.
 	mu.Lock()
 	beforeBuilds := len(buildCalls)
 	mu.Unlock()
@@ -368,8 +367,8 @@ func checkWebUIScreens(home, root string) Item {
 		ocSttArg = buildCalls[len(buildCalls)-1]
 	}
 	mu.Unlock()
-	if ocSttArg != "oc-stt" {
-		p.reasonf("build-container.sh arg for tag=oc-stt = %q, want %q", ocSttArg, "oc-stt")
+	if ocSttArg == "" || !strings.Contains(ocSttArg, "-t oc-stt") {
+		p.reasonf("podman build vector for tag=oc-stt = %q, want the STT vector", ocSttArg)
 	}
 	waitIdle("oc-stt build")
 

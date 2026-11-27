@@ -2,7 +2,7 @@
 // POST /workspaces/{name}/stop and POST /workspaces/{name}/delete wire
 // the Open screen's Stop/Delete confirm rows to the real ops; POST
 // /workspaces/{name}/adopt is the new web-native adopt confirm's action
-// — both running-container replacements (the edition-mismatch switch
+// — both running-container replacements (the toolchain-mismatch switch
 // and the web re-adopt) ride it, since an agent may be mid-task. The
 // registry workspace name is the URL identity (§9); the ops share the
 // workspace's container name as their queue key, so the confirms refuse

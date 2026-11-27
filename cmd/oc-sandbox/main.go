@@ -132,12 +132,11 @@ func startWebserver(home, version string) *webserver.Server {
 		Deps: &webserver.Deps{ // container/image screens (#158) + the create chain (#156)
 			Run:                  cmdrun.ExecRunner{},
 			Registry:             &registry.Registry{Home: home},
-			BuildScript:          layout.BuildScript,
 			BuildImagesScript:    layout.BuildImagesScript,
+			InfraRoot:            layout.InfraRoot,
 			StartScript:          layout.StartScript,
 			InitScript:           layout.InitScript,
 			ConfigureScript:      layout.ConfigureScript,
-			Dockerfile:           layout.Dockerfile,
 			DockerfileCustom:     layout.DockerfileCustom,
 			Toolchains:           layout.Toolchains,
 			NetProbe:             webserver.NativeNetProbe,

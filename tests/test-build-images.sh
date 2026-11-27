@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # tests/test-build-images.sh — end-to-end tests for build-images.sh with a
-# PATH-mocked podman (and df) that log their arguments: the successor pattern
-# of tests/test-build-container.sh. Scope: the --base (ticket #198), --tc/#199
-# and --set/#200 flags, plus the --set incremental delta assembly (#201, spec
-# §5) — parent selection, the contest check, delta generation, podman-arg
-# pins and the sanity-gate fallback. The old build-container tests die only
-# at cutover (#215).
+# PATH-mocked podman (and df) that log their arguments: the successor of
+# tests/test-build-container.sh (deleted at the #215 cutover). Scope: the
+# --base (ticket #198), --tc/#199 and --set/#200 flags, plus the --set
+# incremental delta assembly (#201, spec §5) — parent selection, the
+# contest check, delta generation, podman-arg pins and the sanity-gate
+# fallback.
 set -euo pipefail
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

@@ -773,8 +773,8 @@ func (s *Server) handleImages(w http.ResponseWriter, r *http.Request) {
 
 // handleImagesBuild serves POST /images/build — the confirm's action.
 // The tag payload selects the plan: "base" → build-images.sh --base, a
-// discovered unit id → --tc <id>, the infra tags build as today
-// (`bash <build-container.sh> <tag>`); without a tag all scales to
+// discovered unit id → --tc <id>, the infra tags build directly via
+// podman (the start.sh vectors); without a tag all scales to
 // --all (base + every discovered component — the infra rows' lazy
 // auto-build at member start keeps them out). Unknown args re-render
 // with the refusal; a busy key refuses the confirm. A toolchain op
@@ -806,8 +806,8 @@ func (s *Server) handleImagesBuild(w http.ResponseWriter, r *http.Request) {
 		}
 		s.queue.Launch(webOp{ID: id, Key: imagesKey, Run: s.buildOneOp("--base")})
 	case tag == discovery.ProxyImageTag || tag == discovery.SearxngImageTag || tag == discovery.SttImageTag:
-		// The infra rows keep today's path — the infra images live
-		// outside the toolchain builder's contract (§7).
+		// The infra rows build directly via podman — the infra images
+		// live outside the toolchain builder's contract (§7).
 		s.queue.Launch(webOp{ID: id, Key: imagesKey, Run: s.buildInfraOp(tag)})
 	default:
 		if s.deps.Toolchains != "" {
@@ -905,14 +905,40 @@ func (s *Server) buildOneOp(args ...string) func(emit func(string)) error {
 	}
 }
 
-// buildInfraOp builds one shared infra image (`bash
-// <build-container.sh> <tag>`) — the infra images live outside the
-// toolchain builder's contract and build exactly as today.
+// infraBuildArgs renders the podman build vector for one shared infra
+// image — the same invocations start.sh's lazy member-start builds run
+// (ADR-0007 parity for the WebUI infra rows). Infra images stay
+// outside the toolchain builder's contract (§7): no discovery, no
+// plan, no preflight, no probe. ok=false for an unknown tag.
+func infraBuildArgs(infraRoot, tag string) ([]string, bool) {
+	switch tag {
+	case discovery.ProxyImageTag:
+		return []string{"build", "-t", tag,
+			"-f", filepath.Join(infraRoot, "proxy", "Dockerfile"),
+			filepath.Join(infraRoot, "proxy")}, true
+	case discovery.SearxngImageTag:
+		return []string{"build", "--network", "host", "-t", tag,
+			"-f", filepath.Join(infraRoot, "searxng", "Dockerfile"),
+			filepath.Join(infraRoot, "searxng")}, true
+	case discovery.SttImageTag:
+		return []string{"build", "--network", "host", "-t", tag,
+			"-f", filepath.Join(infraRoot, "stt", "Dockerfile"),
+			filepath.Join(infraRoot, "stt")}, true
+	}
+	return nil, false
+}
+
+// buildInfraOp builds one shared infra image (`podman build …`, the
+// start.sh vectors) — the infra images live outside the toolchain
+// builder's contract and build exactly as start.sh's lazy builds do.
 func (s *Server) buildInfraOp(tag string) func(emit func(string)) error {
-	d := s.deps
 	return func(emit func(string)) error {
 		emit("==> build " + tag)
-		out, err := d.Run.Output("bash", d.BuildScript, tag)
+		args, ok := infraBuildArgs(s.deps.InfraRoot, tag)
+		if !ok {
+			return fmt.Errorf("unknown infra image: %s", tag)
+		}
+		out, err := s.runnerSeam().Output("podman", args...)
 		for _, l := range cmdrun.Lines(out) {
 			emit(l)
 		}

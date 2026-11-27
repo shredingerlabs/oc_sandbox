@@ -33,9 +33,8 @@ func checkCreateChain(home, root string) Item {
 			InitScript:           filepath.Join(dist, "scripts", "init-workspace.sh"),
 			ConfigureScript:      filepath.Join(dist, "scripts", "configure-workspace.sh"),
 			BuildImagesScript:    filepath.Join(dist, "scripts", "build-images.sh"),
-			BuildScript:          filepath.Join(dist, "scripts", "build-container.sh"),
+			InfraRoot:            dist,
 			StartScript:          filepath.Join(dist, "scripts", "start.sh"),
-			Dockerfile:           filepath.Join(dist, "Dockerfile"),
 		},
 	})
 	if err := s.Start(); err != nil {

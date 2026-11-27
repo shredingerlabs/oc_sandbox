@@ -30,7 +30,7 @@ import (
 func checkWebUISettings(home, root string) Item {
 	p := newPhase("A15", "Workspace Settings screen: Standard/Advanced matrix rows (hidden rows render nowhere), next-start settings persistence with Standard↔Advanced cross-edit stickiness, VCS save (vector + vcs_tracking mirror + replace-credentials gate), provider add/edit/replace flows, remove-from-list registry-only delete, setup-retry link (#157)")
 
-	// Fixture install: the edition registry fixture + two workspaces.
+	// Fixture install: the toolchains tree + two workspaces.
 	install := filepath.Join(home, ".oc-sandbox")
 	if err := os.MkdirAll(filepath.Join(install, "scripts"), 0o755); err != nil {
 		p.reasonf("install dir: %v", err)
@@ -69,7 +69,6 @@ func checkWebUISettings(home, root string) Item {
 			Registry:        &registry.Registry{Home: home},
 			StartScript:     filepath.Join(install, "scripts", "start.sh"),
 			ConfigureScript: filepath.Join(install, "scripts", "configure-workspace.sh"),
-			Dockerfile:      filepath.Join(install, "Dockerfile"),
 		},
 	})
 	if err := s.Start(); err != nil {

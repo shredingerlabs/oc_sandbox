@@ -536,7 +536,7 @@
   }
 
   // The web-native adopt confirm (§9): both running-container
-  // replacements — the edition-mismatch switch and the web re-adopt —
+  // replacements — the toolchain-mismatch switch and the web re-adopt —
   // confirm first, because an agent may be mid-task inside the
   // container being replaced.
   function adoptConfirm(card, variant, title, body, okLabel) {

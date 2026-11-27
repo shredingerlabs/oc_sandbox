@@ -15,7 +15,7 @@ import (
 // mirrors settingsview's keepNote so the two never drift apart. Root-level
 // flattened runtime paths (§11): the flattened install is the real layout;
 // toolchains/ lands with #197, the preserve rule is already live.
-const keepNote = "Kept: proxy/allowlist.txt (prompted), Dockerfile.custom, searxng/settings.yml, toolchains/custom/, toolchains/snapshots/, your configs."
+const keepNote = "Kept: proxy/allowlist.txt (prompted), searxng/settings.yml, toolchains/custom/, toolchains/snapshots/, your configs. Your Dockerfile.custom is never touched — see the release notes for porting."
 
 // confirmTitle/confirmBody are the shared confirm popup's copy for the
 // update run (ADR-0021 set carried 1:1; the popup carries the keep-note).

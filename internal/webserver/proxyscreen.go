@@ -152,7 +152,7 @@ func (s *Server) renderProxy(w http.ResponseWriter, errMsg, warnMsg string) {
 			}
 			// The derived identity (WP-5): the member list rides the
 			// avatar's tooltip; every tile tints with the neutral
-			// accent — the per-edition hues died with the stage world.
+			// accent.
 			if err == nil {
 				id := setIdentityFor(cfg, s.toolchainsRoot(), cfg.WorkspaceKind)
 				row.Label, row.Subtitle = id.Label, id.Subtitle
@@ -333,8 +333,8 @@ func (s *Server) handleProxyMemberStop(w http.ResponseWriter, r *http.Request) {
 // handleProxyMemberRebuild serves POST /proxy/{name}/rebuild: recreate
 // the member with the current workspace allowlist re-mounted (the
 // workspace keeps running; brief egress blip). A missing oc-proxy image
-// builds first via build-container.sh — the image build stays a
-// start.sh concern otherwise.
+// builds first via podman (the start.sh vector) — the image build stays
+// a start.sh concern otherwise.
 func (s *Server) handleProxyMemberRebuild(w http.ResponseWriter, r *http.Request) {
 	ws, cname, _, refusal := s.proxyGuard(w, r)
 	if refusal != "" {
@@ -435,8 +435,8 @@ func (s *Server) proxyStopOp(ws registry.Workspace) func(emit func(string)) erro
 }
 
 // proxyRebuildOp recreates the member with the current allowlist: the
-// image (missing builds via build-container.sh), stop+rm of the old
-// member, fresh run, verified running.
+// image (missing builds via podman, the start.sh vector), stop+rm of
+// the old member, fresh run, verified running.
 func (s *Server) proxyRebuildOp(ws registry.Workspace) func(emit func(string)) error {
 	return func(emit func(string)) error {
 		d := s.deps
@@ -447,7 +447,11 @@ func (s *Server) proxyRebuildOp(ws registry.Workspace) func(emit func(string)) e
 		}
 		if !discovery.ImageExistsTag(d.Run, discovery.ProxyImageTag) {
 			emit("==> build " + discovery.ProxyImageTag)
-			if err := s.runEmit(emit, "bash", d.BuildScript, discovery.ProxyImageTag); err != nil {
+			args, ok := infraBuildArgs(d.InfraRoot, discovery.ProxyImageTag)
+			if !ok {
+				return fmt.Errorf("unknown infra image: %s", discovery.ProxyImageTag)
+			}
+			if err := s.runEmit(emit, "podman", args...); err != nil {
 				return err
 			}
 		}

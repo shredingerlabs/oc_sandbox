@@ -100,7 +100,7 @@ type wsSettingsView struct {
 	Mode  string
 	Error string
 
-	Hue        string // Signal hue of the edited workspace's edition
+	Hue        string // Signal hue of the selector avatar ("" — the neutral accent)
 	Letter     string // first letter of the workspace name (selector avatar)
 	Running    bool
 	Workspaces []wsSelOpt
@@ -158,7 +158,7 @@ func visRow(mode, key string) bool {
 func visRowFor(mode, key string) bool { return visRow(mode, key) }
 
 var wsSettingsTemplate = template.Must(template.New("wssettings").
-	Funcs(template.FuncMap{"vis": visRowFor, "hueFor": editionHue}).
+	Funcs(template.FuncMap{"vis": visRowFor}).
 	Parse(`
 {{define "ws-settings-empty"}}
 <section class="wssettings" id="ws-settings" data-screen="ws-settings">
@@ -323,7 +323,7 @@ var wsSettingsTemplate = template.Must(template.New("wssettings").
         <div class="tcedit" data-role="settings-toolchains">
           {{if .Unresolved}}<p class="warn" data-role="tc-unresolved">{{.UnresolvedNote}}</p>{{end}}
           <span class="edotsel" data-role="settings-bundles">
-            {{range .Bundles}}{{if .Invalid}}<button type="button" class="edopt" data-bundle="{{.Name}}" disabled title="{{.Reason}}"><i style="--ed:{{hueFor .Name}}"></i>{{.Name}} — {{.Reason}}</button>{{else}}<button type="button" class="edopt" data-bundle="{{.Name}}" aria-pressed="{{if .Sel}}true{{else}}false{{end}}" data-members="{{.Members}}"><i style="--ed:{{hueFor .Name}}"></i>{{.Name}}{{if .BaseOnly}} <small>base only</small>{{end}}</button>{{end}}{{end}}
+            {{range .Bundles}}{{if .Invalid}}<button type="button" class="edopt" data-bundle="{{.Name}}" disabled title="{{.Reason}}"><i style="--ed:var(--accent)"></i>{{.Name}} — {{.Reason}}</button>{{else}}<button type="button" class="edopt" data-bundle="{{.Name}}" aria-pressed="{{if .Sel}}true{{else}}false{{end}}" data-members="{{.Members}}"><i style="--ed:var(--accent)"></i>{{.Name}}{{if .BaseOnly}} <small>base only</small>{{end}}</button>{{end}}{{end}}
             <button type="button" class="edopt" data-bundle="custom" aria-pressed="{{if .Custom}}true{{else}}false{{end}}"><i></i>Custom</button>
           </span>
           <span class="field-hint" data-role="tc-count">{{.SelCount}} of {{.UnitTotal}} selected</span>
@@ -998,7 +998,7 @@ func (s *Server) renderWsSettingsScreen(w http.ResponseWriter, name, errMsg stri
 		if visRow(mode, k) {
 			v.SettingsForm = true
 			if k == "edition" && v.Legacy != "" {
-				v.ImageMissing = !discovery.ImageExists(s.runner(), v.Legacy)
+				v.ImageMissing = !discovery.ImageExistsTag(s.runner(), "opencode-sandbox-"+v.Legacy)
 			}
 		}
 	}

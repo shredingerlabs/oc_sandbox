@@ -3,8 +3,8 @@
 // with icons, the relative last-used date from the registry, and the
 // action rows. The card identity is derived (toolchain-sets WP-5): the
 // chip shows the bundle whose members exactly match the stored set,
-// else Custom, with the member list as its tooltip — no per-edition
-// hues or glyphs survive the stage world.
+// else Custom, with the member list as its tooltip — one generic glyph,
+// the neutral accent.
 // Open honors the §6 matrix: Standard always leads into web (no
 // terminal buttons); Advanced keeps the single Open button honoring the
 // configured start option plus the console/OpenCode/Web access rows.

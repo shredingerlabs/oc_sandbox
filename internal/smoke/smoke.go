@@ -112,8 +112,8 @@ func skipAll(note string) []Item {
 
 func distTreePresent(root string) bool {
 	for _, p := range []string{
-		"dist/scripts/start.sh",
-		"dist/Dockerfile", "dist/Dockerfile.custom",
+		"dist/scripts/start.sh", "dist/scripts/build-images.sh",
+		"dist/toolchains/base.Dockerfile", "dist/toolchains/manifest.json",
 	} {
 		if _, err := os.Stat(filepath.Join(root, p)); err != nil {
 			return false

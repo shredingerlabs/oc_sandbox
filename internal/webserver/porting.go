@@ -15,7 +15,7 @@ import (
 // unserved docs.
 
 // portStage is one legacy Dockerfile.custom stage's porting gist: the
-// edition id (the opencode-sandbox- AS name minus its prefix) and the
+// toolchain id (the opencode-sandbox- AS name minus its prefix) and the
 // stage's RUN/ENV/USER lines — the recipe-grammar input the ported
 // custom/<id>.Dockerfile starts from (§2).
 type portStage struct {

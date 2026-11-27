@@ -13,23 +13,25 @@ import (
 	"github.com/shredingerlabs/oc-sandbox/internal/discovery"
 )
 
-// A2 — edition + mode discovery (issue #73 A2): the same Dockerfile/
-// start.sh --help fixtures run through the Go discovery package; the
-// bash-era fixture trees pin the shapes the bash TUI discovered.
+// A2 — toolchain-set + mode discovery (issue #73 A2, re-keyed at the
+// #215 cutover): the shipped toolchains tree runs through the Go
+// discovery package (bundles + units + live lint) and start.sh --help
+// still feeds the mode discovery.
 func checkDiscoveryParity(home, root string) Item {
-	p := newPhase("A2", "Edition (Dockerfile stages) and mode (start.sh --help) discovery on fixtures")
+	p := newPhase("A2", "Toolchain-set (toolchains tree) and mode (start.sh --help) discovery")
 	fx := tuiFixtureTree(p, home, root)
 	if p.reasons != nil {
 		return p.finish()
 	}
-	dockerfileCustom := filepath.Join(fx, "Dockerfile.custom")
 
-	wantEditions := []string{"base", "swdev", "ui_extra"}
-	gotEditions, err := discovery.Editions(filepath.Join(fx, "Dockerfile"), dockerfileCustom)
-	if err != nil {
-		p.reasonf("Go Editions: %v", err)
-	} else if !reflect.DeepEqual(gotEditions, wantEditions) {
-		p.reasonf("Go editions = %v, want %v", gotEditions, wantEditions)
+	// The shipped toolchains tree seeded into the smoke home discovers
+	// the manifest bundles and every shipped unit valid.
+	cat := discovery.Discover(filepath.Join(home, ".oc-sandbox", "toolchains"))
+	if len(cat.Bundles) == 0 {
+		p.reasonf("toolchains discovery found no bundles in the shipped manifest")
+	}
+	if _, ok := cat.Unit("go"); !ok {
+		p.reasonf("toolchains discovery lost the shipped go recipe")
 	}
 
 	wantModes := []string{"offline", "cbm_ui", "hil_mode"}
@@ -40,24 +42,24 @@ func checkDiscoveryParity(home, root string) Item {
 		p.reasonf("Go modes = %v, want the set %v (live start.sh --help, order as printed)", gotModes, wantModes)
 	}
 
-	// Error path: no stages → discovery must fail.
+	// Error path: a start.sh that prints no flags → discovery must fail.
 	empty := filepath.Join(home, "A2-empty")
 	if err := os.MkdirAll(filepath.Join(empty, "scripts"), 0o755); err != nil {
 		p.reasonf("empty fixture: %v", err)
 		return p.finish()
 	}
-	if err := os.WriteFile(filepath.Join(empty, "Dockerfile"), []byte("FROM scratch\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(empty, "scripts", "start.sh"), []byte("#!/usr/bin/env bash\necho no flags here\n"), 0o755); err != nil {
 		p.reasonf("empty fixture write: %v", err)
 		return p.finish()
 	}
-	if _, err := discovery.Editions(filepath.Join(empty, "Dockerfile"), ""); err == nil {
-		p.reasonf("Go Editions accepted a Dockerfile without sandbox stages")
+	if _, err := discovery.Modes(cmdrun.ExecRunner{}, filepath.Join(empty, "scripts", "start.sh")); err == nil {
+		p.reasonf("Go Modes accepted a start.sh without flags")
 	}
 	return p.finish()
 }
 
-// tuiFixtureTree mirrors dist/scripts/start.sh next to fixture Dockerfiles
-// so the mode discovery's SCRIPT_DIR-relative lookups resolve inside the
+// tuiFixtureTree mirrors dist/scripts/start.sh into a fixture tree so
+// the mode discovery's SCRIPT_DIR-relative lookups resolve inside the
 // tree.
 func tuiFixtureTree(p *phase, home, root string) string {
 	fx := filepath.Join(home, "A2")
@@ -65,34 +67,13 @@ func tuiFixtureTree(p *phase, home, root string) string {
 		p.reasonf("fixture tree: %v", err)
 		return ""
 	}
-	dockerfile := `# fixture: base stage, valid stage, invalid name (skipped by both implementations)
-FROM scratch AS opencode-sandbox-base
-FROM scratch AS opencode-sandbox-swdev
-FROM scratch AS opencode-sandbox-Bad.Upper
-`
-	custom := `# fixture: duplicate stage (skipped by both), custom stage appended last
-FROM scratch AS opencode-sandbox-swdev
-FROM scratch AS opencode-sandbox-ui_extra
-`
-	pairs := [][2]string{
-		{"dist/Dockerfile", "Dockerfile"},
-		{"dist/Dockerfile.custom", "Dockerfile.custom"},
-		{"dist/scripts/start.sh", "scripts/start.sh"},
+	data, err := os.ReadFile(filepath.Join(root, "dist", "scripts", "start.sh"))
+	if err != nil {
+		p.reasonf("fixture copy dist/scripts/start.sh: %v", err)
+		return fx
 	}
-	contents := map[string]string{"Dockerfile": dockerfile, "Dockerfile.custom": custom}
-	for _, pr := range pairs {
-		data, ok := contents[pr[1]]
-		if !ok {
-			b, err := os.ReadFile(filepath.Join(root, pr[0]))
-			if err != nil {
-				p.reasonf("fixture copy %s: %v", pr[0], err)
-				continue
-			}
-			data = string(b)
-		}
-		if err := os.WriteFile(filepath.Join(fx, pr[1]), []byte(data), 0o755); err != nil {
-			p.reasonf("fixture write %s: %v", pr[1], err)
-		}
+	if err := os.WriteFile(filepath.Join(fx, "scripts", "start.sh"), data, 0o755); err != nil {
+		p.reasonf("fixture write start.sh: %v", err)
 	}
 	return fx
 }

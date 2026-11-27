@@ -3,8 +3,7 @@ package webserver
 import "html/template"
 
 // icons.go carries the inline Lucide SVG markup of the UI glyphs used
-// outside the edition tiles (list-row icon tiles, wizard segment
-// options). Inlined (not <img>) so stroke="currentColor" resolves
+// in the list-row icon tiles and the wizard segment options. Inlined (not <img>) so stroke="currentColor" resolves
 // against the CSS color context; the markup matches the vendored
 // lucide-static v0.525.0 paths (see web/img/LICENSES.md).
 var uiIcons = map[string]string{

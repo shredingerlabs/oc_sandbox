@@ -100,8 +100,7 @@ func (s *Server) containerRows() []unitRow {
 			registryContainers[cname] = true
 		}
 		// The row's tile tints with the workspace's derived identity
-		// (WP-5): the neutral accent for every set — the per-edition
-		// hues died with the stage world. The derived label rides the
+		// (WP-5): the neutral accent for every set. The derived label rides the
 		// sub row, the member list its tooltip; an unreadable config
 		// renders no label at all.
 		label, subtitle := "", ""
@@ -155,7 +154,7 @@ func busyMarker() string {
 
 // renderContainers renders the one container list (spec §7) with the
 // three actions per registry row and the delete-only leftovers, as
-// prototype-style plist rows (letter tile on the edition hue for
+// prototype-style plist rows (letter tile on the neutral accent for
 // registry workspaces, a muted container glyph for leftovers). Toast
 // (a refused confirm) rides at the top when msg is non-empty.
 func (s *Server) renderContainers(msg string) string {

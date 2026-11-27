@@ -80,8 +80,7 @@ func fakePodman(running []string, pods []string, containers []string, images []s
 }
 
 // depsServer starts a Server wired with the given runner and registry
-// plus the discovery testdata Dockerfile (edition registry fixture) and
-// the fixture bundle map — the legacy expansion and the derived
+// plus the fixture bundle map — the legacy expansion and the derived
 // identity derive through it (spec toolchain-sets §10/WP-5).
 func depsServer(t *testing.T, run *cmdrun.Fake, reg *registry.Registry) *Server {
 	t.Helper()
@@ -91,10 +90,9 @@ func depsServer(t *testing.T, run *cmdrun.Fake, reg *registry.Registry) *Server 
 		Deps: &Deps{
 			Run:               run,
 			Registry:          reg,
-			BuildScript:       "/opt/oc-sandbox/scripts/build-container.sh",
+			InfraRoot:         "/opt/oc-sandbox",
 			BuildImagesScript: "/opt/oc-sandbox/scripts/build-images.sh",
 			StartScript:       "/opt/oc-sandbox/scripts/start.sh",
-			Dockerfile:        "../discovery/testdata/Dockerfile",
 			Toolchains:        tcRootOf(reg.Home),
 		},
 	})

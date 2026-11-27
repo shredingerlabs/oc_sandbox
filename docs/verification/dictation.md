@@ -16,7 +16,7 @@ already wired into the repo suites and listed at the bottom.
 
 | #     | Item                            | How to verify                                                                                                                                                                                                                           | Result  |
 | ----- | ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- |
-| 1[x]  | Image builds                    | `build-container.sh oc-stt` on a real host: whisper.cpp v1.9.5 compiles, `ggml-small.bin` passes its sha256 check, image ≈ ≤1.5 GB                                                                                                      | pending |
+| 1[x]  | Image builds                    | Build the `oc-stt` image on a real host (`podman build --network host -t oc-stt -f dist/stt/Dockerfile dist/stt/`, or the Images screen's STT row): whisper.cpp v1.9.5 compiles, `ggml-small.bin` passes its sha256 check, image ≈ ≤1.5 GB  | pending |
 | 2     | Transcription round-trip        | Run a workspace with dictation on; `curl -F file=@16k-mono.wav -F response_format=json http://127.0.0.1:8091/inference` returns `{"text": …}`                                                                                           | pending |
 | 3     | Sidecar page                    | Open `http://127.0.0.1:8091/` in a browser; the dictation page is served by the member (same port)                                                                                                                                      | pending |
 | 4 [X] | Plugin auto-loads               | Start a dictation workspace; the TUI shows the seeded plugin (palette: "Dictate: start/stop recording", `/dictate` slash). Probes whether the shipped opencode resolves `@opencode/plugin/tui` without an npm install in the config dir | pending |
@@ -45,7 +45,7 @@ already wired into the repo suites and listed at the bottom.
 
 | Item                                                                                                                                                                                     | Suite                                            | State              |
 | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------ | ------------------ |
-| build-container `oc-stt` target argv (direct + edition after-run + refusal)                                                                                                              | `bash tests/test-build-container.sh`             | pass (12 sections) |
+| `oc-stt` infra build vector (podman build, the start.sh parity — direct + smoke)                                                                                                           | `go test ./...` (webserver + smoke)              | pass               |
 | start.sh member run vector, pod-create publish, STT_URL, offline skip, socket cascade (all branches), seeding idempotence (stt.json, plugins, cli.json), language pin (mount + STT_LANG) | `bash tests/test-start.sh`                       | pass               |
 | Config semantics (Create ON, absent OFF), `--use_stt` argv carriers, restart-fingerprint flip, wizard preset + settings POST + matrix visibility, image rows                             | `go test ./...` (smoke + unit)                   | pass               |
 | Card mic button render (running && use_stt, mic · star · gear order) + stt-link live-port resolution and not-running refusal                                                                | `go test ./...` (webserver)                      | pass               |
@@ -59,8 +59,7 @@ wholesale — `scripts/create-release.sh` publishes the tree as-is):
 
 - `dist/stt/Dockerfile`, `dist/stt/entrypoint.sh`, `dist/stt/public/{index.html,app.js}` — the oc-stt image + sidecar page
 - `dist/templates/opencode/plugins/dictation/{index.ts,tui.tsx,dictation.mjs}` — the TUI plugin (seeded by start.sh)
-- `dist/scripts/start.sh` — `--use_stt` engine, socket cascade, seeding, language pin
-- `dist/scripts/build-container.sh` — the `oc-stt` infra target
+- `dist/scripts/start.sh` — `--use_stt` engine, socket cascade, seeding, language pin, the lazy `oc-stt` build (`podman build` from `dist/stt/Dockerfile`)
 
 Layout documented in `dist/README.md`. Verified 2026-11-16 (all files present
 on the integration branch).
