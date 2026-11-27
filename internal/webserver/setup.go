@@ -322,6 +322,13 @@ func (s *Server) handleSetupRetry(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	build := r.PostFormValue("build") == "1"
+	// The §10 unresolved refusal (WP-10): before any machinery — no
+	// {build} sidecar prompt, no op launch; the config file is never
+	// rewritten (picking toolchains in settings is the resolution).
+	if cfg, cfgErr := s.readSandboxCfg(ws.Path); cfgErr == nil && !cfg.Resolved {
+		http.Error(w, errUnresolvedSelection(cfg).Error(), http.StatusConflict)
+		return
+	}
 	if !build {
 		if cfg, cfgErr := s.readSandboxCfg(ws.Path); cfgErr == nil && cfg.Resolved {
 			if tag, ok := s.savedSetTag(cfg); ok && !discovery.ImageExistsTag(s.runnerSeam(), tag) {

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/shredingerlabs/oc-sandbox/internal/cmdrun"
+	"github.com/shredingerlabs/oc-sandbox/internal/openworkspace"
 	"github.com/shredingerlabs/oc-sandbox/internal/registry"
 	"github.com/shredingerlabs/oc-sandbox/internal/sandboxcfg"
 )
@@ -29,14 +30,19 @@ func (*setupSpawnError) Error() string { return "no terminal emulator available"
 // and the seams the setup machine needs: a cmdrun.Fake for the
 // start/clone/CBM invocations and a TerminalSpawn capture.
 type setupFixture struct {
-	s      *Server
-	fake   *cmdrun.Fake
-	home   string
-	root   string
-	mu     sync.Mutex
-	spawn  func() string // the command the host terminal got ("" none)
-	spawns int
+	s         *Server
+	fake      *cmdrun.Fake
+	home      string
+	root      string
+	mu        sync.Mutex
+	spawn     func() string // the command the host terminal got ("" none)
+	spawns    int
+	setExists bool // the derived set image exists (false pins it missing — the Build now path, WP-6)
 }
+
+// swdevFixtureMembers is the fixture workspace's stored selection
+// (seedWorkspace's "swdev" edition expands through the seeded bundle map).
+var swdevFixtureMembers = []string{"cpp", "go", "java", "rust"}
 
 func newSetupFixture(t *testing.T, headless bool) *setupFixture {
 	t.Helper()
@@ -49,8 +55,16 @@ func newSetupFixture(t *testing.T, headless bool) *setupFixture {
 	if err := sandboxcfg.PatchString(home, sandboxcfg.Path(root), "repo_url", "https://github.com/u/demo.git"); err != nil {
 		t.Fatalf("patch repo_url: %v", err)
 	}
+	// The toolchains dir the §10 legacy expansion resolves through —
+	// without it the stored edition reads unresolved and the start stage
+	// must refuse (WP-10): the machine fixtures run the new world.
+	seedToolchains(t, home)
+	setTag, tagOK := openworkspace.SetTagFor(tcRootOf(home), swdevFixtureMembers)
+	if !tagOK {
+		t.Fatal("fixture set tag underivable")
+	}
 
-	f := &setupFixture{home: home, root: root}
+	f := &setupFixture{home: home, root: root, setExists: true}
 	imageBuilt := false
 	fake := &cmdrun.Fake{Script: func(name string, args []string) (string, error) {
 		if name == "podman" && len(args) > 0 && args[0] == "exec" {
@@ -64,8 +78,15 @@ func newSetupFixture(t *testing.T, headless bool) *setupFixture {
 			return "in-container ok\n", nil
 		}
 		if name == "podman" && len(args) > 1 && args[0] == "image" && args[1] == "exists" {
-			// the derived set image exists only after a build landed
-			// (the setup-retry Build now path, WP-6)
+			// the derived set image exists unless the test pins it
+			// missing pre-build (the setup-retry Build now path, WP-6;
+			// the fake build lands it, so post-build everything exists)
+			if args[len(args)-1] == setTag && !imageBuilt {
+				if f.setExists {
+					return "", nil
+				}
+				return "", errTestImageMissing
+			}
 			if imageBuilt {
 				return "", nil
 			}
@@ -281,7 +302,7 @@ func TestSetupRetryRunsMachineAndAutoOpensSkills(t *testing.T) {
 // op before the machine's stages run.
 func TestSetupRetryOffersBuildWhenSetImageMissing(t *testing.T) {
 	f := newSetupFixture(t, false)
-	seedToolchains(t, f.home) // base recipe + unit recipes — the tag derives
+	f.setExists = false // the derived set image is missing — the sidecar's case
 	resp := postSetup(t, f.s, "alpha", "retry")
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("setup/retry status = %d, want 200", resp.StatusCode)
@@ -313,7 +334,7 @@ func TestSetupRetryOffersBuildWhenSetImageMissing(t *testing.T) {
 // the setup machine's stages run.
 func TestSetupRetryBuildNowPrebuildsSet(t *testing.T) {
 	f := newSetupFixture(t, false)
-	seedToolchains(t, f.home)
+	f.setExists = false // the build=1 op pre-builds the missing set
 	resp, err := http.PostForm(f.s.URL()+"workspaces/alpha/setup/retry",
 		url.Values{"build": {"1"}})
 	if err != nil {
@@ -583,5 +604,67 @@ func TestSetupPendingBlocksWorkspaceActions(t *testing.T) {
 	}
 	if side.OK || !strings.Contains(side.Error, "first-run setup") {
 		t.Fatalf("variant start refusal = %+v, want the setup-hold refusal", side)
+	}
+}
+
+// The §10 unresolved refusal on the setup-retry route (WP-10, #213's
+// cross-surface pass): an unknown stored edition — or both selection
+// fields absent — refuses before any machinery: no {build} sidecar
+// prompt, no op, no start.sh, no build-images.sh, nothing destroyed,
+// the config file untouched (the legacy edition is never rewritten;
+// picking toolchains in settings is the resolution).
+func TestSetupRetryRefusesUnresolvedEdition(t *testing.T) {
+	for _, tc := range []struct {
+		name, doc, want string
+	}{
+		{"unknown edition", `{"container_edition": "vanished", "container_modes": ["offline"], "start_option": "console", "search_mode": "websearch", "workspace_source": "empty", "setup_complete": false, "version": "2.0"}`, "stored edition 'vanished' maps to no bundle"},
+		{"both fields absent", `{"container_modes": ["offline"], "start_option": "console", "search_mode": "websearch", "workspace_source": "empty", "setup_complete": false, "version": "2.0"}`, "no stored toolchain selection"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newSetupFixture(t, false)
+			f.setExists = false // any machinery (the Build now prompt) must not fire either
+			fakeDoc := tc.doc
+			if err := os.WriteFile(sandboxcfg.Path(f.root), []byte(fakeDoc), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			raw, err := os.ReadFile(sandboxcfg.Path(f.root))
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			// plain retry: the refusal rides the 409 body
+			resp := postSetup(t, f.s, "alpha", "retry")
+			if resp.StatusCode != http.StatusConflict {
+				t.Fatalf("setup/retry status = %d, want 409", resp.StatusCode)
+			}
+			if b := body(t, resp); !strings.Contains(b, tc.want) {
+				t.Fatalf("setup/retry refusal missing %q: %s", tc.want, b)
+			}
+
+			// build=1 (the Build now re-POST): the same refusal — the
+			// prompt machinery never ran to offer it, and the flag is
+			// refused again at op-free handler level
+			resp2, err := http.PostForm(f.s.URL()+"workspaces/alpha/setup/retry", url.Values{"build": {"1"}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer resp2.Body.Close()
+			if resp2.StatusCode != http.StatusConflict || !strings.Contains(body(t, resp2), tc.want) {
+				t.Fatalf("setup/retry build=1 = %d %q, want the same refusal", resp2.StatusCode, body(t, resp2))
+			}
+
+			// nothing launched, nothing destroyed
+			for _, c := range f.fake.Snapshot() {
+				if c.Name == "bash" {
+					t.Fatalf("a script ran on an unresolved workspace: %v", c.Args)
+				}
+				if c.Name == "podman" && (c.Args[0] == "stop" || c.Args[0] == "rm" || c.Args[0] == "rmi") {
+					t.Fatalf("podman %s ran on an unresolved workspace: %v", c.Args[0], c.Args)
+				}
+			}
+			if after, _ := os.ReadFile(sandboxcfg.Path(f.root)); string(after) != string(raw) {
+				t.Fatalf("the refusal must leave the config untouched:\n%s", after)
+			}
+		})
 	}
 }

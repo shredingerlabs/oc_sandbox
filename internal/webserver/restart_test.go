@@ -214,3 +214,87 @@ func TestWorkspaceRestartChain(t *testing.T) {
 		t.Fatalf("podman stop calls = %v, want [%s]", stopCalls, registry.PodName(ws.ContainerID))
 	}
 }
+
+// The §10 unresolved refusal on the restart route (WP-10, #213's
+// cross-surface pass): an unknown stored edition refuses before any
+// machinery — the confirmed stop never runs, the running container
+// (and its old image) is never touched; the settings pointer is the
+// only escape. One refusal everywhere, zero destruction.
+func TestRestartRefusesUnresolvedBeforeAnythingStops(t *testing.T) {
+	for _, tc := range []struct {
+		name, edition string
+		doc           string
+	}{
+		{"unknown edition", "vanished", ""},
+		{"both fields absent", "", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			home := t.TempDir()
+			root, reg := restartSeed(t, home)
+			if tc.edition != "swdev" {
+				// rewrite the stored edition (or drop the selection
+				// field entirely — the both-absent shape)
+				raw, err := os.ReadFile(sandboxcfg.Path(root))
+				if err != nil {
+					t.Fatal(err)
+				}
+				var noSel string
+				if tc.edition == "" {
+					noSel = strings.Replace(string(raw), `"container_edition": "swdev",`, "", 1)
+				} else {
+					noSel = strings.Replace(string(raw), `"container_edition": "swdev",`, `"container_edition": "`+tc.edition+`",`, 1)
+				}
+				if err := os.WriteFile(sandboxcfg.Path(root), []byte(noSel), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			ws, err := reg.ByName("alpha")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := reg.UpdateStatus(root, "running"); err != nil {
+				t.Fatal(err)
+			}
+			cname := registry.ContainerName(ws.ContainerID)
+			var stops int
+			fake := &cmdrun.Fake{Script: func(name string, args []string) (string, error) {
+				if name == "podman" {
+					rest := strings.Join(args, " ")
+					switch {
+					case strings.HasPrefix(rest, "ps --format {{.Names}}	{{.Image}}"):
+						return cname + "	opencode-sandbox-set:53d99addc94e", nil
+					case strings.HasPrefix(rest, "ps --format {{.Names}}"):
+						return cname + "\n", nil
+					case strings.HasPrefix(rest, "stop") || strings.HasPrefix(rest, "rm"):
+						stops++
+						return "", nil
+					}
+				}
+				if name == "bash" && len(args) > 0 && strings.HasSuffix(args[0], "build-images.sh") {
+					t.Fatalf("the replacement build ran on an unresolved workspace")
+				}
+				return "", nil
+			}}
+			s := startServerWith(t, home, fake)
+
+			want := "stored edition '" + tc.edition + "' maps to no bundle"
+			if tc.edition == "" {
+				want = "no stored toolchain selection"
+			}
+			v := sidecarPOST(t, s.URL()+"workspaces/alpha/restart", "")
+			if scOK(v) || !strings.Contains(scStr(v, "error"), want) {
+				t.Fatalf("restart sidecar = %v, want the §10 refusal %q", v, want)
+			}
+			if stops != 0 {
+				t.Fatalf("podman stop ran %d times on an unresolved workspace", stops)
+			}
+			after, err := reg.ByName("alpha")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if after.ContainerStatus != "running" {
+				t.Fatalf("registry flipped on an unresolved workspace: %s", after.ContainerStatus)
+			}
+		})
+	}
+}

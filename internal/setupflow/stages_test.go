@@ -413,3 +413,70 @@ func TestNameTitlesContextAware(t *testing.T) {
 		t.Fatalf("clone title = %q", got)
 	}
 }
+
+// writeRawStageConfig overwrites the fixture's sandbox_config.json with
+// a hand-written document (the unresolved shapes: a stored edition
+// mapping to no bundle, or both selection fields absent).
+func writeRawStageConfig(t *testing.T, root, doc string) {
+	t.Helper()
+	if err := os.WriteFile(sandboxcfg.Path(root), []byte(doc), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// The §10 unresolved refusal (WP-10): a stored edition mapping to no
+// bundle — or both selection fields absent — refuses the start stage
+// before any machinery (start.sh never runs, the registry never flips,
+// nothing is destroyed). One refusal everywhere, with the settings
+// pointer.
+func TestStartStageRefusesUnresolvedSelection(t *testing.T) {
+	for _, tc := range []struct {
+		name, doc, want string
+	}{
+		{"unknown edition", `{"container_edition": "vanished", "container_modes": ["offline"], "start_option": "console", "search_mode": "websearch", "version": "2.0"}`, "stored edition 'vanished' maps to no bundle"},
+		{"both fields absent", `{"container_modes": ["offline"], "start_option": "console", "search_mode": "websearch", "version": "2.0"}`, "no stored toolchain selection"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p, fake, root := stageFixture(t)
+			writeRawStageConfig(t, root, tc.doc)
+			name, err := p.containerName()
+			if err != nil {
+				t.Fatal(err)
+			}
+			started := false
+			fake.Script = func(name2 string, args []string) (string, error) {
+				rest := strings.Join(args, " ")
+				switch {
+				case name2 == "bash" && len(args) > 0 && args[0] == p.StartScript:
+					started = true
+					return "started", nil
+				case strings.HasPrefix(rest, "ps --format {{.Names}}"):
+					return name + "\n", nil
+				}
+				return "", nil
+			}
+
+			var emitted []string
+			err = p.Run(StageStart, func(l string) { emitted = append(emitted, l) })
+			if err == nil || !strings.Contains(err.Error(), tc.want) ||
+				!strings.Contains(err.Error(), "choose toolchains under Workspace Settings") {
+				t.Fatalf("unresolved start stage error = %v, want the §10 refusal %q", err, tc.want)
+			}
+			if started {
+				t.Fatalf("start.sh ran on an unresolved workspace")
+			}
+			st, rerr := p.Reg.ByPath(root)
+			if rerr != nil {
+				t.Fatal(rerr)
+			}
+			if st.ContainerStatus == "running" {
+				t.Fatalf("registry flipped on an unresolved workspace")
+			}
+			for _, c := range fake.Calls {
+				if c.Name == "podman" && (c.Args[0] == "stop" || c.Args[0] == "rm") {
+					t.Fatalf("podman %s ran on an unresolved workspace: %v", c.Args[0], c.Args)
+				}
+			}
+		})
+	}
+}

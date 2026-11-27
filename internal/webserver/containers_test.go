@@ -1021,3 +1021,56 @@ func TestContainersRowDerivedIdentity(t *testing.T) {
 		t.Fatalf("containers screen carries a retired per-edition hue:\n%s", doc)
 	}
 }
+
+// The §10 unresolved refusal re-checked at op time (WP-10, #213's
+// cross-surface pass): a config that resolved at confirm time may read
+// unresolved when the queued op runs (the file is live, re-read fresh)
+// — the op re-verifies and refuses before any machinery: start.sh never
+// runs, the container/image is never touched.
+func TestFreshStartOpRechecksUnresolvedAtOpTime(t *testing.T) {
+	reg, roots := fixtureRegistry(t, "alpha")
+	quoted := func(ids ...string) string {
+		out := make([]string, len(ids))
+		for i, id := range ids {
+			out[i] = `"` + id + `"`
+		}
+		return "[" + strings.Join(out, ", ") + "]"
+	}
+	writeRawConfig(t, roots["alpha"], `{
+  "toolchains": `+quoted("cpp", "go")+`,
+  "container_modes": [],
+  "start_option": "web",
+  "search_mode": "websearch",
+  "version": "2.0"
+}`)
+	ws, err := reg.ByName("alpha")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The workspace resolved at confirm time; the config turns
+	// unresolved before the op runs.
+	writeRawConfig(t, ws.Path, `{"container_edition": "vanished", "container_modes": [], "start_option": "web", "search_mode": "websearch", "version": "2.0"}`)
+	run := fakePodman(nil, nil, nil, nil, nil)
+	base := run.Script
+	var startCalls int
+	run.Script = func(name string, args []string) (string, error) {
+		if name == "bash" && len(args) > 0 && args[0] == "/opt/oc-sandbox/scripts/start.sh" {
+			startCalls++
+			return "started", nil
+		}
+		if name == "podman" && len(args) > 0 && (args[0] == "stop" || args[0] == "rm" || args[0] == "rmi") {
+			t.Fatalf("podman %s ran on an unresolved workspace: %v", args[0], args)
+		}
+		return base(name, args)
+	}
+	s := depsServer(t, run, reg)
+
+	var emitted []string
+	err = s.freshStart(ws, func(l string) { emitted = append(emitted, l) })
+	if err == nil || !strings.Contains(err.Error(), "stored edition 'vanished' maps to no bundle") {
+		t.Fatalf("freshStart op error = %v, want the §10 refusal", err)
+	}
+	if startCalls != 0 {
+		t.Fatalf("start.sh ran on an unresolved workspace")
+	}
+}
