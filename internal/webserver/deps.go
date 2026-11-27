@@ -21,6 +21,7 @@ type Deps struct {
 	ConfigureScript  string // scripts/configure-workspace.sh (#156)
 	Dockerfile       string // edition registry (ADR 0019)
 	DockerfileCustom string // "" when the install has none
+	Toolchains       string // toolchains dir — the discovery seam's root (spec toolchain-sets §2)
 	// DefaultWorkspacePath is the base of the derived workspace root
 	// (#156 — the wizard has no path row); "" → Home/oc-sandbox.
 	DefaultWorkspacePath string

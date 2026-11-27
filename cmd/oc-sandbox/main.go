@@ -138,6 +138,7 @@ func startWebserver(home, version string) *webserver.Server {
 			ConfigureScript:      layout.ConfigureScript,
 			Dockerfile:           layout.Dockerfile,
 			DockerfileCustom:     layout.DockerfileCustom,
+			Toolchains:           layout.Toolchains,
 			DefaultWorkspacePath: webserver.DefaultWorkspacePath(home),
 		},
 	})

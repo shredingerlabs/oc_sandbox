@@ -16,6 +16,7 @@ type Layout struct {
 	UninstallScript  string // scripts/uninstall.sh
 	Dockerfile       string // Dockerfile (edition registry, ADR 0019)
 	DockerfileCustom string // Dockerfile.custom (path always set; callers handle a missing file)
+	Toolchains       string // toolchains dir (spec toolchain-sets §1: base.Dockerfile, manifest.json, recipes/, custom/)
 }
 
 // LayoutFor resolves the paths for home.
@@ -31,6 +32,7 @@ func LayoutFor(home string) Layout {
 		UninstallScript:  filepath.Join(scripts, "uninstall.sh"),
 		Dockerfile:       filepath.Join(root, "Dockerfile"),
 		DockerfileCustom: filepath.Join(root, "Dockerfile.custom"),
+		Toolchains:       filepath.Join(root, "toolchains"),
 	}
 }
 
