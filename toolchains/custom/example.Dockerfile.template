@@ -1,0 +1,53 @@
+# =============================================================================
+# Toolchain recipe — example template for custom/ units (toolchain sets)
+# =============================================================================
+#
+# This file is an inert template: every line stays commented, so discovery
+# sees no toolchain here. To write your own toolchain, copy this file to
+# custom/<id>.Dockerfile (id: lowercase [a-z0-9-], 'base' is reserved),
+# remove the leading '# ' markers, and adapt the commands.
+#
+# Grammar (lint-enforced at discovery, build and editor save):
+#   - Allowed directives: RUN, ENV, USER, comments, and
+#     '# extra: <absolute path>' lines (files the payload dump must capture
+#     because dpkg/pip do not know them — e.g. manual /etc writes, npm
+#     globals, tar-extracted binaries).
+#   - ARG, COPY, WORKDIR and ENTRYPOINT are refused: ARG hides out-of-band
+#     state from the content hash, COPY has no build context, and the
+#     composition footer owns the rest.
+#   - USER switching is monotonic root -> dev; only root and dev exist. The
+#     fragment runs as root unless you switch.
+#   - Every install is pinned: pip needs ==x.y.z, npm needs @x.y.z, direct
+#     download URLs must embed the exact version (no 'latest'), rustup needs
+#     --default-toolchain <version>. apt is exempt — its pin is the suite.
+#   - ENV PATH is refused: PATH additions go into ~/.profile.d/<id>.sh.
+#     Direct writes to ~/.profile or ~/.bashrc are refused too.
+#
+# This file lives in custom/ and is kept across updates (recreated from this
+# template when absent). Its name deliberately does not end in .Dockerfile —
+# discovery registers exactly the custom/<id>.Dockerfile files, so this
+# template stays inert.
+#
+# =============================================================================
+# Example: a custom toolchain "example" (copy to example.Dockerfile to use)
+# =============================================================================
+#
+# USER root
+#
+# # --- apt packages (apt is exempt from pin enforcement) ----------------------
+# RUN apt-get update && apt-get install -y --no-install-recommends \
+#         hello \
+#     && rm -rf /var/lib/apt/lists/*
+#
+# # --- pip packages (exact pins required) --------------------------------------
+# RUN pip3 install --break-system-packages --no-cache-dir \
+#         requests==2.32.3
+#
+# # --- npm globals (exact pins required; declare module + bin as extras) -------
+# RUN npm install -g markdown-it@14.1.0
+#
+# # --- PATH additions ride the ~/.profile.d hook, never ENV PATH ----------------
+# RUN mkdir -p ~/.profile.d \
+#     && printf 'export PATH="$HOME/.local/bin:$PATH"\n' > ~/.profile.d/example.sh
+#
+# USER dev
