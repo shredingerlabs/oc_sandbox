@@ -92,7 +92,7 @@ func TestPresetsNotPinningModeSwitchNeverTouchesWorkspaceConfig(t *testing.T) {
 	}
 	// A workspace as an Advanced user left it: Standard-hidden options
 	// edited off their presets (searxng search, proxy on).
-	if err := sandboxcfg.Create(home, cfgPath, "swdev", nil, "web", "", sandboxcfg.SearchSearxng); err != nil {
+	if err := sandboxcfg.Create(home, cfgPath, []string{"cpp", "go", "java", "rust"}, nil, "web", "", sandboxcfg.SearchSearxng); err != nil {
 		t.Fatal(err)
 	}
 	if err := sandboxcfg.PatchBool(home, cfgPath, "use_proxy", true); err != nil {
@@ -129,7 +129,7 @@ func TestPresetsNotPinningModeSwitchNeverTouchesWorkspaceConfig(t *testing.T) {
 		!RowVisible(config.DisplayAdvanced, "ws-settings", "proxy") {
 		t.Error("Advanced must reveal stored values")
 	}
-	cfg, err := sandboxcfg.Read(cfgPath)
+	cfg, err := sandboxcfg.Read(cfgPath, tcRootOf(home))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -147,7 +147,7 @@ func TestPresetsNotPinningModeSwitchNeverTouchesWorkspaceConfig(t *testing.T) {
 		[]byte("{\n  \"container_edition\": \"swdev\",\n  \"version\": \"1.0\"\n}\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	legacy, err := sandboxcfg.Read(legacyPath)
+	legacy, err := sandboxcfg.Read(legacyPath, tcRootOf(home))
 	if err != nil {
 		t.Fatal(err)
 	}

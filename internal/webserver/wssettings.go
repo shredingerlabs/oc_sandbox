@@ -386,15 +386,18 @@ func (s *Server) handleWsSettingsPost(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad form", http.StatusBadRequest)
 		return
 	}
-	cfg, err := readSandboxCfg(ws.Path)
+	cfg, err := s.readSandboxCfg(ws.Path)
 	if err != nil {
 		s.renderWsSettingsScreen(w, name, "sandbox_config.json unreadable — "+err.Error(), nil)
 		return
 	}
 
 	// Merge: stored truth first, posted rows on top (presets, not pinning).
+	// The stored toolchain selection (legacy-expanded per §10) rides the
+	// merge unchanged — every settings write materializes toolchains and
+	// drops container_edition: that write IS the migration.
 	merged := sandboxcfg.Settings{
-		Edition:     cfg.ContainerEdition,
+		Toolchains:  cfg.Toolchains,
 		Modes:       cfg.ContainerModes,
 		StartOption: cfg.StartOption,
 		VCS:         cfg.VCSTracking,
@@ -404,16 +407,15 @@ func (s *Server) handleWsSettingsPost(w http.ResponseWriter, r *http.Request) {
 		SearchMode:  cfg.SearchMode,
 	}
 	if v := r.PostFormValue("edition"); v != "" {
-		dockerfile, dockerfileCustom := "", ""
-		if s.deps != nil {
-			dockerfile, dockerfileCustom = s.deps.Dockerfile, s.deps.DockerfileCustom
-		}
-		eds, err := discovery.SelectableEditions(dockerfile, dockerfileCustom)
-		if err != nil || !slices.Contains(eds, v) {
+		// The posted edition is the bundle alias (spec §3); it expands
+		// via the manifest at write time. The multi-select re-key is
+		// #206 (WP-4).
+		ids, ok := sandboxcfg.ExpandBundle(s.toolchainsRoot(), v)
+		if !ok {
 			s.renderWsSettingsScreen(w, name, "unknown edition — choose a listed one", nil)
 			return
 		}
-		merged.Edition = v
+		merged.Toolchains = ids
 	}
 	// The start_option radio is retired (ADR-0033): no screen posts the
 	// field; the stored value keeps the config file legacy-shaped.
@@ -530,7 +532,7 @@ func (s *Server) handleWsVCSCredentialsPost(w http.ResponseWriter, r *http.Reque
 	// retired "other" kind stays writable only while the workspace is
 	// already on it — no new "other" tracking can be written.
 	stored := ""
-	if cfg, err := readSandboxCfg(root); err == nil {
+	if cfg, err := s.readSandboxCfg(root); err == nil {
 		stored = cfg.VCSTracking
 	}
 	if kind != "none" && !catalogs.SelectableKind(kind) &&
@@ -838,7 +840,7 @@ func (s *Server) renderWsSettingsScreen(w http.ResponseWriter, name, errMsg stri
 		return false
 	}
 	mode := s.displayMode()
-	cfg, cfgErr := readSandboxCfg(ws.Path)
+	cfg, cfgErr := s.readSandboxCfg(ws.Path)
 
 	v := wsSettingsView{
 		P:            s.pathPrefix(),
@@ -850,7 +852,9 @@ func (s *Server) renderWsSettingsScreen(w http.ResponseWriter, name, errMsg stri
 		SearchMode:   sandboxcfg.SearchWebsearch, // absent legacy key reads websearch (§6)
 	}
 	if cfgErr == nil {
-		v.Edition = cfg.ContainerEdition
+		// The Edition row still shows the legacy name; the toolchain
+		// selection row re-key is #206 (WP-4).
+		v.Edition = cfg.LegacyEdition
 		v.Proxy = cfg.UseProxy
 		v.SearchMode = cfg.SearchMode
 		v.VCSTrackingSt = cfg.VCSTracking

@@ -727,7 +727,14 @@ func (c *createChain) runSteps(s *Server, emit func(string)) error {
 	if providerID == "" {
 		providerID = "none"
 	}
-	if err := sandboxcfg.Create(s.opts.Home, cfgPath, c.edition, c.modes, c.start, providerID, c.search); err != nil {
+	// The create payload is materialized from the start (spec §10):
+	// the picked bundle/edition name expands via the manifest — the
+	// wizard's multi-select re-key is #205 (WP-3).
+	ids, ok := sandboxcfg.ExpandBundle(s.toolchainsRoot(), c.edition)
+	if !ok {
+		return fail("edition '" + c.edition + "' maps to no bundle — choose a listed one")
+	}
+	if err := sandboxcfg.Create(s.opts.Home, cfgPath, ids, c.modes, c.start, providerID, c.search); err != nil {
 		return fail("sandbox_config.json could not be created: " + err.Error())
 	}
 	if err := c.patchConfig(s, s.opts.Home, cfgPath); err != nil {

@@ -95,8 +95,8 @@ func (s *Server) containerRows() []unitRow {
 		// prototype's set-containers letter tiles); an unreadable
 		// config keeps the accent default.
 		hue := ""
-		if cfg, err := readSandboxCfg(p.Path); err == nil {
-			hue = editionFor(cfg.ContainerEdition).Hue
+		if cfg, err := s.readSandboxCfg(p.Path); err == nil {
+			hue = editionFor(cfg.LegacyEdition).Hue
 		}
 		rows = append(rows, unitRow{
 			Workspace: p.Name,
@@ -337,14 +337,14 @@ func (s *Server) handleWorkspaceStart(w http.ResponseWriter, r *http.Request) {
 			// Open action is a use.
 			_ = s.deps.Registry.UpdateStatus(ws.Path, "running")
 			_ = s.deps.Registry.UpdateLastUsed(ws.Path)
-			if cfg, cfgErr := readSandboxCfg(ws.Path); cfgErr == nil {
+			if cfg, cfgErr := s.readSandboxCfg(ws.Path); cfgErr == nil {
 				if running := s.runningEdition(cname); running != "" &&
-					running != cfg.ContainerEdition {
+					running != cfg.LegacyEdition {
 					w.Header().Set("Content-Type", "application/json")
 					_, _ = w.Write([]byte(jsonMarshal(mismatchSidecar{
 						Mismatch:       true,
 						RunningEdition: running,
-						SavedEdition:   cfg.ContainerEdition,
+						SavedEdition:   cfg.LegacyEdition,
 					})))
 					return
 				}
@@ -405,15 +405,18 @@ func (s *Server) finishVerifiedStart(ws registry.Workspace) error {
 // pre-start validations, the edition image check, then start.sh with
 // fully rebuilt args.
 func (s *Server) freshStart(ws registry.Workspace, emit func(string)) error {
-	cfg, err := readSandboxCfg(ws.Path)
+	cfg, err := s.readSandboxCfg(ws.Path)
 	if err != nil {
 		return err
 	}
 	if err := validateStartCfg(cfg); err != nil {
 		return err
 	}
-	if !discovery.ImageExists(s.deps.Run, cfg.ContainerEdition) {
-		return errImageMissing(cfg.ContainerEdition)
+	// Legacy world: the edition image must exist. New-world configs
+	// carry --toolchains — start.sh re-keys with #200; until then the
+	// script's flag parser refuses with a visible reason.
+	if !cfg.ToolchainsStored && !discovery.ImageExists(s.deps.Run, cfg.LegacyEdition) {
+		return errImageMissing(cfg.LegacyEdition)
 	}
 	cname := registry.ContainerName(ws.ContainerID)
 	emit("==> " + cname)

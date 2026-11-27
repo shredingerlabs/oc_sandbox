@@ -126,6 +126,7 @@ func (s *Server) launchSetup(ws registry.Workspace) string {
 	stager := s.setupStager()(ws.Path)
 	machine, err := setupflow.NewMachine(setupflow.Deps{
 		Home: s.home(), Root: ws.Path, Reg: s.regView(), Stager: stager,
+		Toolchains: s.toolchainsRoot(),
 	})
 	if err != nil {
 		return "refused — first-run setup could not start: " + err.Error()
@@ -179,7 +180,7 @@ func (s *Server) setupStager() setupflow.RunnerFactory {
 			configure = s.deps.ConfigureScript
 		}
 	}
-	return setupflow.NewStagerFor(s.runnerSeam(), s.home(), s.regView(), start, configure)
+	return setupflow.NewStagerFor(s.runnerSeam(), s.home(), s.regView(), start, configure, s.toolchainsRoot())
 }
 
 // runSetupStages drives the machine through its non-interactive stages,

@@ -65,7 +65,7 @@ func newProxyFixture(t *testing.T) *proxyFixture {
 func (f *proxyFixture) enableProxy(t *testing.T) {
 	t.Helper()
 	if _, err := os.Stat(sandboxcfg.Path(f.root)); err != nil {
-		if err := sandboxcfg.Create(f.home, sandboxcfg.Path(f.root), "swdev", nil, "web", "", "websearch"); err != nil {
+		if err := sandboxcfg.Create(f.home, sandboxcfg.Path(f.root), []string{"cpp", "go", "java", "rust"}, nil, "web", "", "websearch"); err != nil {
 			t.Fatalf("sandboxcfg.Create: %v", err)
 		}
 	}

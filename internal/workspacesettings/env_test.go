@@ -48,7 +48,7 @@ func (e *env) addWorkspace(t *testing.T, name string) {
 	if err := r.AddWorkspace(registry.AddRequest{Name: name, Path: root, GitTracking: "none"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := sandboxcfg.Create(e.home, sandboxcfg.Path(root), "base", []string{"skills"}, "console", "gwdg-saia", sandboxcfg.SearchWebsearch); err != nil {
+	if err := sandboxcfg.Create(e.home, sandboxcfg.Path(root), nil, []string{"skills"}, "console", "gwdg-saia", sandboxcfg.SearchWebsearch); err != nil {
 		t.Fatal(err)
 	}
 	e.roots[name] = root

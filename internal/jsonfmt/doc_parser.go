@@ -73,6 +73,17 @@ func (d *Doc) Set(key string, val any) {
 	d.Entries = append(d.Entries, Entry{Key: key, Val: val})
 }
 
+// Delete removes every entry with key (no-op when absent).
+func (d *Doc) Delete(key string) {
+	out := d.Entries[:0]
+	for _, e := range d.Entries {
+		if e.Key != key {
+			out = append(out, e)
+		}
+	}
+	d.Entries = out
+}
+
 // MarshalJSON renders the doc compactly; jsonfmt.Marshal adds jq-style indent.
 func (d *Doc) MarshalJSON() ([]byte, error) {
 	var b bytes.Buffer
