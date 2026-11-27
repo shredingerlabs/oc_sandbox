@@ -23,6 +23,12 @@ type Deps struct {
 	Dockerfile        string // edition registry (ADR 0019)
 	DockerfileCustom  string // "" when the install has none
 	Toolchains        string // toolchains dir — the discovery seam's root (spec toolchain-sets §2)
+	// NetProbe is the §7 network-probe seam (WP-8): one HEAD per
+	// distinct plan source host, returning the unreachable ones. Nil
+	// (harnesses, smoke, tests) skips the probe — the builder's own
+	// preflight still guards at build time; production wires
+	// webserver.NativeNetProbe.
+	NetProbe func(hosts []string) []string
 	// DefaultWorkspacePath is the base of the derived workspace root
 	// (#156 — the wizard has no path row); "" → Home/oc-sandbox.
 	DefaultWorkspacePath string

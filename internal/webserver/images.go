@@ -777,7 +777,9 @@ func (s *Server) handleImages(w http.ResponseWriter, r *http.Request) {
 // (`bash <build-container.sh> <tag>`); without a tag all scales to
 // --all (base + every discovered component — the infra rows' lazy
 // auto-build at member start keeps them out). Unknown args re-render
-// with the refusal; a busy key refuses the confirm.
+// with the refusal; a busy key refuses the confirm. A toolchain op
+// preflights first (§7/#212): a low-disk or offline host refuses
+// with the plan's reason and nothing queues.
 func (s *Server) handleImagesBuild(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if s.queue.BusyKey(imagesKey) {
@@ -788,14 +790,34 @@ func (s *Server) handleImagesBuild(w http.ResponseWriter, r *http.Request) {
 	id := s.queue.reserve()
 	switch {
 	case tag == "":
+		if plan, ok := s.builderPlanAll(); ok {
+			if err := s.preflightBuild(plan); err != nil {
+				_, _ = w.Write([]byte(s.renderImages(err.Error(), 0, "")))
+				return
+			}
+		}
 		s.queue.Launch(webOp{ID: id, Key: imagesKey, Run: s.buildAllOp()})
 	case tag == "base":
+		if plan, ok := s.builderPlanBase(); ok {
+			if err := s.preflightBuild(plan); err != nil {
+				_, _ = w.Write([]byte(s.renderImages(err.Error(), 0, "")))
+				return
+			}
+		}
 		s.queue.Launch(webOp{ID: id, Key: imagesKey, Run: s.buildOneOp("--base")})
 	case tag == discovery.ProxyImageTag || tag == discovery.SearxngImageTag || tag == discovery.SttImageTag:
+		// The infra rows keep today's path — the infra images live
+		// outside the toolchain builder's contract (§7).
 		s.queue.Launch(webOp{ID: id, Key: imagesKey, Run: s.buildInfraOp(tag)})
 	default:
 		if s.deps.Toolchains != "" {
 			if u, ok := discovery.Discover(s.deps.Toolchains).Unit(tag); ok && u.Valid {
+				if plan, ok := s.builderPlanTC(tag); ok {
+					if err := s.preflightBuild(plan); err != nil {
+						_, _ = w.Write([]byte(s.renderImages(err.Error(), 0, "")))
+						return
+					}
+				}
 				s.queue.Launch(webOp{ID: id, Key: imagesKey, Run: s.buildOneOp("--tc", tag)})
 				_, _ = w.Write([]byte(s.renderImages("", id, "")))
 				return
