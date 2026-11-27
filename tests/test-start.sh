@@ -13,6 +13,14 @@ mkdir -p "$fake_bin"
 cat > "$fake_bin/podman" <<'EOF'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "${PODMAN_LOG}"
+case "$1 $2" in
+  "image exists")
+    case " ${PODMAN_MISSING_IMAGES:-} " in
+      *" $3 "*) exit 1 ;;
+    esac
+    exit 0
+    ;;
+esac
 exit 0
 EOF
 chmod +x "$fake_bin/podman"
@@ -254,6 +262,14 @@ grep -q 'OpenCode web: http://127.0.0.1:4097' "$timeout_output"
 cat > "$fake_bin/podman" <<'EOF'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "${PODMAN_LOG}"
+case "$1 $2" in
+  "image exists")
+    case " ${PODMAN_MISSING_IMAGES:-} " in
+      *" $3 "*) exit 1 ;;
+    esac
+    exit 0
+    ;;
+esac
 exit 0
 EOF
 chmod +x "$fake_bin/podman"
@@ -431,91 +447,144 @@ jq -e '.websearch | not' "$cfg" > /dev/null
 jq -e '.mcp.servers["searxng-mcp"] | not' "$cfg" > /dev/null
 printf 'start search_mode tests passed\n'
 
-# --- Edition-Validierung ---------------------------------------------------------
-# Fixture-Baum: Kopie von dist/scripts + Dockerfiles, damit die
-# Dockerfile.custom ohne Eingriff in das Repo gefüttert werden kann.
+# --- start.sh re-key: --toolchains / --edition alias (toolchain sets #200, spec §8)
+# Fixture tree: a full scripts + toolchains copy so the flag validation runs
+# against a real discovery without touching the repo.
 script_fixture="$test_home/dist"
 mkdir -p "$script_fixture/scripts"
-cp "$PROJECT_ROOT/dist/scripts/start.sh" "$script_fixture/scripts/"
-cp "$PROJECT_ROOT/dist/scripts/configure-workspace.sh" "$script_fixture/scripts/"
-cp "$PROJECT_ROOT/dist/Dockerfile" "$script_fixture/"
-cat > "$script_fixture/Dockerfile.custom" <<'EOF'
-FROM opencode-sandbox-base AS opencode-sandbox-rust
-ENV RUSTUP_HOME=/usr/local/rustup
-EOF
+for f in start.sh configure-workspace.sh lib-identity.sh toolchains.sh; do
+  cp "$PROJECT_ROOT/dist/scripts/$f" "$script_fixture/scripts/"
+done
+cp -r "$PROJECT_ROOT/dist/toolchains" "$script_fixture/toolchains"
 
 run_start() {
   bash "$script_fixture/scripts/start.sh" "$@" > "$test_home/edition-output" 2>&1
 }
 
-# 1. fehlende --edition -> Nutzungsfehler (kein Default mehr)
-if run_start "$cloned_project" --detach; then
-  printf 'start.sh accepted missing --edition\n' >&2
-  exit 1
-fi
-grep -q 'edition' "$test_home/edition-output"
-printf 'start missing edition tests passed\n'
+# Expected set tags, derived with the builder's own identity lib (the
+# golden-vector fixture pins it to the Go side; here it is the independent
+# expectation).
+# shellcheck source=../dist/scripts/lib-identity.sh
+source "$PROJECT_ROOT/dist/scripts/lib-identity.sh"
+ftc="$script_fixture/toolchains"
+ftag() { printf '%s\n' "$ftc/recipes/$1.Dockerfile"; }
+swdev_tag="$(tc_set_tag "$ftc/base.Dockerfile" cpp "$(ftag cpp)" go "$(ftag go)" java "$(ftag java)" rust "$(ftag rust)")"
+baseonly_tag="$(tc_set_tag "$ftc/base.Dockerfile")"
+cpg_tag="$(tc_set_tag "$ftc/base.Dockerfile" cpp "$(ftag cpp)" go "$(ftag go)")"
 
-# 2. unbekannte Edition -> Fehler mit Liste der entdeckten Editionen
-if run_start "$cloned_project" --edition doesnotexist; then
-  printf 'start.sh accepted unknown edition\n' >&2
+run_line_of() {
+  grep -m1 -- '--rm -d --name opencode-sandbox-' "$PODMAN_LOG"
+}
+
+# 1. neither --toolchains nor --edition -> refuse (one of the two is required)
+if run_start "$cloned_project" --detach; then
+  printf 'start.sh accepted neither --toolchains nor --edition\n' >&2
   exit 1
 fi
-out="$(cat "$test_home/edition-output")"
-for known in base web embedded swdev rust; do
-  if ! grep -q "$known" "$test_home/edition-output"; then
+grep -q -- '--toolchains' "$test_home/edition-output"
+grep -q -- '--edition' "$test_home/edition-output"
+printf 'start missing toolchains/edition tests passed\n'
+
+# 2. --toolchains + --edition together -> refuse (explicit conflict beats
+# silent precedence)
+if run_start "$cloned_project" --toolchains go --edition swdev --detach; then
+  printf 'start.sh accepted --toolchains and --edition together\n' >&2
+  exit 1
+fi
+grep -q 'mutually exclusive' "$test_home/edition-output"
+printf 'start toolchains/edition conflict test passed\n'
+
+# 3. unknown toolchain id -> refuse naming it (live discovery)
+: > "$PODMAN_LOG"
+if run_start "$cloned_project" --toolchains nosuch-toolchain --detach; then
+  printf 'start.sh accepted an unknown toolchain id\n' >&2
+  exit 1
+fi
+grep -q "unknown toolchain id 'nosuch-toolchain'" "$test_home/edition-output"
+[[ "$(wc -l < "$PODMAN_LOG")" -eq 0 ]]
+printf 'start unknown toolchain id test passed\n'
+
+# 4. --toolchains "" = the base-only set (how chat/pkm start)
+: > "$PODMAN_LOG"
+if ! run_start "$cloned_project" --toolchains "" --detach; then
+  printf 'start.sh rejected the base-only --toolchains ""\n' >&2
+  cat "$test_home/edition-output" >&2
+  exit 1
+fi
+[[ "$(run_line_of)" == *" $baseonly_tag"* ]]
+printf 'start base-only set test passed\n'
+
+# 5. the container runs the derived opencode-sandbox-set:<hash12>; ids are
+# order-free and comma-separated; the refusal for a missing set image names
+# build-images.sh --set <ids> (sorted) — start.sh never builds
+: > "$PODMAN_LOG"
+if ! run_start "$cloned_project" --toolchains rust,go,java,cpp --detach; then
+  printf 'start.sh rejected a valid --toolchains list\n' >&2
+  cat "$test_home/edition-output" >&2
+  exit 1
+fi
+[[ "$(run_line_of)" == *" $swdev_tag"* ]]
+if grep -q 'build-images' "$PODMAN_LOG"; then
+  printf 'start.sh grew a build call\n' >&2
+  exit 1
+fi
+: > "$PODMAN_LOG"
+if ! run_start "$cloned_project" --toolchains cpp,go --detach; then
+  printf 'start.sh rejected a two-member --toolchains list\n' >&2
+  cat "$test_home/edition-output" >&2
+  exit 1
+fi
+[[ "$(run_line_of)" == *" $cpg_tag"* ]]
+: > "$PODMAN_LOG"
+: > "$PODMAN_LOG"
+export PODMAN_MISSING_IMAGES="$cpg_tag"
+if run_start "$cloned_project" --toolchains go,cpp --detach; then
+  printf 'start.sh started with a missing set image\n' >&2
+  exit 1
+fi
+unset PODMAN_MISSING_IMAGES
+grep -q -- "build-images.sh --set cpp,go" "$test_home/edition-output"
+[[ "$(wc -l < "$PODMAN_LOG")" -eq 1 ]] # only the image-exists probe
+printf 'start set-tag derivation and refusal test passed\n'
+
+# 6. --edition is an alias expanding via the manifest bundle at arg parsing —
+# it derives exactly the same set image as the sorted member list
+: > "$PODMAN_LOG"
+if ! run_start "$cloned_project" --edition swdev --detach; then
+  printf 'start.sh rejected the --edition alias\n' >&2
+  cat "$test_home/edition-output" >&2
+  exit 1
+fi
+[[ "$(run_line_of)" == *" $swdev_tag"* ]]
+printf 'start edition alias expansion test passed\n'
+
+# 7. an unknown edition -> refuse listing the discovered bundles; an invalid
+# name is refused the same way
+if run_start "$cloned_project" --edition doesnotexist --detach; then
+  printf 'start.sh accepted an unknown edition\n' >&2
+  exit 1
+fi
+for known in web embedded swdev matlab ros2 writing latex chat pkm; do
+  grep -q "$known" "$test_home/edition-output" || {
     printf 'edition list does not mention %s\n' "$known" >&2
     exit 1
-  fi
+  }
 done
+if run_start "$cloned_project" --edition "BadName" --detach; then
+  printf 'start.sh accepted an invalid edition name\n' >&2
+  exit 1
+fi
 printf 'start unknown edition tests passed\n'
 
-# 3. Edition mit ungueltigem Namen -> abgelehnt
-if run_start "$cloned_project" --edition "BadName"; then
-  printf 'start.sh accepted invalid edition name\n' >&2
-  exit 1
-fi
-printf 'start invalid edition name tests passed\n'
-
-# 3b. search_mode-Kombinationen (ADR 0026): searxng+proxy und searxng+offline
-# werden ohne jeden Containerzugriff abgelehnt, ein unbekannter Modus genauso.
-if run_start "$cloned_project" --edition rust --search_mode searxng --use_proxy --detach; then
-  printf 'start.sh accepted searxng + use_proxy\n' >&2
-  exit 1
-fi
-grep -q 'ADR 0026' "$test_home/edition-output"
-if run_start "$cloned_project" --edition rust --search_mode searxng --offline --detach; then
-  printf 'start.sh accepted searxng + offline\n' >&2
-  exit 1
-fi
-grep -q 'requires network' "$test_home/edition-output"
-if run_start "$cloned_project" --edition rust --search_mode bogus --detach; then
-  printf 'start.sh accepted unknown search_mode\n' >&2
-  exit 1
-fi
-grep -q -- 'unknown --search_mode' "$test_home/edition-output"
-printf 'start search_mode combination tests passed\n'
-
-# 4. Custom-Edition wird akzeptiert und an podman durchgereicht
+# 8. --edition chat/--edition pkm expand to the base-only set (the empty bundle)
 : > "$PODMAN_LOG"
-if ! run_start "$cloned_project" --edition rust --detach; then
-  printf 'start script rejected valid custom edition\n' >&2
+if ! run_start "$cloned_project" --edition chat --detach; then
+  printf 'start.sh rejected the chat edition (base-only)\n' >&2
   cat "$test_home/edition-output" >&2
   exit 1
 fi
-grep -q -- 'opencode-sandbox-rust' "$PODMAN_LOG"
-printf 'start custom edition tests passed\n'
-
-# --- 5: pkm-Edition (#120/#124): normale Start-Option, kein Sonderfall —
-# das Dedicated-Image wird über die Stage-Registry validiert und uebergeben.
-: > "$PODMAN_LOG"
-if ! run_start "$cloned_project" --edition pkm --detach; then
-  printf 'start script rejected the pkm edition\n' >&2
-  cat "$test_home/edition-output" >&2
-  exit 1
-fi
-grep -q -- 'opencode-sandbox-pkm' "$PODMAN_LOG"
-printf 'start pkm edition tests passed\n'
+[[ "$(run_line_of)" == *" $baseonly_tag"* ]]
+printf 'start chat/pkm base-only alias test passed\n'
 
 # --- 6: SearXNG-Recreate-Pfad (ADR 0029) --------------------------------------
 # Regressionsblock gegen die alte hostseitige Topologie: ein (evtl.
@@ -897,7 +966,7 @@ printf 'start stt language pin tests passed\n'
 # --userns=keep-id (+ keep-groups). Der Pod-Pfad (oben) traegt es dagegen
 # nie selbst - der Pod uebernimmt es.
 : > "$PODMAN_LOG"
-if ! run_start "$cloned_project" --edition rust --offline --detach; then
+if ! run_start "$cloned_project" --toolchains go --offline --detach; then
   printf 'start script failed with mocked podman (--offline)\n' >&2
   cat "$test_home/edition-output" >&2
   exit 1
