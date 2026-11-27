@@ -14,7 +14,6 @@
 package webserver
 
 import (
-	"errors"
 	"html/template"
 	"maps"
 	"net/http"
@@ -85,12 +84,10 @@ func setIdentityFor(cfg sandboxcfg.Config, toolchainsRoot, workspaceKind string)
 // errUnresolvedSelection is the §10 unresolved refusal — the one
 // refusal everywhere a start flow reads an unknown stored edition,
 // before any prompt machinery (WP-10). The old image/container is
-// never touched.
+// never touched. The message lives in sandboxcfg (every surface shows
+// the same words — the setup flow's op-time refusal included).
 func errUnresolvedSelection(cfg sandboxcfg.Config) error {
-	if cfg.LegacyEdition != "" {
-		return errors.New("stored edition '" + cfg.LegacyEdition + "' maps to no bundle — choose toolchains under Workspace Settings")
-	}
-	return errors.New("no stored toolchain selection — choose toolchains under Workspace Settings")
+	return cfg.UnresolvedError()
 }
 
 // glyphFuncs carries the card tile's one generic set glyph (WP-5: one

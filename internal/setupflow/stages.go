@@ -147,6 +147,11 @@ func (p *PipelineStager) startContainer(emit func(string)) error {
 	if err != nil {
 		return err
 	}
+	// The §10 unresolved refusal (WP-10): before any machinery — one
+	// refusal everywhere, the old image/container never touched.
+	if !config.Resolved {
+		return config.UnresolvedError()
+	}
 	// The stored selection's derived set tag (spec §6): the reuse
 	// verdict and the image check key on it.
 	tag, tagOK := "", false
