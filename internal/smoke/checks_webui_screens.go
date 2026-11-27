@@ -20,12 +20,12 @@ import (
 // flows (#158): auth-gated routes, the one container list with running
 // markers and popup-confirm attributes, start.sh invoked with the
 // stored StartArgs and reuse semantics, the verified-gone registry
-// flips, stop-first and in-use refusals, build-container.sh scaled to
-// `all` exactly as the TUI invokes scripts (ADR-0007), and the SSE
-// line streaming the build log pane rides on. All podman/script calls
+// flips, stop-first and in-use refusals, build-images.sh --all exactly
+// as the TUI invokes scripts (ADR-0007, re-keyed by WP-7/#209), and the
+// SSE line streaming the build log pane rides on. All podman/script calls
 // ride a scripted fake runner — nothing external, nothing hanging.
 func checkWebUIScreens(home, root string) Item {
-	p := newPhase("A10", "Container/Image screens: auth-gated routes, one container list (running marker, confirm attrs), start.sh StartArgs vector + reuse, verified-gone registry flip, stop-first/in-use refusals, build-container.sh all + SSE line streaming")
+	p := newPhase("A10", "Container/Image screens: auth-gated routes, one container list (running marker, confirm attrs), start.sh StartArgs vector + reuse, verified-gone registry flip, stop-first/in-use refusals, build-images.sh --all (WP-7) + SSE line streaming")
 
 	// Fixture registry: one workspace "alpha" with a sandbox_config.json
 	// (edition swdev, hil_mode, start option web).
@@ -78,7 +78,12 @@ func checkWebUIScreens(home, root string) Item {
 			running[cname] = true
 			all[cname] = "running"
 			return "started " + cname, nil
+		case name == "bash" && len(args) > 0 && strings.HasSuffix(args[0], "build-images.sh"):
+			// the toolchain-sets builder (WP-7): Build all rides --all
+			buildCalls = append(buildCalls, strings.Join(args[1:], " "))
+			return "build line one\nbuild line two", nil
 		case name == "bash" && len(args) > 0 && strings.HasSuffix(args[0], "build-container.sh"):
+			// the infra builds (oc-searxng/oc-stt) keep today's script
 			buildCalls = append(buildCalls, strings.Join(args[1:], " "))
 			return "build line one\nbuild line two", nil
 		case name == "podman" && strings.HasPrefix(rest, "stop "):
@@ -135,12 +140,13 @@ func checkWebUIScreens(home, root string) Item {
 	}}
 
 	s := webserver.New(webserver.Options{BasePort: 0, Home: home, Deps: &webserver.Deps{
-		Run:              fake,
-		Registry:         reg,
-		BuildScript:      filepath.Join(root, "dist", "scripts", "build-container.sh"),
-		StartScript:      filepath.Join(root, "dist", "scripts", "start.sh"),
-		Dockerfile:       filepath.Join(root, "dist", "Dockerfile"),
-		DockerfileCustom: filepath.Join(root, "dist", "Dockerfile.custom"),
+		Run:               fake,
+		Registry:          reg,
+		BuildScript:       filepath.Join(root, "dist", "scripts", "build-container.sh"),
+		BuildImagesScript: filepath.Join(root, "dist", "scripts", "build-images.sh"),
+		StartScript:       filepath.Join(root, "dist", "scripts", "start.sh"),
+		Dockerfile:        filepath.Join(root, "dist", "Dockerfile"),
+		DockerfileCustom:  filepath.Join(root, "dist", "Dockerfile.custom"),
 	}})
 	if err := s.Start(); err != nil {
 		p.reasonf("start: %v", err)
@@ -290,13 +296,15 @@ func checkWebUIScreens(home, root string) Item {
 		return err == nil && ws.ContainerStatus == "stopped"
 	})
 	waitIdle("stop")
-	// Images: edition rows with markers + sizes; build all with the
-	// SSE `line` events streaming; delete refused in use, rmi free.
+	// Images: the old-world swdev ref renders as a Legacy row (WP-7)
+	// with markers + sizes; build all rides build-images.sh --all with
+	// the SSE `line` events streaming; delete refused in use, rmi free.
 	resp, body = get("GET", s.URL()+"images", "")
 	if resp == nil || resp.StatusCode != http.StatusOK {
 		p.reasonf("GET /images: want 200, got %v", resp)
 	} else {
-		for _, want := range []string{"swdev", "1.2 GB", "● built", "○ missing", `data-confirm="Build all images?`, `data-danger`,
+		for _, want := range []string{"opencode-sandbox-swdev", "1.2 GB", "● built", "○ missing", `data-confirm="Build all images?`, `data-danger`,
+			"Legacy",                       // the §10 group: the old-world ref is delete-only
 			`data-tag="oc-stt"`, ">STT<"} { // #167: the STT infra row renders
 			if !strings.Contains(body, want) {
 				p.reasonf("GET /images missing %q (tail: %.700s)", want, body[len(body)-700:])
@@ -304,8 +312,9 @@ func checkWebUIScreens(home, root string) Item {
 		}
 	}
 
-	// Build: one sequential op, `all` scaled, lines stream via SSE —
-	// the scan opens BEFORE the POST so the line event arrives live.
+	// Build: one sequential op, build-images.sh --all scaled, lines
+	// stream via SSE — the scan opens BEFORE the POST so the line event
+	// arrives live.
 	lineErr := make(chan error, 1)
 	go func() { lineErr <- sseExpect(s.URL(), s.URL()+"events", "line") }()
 	resp, body = get("POST", s.URL()+"images/build", "")
@@ -315,7 +324,7 @@ func checkWebUIScreens(home, root string) Item {
 	if opRe := regexp.MustCompile(`data-role="log" data-op="[1-9][0-9]*"`); !opRe.MatchString(body) {
 		p.reasonf("POST images/build: response missing the log pane op binding:\n%s", body)
 	}
-	waitFor("build-container.sh call", func() bool {
+	waitFor("build-images.sh call", func() bool {
 		_, b, _, _, _ := muState()
 		return b == 1
 	})
@@ -329,16 +338,16 @@ func checkWebUIScreens(home, root string) Item {
 		buildArgs = buildCalls[0]
 	}
 	mu.Unlock()
-	if buildArgs != "all" {
-		p.reasonf("build-container.sh arg = %q, want \"all\"", buildArgs)
+	if buildArgs != "--all" {
+		p.reasonf("build-images.sh args = %q, want \"--all\" (WP-7)", buildArgs)
 	}
 	if err := <-lineErr; err != nil {
 		p.reasonf("SSE line streaming during build: %v", err)
 	}
 	waitIdle("build")
 
-	// Per-image build of the STT infra tag (#167): the allowlist routes
-	// `tag=oc-stt` straight to build-container.sh as its arg.
+	// Per-image build of the STT infra tag (#167): the infra rows keep
+	// today's path — `tag=oc-stt` goes straight to build-container.sh.
 	mu.Lock()
 	beforeBuilds := len(buildCalls)
 	mu.Unlock()
