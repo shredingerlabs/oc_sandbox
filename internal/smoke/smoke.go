@@ -22,7 +22,7 @@ func Run(root string) Report {
 	if !distTreePresent(root) {
 		return Report{Items: skipAll("missing dist tree under " + root)}
 	}
-	if err := seedToolchainsManifest(home, root); err != nil {
+	if err := seedToolchains(home, root); err != nil {
 		return Report{Items: failAll(err)}
 	}
 	var items []Item
@@ -59,40 +59,32 @@ func toolchainsRoot(root string) string {
 	return filepath.Join(root, "dist", "toolchains")
 }
 
-// seedToolchainsManifest copies the shipped manifest + unit recipes into
-// the smoke home's install layout — the WebUI's LayoutFor resolution
-// finds the bundle map there, and the Toolchains row's live discovery
-// derives bundles only when every member recipe is on disk (spec §1/§10).
-func seedToolchainsManifest(home, root string) error {
-	data, err := os.ReadFile(filepath.Join(toolchainsRoot(root), "manifest.json"))
-	if err != nil {
-		return err
-	}
-	dir := filepath.Join(home, ".oc-sandbox", "toolchains")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return err
-	}
-	if err := os.WriteFile(filepath.Join(dir, "manifest.json"), data, 0o644); err != nil {
-		return err
-	}
-	matches, err := filepath.Glob(filepath.Join(toolchainsRoot(root), "recipes", "*.Dockerfile"))
-	if err != nil {
-		return err
-	}
-	recDir := filepath.Join(dir, "recipes")
-	if err := os.MkdirAll(recDir, 0o755); err != nil {
-		return err
-	}
-	for _, m := range matches {
-		raw, err := os.ReadFile(m)
+// seedToolchains copies the shipped toolchains dir (manifest, base
+// recipe, unit recipes) into the smoke home's install layout — the
+// WebUI's LayoutFor resolution finds the bundle map there, and live
+// discovery derives bundles and set tags only when the recipes are on
+// disk (spec §1/§10).
+func seedToolchains(home, root string) error {
+	src := toolchainsRoot(root)
+	dst := filepath.Join(home, ".oc-sandbox", "toolchains")
+	return filepath.WalkDir(src, func(p string, d os.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
-		if err := os.WriteFile(filepath.Join(recDir, filepath.Base(m)), raw, 0o644); err != nil {
+		rel, err := filepath.Rel(src, p)
+		if err != nil {
 			return err
 		}
-	}
-	return nil
+		out := filepath.Join(dst, rel)
+		if d.IsDir() {
+			return os.MkdirAll(out, 0o755)
+		}
+		data, err := os.ReadFile(p)
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(out, data, 0o644)
+	})
 }
 
 // swdevToolchains is the shipped swdev bundle expansion (the manifest's

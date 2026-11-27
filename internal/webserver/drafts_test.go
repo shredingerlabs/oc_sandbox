@@ -158,7 +158,7 @@ func TestDraftClearHeader(t *testing.T) {
 	// The wizard draft outlives the confirm round-trip; it is released
 	// on the create chain's terminal SSE event, not at launch.
 	vals := f.blankForm()
-	vals["confirm"] = "1"
+	vals.Set("confirm", "1")
 	launched := f.postForm(t, vals)
 	if got := launched.Header.Get(draftClearHeader); got != "" {
 		t.Fatalf("create launch must not clear the draft early, header = %q", got)
@@ -259,7 +259,7 @@ func TestFrontendDraftWiring(t *testing.T) {
 		`htmx:beforeSwap`,       // capture seam
 		`htmx:afterSwap`,        // restore seam
 		`savedFromXhr`,          // header read before the swap
-		`settings-edition`,      // both chip groups follow the hidden payload
+		`syncToolchainsRow`,     // the settings chip group re-derives on restore
 		`createDraftOp`,         // the create chain releases the wizard draft
 		`delete drafts[`,        // success drops the stored entry
 		`option[selected]`,      // select default comparison

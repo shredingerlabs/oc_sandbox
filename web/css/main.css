@@ -412,8 +412,16 @@ body { background:var(--bg); color:var(--ink);
   background:var(--ed, var(--ink2)); }
 .edotsel button[aria-pressed="true"] { box-shadow:0 0 0 2px var(--accent); }
 .edotsel button[disabled], .edotsel label[disabled] { opacity:.35; cursor:not-allowed; }
-.edotsel label input { position:absolute; opacity:0; pointer-events:none; }
 .edotsel label:has(input:checked) { background:var(--accent); color:var(--accent-ink); }
+.edotsel label:has(input:disabled) { opacity:.35; cursor:not-allowed; }
+/* toolchain units multi-select (#205, spec §9 WP-3): flat alphabetical
+   chips, the live cached marker inline, invalid units with their reason */
+.edotsel.units { align-items:center; }
+.edotsel .unit { max-width:280px; }
+.edotsel .cached { font-size:10px; font-weight:400; padding:0 5px;
+  border:1px solid currentColor; border-radius:6px; opacity:.75; }
+.edotsel .reason { display:block; font-size:10px; font-weight:400;
+  white-space:normal; text-transform:none; }
 .seg { display:inline-flex; }
 .wizard .seg { display:inline-flex; }
 .seg label { display:inline-flex; align-items:center; gap:7px; padding:5px 11px; border-radius:7px; font-size:12px; font-weight:700;
