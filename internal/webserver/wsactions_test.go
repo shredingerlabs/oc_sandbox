@@ -45,12 +45,14 @@ func fakePodmanScript(bashCalls *[]string, ctr string, alreadyRunning bool, out 
 // runner — the start route (#158's Container-center route) rides Deps.
 func startServerWith(t *testing.T, home string, fake *cmdrun.Fake) *Server {
 	t.Helper()
+	seedToolchainsManifest(t, home) // the bundle map the legacy expansion derives through (§10)
 	s := New(Options{
 		BasePort: 0, Home: home,
 		Deps: &Deps{
-			Run:         fake,
-			Registry:    &registry.Registry{Home: home},
-			StartScript: LayoutFor(home).StartScript,
+			Run:               fake,
+			Registry:          &registry.Registry{Home: home},
+			StartScript:       LayoutFor(home).StartScript,
+			BuildImagesScript: LayoutFor(home).BuildImagesScript,
 		},
 	})
 	if err := s.Start(); err != nil {

@@ -300,11 +300,27 @@
     }
     if (btn.dataset.act === "mismatch-switch") {
       // Switch to <saved> (#116): the running-container replacement —
-      // the adopt confirm gates it (§9).
+      // the adopt confirm gates it (§9); the replacement is built
+      // inline before anything stops (WP-6).
       adoptConfirm(card, btn.dataset.variant,
         "Switch to " + btn.dataset.saved + "?",
-        "The running container is stopped and restarted with the new edition — an agent may be mid-task.",
+        "The set image is built if missing, then the running container is stopped and restarted with the stored set — an agent may be mid-task.",
         "Switch");
+      return;
+    }
+    if (btn.dataset.act === "build-now") {
+      // Build now (WP-6): one queued op builds the set (missing
+      // components + assembly), then the start continues into the
+      // originally requested access.
+      var variant = btn.dataset.variant || "";
+      renderWorkspaces();
+      buildNow(cardByWs(card.dataset.ws) || card, variant);
+      return;
+    }
+    if (btn.dataset.act === "build-later") {
+      // Build later (WP-6): stays stopped — the Images screen is the
+      // escape.
+      showNote(card, "stayed stopped — build the set image under Settings → Images");
       return;
     }
     if (btn.dataset.act === "cancel-confirm") {
@@ -360,7 +376,10 @@
   // settings screen alike — the nearest [data-ws] names the workspace;
   // the machine (re-)runs from the stored flags and the SSE workspace
   // push re-renders. Refusals (an op or session holds the workspace)
-  // surface as a warning toast.
+  // surface as a warning toast; a missing set image answers the {build}
+  // sidecar (WP-6) — Build now re-POSTs with build=1 (one queued op:
+  // the builder's missing components + assembly, then the stages),
+  // Build later stays stopped with the Images hint.
   screenEl.addEventListener("click", function (ev) {
     var btn = ev.target.closest('[data-act="setup-retry"]');
     if (!btn || btn.disabled) return;
@@ -370,9 +389,52 @@
     fetch(base + "workspaces/" + encodeURIComponent(holder.dataset.ws) + "/setup/retry", {
       method: "POST",
       referrerPolicy: "no-referrer"
+    })
+      .then(function (r) { return r.text(); })
+      .then(function (txt) {
+        if (!txt) return; // plain 200: the machine launched
+        var v;
+        try { v = JSON.parse(txt); } catch (e) { return; }
+        if (v.build) {
+          var card = cardByWs(holder.dataset.ws) || holder;
+          showRow(card,
+            '<span class="note">The set image (' + v.set + ') is not built — build it now?</span>' +
+            '<button class="btn" data-act="setup-build-now">Build now</button>' +
+            '<button class="btn" data-act="setup-build-later">Build later</button>' +
+            '<button class="btn" data-act="cancel-confirm">Go back</button>');
+          return;
+        }
+      })
+      .catch(function () {
+        toast("setup refused — an op or session holds this workspace", "warn");
+      });
+  });
+
+  // The setup retry build row's moves: Build now re-POSTs with build=1
+  // (the setup op pre-builds, then the machine runs — streamed into the
+  // busy pane); Build later stays stopped with the Images hint.
+  screenEl.addEventListener("click", function (ev) {
+    var btn = ev.target.closest('[data-act="setup-build-now"]');
+    if (!btn || btn.disabled) return;
+    ev.preventDefault();
+    var holder = btn.closest('[data-ws]');
+    if (!holder || !holder.dataset.ws) return;
+    fetch(base + "workspaces/" + encodeURIComponent(holder.dataset.ws) + "/setup/retry", {
+      method: "POST",
+      body: "build=1",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      referrerPolicy: "no-referrer"
     }).catch(function () {
       toast("setup refused — an op or session holds this workspace", "warn");
     });
+  });
+  screenEl.addEventListener("click", function (ev) {
+    var btn = ev.target.closest('[data-act="setup-build-later"]');
+    if (!btn || btn.disabled) return;
+    ev.preventDefault();
+    var holder = btn.closest('[data-ws]');
+    var card = holder ? (cardByWs(holder.dataset.ws) || holder) : null;
+    if (card) showNote(card, "stayed stopped — build the set image under Settings → Images");
   });
 
   // VCS login panel (ADR 0035): copy the one-time code — the card-grid
@@ -389,8 +451,10 @@
   // chainStart runs the start op (queued-not-refused on the shared
   // opRunner) and continues the access chain once the workspace drains.
   // The requested access rides the POST (#154): a running container
-  // whose image edition diverges from the saved one answers the #115
-  // mismatch verdict instead of silently reusing — the card prompts.
+  // whose image diverges from the stored selection's derived set tag
+  // answers the mismatch verdict instead of silently reusing — the card
+  // prompts (#115, WP-6); a missing set image answers the build sidecar
+  // (Build now / Build later / Go back, WP-6).
   function chainStart(card, variant, then) {
     fetch(post(card, "start"), {
       method: "POST",
@@ -404,6 +468,10 @@
           showMismatchRow(card, variant, v);
           return;
         }
+        if (v.build) {
+          showBuildRow(card, variant, v);
+          return;
+        }
         if (v.ok === false) {
           showNote(card, v.error || "start refused");
           return;
@@ -413,22 +481,62 @@
       .catch(function () { showNote(card, "start failed — retry"); });
   }
 
-  // showMismatchRow renders the mismatch prompt (#115): Use current /
-  // Switch to <saved> / Cancel. The switch is the replacement the adopt
-  // confirm gates; the saved edition's image is checked server-side
-  // before anything stops (#117).
+  // showMismatchRow renders the mismatch prompt (#115, WP-6 re-key):
+  // Use current / Switch to <saved> / Cancel — the body is the member
+  // delta the server derived (added/removed ids, "toolchain recipes
+  // updated", the predates line for old-world refs, or the
+  // members-unknown line). The switch is the replacement the adopt
+  // confirm gates; the replacement is built inline before anything
+  // stops (never stop without a replacement, WP-6).
   function showMismatchRow(card, variant, v) {
     showRow(card,
-      '<span class="note">Edition mismatch — the container runs "' + v.running_edition +
-      '", the workspace is set to "' + v.saved_edition + '"</span>' +
+      '<span class="note">Set mismatch — the container runs ' + v.running +
+      ', the workspace is set to "' + v.saved + '"</span>' +
+      '<span class="note">' + v.body + '</span>' +
       '<button class="btn" data-act="mismatch-use" data-variant="' + variant + '">Use current</button>' +
       '<button class="btn danger" data-act="mismatch-switch" data-variant="' + variant +
-      '" data-saved="' + v.saved_edition + '">Switch to ' + v.saved_edition + '</button>' +
+      '" data-saved="' + v.saved + '">Switch to ' + v.saved + '</button>' +
       '<button class="btn" data-act="cancel-confirm">Cancel</button>');
   }
 
+  // showBuildRow renders the missing-set prompt (WP-6): Build now
+  // re-POSTs the start with build=1 — one queued op (missing components
+  // + assembly via build-images.sh) streamed into the card, then the
+  // start continues; Build later stays stopped with the Images hint;
+  // Go back closes the row.
+  function showBuildRow(card, variant, v) {
+    showRow(card,
+      '<span class="note">The set image (' + v.set + ') is not built — build it now?</span>' +
+      '<button class="btn" data-act="build-now" data-variant="' + variant + '">Build now</button>' +
+      '<button class="btn" data-act="build-later">Build later</button>' +
+      '<button class="btn" data-act="cancel-confirm">Go back</button>');
+  }
+
+  // The build row's moves ride the card's delegated click handler
+  // (data-act build-now / build-later below): Build now carries the
+  // originally requested variant so the access chain continues.
+  function buildNow(card, variant) {
+    fetch(post(card, "start"), {
+      method: "POST",
+      body: "variant=" + encodeURIComponent(variant) + "&build=1",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      referrerPolicy: "no-referrer"
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (v) {
+        if (v.ok === false) {
+          showNote(card, v.error || "build refused");
+          return;
+        }
+        waitForIdle(card).then(function (fresh) {
+          if (variant) continueAccess(fresh, variant);
+        });
+      })
+      .catch(function () { showNote(card, "build failed — retry"); });
+  }
+
   // The web-native adopt confirm (§9): both running-container
-  // replacements — the edition-mismatch switch and the web re-adopt —
+  // replacements — the toolchain-mismatch switch and the web re-adopt —
   // confirm first, because an agent may be mid-task inside the
   // container being replaced.
   function adoptConfirm(card, variant, title, body, okLabel) {
@@ -784,59 +892,166 @@
 
   function applyAgent(form) {
     var agentSel = q(form, '[data-role="wizard-agent"]');
-    var row = q(form, '[data-row="edition"]');
-    if (agentSel.value === "pkm") { // pkm pins the edition — the row hides
-      row.setAttribute("data-pkm-pin", "1");
-      setEdition(q(form, '[data-role="wizard-edition"]'), "pkm");
-    } else {
-      if (row.getAttribute("data-pkm-pin") !== null) {
-        row.removeAttribute("data-pkm-pin");
-        setEdition(q(form, '[data-role="wizard-edition"]'), "swdev"); // §6 preselect
+    var pinned = q(form, '[data-row="bundle"]');
+    if (agentSel.value === "pkm") {
+      // pkm pins the set to base only (ADR-0027) — the rows hide and the
+      // prior selection is remembered, restored on un-pin.
+      if (pinned && pinned.getAttribute("data-pkm-pin") === null) {
+        wizardPriorUnits = checkedUnits(form).join(",");
       }
+      if (pinned) pinned.setAttribute("data-pkm-pin", "1");
+      var unitsRow = q(form, '[data-row="toolchains"]');
+      if (unitsRow) unitsRow.setAttribute("data-pkm-pin", "1");
+      setUnits(form, []);
+      syncBundleRow(form);
+      return;
     }
-    if (row.getAttribute("data-pkm-pin") === null) applyEditionPreset(form);
+    if (pinned && pinned.getAttribute("data-pkm-pin") !== null) {
+      // un-pin restores the prior selection — never a hard-coded default
+      pinned.removeAttribute("data-pkm-pin");
+      var urow = q(form, '[data-row="toolchains"]');
+      if (urow) urow.removeAttribute("data-pkm-pin");
+      setUnits(form, (wizardPriorUnits || "").split(",").filter(Boolean));
+    }
+    syncBundleRow(form);
+    applyHILPreset(form);
+  }
+  // --- the toolchain set rows (toolchain sets #205, spec §9 WP-3): the
+  // bundle row is a chip preselect over the units multi-select — the
+  // multi-select is the payload, a bundle chip overwrites it, and
+  // editing it flips the bundle row to Custom (never auto-back).
+
+  // hilUnits are the §3 HIL hardware units: the HIL checkbox presets ON
+  // iff the selection contains any of them — a preset, not a pin.
+  var hilUnits = ["arm-embedded", "arduino", "platformio", "micropython",
+                  "picoscope", "pyvisa", "usb"];
+  // wizardPriorUnits remembers the selection across a pkm pin (the
+  // un-pin restores it) — in-memory like the drafts, same lifetime.
+  var wizardPriorUnits = "";
+
+  function wizardUnits(form) {
+    return Array.prototype.slice.call(
+      form.querySelectorAll('[data-role="wizard-units"] input[name="toolchain"]'));
+  }
+  function checkedUnits(form) {
+    return wizardUnits(form).filter(function (c) { return c.checked; })
+                            .map(function (c) { return c.value; });
+  }
+  function setUnits(form, ids) {
+    wizardUnits(form).forEach(function (c) {
+      c.checked = ids.indexOf(c.value) >= 0;
+    });
+  }
+  function sameSet(a, b) {
+    return a.slice().sort().join(",") === b.slice().sort().join(",");
+  }
+  function syncUnitsCount(form) {
+    var el = q(form, '[data-role="units-count"]');
+    if (!el) return;
+    el.textContent = checkedUnits(form).length + " of " +
+      wizardUnits(form).length + " selected";
+  }
+  // syncBundleRow derives the chips' pressed state from the selection:
+  // the bundle matching it exactly, else the Custom chip.
+  function syncBundleRow(form) {
+    var row = q(form, '[data-role="wizard-bundle"]');
+    if (!row) return;
+    syncChipRow(row.querySelectorAll(".edopt"),
+      row.querySelector('.edopt[data-bundle="custom"]'),
+      checkedUnits(form));
+    syncUnitsCount(form);
   }
 
-  // setEdition drives the .edotsel chip group: the hidden payload input
-  // value + the chips' pressed state move together.
-  function setEdition(holder, value) {
-    if (!holder) return;
-    holder.querySelector('input[name="edition"]').value = value;
-    holder.querySelectorAll(".edopt").forEach(function (b) {
-      b.setAttribute("aria-pressed", String(b.dataset.ed === value));
+  // syncChipRow re-derives a bundle-chip row's pressed states from the
+  // picked set — the one derivation behind both chip rows (the wizard's
+  // and the workspace settings', #205/#208): the chip whose members
+  // match the picked set exactly presses, the Custom chip presses when
+  // nothing matched (the same derivation the Go identity renders).
+  function syncChipRow(chips, customChip, picked) {
+    var custom = true;
+    chips.forEach(function (chip) {
+      var match = chip.dataset.members !== undefined &&
+        sameSet((chip.dataset.members || "").split(",").filter(Boolean), picked);
+      if (match) custom = false;
+      chip.setAttribute("aria-pressed", String(match));
+    });
+    if (customChip) customChip.setAttribute("aria-pressed", String(custom));
+  }
+
+  // applyHILPreset: the §3 rule — ON iff the selection contains any
+  // hardware unit. A preset, not a pin: the user can toggle it right
+  // back off in the same row.
+  function applyHILPreset(form) {
+    var hil = q(form, '[name="hil"]');
+    if (!hil) return;
+    hil.checked = checkedUnits(form).some(function (id) {
+      return hilUnits.indexOf(id) >= 0;
     });
   }
 
-  // Edition chips (#156, prototype ws-new .edotsel): one chip per
-  // edition; the click sets the hidden input (the confirm round-trip
-  // unaffected) and fires the HIL preset rule like the old select did.
-  // The Workspace-settings Advanced row (#157) uses the same chip
-  // group under data-role="settings-edition" — no HIL preset coupling
-  // there (the HIL row is its own checkbox).
+  // Bundle chips (#205) overwrite the wizard's units multi-select and
+  // fire the HIL preset rule; the Workspace-settings chips (#208) run
+  // their own settings-toolchains handler below.
   document.addEventListener("click", function (ev) {
     var chip = ev.target.closest(".edopt");
     if (!chip || chip.disabled) return;
-    var holder = chip.closest('[data-role="wizard-edition"], [data-role="settings-edition"]');
+    var holder = chip.closest('[data-role="wizard-bundle"]');
     if (!holder) return;
-    setEdition(holder, chip.dataset.ed);
     var form = holder.closest('[data-role="new-workspace-form"]');
-    if (form) applyEditionPreset(form);
+    if (!form) return;
+    setUnits(form, (chip.dataset.members || "").split(",").filter(Boolean));
+    syncBundleRow(form);
+    applyHILPreset(form);
   });
 
-  function applyEditionPreset(form) {
-    // §6: HIL presets on for embedded creations — a preset, not a pin:
-    // the user can toggle it right back off in the same row.
-    var ed = q(form, '[data-role="wizard-edition"]').value;
-    var hil = q(form, '[name="hil"]');
-    if (hil) hil.checked = ed === "embedded";
+  // --- Toolchains row (Workspace settings, #208, WP-4): the bundle
+  // chips are presets over the multi-select — a chip click checks
+  // exactly its members; editing the multi-select re-derives the pressed
+  // chip (exact member match, else Custom; the empty selection is the
+  // base-only ∅ the base chip stands for). The stored truth still posts
+  // as the checkbox list — the chips never carry a payload of their own.
+  function syncToolchainsRow(form) {
+    var holder = form && form.querySelector('[data-role="settings-toolchains"]');
+    if (!holder) return;
+    var picked = Array.prototype.slice.call(holder.querySelectorAll('input[name="toolchains"]:checked'))
+      .map(function (el) { return el.value; }).sort();
+    var count = holder.querySelector('[data-role="tc-count"]');
+    if (count) {
+      count.textContent = picked.length + " of " +
+        holder.querySelectorAll('input[name="toolchains"]').length + " selected";
+    }
+    syncChipRow(holder.querySelectorAll('[data-role="settings-bundles"] .edopt'),
+      holder.querySelector('[data-role="settings-bundles"] .edopt[data-bundle="custom"]'),
+      picked);
   }
+
+  document.addEventListener("click", function (ev) {
+    var chip = ev.target.closest('[data-role="settings-bundles"] .edopt');
+    if (!chip || chip.disabled) return;
+    var holder = chip.closest('[data-role="settings-toolchains"]');
+    var members = (chip.dataset.members || "").split(",").filter(Boolean);
+    holder.querySelectorAll('input[name="toolchains"]').forEach(function (el) {
+      if (el.disabled) return;
+      el.checked = members.indexOf(el.value) >= 0;
+    });
+    syncToolchainsRow(holder.closest("form"));
+  });
+
+  document.addEventListener("change", function (ev) {
+    if (ev.target.name !== "toolchains") return;
+    var holder = ev.target.closest('[data-role="settings-toolchains"]');
+    if (holder) syncToolchainsRow(holder.closest("form"));
+  });
 
   document.addEventListener("change", function (ev) {
     var form = wizardForm(ev.target);
     if (!form) return;
     if (ev.target.name === "source") applySource(form);
     else if (ev.target.name === "agent") applyAgent(form);
-    else if (ev.target.name === "edition") applyEditionPreset(form);
+    else if (ev.target.name === "toolchain") { // an edit flips the row to
+      syncBundleRow(form);                     // Custom and re-aims HIL
+      applyHILPreset(form);
+    }
   });
 
   // --- ADR-0026 exclusions live in the forms (openworkspace.applyOption
@@ -1138,9 +1353,9 @@
   }
 
   // Restore only replays the view state the controls drive (source row,
-  // PKM edition pin, chip pressed state) — never the live presets: the
-  // restored HIL checkbox is itself draft data and must not be reset by
-  // applyEditionPreset.
+  // pkm pin, chip pressed state, units count) — never the live presets:
+  // the restored HIL checkbox is itself draft data and must not be reset
+  // by applyHILPreset.
   function syncWizardDraftView(form) {
     var radio = repoSourceRadio();
     var repoRow = q(form, '[data-row="repo_url"]');
@@ -1149,30 +1364,25 @@
       else repoRow.setAttribute("data-repo-only", "1");
     }
     var agentSel = q(form, '[data-role="wizard-agent"]');
-    var edRow = q(form, '[data-row="edition"]');
-    var holder = q(form, '[data-role="wizard-edition"]');
-    if (!agentSel || !edRow || !holder) return;
-    if (agentSel.value === "pkm") {
-      edRow.setAttribute("data-pkm-pin", "1");
-      setEdition(holder, "pkm");
-      return;
+    var pinned = q(form, '[data-row="bundle"]');
+    if (!agentSel || !pinned) return;
+    if (agentSel.value === "pkm") { // pkm pins the set to base only
+      pinned.setAttribute("data-pkm-pin", "1");
+      var urow = q(form, '[data-row="toolchains"]');
+      if (urow) urow.setAttribute("data-pkm-pin", "1");
+    } else {
+      pinned.removeAttribute("data-pkm-pin");
+      var urow2 = q(form, '[data-row="toolchains"]');
+      if (urow2) urow2.removeAttribute("data-pkm-pin");
     }
-    edRow.removeAttribute("data-pkm-pin");
-    var ed = holder.querySelector('input[name="edition"]');
-    if (ed) setEdition(holder, ed.value);
+    syncBundleRow(form);
   }
 
   function applyDraftDerivations(form) {
     if (form.getAttribute("data-role") === "new-workspace-form") {
       syncWizardDraftView(form);
     }
-    // Both edition chip groups render a hidden input as the payload; a
-    // restored hidden value must move the chips with it.
-    var holder = form.querySelector('[data-role="wizard-edition"], [data-role="settings-edition"]');
-    if (holder) {
-      var ed = holder.querySelector('input[name="edition"]');
-      if (ed) setEdition(holder, ed.value);
-    }
+    syncToolchainsRow(form); // the settings multi-select re-derives its pressed chip
     var kind = form.querySelector('select[name="kind"]');
     if (kind) { // VCS Host visibility follows the restored tracker kind
       var host = form.querySelector('[data-field="host"]');
@@ -1410,11 +1620,22 @@
       );
       return;
     }
-    go(tagParam(btn));
+    go(btn.dataset.form || tagParam(btn));
+  });
+
+  // The Containers screen's missing-set prompt (WP-6): Build later and
+  // Go back both reload the plain screen — stay-stopped, the Images
+  // hint rides the prompt note.
+  screenEl.addEventListener("click", function (ev) {
+    var btn = ev.target.closest('[data-act="containers-reload"]');
+    if (!btn || btn.disabled) return;
+    ev.preventDefault();
+    loadScreen(screenPaths["set-containers"] || "containers");
   });
 
   // tagParam renders the images payload of a tagged screen button
-  // (single-image build/delete); untagged buttons post bare.
+  // (single-image build/delete); untagged buttons post bare. data-form
+  // carries a custom form body (the Containers screen's Build now row).
   function tagParam(btn) {
     return btn.dataset.tag ? "tag=" + encodeURIComponent(btn.dataset.tag) : null;
   }

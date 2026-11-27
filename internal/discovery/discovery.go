@@ -1,14 +1,11 @@
-// Package discovery provides the live runtime adapters of the TUI: edition
-// registry (Dockerfile stage names, ADR 0019), container modes from start.sh
-// --help, and podman queries. Every call is fresh — nothing is cached — and
-// all external commands go through an injected runner.
+// Package discovery provides the live runtime adapters of the WebUI:
+// container modes from start.sh --help, toolchain-set discovery
+// (toolchains.go), and podman queries. Every call is fresh — nothing
+// is cached — and all external commands go through an injected runner.
 package discovery
 
 import (
-	"bufio"
 	"errors"
-	"fmt"
-	"os"
 	"regexp"
 	"slices"
 	"strings"
@@ -17,129 +14,19 @@ import (
 	"github.com/shredingerlabs/oc-sandbox/internal/registry"
 )
 
-var stageRe = regexp.MustCompile(`^\s*FROM\s+(\S+)\s+AS\s+opencode-sandbox-(\S+)\s*(#.*)?$`)
-var editionNameRe = regexp.MustCompile(`^[a-z0-9_-]+$`)
-
-// Editions greps Dockerfile and Dockerfile.custom for stage names
-// (base stages first, custom stages appended, duplicates and invalid names
-// skipped with warnings). dockerfileCustom may be "" / missing.
-func Editions(dockerfile, dockerfileCustom string) ([]string, error) {
-	if _, err := os.Stat(dockerfile); err != nil {
-		return nil, fmt.Errorf("dist/Dockerfile not found")
-	}
-	var names []string
-	names = append(names, extractStages(dockerfile)...)
-	if dockerfileCustom != "" {
-		if _, err := os.Stat(dockerfileCustom); err == nil {
-			names = append(names, extractStages(dockerfileCustom)...)
-		}
-	}
-	seen := map[string]bool{}
-	var editions []string
-	for _, name := range names {
-		if !editionNameRe.MatchString(name) {
-			fmt.Fprintf(os.Stderr, "Warning: Dockerfile stage name 'opencode-sandbox-%s' contains invalid characters — stage skipped.\n", name)
-			continue
-		}
-		if seen[name] {
-			fmt.Fprintf(os.Stderr, "Warning: stage name 'opencode-sandbox-%s' found in Dockerfile and Dockerfile.custom — edition skipped.\n", name)
-			continue
-		}
-		seen[name] = true
-		editions = append(editions, name)
-	}
-	if len(editions) == 0 {
-		return nil, errors.New("no valid container stages found in Dockerfile/Dockerfile.custom")
-	}
-	return editions, nil
-}
-
-// SelectableEditions returns the editions offered in the menus that select a
-// workspace's edition: the raw stage list without `base`, whose stage is the
-// parent image other editions build FROM — infrastructure, not workspace
-// material (ADR 0019 amendment). Container center Build tab, build-container.sh
-// and start.sh keep using Editions.
-func SelectableEditions(dockerfile, dockerfileCustom string) ([]string, error) {
-	eds, err := Editions(dockerfile, dockerfileCustom)
-	if err != nil {
-		return nil, err
-	}
-	var selectable []string
-	for _, e := range eds {
-		if e == "base" {
-			continue
-		}
-		selectable = append(selectable, e)
-	}
-	if len(selectable) == 0 {
-		return nil, errors.New("no selectable container editions in Dockerfile/Dockerfile.custom (only 'base')")
-	}
-	return selectable, nil
-}
-
-// ParentStages maps each discovered edition stage to its FROM parent
-// image (Dockerfile stages first, custom stages appended, custom
-// duplicates of a Dockerfile stage ignored — same precedence as
-// Editions). dockerfileCustom may be "" / missing; unreadable files
-// contribute nothing.
-func ParentStages(dockerfile, dockerfileCustom string) map[string]string {
-	parents := map[string]string{}
-	add := func(path string) {
-		f, err := os.Open(path)
-		if err != nil {
-			return
-		}
-		defer f.Close()
-		sc := bufio.NewScanner(f)
-		for sc.Scan() {
-			line := sc.Text()
-			if strings.HasPrefix(strings.TrimSpace(line), "#") {
-				continue
-			}
-			if m := stageRe.FindStringSubmatch(line); m != nil {
-				if _, dup := parents[m[2]]; !dup { // first definition wins (Editions precedent)
-					parents[m[2]] = m[1]
-				}
-			}
-		}
-	}
-	add(dockerfile)
-	if dockerfileCustom != "" {
-		add(dockerfileCustom)
-	}
-	return parents
-}
-
-func extractStages(path string) []string {
-	f, err := os.Open(path)
-	if err != nil {
-		return nil
-	}
-	defer f.Close()
-	var names []string
-	sc := bufio.NewScanner(f)
-	for sc.Scan() {
-		line := sc.Text()
-		if regexp.MustCompile(`^\s*#`).MatchString(line) {
-			continue
-		}
-		if m := stageRe.FindStringSubmatch(line); m != nil {
-			names = append(names, m[2])
-		}
-	}
-	return names
-}
-
 var reservedModes = map[string]bool{
 	"start_opencode": true,
 	"start_web":      true,
 	"edition":        true,
-	"detach":         true,
-	"container-id":   true,
-	"help":           true,
-	"use_proxy":      true,
-	"use_stt":        true,
-	"search_mode":    true,
+	// toolchain sets (#200): --toolchains selects the set (like the retired
+	// --edition), never a start mode
+	"toolchains":   true,
+	"detach":       true,
+	"container-id": true,
+	"help":         true,
+	"use_proxy":    true,
+	"use_stt":      true,
+	"search_mode":  true,
 }
 
 var flagRe = regexp.MustCompile(`(?m)(^|\s)--([a-zA-Z0-9_-]+)`)
@@ -187,7 +74,7 @@ func RunningContainers(run cmdrun.Runner) []string {
 }
 
 // ContainerImage is one live `podman ps` row: the container name and
-// the image it runs (the edition read is off the image, never config).
+// the image it runs (the legacy read is off the image, never config).
 type ContainerImage struct {
 	Name  string
 	Image string
@@ -212,22 +99,26 @@ func RunningContainersWithImages(run cmdrun.Runner) []ContainerImage {
 	return all
 }
 
-// EditionFromImage parses the edition out of an
-// `opencode-sandbox-<edition>` image reference, ignoring any registry
-// prefix and tag/digest suffix; "" when the image is not an edition
-// image (bare podman build images are tagged exactly
-// `opencode-sandbox-<stage>`, so the suffix right after the marker is
-// the edition).
-func EditionFromImage(image string) string {
-	i := strings.LastIndex(image, "opencode-sandbox-")
-	if i < 0 {
-		return ""
+// SetMembers reads a set image's sorted member list off its `members`
+// label (spec toolchain-sets §6 — the WebUI enumerates set content by
+// label, never tag parsing); ok=false when the label is absent or
+// unreadable (the delta then renders the honest members-unknown line).
+func SetMembers(run cmdrun.Runner, image string) ([]string, bool) {
+	out, err := run.Output("podman", "image", "inspect", "--format",
+		`{{index .Config.Labels "members"}}`, image)
+	if err != nil {
+		return nil, false
 	}
-	ed := image[i+len("opencode-sandbox-"):]
-	if j := strings.IndexAny(ed, ":@"); j >= 0 {
-		ed = ed[:j]
+	var members []string
+	for _, l := range cmdrun.Lines(out) { // the label is one comma-joined
+		members = append(members, // line; fakes may answer it split
+			strings.Split(l, ",")...)
 	}
-	return ed
+	if len(members) == 0 {
+		return nil, false
+	}
+	slices.Sort(members)
+	return members, true
 }
 
 // ContainerState is one `podman ps -a` row: the container name and its
@@ -337,24 +228,24 @@ type SandboxImage struct {
 
 // SearxngImageTag is the fixed tag of the shared SearXNG search image:
 // an infra image like oc-proxy, built from dist/searxng/Dockerfile and
-// never offered as a workspace edition.
+// never a toolchain unit.
 const SearxngImageTag = "oc-searxng"
 
 // SttImageTag is the fixed tag of the shared speech-to-text (dictation)
 // image: the whisper.cpp server with a baked small ggml model, an infra
-// image like oc-searxng, built from dist/stt/Dockerfile and never
-// offered as a workspace edition (ADR 0036).
+// image like oc-searxng, built from dist/stt/Dockerfile and never a
+// toolchain unit (ADR 0036).
 const SttImageTag = "oc-stt"
 
 // ProxyImageTag is the fixed tag of the shared squid proxy image: an
-// infra image like oc-searxng, built from proxy/Dockerfile and never
-// offered as a workspace edition.
+// infra image like oc-searxng, built from proxy/Dockerfile and never a
+// toolchain unit.
 const ProxyImageTag = "oc-proxy"
 
-// BaseImageRef is the bare image ref of the family's infrastructure
-// stage: the parent stage every shipped edition builds FROM (ADR 0019
-// amendment). Delete Images pins it by this constant without the
-// Dockerfiles.
+// BaseImageRef is the bare image ref of the family's base image repo:
+// the image every component build and set assembly derives FROM
+// (content-addressed tags carry the repo prefix). Delete Images pins it
+// by this constant.
 const BaseImageRef = "opencode-sandbox-base"
 
 // infraImage reports whether an image reference is one of the shared
@@ -371,11 +262,11 @@ func infraImage(ref string) bool {
 }
 
 // SandboxImageTag reports whether a podman image reference belongs to
-// the sandbox family: tagged `opencode-sandbox-<edition>` (any registry
-// prefix, tag/digest suffix) or one of the infra images (oc-proxy,
-// oc-searxng, oc-stt).
+// the sandbox family: any base/tc/set/Legacy `opencode-sandbox-*` ref
+// (any registry prefix, tag/digest suffix) or one of the infra images
+// (oc-proxy, oc-searxng, oc-stt).
 func SandboxImageTag(ref string) bool {
-	return EditionFromImage(ref) != "" || infraImage(ref)
+	return ParseImageRef(ref).Kind != RefUnrelated || infraImage(ref)
 }
 
 // SandboxImages lists every sandbox-family image with its tag and size
@@ -398,6 +289,44 @@ func SandboxImages(run cmdrun.Runner) []SandboxImage {
 	return all
 }
 
+// SetImage is one built set image row, enumerated by label (spec
+// toolchain-sets §6 — the WebUI never parses set tags): the full tag,
+// the size, and the sorted member list from the image's `members` label.
+type SetImage struct {
+	Tag     string
+	Size    string
+	Members []string // sorted member ids (the `members` label)
+}
+
+// SetImages lists every built set image (`podman images --filter
+// label=kind=set` — enumeration by label, never tag parsing) with its
+// size and members label; a missing/empty members label yields a nil
+// member list (the base-only set). Errors yield an empty list
+// (podman-output based, like the podman ps adapters).
+func SetImages(run cmdrun.Runner) []SetImage {
+	out, err := run.Output("podman", "images", "--filter", "label=kind=set",
+		"--format", `{{.Repository}}:{{.Tag}}`+"\t"+`{{.Size}}`+"\t"+`{{ index .Labels "members" }}`)
+	if err != nil {
+		return nil
+	}
+	var all []SetImage
+	for _, l := range cmdrun.Lines(out) {
+		tag, rest, ok := strings.Cut(l, "\t")
+		if !ok {
+			continue
+		}
+		size, members, _ := strings.Cut(rest, "\t")
+		m := ParseImageRef(tag)
+		if m.Kind != RefSet {
+			continue
+		}
+		si := SetImage{Tag: tag, Size: size, Members: strings.Fields(members)}
+		slices.Sort(si.Members)
+		all = append(all, si)
+	}
+	return all
+}
+
 // ContainerImageRefs lists the image references of every container in
 // any state (`podman ps -a`, unfiltered — the oc-proxy container is not
 // an oc-sandbox container); errors yield an empty list (bash `|| true`).
@@ -409,29 +338,8 @@ func ContainerImageRefs(run cmdrun.Runner) []string {
 	return cmdrun.Lines(out)
 }
 
-// ImageInUse reports whether any container image reference matches a
-// sandbox-family tag: edition images match on the edition suffix (the
-// container's ref carries no registry prefix or tag), infra images
-// (oc-proxy, oc-searxng, oc-stt) by name.
-func ImageInUse(refs []string, tag string) bool {
-	if ed := EditionFromImage(tag); ed != "" {
-		return slices.ContainsFunc(refs, func(ref string) bool {
-			return EditionFromImage(ref) == ed
-		})
-	}
-	return slices.ContainsFunc(refs, func(ref string) bool {
-		return infraImage(ref) && infraImage(tag)
-	})
-}
-
-// ImageExists reports whether the edition's image exists in podman.
-func ImageExists(run cmdrun.Runner, edition string) bool {
-	_, err := run.Output("podman", "image", "exists", "opencode-sandbox-"+edition)
-	return err == nil
-}
-
 // ImageExistsTag reports whether an arbitrary image tag exists in podman
-// (infra images live outside the opencode-sandbox-<edition> namespace).
+// (the content-addressed family tags and the infra images).
 func ImageExistsTag(run cmdrun.Runner, tag string) bool {
 	_, err := run.Output("podman", "image", "exists", tag)
 	return err == nil

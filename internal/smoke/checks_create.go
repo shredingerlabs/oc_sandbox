@@ -32,9 +32,9 @@ func checkCreateChain(home, root string) Item {
 			DefaultWorkspacePath: filepath.Join(home, "ws"),
 			InitScript:           filepath.Join(dist, "scripts", "init-workspace.sh"),
 			ConfigureScript:      filepath.Join(dist, "scripts", "configure-workspace.sh"),
-			BuildScript:          filepath.Join(dist, "scripts", "build-container.sh"),
+			BuildImagesScript:    filepath.Join(dist, "scripts", "build-images.sh"),
+			InfraRoot:            dist,
 			StartScript:          filepath.Join(dist, "scripts", "start.sh"),
-			Dockerfile:           filepath.Join(dist, "Dockerfile"),
 		},
 	})
 	if err := s.Start(); err != nil {
@@ -66,15 +66,20 @@ func checkCreateChain(home, root string) Item {
 		return resp, b.String()
 	}
 
-	// the wizard fragment: editions from the real Dockerfile registry,
-	// swdev preselected (§6), catalog selects (pick-only — no inline
-	// New…) with the VCS token input inline.
+	// the wizard fragment: the bundle row from the real toolchains
+	// catalog, swdev preselected (§6), catalog selects (pick-only — no
+	// inline New…) with the VCS token input inline.
 	resp, body := get2(s.URL() + "workspaces/new")
 	if resp == nil || resp.StatusCode != http.StatusOK {
 		p.reasonf("GET /workspaces/new: want 200, got %v", respStatusCT(resp))
 		return p.finish()
 	}
-	for _, want := range []string{`data-role="new-workspace-form"`, `value="swdev"`, `name="vcs_token"`, `Settings › VCS Tracker`} {
+	for _, want := range []string{
+		`data-role="new-workspace-form"`,
+		`data-bundle="swdev" data-members="cpp,go,java,rust" aria-pressed="true"`,
+		`data-role="wizard-units"`, `name="toolchain"`,
+		`name="vcs_token"`, `Settings › VCS Tracker`,
+	} {
 		if !strings.Contains(body, want) {
 			p.reasonf("wizard fragment misses %q", want)
 		}
@@ -94,13 +99,16 @@ func checkCreateChain(home, root string) Item {
 	}
 
 	// create-summary confirm (TUI confirm set 1:1) — nothing runs yet.
-	form := map[string]string{
-		"source": "blank", "name": "smoke-ws", "agent": "code", "edition": "swdev",
-		"vcs": "Smoke GitHub", "vcs_token": "smoke-vcs-token", "provider": "none",
+	vals := url.Values{
+		"source": {"blank"}, "name": {"smoke-ws"}, "agent": {"code"},
+		"vcs": {"Smoke GitHub"}, "vcs_token": {"smoke-vcs-token"}, "provider": {"none"},
 	}
-	resp, body = post(s.URL()+"workspaces", form)
+	for _, id := range swdevToolchains {
+		vals.Add("toolchain", id)
+	}
+	resp, body = postVals(s.URL()+"workspaces", vals)
 	if resp == nil || !strings.Contains(body, `data-role="create-confirm"`) ||
-		!strings.Contains(body, "edition: swdev") {
+		!strings.Contains(body, "toolchains: cpp, go, java, rust") {
 		p.reasonf("confirm popup missing or incomplete")
 		return p.finish()
 	}
@@ -111,8 +119,8 @@ func checkCreateChain(home, root string) Item {
 
 	// confirm=1: the ONE create-chain task — init-workspace.sh (real)
 	// then the configure tail. The workspace registers when it ends.
-	form["confirm"] = "1"
-	resp, body = post(s.URL()+"workspaces", form)
+	vals.Set("confirm", "1")
+	resp, body = postVals(s.URL()+"workspaces", vals)
 	if resp == nil || resp.StatusCode != http.StatusOK || !strings.Contains(body, `data-role="create-log"`) {
 		p.reasonf("launch response missing the log pane")
 		return p.finish()
@@ -147,7 +155,7 @@ func checkCreateChain(home, root string) Item {
 		p.reasonf("sandbox_config.json: %v", scErr)
 		return p.finish()
 	}
-	for _, want := range []string{`"start_option": "web"`, `"search_mode": "searxng"`, `"container_edition": "swdev"`, `"use_stt": true`} {
+	for _, want := range []string{`"start_option": "web"`, `"search_mode": "searxng"`, `"toolchains": [`, `"cpp"`, `"go"`, `"java"`, `"rust"`, `"use_stt": true`} {
 		if !strings.Contains(string(sc), want) {
 			p.reasonf("sandbox_config.json misses %q", want)
 		}
@@ -167,13 +175,16 @@ func checkCreateChain(home, root string) Item {
 	// Standard-shaped post without use_stt fields never writes false —
 	// the Create default (use_stt: true) survives (asserted above). An
 	// Advanced post with the row rendered but unchecked writes false.
-	form2 := map[string]string{
-		"source": "blank", "name": "smoke-ws-off", "agent": "code", "edition": "swdev",
-		"vcs": "Smoke GitHub", "vcs_token": "smoke-vcs-token", "provider": "none",
-		"use_stt_present": "1", // row rendered, checkbox absent = unchecked
+	vals2 := url.Values{
+		"source": {"blank"}, "name": {"smoke-ws-off"}, "agent": {"code"},
+		"vcs": {"Smoke GitHub"}, "vcs_token": {"smoke-vcs-token"}, "provider": {"none"},
+		"use_stt_present": {"1"}, // row rendered, checkbox absent = unchecked
 	}
-	form2["confirm"] = "1"
-	resp, body = post(s.URL()+"workspaces", form2)
+	for _, id := range swdevToolchains {
+		vals2.Add("toolchain", id)
+	}
+	vals2.Set("confirm", "1")
+	resp, body = postVals(s.URL()+"workspaces", vals2)
 	if resp == nil || resp.StatusCode != http.StatusOK || !strings.Contains(body, `data-role="create-log"`) {
 		p.reasonf("second launch (use_stt off) missing the log pane")
 		return p.finish()
@@ -222,6 +233,26 @@ func checkCreateChain(home, root string) Item {
 	_ = body
 
 	return p.finish()
+}
+
+// postVals posts a multi-valued form (the toolchain checkboxes repeat
+// their key).
+func postVals(target string, vals url.Values) (*http.Response, string) {
+	resp, err := http.PostForm(target, vals)
+	if err != nil {
+		return nil, ""
+	}
+	defer resp.Body.Close()
+	b := new(strings.Builder)
+	buf := make([]byte, 4096)
+	for {
+		n, err := resp.Body.Read(buf)
+		b.Write(buf[:n])
+		if err != nil {
+			break
+		}
+	}
+	return resp, b.String()
 }
 
 func rootExists(home, name string) bool {

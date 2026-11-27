@@ -1,5 +1,7 @@
 # Dockerfile Stage Names as the Container-Edition Registry
 
+> **Status: superseded by ADR 0042 (toolchain sets) and ADR 0044 (lazy migration)** — editions are no longer Dockerfile stages; the stage grep, `build-container.sh`, and the edition stages die in the single-cutover update. ADR 0043 records the composition mechanism that replaces stage targets.
+
 Supersedes the edition half of ADR 0008 (mode discovery stays help-text-based). Editions were previously hardwired in three places — Dockerfile stages, `build-container.sh` case branches, and the `start.sh` whitelist — with the TUI discovering them by parsing `build-container.sh --help`. Now the canonical registry is Dockerfile stage naming: every stage named `opencode-sandbox-<name>` (via `FROM ... AS`) in `dist/Dockerfile` or `dist/Dockerfile.custom` is a user-selectable edition; discovery greps those files live at each menu render. This lets users add their own editions by editing `Dockerfile.custom` without touching any script.
 
 ## Considered Options

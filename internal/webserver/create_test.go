@@ -2,6 +2,7 @@ package webserver
 
 import (
 	"bufio"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/url"
@@ -22,8 +23,8 @@ import (
 // --- create-chain test harness (#156) --------------------------------------
 
 // createFixture builds a temp home with the install-layout paths the
-// wizard touches (Dockerfile edition registry fixture + script paths)
-// and a started test server wired with a cmdrun.Fake. The scripts never
+// wizard touches (script paths + the toolchains tree) and a started
+// test server wired with a cmdrun.Fake. The scripts never
 // really run — the Fake records the invocation vectors the TUI contract
 // prescribes, so assertions stay on externally visible behavior.
 type createFixture struct {
@@ -32,10 +33,110 @@ type createFixture struct {
 	home string
 }
 
-const dockerfileFixture = `FROM scratch AS opencode-sandbox-base
-FROM opencode-sandbox-base AS opencode-sandbox-swdev
-FROM opencode-sandbox-base AS opencode-sandbox-embedded
-`
+// toolchainsManifestFixture is the shipped bundle map (spec toolchain-sets
+// §3 — also the legacy container_edition migration mapping).
+const toolchainsManifestFixture = `{"bundles": {
+  "web": ["node-dev", "playwright"],
+  "embedded": ["go", "arm-embedded", "arduino", "platformio", "micropython", "picoscope", "pyvisa", "usb"],
+  "swdev": ["cpp", "rust", "java", "go"],
+  "matlab": ["octave", "python-science"],
+  "ros2": ["ros2"],
+  "writing": ["libreoffice", "pandoc", "fonts"],
+  "latex": ["latex", "pdf-tools", "pandoc", "fonts", "python-science"],
+  "chat": [],
+  "pkm": []
+}}`
+
+// tcFixtureIDs are the §3 unit ids the fixture seeds one valid recipe
+// per — every bundle resolves, the multi-select lists 21 units.
+var tcFixtureIDs = []string{
+	"arduino", "arm-embedded", "cpp", "fonts", "go", "java", "latex",
+	"libreoffice", "micropython", "node-dev", "octave", "pandoc",
+	"pdf-tools", "picoscope", "platformio", "playwright",
+	"python-science", "pyvisa", "ros2", "rust", "usb",
+}
+
+// tcRecipeFixture is a minimal valid recipe (apt is exempt from pins).
+const tcRecipeFixture = "RUN apt-get install -y ca-certificates\n"
+
+// tcBaseFixture is the fixed base recipe (identity hashes its bytes).
+const tcBaseFixture = "FROM ubuntu:24.04\n"
+
+// tcRootOf resolves a fixture install layout's toolchains dir — the
+// bundle-map root the config read path expands legacy editions through.
+func tcRootOf(home string) string {
+	return filepath.Join(home, ".oc-sandbox", "toolchains")
+}
+
+// seedToolchainsManifest writes the bundle map into the fixture install
+// layout (both the server's LayoutFor resolution and direct reads use it)
+// plus a minimal valid recipe per bundle member — a manifest member
+// without a recipe invalidates its bundle, so screens deriving bundles
+// from live discovery need the units on disk too.
+func seedToolchainsManifest(t *testing.T, home string) {
+	t.Helper()
+	dir := tcRootOf(home)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "manifest.json"), []byte(toolchainsManifestFixture), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// The fixed base recipe — every derived tag hashes its bytes (spec §6).
+	if err := os.WriteFile(filepath.Join(dir, "base.Dockerfile"), []byte(tcBaseFixture), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	recipes := filepath.Join(dir, "recipes")
+	if err := os.MkdirAll(recipes, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	var manifest struct {
+		Bundles map[string][]string `json:"bundles"`
+	}
+	if err := json.Unmarshal([]byte(toolchainsManifestFixture), &manifest); err != nil {
+		t.Fatal(err)
+	}
+	seen := map[string]bool{}
+	for _, members := range manifest.Bundles {
+		for _, id := range members {
+			if seen[id] {
+				continue
+			}
+			seen[id] = true
+			// apt installs are pin-exempt — the minimal valid recipe.
+			if err := os.WriteFile(filepath.Join(recipes, id+".Dockerfile"), []byte("RUN apt-get install -y curl\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+}
+
+// seedToolchains writes the full fixture toolchains dir: base recipe,
+// the bundle manifest and one valid recipe per §3 unit id.
+func seedToolchains(t *testing.T, home string) {
+	t.Helper()
+	seedToolchainsManifest(t, home)
+	dir := tcRootOf(home)
+	if err := os.MkdirAll(filepath.Join(dir, "recipes"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "base.Dockerfile"), []byte(tcBaseFixture), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range tcFixtureIDs {
+		if err := os.WriteFile(filepath.Join(dir, "recipes", id+".Dockerfile"), []byte(tcRecipeFixture), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// dropRecipe removes one unit's recipe — the missing-member bundle case.
+func dropRecipe(t *testing.T, home, id string) {
+	t.Helper()
+	if err := os.Remove(filepath.Join(tcRootOf(home), "recipes", id+".Dockerfile")); err != nil {
+		t.Fatal(err)
+	}
+}
 
 // errTestImageMissing mirrors podman's non-zero exit for a missing image.
 var errTestImageMissing = errors.New("exit status 1")
@@ -47,9 +148,7 @@ func newCreateFixture(t *testing.T, script func(name string, args []string) (str
 	if err := os.MkdirAll(filepath.Join(install, "scripts"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(install, "Dockerfile"), []byte(dockerfileFixture), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	seedToolchains(t, home)
 	fake := &cmdrun.Fake{Script: script}
 	s := New(Options{
 		BasePort: 0,
@@ -61,8 +160,8 @@ func newCreateFixture(t *testing.T, script func(name string, args []string) (str
 			StartScript:          filepath.Join(install, "scripts", "start.sh"),
 			InitScript:           filepath.Join(install, "scripts", "init-workspace.sh"),
 			ConfigureScript:      filepath.Join(install, "scripts", "configure-workspace.sh"),
-			BuildScript:          filepath.Join(install, "scripts", "build-container.sh"),
-			Dockerfile:           filepath.Join(install, "Dockerfile"),
+			BuildImagesScript:    filepath.Join(install, "scripts", "build-images.sh"),
+			InfraRoot:            install,
 		},
 	})
 	if err := s.Start(); err != nil {
@@ -85,12 +184,12 @@ func imageExistsScript(exists bool) func(string, []string) (string, error) {
 	}
 }
 
-// buildMakesImageScript flips the image existence once build-container.sh
+// buildMakesImageScript flips the image existence once build-images.sh
 // has run — the fresh re-check the chain performs after the build.
 func buildMakesImageScript() func(string, []string) (string, error) {
 	exists := false
 	return func(name string, args []string) (string, error) {
-		if name == "bash" && len(args) > 0 && strings.HasSuffix(args[0], "build-container.sh") {
+		if name == "bash" && len(args) > 0 && strings.HasSuffix(args[0], "build-images.sh") {
 			exists = true
 			return "", nil
 		}
@@ -99,13 +198,9 @@ func buildMakesImageScript() func(string, []string) (string, error) {
 }
 
 // postForm posts an urlencoded wizard payload to POST /workspaces.
-func (f createFixture) postForm(t *testing.T, vals map[string]string) *http.Response {
+func (f createFixture) postForm(t *testing.T, vals url.Values) *http.Response {
 	t.Helper()
-	form := url.Values{}
-	for k, v := range vals {
-		form.Set(k, v)
-	}
-	resp, err := http.Post(f.s.URL()+"workspaces", "application/x-www-form-urlencoded", strings.NewReader(form.Encode()))
+	resp, err := http.Post(f.s.URL()+"workspaces", "application/x-www-form-urlencoded", strings.NewReader(vals.Encode()))
 	if err != nil {
 		t.Fatalf("POST /workspaces: %v", err)
 	}
@@ -128,18 +223,58 @@ func (f createFixture) seedCatalog(t *testing.T) {
 	}
 }
 
-// blankForm is the minimal Standard-mode create payload (image exists).
-func (f createFixture) blankForm() map[string]string {
-	return map[string]string{
-		"source":       "blank",
-		"name":         "demo",
-		"agent":        "code",
-		"edition":      "swdev",
-		"vcs":          "none",
-		"provider":     "none",
-		"start_option": "web",
-		"search_mode":  "searxng",
-		"proxy":        "no",
+// blankForm is the minimal create payload (image exists): the §6 preset
+// selection — the swdev bundle's members as the toolchain multi-select.
+func (f createFixture) blankForm() url.Values {
+	return url.Values{
+		"source":       {"blank"},
+		"name":         {"demo"},
+		"agent":        {"code"},
+		"toolchain":    {"cpp", "go", "java", "rust"},
+		"vcs":          {"none"},
+		"provider":     {"none"},
+		"start_option": {"web"},
+		"search_mode":  {"searxng"},
+		"proxy":        {"no"},
+	}
+}
+
+// A custom selection (no bundle match) persists exactly the posted ids,
+// canonicalized sorted per ADR 0042 — the HIL checkbox rides the posted
+// preset (the JS preset rule checked it before the post).
+func TestCreateChainCustomSelection(t *testing.T) {
+	f := newCreateFixture(t, imageExistsScript(true))
+	sse := sseReader(t, f.s)
+	vals := f.blankForm()
+	vals["toolchain"] = []string{"usb", "go"} // unordered post → canonical sorted
+	vals.Set("hil", "on")
+	f.confirm(t, vals)
+	waitDone(t, sse)
+	root := registry.CanonicalPath(f.home + "/ws/demo")
+	cfg, err := sandboxcfg.Read(sandboxcfg.Path(root), tcRootOf(f.home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(cfg.Toolchains, []string{"go", "usb"}) || !cfg.ToolchainsStored {
+		t.Fatalf("toolchains = %+v, want [go usb]", cfg.Toolchains)
+	}
+	if len(cfg.ContainerModes) != 1 || cfg.ContainerModes[0] != "hil_mode" {
+		t.Fatalf("modes = %v, want [hil_mode]", cfg.ContainerModes)
+	}
+}
+
+// The confirm popup's hidden round-trip carries every selected id — a
+// repeated form key must not collapse to its first value on the way
+// back.
+func TestCreateConfirmRoundTripsAllIDs(t *testing.T) {
+	f := newCreateFixture(t, imageExistsScript(true))
+	vals := f.blankForm()
+	vals["toolchain"] = []string{"cpp", "go", "java", "rust"}
+	doc := readAll(t, f.postForm(t, vals))
+	for _, id := range []string{"cpp", "go", "java", "rust"} {
+		if !strings.Contains(doc, `name="toolchain" value="`+id+`"`) {
+			t.Errorf("confirm round-trip loses toolchain %s:\n%s", id, doc)
+		}
 	}
 }
 
@@ -165,8 +300,14 @@ func TestNewWorkspaceFormStandard(t *testing.T) {
 		`name="repo_url"`,              // From Repo URL input
 		`name="name"`,                  // workspace name row
 		`name="agent"`, `value="code"`, // Agent row, code default
-		`value="pkm"`,                     // pkm pins the edition
-		`name="edition"`, `value="swdev"`, // Edition preselected swdev
+		`value="pkm"`,                       // pkm pins the set to base only
+		`data-role="wizard-bundle"`,         // the bundle row (today's Edition slot)
+		`data-bundle="swdev"`,               // the 9 bundles as chips …
+		`data-bundle="custom"`,              // … plus the Custom state
+		`data-role="wizard-units"`,          // the units multi-select
+		`name="toolchain"`,                  // checkbox per discovered unit
+		`name="units_present"`,              // the deactivation sentinel (empty-selection posts)
+		`data-role="units-count"`,           // "n of m selected" header
 		`name="vcs"`,                        // VCS-credential select
 		`name="vcs_token"`,                  // …with its token input inline (AI-Provider parity)
 		`name="provider"`,                   // AI-provider select
@@ -181,12 +322,146 @@ func TestNewWorkspaceFormStandard(t *testing.T) {
 			t.Errorf("wizard fragment misses %q", want)
 		}
 	}
+	// the §6 default: the swdev bundle preselected, its members checked
+	// in the multi-select, "4 of 21 selected" in the header
+	for _, want := range []string{
+		`data-bundle="swdev" data-members="cpp,go,java,rust" aria-pressed="true"`,
+		`>4 of 21 selected<`,
+	} {
+		if !strings.Contains(doc, want) {
+			t.Errorf("wizard default selection misses %q", want)
+		}
+	}
+	if n := strings.Count(doc, `aria-pressed="true"`); n != 1 {
+		t.Errorf("bundle pressed chips = %d, want 1 (swdev)", n)
+	}
 	// inline catalog editing is gone in both modes (Settings › VCS
 	// Tracker / AI-Provider own the entries — the wizard only picks).
-	for _, gone := range []string{`>New…</option>`, `>Add provider…</option>`, `name="vcs_kind"`, `name="provider_endpoint"`} {
+	for _, gone := range []string{`>New…</option>`, `>Add provider…</option>`, `name="vcs_kind"`, `name="provider_endpoint"`, `name="edition"`} {
 		if strings.Contains(doc, gone) {
-			t.Errorf("wizard must not offer inline catalog editing: found %q", gone)
+			t.Errorf("wizard must not carry the old edition row or inline catalog editing: found %q", gone)
 		}
+	}
+}
+
+// The bundle row (spec §9 WP-3): the 9 manifest bundles as chips, chat
+// and pkm rendered "base only", the Custom chip unpressed on the
+// default selection.
+func TestNewWorkspaceBundleRow(t *testing.T) {
+	f := newCreateFixture(t, imageExistsScript(true))
+	resp, _ := http.Get(f.s.URL() + "workspaces/new")
+	doc := readAll(t, resp)
+	resp.Body.Close()
+	for _, name := range []string{"chat", "embedded", "latex", "matlab", "pkm", "ros2", "swdev", "web", "writing"} {
+		if !strings.Contains(doc, `data-bundle="`+name+`"`) {
+			t.Errorf("bundle row misses the %q chip", name)
+		}
+	}
+	if n := strings.Count(doc, "(base only)"); n != 2 {
+		t.Errorf("base-only markers = %d, want 2 (chat, pkm)", n)
+	}
+	if strings.Contains(doc, `data-bundle="custom" aria-pressed="true"`) {
+		t.Error("the default bundle selection must not read Custom")
+	}
+}
+
+// A bundle with a missing member recipe renders its reason and is not
+// selectable — and the default preselect falls to the first valid
+// bundle instead (honest default, never a broken pick).
+func TestNewWorkspaceBundleMissingMember(t *testing.T) {
+	f := newCreateFixture(t, imageExistsScript(true))
+	dropRecipe(t, f.home, "rust")
+	resp, _ := http.Get(f.s.URL() + "workspaces/new")
+	doc := readAll(t, resp)
+	resp.Body.Close()
+	if !strings.Contains(doc, `disabled title="member &#39;rust&#39; has no recipe"`) {
+		t.Errorf("swdev chip must render disabled with its reason:\n%s", doc)
+	}
+	if strings.Contains(doc, `data-bundle="swdev" data-members="" aria-pressed="true"`) {
+		t.Error("a missing-member bundle must not be preselectable")
+	}
+	if !strings.Contains(doc, `data-bundle="chat" data-members="" aria-pressed="true"`) {
+		t.Error("the preselect must fall to the first valid bundle (chat)")
+	}
+}
+
+// The units multi-select (spec §9 WP-3): flat alphabetical checkbox list
+// over the discovered units, each entry carrying the live cached marker;
+// invalid units render disabled with their reason; the hidden
+// deactivation sentinel rides the row.
+func TestNewWorkspaceUnitsRow(t *testing.T) {
+	f := newCreateFixture(t, imageExistsScript(true))
+	// one invalid recipe renders disabled with its reason
+	if err := os.WriteFile(filepath.Join(tcRootOf(f.home), "recipes", "bad-tool.Dockerfile"),
+		[]byte("COPY a b\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	resp, _ := http.Get(f.s.URL() + "workspaces/new")
+	doc := readAll(t, resp)
+	resp.Body.Close()
+
+	// flat alphabetical: cpp before go before java before rust before usb
+	order := []string{`value="cpp"`, `value="go"`, `value="java"`, `value="rust"`, `value="usb"`}
+	last := -1
+	for _, w := range order {
+		i := strings.Index(doc, w)
+		if i < 0 {
+			t.Fatalf("units row misses %s:\n%s", w, doc)
+		}
+		if i < last {
+			t.Errorf("%s renders before its alphabetical predecessor", w)
+		}
+		last = i
+	}
+	// the swdev members are checked, everything else is not
+	for _, id := range []string{"cpp", "go", "java", "rust"} {
+		if !strings.Contains(doc, `value="`+id+`" checked`) {
+			t.Errorf("unit %s must render checked", id)
+		}
+	}
+	if !strings.Contains(doc, `value="usb">`) && !strings.Contains(doc, `value="usb" >`) {
+		if strings.Contains(doc, `value="usb" checked`) {
+			t.Error("a non-member unit must not render checked")
+		}
+	}
+	// invalid unit: disabled + reason visible
+	if !strings.Contains(doc, `value="bad-tool" disabled`) {
+		t.Error("the invalid unit must render disabled")
+	}
+	if !strings.Contains(doc, "COPY is refused") {
+		t.Error("the invalid unit must render its reason")
+	}
+	// live cached markers: every unit cached under the all-exists fake
+	if n := strings.Count(doc, `>cached</span>`); n != 21 {
+		t.Errorf("cached markers = %d, want 21", n)
+	}
+	if !strings.Contains(doc, ">4 of 22 selected<") {
+		t.Errorf("count header must read n of m over all discovered units:\n%s", doc)
+	}
+}
+
+// The cached markers are live: a unit whose component image is missing
+// renders without the marker.
+func TestNewWorkspaceUnitsCachedMarkers(t *testing.T) {
+	f := newCreateFixture(t, func(name string, args []string) (string, error) {
+		if name == "podman" && len(args) >= 3 && args[0] == "image" && args[1] == "exists" &&
+			strings.Contains(args[2], "tc-go") {
+			return "", errTestImageMissing
+		}
+		return imageExistsScript(true)(name, args)
+	})
+	resp, _ := http.Get(f.s.URL() + "workspaces/new")
+	doc := readAll(t, resp)
+	resp.Body.Close()
+	goLabel := doc[strings.Index(doc, `value="go"`):]
+	goLabel = goLabel[:strings.Index(goLabel, "</label>")]
+	if strings.Contains(goLabel, ">cached</span>") {
+		t.Error("a missing component image must not render the cached marker")
+	}
+	cppLabel := doc[strings.Index(doc, `value="cpp"`):]
+	cppLabel = cppLabel[:strings.Index(cppLabel, "</label>")]
+	if !strings.Contains(cppLabel, ">cached</span>") {
+		t.Error("a built component image must render the cached marker")
 	}
 }
 
@@ -222,9 +497,9 @@ func bashCalls(f createFixture) [][]string {
 	return out
 }
 
-func (f createFixture) confirm(t *testing.T, vals map[string]string) string {
+func (f createFixture) confirm(t *testing.T, vals url.Values) string {
 	t.Helper()
-	vals["confirm"] = "1"
+	vals.Set("confirm", "1")
 	resp := f.postForm(t, vals)
 	defer resp.Body.Close()
 	return readAll(t, resp)
@@ -309,11 +584,12 @@ func TestCreateChainBlank(t *testing.T) {
 	}
 
 	// sandbox_config.json records the §6 presets
-	cfg, err := sandboxcfg.Read(sandboxcfg.Path(root))
+	cfg, err := sandboxcfg.Read(sandboxcfg.Path(root), tcRootOf(f.home))
 	if err != nil {
 		t.Fatalf("sandbox_config.json: %v", err)
 	}
-	if cfg.ContainerEdition != "swdev" || cfg.StartOption != "web" || cfg.SearchMode != "searxng" ||
+	if !cfg.ToolchainsStored || !slices.Equal(cfg.Toolchains, []string{"cpp", "go", "java", "rust"}) ||
+		cfg.StartOption != "web" || cfg.SearchMode != "searxng" ||
 		cfg.AIProvider != "none" || cfg.WorkspaceSource != "empty" || cfg.VCSTracking != "none" ||
 		len(cfg.ContainerModes) != 0 {
 		t.Fatalf("presets not recorded: %+v", cfg)
@@ -344,13 +620,13 @@ func TestCreateChainSttPatchSemantics(t *testing.T) {
 	f := newCreateFixture(t, imageExistsScript(true))
 	sse := sseReader(t, f.s)
 	vals := f.blankForm()
-	vals["search_mode"] = "websearch" // searxng+offline would refuse — not the point here
-	vals["offline"] = "on"            // dictation next to offline stays silent (no refusal)
-	vals["use_stt_present"] = "1"     // the row rendered, checkbox absent = unchecked
+	vals.Set("search_mode", "websearch") // searxng+offline would refuse — not the point here
+	vals.Set("offline", "on")            // dictation next to offline stays silent (no refusal)
+	vals.Set("use_stt_present", "1")     // the row rendered, checkbox absent = unchecked
 	f.confirm(t, vals)
 	waitDone(t, sse)
 	root := registry.CanonicalPath(f.home + "/ws/demo")
-	cfg, err := sandboxcfg.Read(sandboxcfg.Path(root))
+	cfg, err := sandboxcfg.Read(sandboxcfg.Path(root), tcRootOf(f.home))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -366,16 +642,16 @@ func TestCreateChainSttPatchSemantics(t *testing.T) {
 	f2 := newCreateFixture(t, imageExistsScript(true))
 	sse2 := sseReader(t, f2.s)
 	vals2 := f2.blankForm()
-	vals2["search_mode"] = "websearch"
-	vals2["offline"] = "on"
-	vals2["use_stt"] = "on"
-	vals2["use_stt_present"] = "1"
+	vals2.Set("search_mode", "websearch")
+	vals2.Set("offline", "on")
+	vals2.Set("use_stt", "on")
+	vals2.Set("use_stt_present", "1")
 	f2.confirm(t, vals2)
 	if state, _ := waitDone(t, sse2); state != "done" {
 		t.Fatal("offline+stt wizard post must not refuse")
 	}
 	root2 := registry.CanonicalPath(f2.home + "/ws/demo")
-	cfg2, err := sandboxcfg.Read(sandboxcfg.Path(root2))
+	cfg2, err := sandboxcfg.Read(sandboxcfg.Path(root2), tcRootOf(f.home))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -389,8 +665,8 @@ func TestCreateChainFromRepo(t *testing.T) {
 	f := newCreateFixture(t, imageExistsScript(true))
 	sse := sseReader(t, f.s)
 	vals := f.blankForm()
-	vals["source"] = "repo"
-	vals["repo_url"] = "https://github.com/u/demo.git"
+	vals.Set("source", "repo")
+	vals.Set("repo_url", "https://github.com/u/demo.git")
 	f.confirm(t, vals)
 	waitDone(t, sse)
 
@@ -402,7 +678,7 @@ func TestCreateChainFromRepo(t *testing.T) {
 		t.Fatalf("init args miss --repo_url: %v", calls[0])
 	}
 	root := registry.CanonicalPath(f.home + "/ws/demo")
-	cfg, err := sandboxcfg.Read(sandboxcfg.Path(root))
+	cfg, err := sandboxcfg.Read(sandboxcfg.Path(root), tcRootOf(f.home))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -421,7 +697,7 @@ func TestCreateChainAgentKinds(t *testing.T) {
 	f := newCreateFixture(t, imageExistsScript(true))
 	sse := sseReader(t, f.s)
 	vals := f.blankForm()
-	vals["agent"] = "chat"
+	vals.Set("agent", "chat")
 	f.confirm(t, vals)
 	waitDone(t, sse)
 	calls := bashCalls(f)
@@ -440,8 +716,8 @@ func TestCreateChainAgentKinds(t *testing.T) {
 	f2 := newCreateFixture(t, imageExistsScript(true))
 	sse2 := sseReader(t, f2.s)
 	vals2 := f2.blankForm()
-	vals2["agent"] = "pkm"
-	vals2["edition"] = "swdev" // the posted value is ignored — pkm pins pkm
+	vals2.Set("agent", "pkm")
+	vals2.Set("toolchain", "cpp") // the posted selection is ignored — pkm pins base only
 	f2.confirm(t, vals2)
 	waitDone(t, sse2)
 	calls2 := bashCalls(f2)
@@ -449,26 +725,28 @@ func TestCreateChainAgentKinds(t *testing.T) {
 		t.Fatalf("pkm init args = %v", calls2)
 	}
 	root2 := registry.CanonicalPath(f2.home + "/ws/demo")
-	if cfg, err := sandboxcfg.Read(sandboxcfg.Path(root2)); err != nil || cfg.ContainerEdition != "pkm" {
-		t.Fatalf("pkm edition = %+v, %v", cfg, err)
+	if cfg, err := sandboxcfg.Read(sandboxcfg.Path(root2), tcRootOf(f2.home)); err != nil || !cfg.ToolchainsStored || len(cfg.Toolchains) != 0 {
+		t.Fatalf("pkm selection = %+v (want the materialized empty set), %v", cfg, err)
 	}
 }
 
-// Build semantics per the TUI contract: image missing + Build now →
-// build-container.sh <edition> first, then init; Build later → init
-// directly (registered stopped); a failed build stops the chain — no
-// init, no registration, the failure lands in the streamed log.
+// Build semantics per the TUI contract: set image missing + Build now →
+// the build script first, then init; Build later → init directly
+// (registered stopped); a failed build stops the chain — no init, no
+// registration, the failure lands in the streamed log. The queued
+// Build-now op re-keys onto build-images.sh with #206.
 func TestCreateChainBuildSemantics(t *testing.T) {
 	// Build now
 	f := newCreateFixture(t, buildMakesImageScript())
 	sse := sseReader(t, f.s)
 	vals := f.blankForm()
-	vals["build"] = "now"
+	vals.Set("build", "now")
 	f.confirm(t, vals)
 	waitDone(t, sse)
 	calls := bashCalls(f)
-	if len(calls) != 2 || calls[0][0] != f.s.deps.BuildScript || calls[0][1] != "swdev" {
-		t.Fatalf("build-now calls = %v, want [build-container.sh swdev, init…]", calls)
+	if len(calls) != 2 || calls[0][0] != f.s.deps.BuildImagesScript ||
+		calls[0][1] != "--set" || calls[0][2] != "cpp,go,java,rust" {
+		t.Fatalf("build-now calls = %v, want [build-images.sh --set cpp,go,java,rust, init…]", calls)
 	}
 	if calls[1][0] != f.s.deps.InitScript {
 		t.Fatalf("build-now tail = %v", calls)
@@ -478,7 +756,7 @@ func TestCreateChainBuildSemantics(t *testing.T) {
 	f2 := newCreateFixture(t, imageExistsScript(false))
 	sse2 := sseReader(t, f2.s)
 	vals2 := f2.blankForm()
-	vals2["build"] = "later"
+	vals2.Set("build", "later")
 	f2.confirm(t, vals2)
 	waitDone(t, sse2)
 	if calls2 := bashCalls(f2); len(calls2) != 1 || calls2[0][0] != f2.s.deps.InitScript {
@@ -487,14 +765,14 @@ func TestCreateChainBuildSemantics(t *testing.T) {
 
 	// Build failure stops the chain before init
 	f3 := newCreateFixture(t, func(name string, args []string) (string, error) {
-		if name == "bash" && len(args) > 0 && strings.HasSuffix(args[0], "build-container.sh") {
+		if name == "bash" && len(args) > 0 && strings.HasSuffix(args[0], "build-images.sh") {
 			return "build exploded", errors.New("exit status 1")
 		}
 		return imageExistsScript(false)(name, args)
 	})
 	sse3 := sseReader(t, f3.s)
 	vals3 := f3.blankForm()
-	vals3["build"] = "now"
+	vals3.Set("build", "now")
 	f3.confirm(t, vals3)
 	if state, lines := waitDone(t, sse3); state != "failed" {
 		t.Fatalf("failed build: chain state = %s", state)
@@ -510,6 +788,25 @@ func TestCreateChainBuildSemantics(t *testing.T) {
 	reg := &registry.Registry{Home: f3.home}
 	if _, err := reg.ByName("demo"); err == nil {
 		t.Fatal("failed build must not register the workspace")
+	}
+
+	// Base-only selection (pkm pins the empty set): the missing base-only
+	// set image assembles via the empty ids arg ("" = base-only set).
+	f4 := newCreateFixture(t, buildMakesImageScript())
+	sse4 := sseReader(t, f4.s)
+	vals4 := f4.blankForm()
+	vals4.Set("agent", "pkm")
+	vals4.Del("toolchain")
+	vals4.Set("build", "now")
+	f4.confirm(t, vals4)
+	waitDone(t, sse4)
+	calls4 := bashCalls(f4)
+	if len(calls4) != 2 || calls4[0][0] != f4.s.deps.BuildImagesScript ||
+		calls4[0][1] != "--set" || calls4[0][2] != "" {
+		t.Fatalf("base-only build-now calls = %v, want [build-images.sh --set \"\", init…]", calls4)
+	}
+	if calls4[1][0] != f4.s.deps.InitScript {
+		t.Fatalf("base-only build-now tail = %v", calls4)
 	}
 }
 
@@ -530,7 +827,7 @@ func TestCreateConfirmSummary(t *testing.T) {
 	for _, want := range []string{
 		"name: demo",
 		"path: " + f.home + "/ws/demo",
-		"edition: swdev",
+		"toolchains: cpp, go, java, rust",
 		"search: searxng",
 		"VCS tracking: none",
 		"AI provider: none",
@@ -546,15 +843,101 @@ func TestCreateConfirmSummary(t *testing.T) {
 	}
 }
 
-// The image-missing contract: when the selected edition's image is not
-// built, the confirm carries the "Image build" decision line (TUI
-// contract — folded into the confirm and the chain).
+// A base-only selection (chat/pkm, or a custom empty list) summarizes
+// honestly in the confirm popup.
+func TestCreateConfirmBaseOnlySummary(t *testing.T) {
+	f := newCreateFixture(t, imageExistsScript(true))
+	vals := f.blankForm()
+	vals.Del("toolchain")
+	vals.Set("units_present", "1")
+	doc := readAll(t, f.postForm(t, vals))
+	if !strings.Contains(doc, "toolchains: base only") {
+		t.Errorf("confirm misses the base-only summary:\n%s", doc)
+	}
+}
+
+// The image-missing contract (spec §9 WP-3): when the selection's set
+// image is not built, the confirm carries the "image build:" decision
+// line with the honest members summary — counts, no time estimates.
 func TestCreateConfirmImageBuildLine(t *testing.T) {
 	f := newCreateFixture(t, imageExistsScript(false))
-	resp := f.postForm(t, f.blankForm())
+	doc := readAll(t, f.postForm(t, f.blankForm()))
+	for _, want := range []string{
+		"image build: Build now — 4 of 4 toolchains need building plus the set image",
+	} {
+		if !strings.Contains(doc, want) {
+			t.Errorf("confirm misses the image build decision line %q:\n%s", want, doc)
+		}
+	}
+
+	// Build later carries the same summary under its own decision
+	f2 := newCreateFixture(t, imageExistsScript(false))
+	vals := f2.blankForm()
+	vals.Set("build", "later")
+	doc = readAll(t, f2.postForm(t, vals))
+	if !strings.Contains(doc, "image build: Build later — 4 of 4 toolchains need building plus the set image") {
+		t.Errorf("confirm misses the Build later line:\n%s", doc)
+	}
+
+	// a base-only set summarizes as the base-only image
+	f3 := newCreateFixture(t, imageExistsScript(false))
+	vals3 := f3.blankForm()
+	vals3.Del("toolchain")
+	vals3.Set("units_present", "1")
+	doc = readAll(t, f3.postForm(t, vals3))
+	if !strings.Contains(doc, "image build: Build now — the base-only set image") {
+		t.Errorf("confirm misses the base-only build line:\n%s", doc)
+	}
+
+	// a cached set renders no build line at all
+	f4 := newCreateFixture(t, imageExistsScript(true))
+	doc = readAll(t, f4.postForm(t, f4.blankForm()))
+	if strings.Contains(doc, "image build:") {
+		t.Errorf("a cached set must not offer a build line:\n%s", doc)
+	}
+}
+
+// The Build-plan row (spec §9 WP-3) keys to set-tag existence with the
+// honest cost line — counts, never time estimates.
+func TestCreateBuildPlanRow(t *testing.T) {
+	// set image missing, nothing cached: builds 4 of 4 + the assembly
+	f := newCreateFixture(t, imageExistsScript(false))
+	resp, _ := http.Get(f.s.URL() + "workspaces/new")
 	doc := readAll(t, resp)
-	if !strings.Contains(doc, "image build: Build now") {
-		t.Errorf("confirm misses the image build decision line:\n%s", doc)
+	resp.Body.Close()
+	for _, want := range []string{
+		`data-row="image_build"`,
+		`name="build" value="now"`,
+		`name="build" value="later"`,
+		"the set image is missing — Create builds 4 of 4 toolchains, then assembles the set image",
+	} {
+		if !strings.Contains(doc, want) {
+			t.Errorf("build-plan row misses %q:\n%s", want, doc)
+		}
+	}
+
+	// one cached component: the cost line counts it honestly
+	f2 := newCreateFixture(t, func(name string, args []string) (string, error) {
+		if name == "podman" && len(args) >= 3 && args[0] == "image" && args[1] == "exists" &&
+			strings.Contains(args[2], "tc-cpp") {
+			return "", nil // cpp's component image exists
+		}
+		return imageExistsScript(false)(name, args)
+	})
+	resp2, _ := http.Get(f2.s.URL() + "workspaces/new")
+	doc2 := readAll(t, resp2)
+	resp2.Body.Close()
+	if !strings.Contains(doc2, "the set image is missing — Create builds 3 of 4 toolchains, then assembles the set image") {
+		t.Errorf("cost line must count the cached component:\n%s", doc2)
+	}
+
+	// set image cached: the row never renders
+	f3 := newCreateFixture(t, imageExistsScript(true))
+	resp3, _ := http.Get(f3.s.URL() + "workspaces/new")
+	doc3 := readAll(t, resp3)
+	resp3.Body.Close()
+	if strings.Contains(doc3, `data-row="image_build"`) {
+		t.Errorf("a cached set must not render the build-plan row:\n%s", doc3)
 	}
 }
 
@@ -562,22 +945,35 @@ func TestCreateConfirmImageBuildLine(t *testing.T) {
 func TestCreateValidationRefusals(t *testing.T) {
 	cases := []struct {
 		title string
-		mut   func(map[string]string)
+		mut   func(url.Values)
 		want  string
 	}{
-		{"bad name", func(m map[string]string) { m["name"] = "bad name!" }, "Invalid workspace name"},
-		{"missing repo url", func(m map[string]string) {
-			m["source"] = "repo"
-			m["repo_url"] = ""
+		{"bad name", func(v url.Values) { v.Set("name", "bad name!") }, "Invalid workspace name"},
+		{"missing repo url", func(v url.Values) {
+			v.Set("source", "repo")
+			v.Set("repo_url", "")
 		}, "Repo URL is required"},
-		{"duplicate name", func(m map[string]string) {}, "Duplicate workspace name"},
-		{"searxng+proxy", func(m map[string]string) { m["proxy"] = "yes" }, "SearXNG needs network"},
-		{"searxng+offline", func(m map[string]string) { m["offline"] = "on" }, "SearXNG needs network"},
-		{"offline+cbm_ui", func(m map[string]string) { m["search_mode"] = "websearch"; m["offline"] = "on"; m["cbm_ui"] = "on" }, "mutually exclusive"},
+		{"duplicate name", func(v url.Values) {}, "Duplicate workspace name"},
+		{"searxng+proxy", func(v url.Values) { v.Set("proxy", "yes") }, "SearXNG needs network"},
+		{"searxng+offline", func(v url.Values) { v.Set("offline", "on") }, "SearXNG needs network"},
+		{"offline+cbm_ui", func(v url.Values) {
+			v.Set("search_mode", "websearch")
+			v.Set("offline", "on")
+			v.Set("cbm_ui", "on")
+		}, "mutually exclusive"},
+		// the refusal renders HTML-escaped (role=alert paragraph)
+		{"unknown toolchain", func(v url.Values) { v.Set("toolchain", "bogus") }, "unknown toolchain &#39;bogus&#39;"},
+		{"invalid toolchain", func(v url.Values) { v.Set("toolchain", "bad-tool") }, "unknown toolchain &#39;bad-tool&#39;"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.title, func(t *testing.T) {
 			f := newCreateFixture(t, imageExistsScript(true))
+			if tc.title == "invalid toolchain" {
+				if err := os.WriteFile(filepath.Join(tcRootOf(f.home), "recipes", "bad-tool.Dockerfile"),
+					[]byte("COPY a b\n"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
 			if tc.title == "duplicate name" {
 				f.fake.Script = imageExistsScript(true)
 			}
@@ -589,7 +985,7 @@ func TestCreateValidationRefusals(t *testing.T) {
 				if err := reg.CreateWorkspacesFile(); err != nil {
 					t.Fatal(err)
 				}
-				if err := reg.AddWorkspace(registryAddRequest(vals["name"], f.home)); err != nil {
+				if err := reg.AddWorkspace(registryAddRequest(vals.Get("name"), f.home)); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -641,13 +1037,13 @@ func TestNewWorkspaceSelectsFeedFromCatalogs(t *testing.T) {
 func TestCreateCraftedNewFailsSoft(t *testing.T) {
 	f := newCreateFixture(t, imageExistsScript(true))
 	vals := f.blankForm()
-	vals["vcs"] = "new"
-	vals["vcs_kind"] = "gitlab_self"
-	vals["vcs_host"] = "git.example.org"
-	vals["provider"] = "new"
-	vals["provider_name"] = "Crafted"
-	vals["provider_endpoint"] = "https://api.crafted.example/v1"
-	vals["provider_token"] = "crafted-tok"
+	vals.Set("vcs", "new")
+	vals.Set("vcs_kind", "gitlab_self")
+	vals.Set("vcs_host", "git.example.org")
+	vals.Set("provider", "new")
+	vals.Set("provider_name", "Crafted")
+	vals.Set("provider_endpoint", "https://api.crafted.example/v1")
+	vals.Set("provider_token", "crafted-tok")
 	doc := readAll(t, f.postForm(t, vals))
 	if !strings.Contains(doc, `data-role="create-confirm"`) {
 		t.Fatalf("crafted new must fail soft into the confirm:\n%s", doc)
@@ -687,8 +1083,8 @@ func TestCreateWizardHidesRetiredKindEntries(t *testing.T) {
 
 	// A crafted pick of the hidden entry fails soft to none.
 	vals := f.blankForm()
-	vals["vcs"] = "Gitea"
-	vals["vcs_token"] = "tok"
+	vals.Set("vcs", "Gitea")
+	vals.Set("vcs_token", "tok")
 	doc = readAll(t, f.postForm(t, vals))
 	if !strings.Contains(doc, `data-role="create-confirm"`) {
 		t.Fatalf("crafted pick must fail soft into the confirm:\n%s", doc)
@@ -707,7 +1103,7 @@ func TestCreateWizardHidesRetiredKindEntries(t *testing.T) {
 		}
 	}
 	root := registry.CanonicalPath(f.home + "/ws/demo")
-	cfg, err := sandboxcfg.Read(sandboxcfg.Path(root))
+	cfg, err := sandboxcfg.Read(sandboxcfg.Path(root), tcRootOf(f.home))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -727,10 +1123,10 @@ func TestCreateChainCredentialOrder(t *testing.T) {
 	sse := sseReader(t, f.s)
 
 	vals := f.blankForm()
-	vals["vcs"] = "GitHub Work"
-	vals["vcs_token"] = "vcs-secret-1"
-	vals["provider"] = "ACME AI"
-	vals["provider_token"] = "provider-secret-2"
+	vals.Set("vcs", "GitHub Work")
+	vals.Set("vcs_token", "vcs-secret-1")
+	vals.Set("provider", "ACME AI")
+	vals.Set("provider_token", "provider-secret-2")
 	f.confirm(t, vals)
 	if state, lines := waitDone(t, sse); state != "done" {
 		t.Fatalf("chain state = %s (%v)", state, lines)
@@ -755,7 +1151,7 @@ func TestCreateChainCredentialOrder(t *testing.T) {
 		}
 	}
 
-	cfg, err := sandboxcfg.Read(sandboxcfg.Path(root))
+	cfg, err := sandboxcfg.Read(sandboxcfg.Path(root), tcRootOf(f.home))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -804,7 +1200,7 @@ func TestCreateChainConflictSemantics(t *testing.T) {
 
 	// a second confirm for the same name refuses — nothing queues
 	vals := f.blankForm()
-	vals["confirm"] = "1"
+	vals.Set("confirm", "1")
 	resp := f.postForm(t, vals)
 	doc := readAll(t, resp)
 	resp.Body.Close()
@@ -814,7 +1210,7 @@ func TestCreateChainConflictSemantics(t *testing.T) {
 
 	// another workspace's chain starts in parallel
 	vals2 := f.blankForm()
-	vals2["name"] = "other"
+	vals2.Set("name", "other")
 	f.confirm(t, vals2)
 	root := registry.CanonicalPath(f.home + "/ws/other")
 	deadline := time.Now().Add(2 * time.Second)
@@ -824,7 +1220,7 @@ func TestCreateChainConflictSemantics(t *testing.T) {
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
-	if _, err := sandboxcfg.Read(sandboxcfg.Path(root)); err != nil {
+	if _, err := sandboxcfg.Read(sandboxcfg.Path(root), tcRootOf(f.home)); err != nil {
 		t.Fatalf("parallel chain did not complete: %v", err)
 	}
 

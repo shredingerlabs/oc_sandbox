@@ -90,10 +90,12 @@ func (s *Server) validateAllowlist(content string) error {
 
 // proxyRow is one workspace card of the proxy screen.
 type proxyRow struct {
-	Name    string
-	Letter  string
-	Hue     string
-	Running bool // the workspace container runs (the pod the member lives in)
+	Name     string
+	Letter   string
+	Label    string // derived bundle name (exact member-match), else "Custom"
+	Hue      string // the matching bundle's hue (CSS --ed), "" → the neutral accent
+	Subtitle string // member-list tooltip ("n toolchains: …")
+	Running  bool   // the workspace container runs (the pod the member lives in)
 
 	MemberState string // running / exited / created / missing
 	MemberUp    bool
@@ -138,7 +140,7 @@ func (s *Server) renderProxy(w http.ResponseWriter, errMsg, warnMsg string) {
 		running := discovery.RunningContainers(s.runnerSeam())
 		proxyStates := discovery.AllProxyMembers(s.runnerSeam())
 		for _, ws := range s.proxyWorkspaces() {
-			cfg, err := readSandboxCfg(ws.Path)
+			cfg, err := s.readSandboxCfg(ws.Path)
 			if err != nil || !cfg.UseProxy {
 				continue // unreadable or non-proxied: no row
 			}
@@ -146,9 +148,15 @@ func (s *Server) renderProxy(w http.ResponseWriter, errMsg, warnMsg string) {
 			row := proxyRow{
 				Name:    ws.Name,
 				Letter:  wsLetter(ws.Name),
-				Hue:     editionFor(cfg.ContainerEdition).Hue,
 				Running: slices.Contains(running, cname),
 				Busy:    s.queue.BusyKey(cname),
+			}
+			// The derived identity (WP-5): the member list rides the
+			// avatar's tooltip; the avatar tints with the matching
+			// bundle's hue, the neutral accent otherwise.
+			if err == nil {
+				id := setIdentityFor(cfg, s.toolchainsRoot(), cfg.WorkspaceKind)
+				row.Label, row.Subtitle, row.Hue = id.Label, id.Subtitle, id.Hue
 			}
 			member := proxyMemberName(ws.ContainerID)
 			for _, c := range proxyStates {
@@ -199,7 +207,7 @@ var proxyTemplate = template.Must(template.New("proxy").Parse(`
   {{range .Rows}}
   <div class="row" data-row="proxy-{{.Name}}"{{if .Busy}} data-busy{{end}}>
     <div class="rl">
-      <div class="t"><span class="avatar"{{if .Hue}} style="--ed:{{.Hue}}"{{end}}>{{.Letter}}</span> {{.Name}}</div>
+      <div class="t"><span class="avatar"{{if .Hue}} style="--ed:{{.Hue}}"{{end}} title="{{.Subtitle}}">{{.Letter}}</span> {{.Name}} <span class="unit-sub">{{.Label}}</span></div>
       <div class="s">
         {{if .Running}}<span class="marker st-running">● workspace running</span>{{else}}<span class="marker st-off">○ workspace stopped</span>{{end}}
         {{if .MemberUp}}<span class="marker st-running">● proxy member running</span>{{else}}<span class="marker st-off">○ proxy member {{.MemberState}}</span>{{end}}
@@ -282,7 +290,7 @@ func (s *Server) proxyGuard(w http.ResponseWriter, r *http.Request) (ws registry
 	if s.setupHolds(ws.Name) {
 		return ws, cname, cfg, setupRefusal(ws.Name)
 	}
-	cfg, err = readSandboxCfg(ws.Path)
+	cfg, err = s.readSandboxCfg(ws.Path)
 	if err != nil {
 		return ws, cname, cfg, err.Error()
 	}
@@ -326,8 +334,8 @@ func (s *Server) handleProxyMemberStop(w http.ResponseWriter, r *http.Request) {
 // handleProxyMemberRebuild serves POST /proxy/{name}/rebuild: recreate
 // the member with the current workspace allowlist re-mounted (the
 // workspace keeps running; brief egress blip). A missing oc-proxy image
-// builds first via build-container.sh — the image build stays a
-// start.sh concern otherwise.
+// builds first via podman (the start.sh vector) — the image build stays
+// a start.sh concern otherwise.
 func (s *Server) handleProxyMemberRebuild(w http.ResponseWriter, r *http.Request) {
 	ws, cname, _, refusal := s.proxyGuard(w, r)
 	if refusal != "" {
@@ -428,8 +436,8 @@ func (s *Server) proxyStopOp(ws registry.Workspace) func(emit func(string)) erro
 }
 
 // proxyRebuildOp recreates the member with the current allowlist: the
-// image (missing builds via build-container.sh), stop+rm of the old
-// member, fresh run, verified running.
+// image (missing builds via podman, the start.sh vector), stop+rm of
+// the old member, fresh run, verified running.
 func (s *Server) proxyRebuildOp(ws registry.Workspace) func(emit func(string)) error {
 	return func(emit func(string)) error {
 		d := s.deps
@@ -440,7 +448,11 @@ func (s *Server) proxyRebuildOp(ws registry.Workspace) func(emit func(string)) e
 		}
 		if !discovery.ImageExistsTag(d.Run, discovery.ProxyImageTag) {
 			emit("==> build " + discovery.ProxyImageTag)
-			if err := s.runEmit(emit, "bash", d.BuildScript, discovery.ProxyImageTag); err != nil {
+			args, ok := infraBuildArgs(d.InfraRoot, discovery.ProxyImageTag)
+			if !ok {
+				return fmt.Errorf("unknown infra image: %s", discovery.ProxyImageTag)
+			}
+			if err := s.runEmit(emit, "podman", args...); err != nil {
 				return err
 			}
 		}

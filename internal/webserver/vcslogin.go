@@ -31,10 +31,10 @@ import (
 )
 
 // The in-container exec constants: the credential CLIs live in every
-// edition image (base installs both), and pointing them at the mounted
+// set image (base installs both), and pointing them at the mounted
 // `.git_local` subdirectories keeps the CLI state visible host-side
-// regardless of the edition (only the web edition stage bakes these
-// ENVs — start.sh now passes them for all editions too, ADR 0035).
+// regardless of the toolchain set (start.sh passes the ENVs for every
+// set, ADR 0035).
 const (
 	vcsExecUser      = "dev"
 	vcsGHConfigDir   = "/home/dev/.git_local/gh-cli"
@@ -249,7 +249,7 @@ func (s *Server) handleVCSDeviceLogin(w http.ResponseWriter, ws registry.Workspa
 	}
 	label := trackerLabel(kind)
 	stored := ""
-	if cfg, err := readSandboxCfg(ws.Path); err == nil {
+	if cfg, err := s.readSandboxCfg(ws.Path); err == nil {
 		stored = cfg.VCSTracking
 	}
 	if label != stored {

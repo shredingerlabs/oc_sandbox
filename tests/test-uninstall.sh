@@ -194,7 +194,7 @@ test_remove_shortcuts_removes_desktop_file() {
     echo "  Desktop-Verknüpfung sollte entfernt sein"
     return 1
   fi
-  if [[ "$output" != *"Desktop-Verknüpfung entfernt"* ]]; then
+  if [[ "$output" != *"Desktop shortcut removed"* ]]; then
     echo "  Abschlussmeldung listet Desktop-Verknüpfung nicht"
     return 1
   fi
@@ -245,7 +245,7 @@ EOF
   output=$(run_uninstall_capture "$home" --remove-shortcuts)
   chmod -R u+w "$home" 2>/dev/null || true
 
-  if [[ "$output" != *"fehlender Berechtigungen"* ]]; then
+  if [[ "$output" != *"missing permissions"* ]]; then
     echo "  Fehler beim Entfernen wurde nicht als Skip gemeldet"
     echo "$output"
     return 1
@@ -326,13 +326,13 @@ EOF
     cleanup_test_env "$test_dir"
     return 1
   fi
-  if [[ "$output" != *"Icon-Kopie entfernt"* ]]; then
+  if [[ "$output" != *"Icon copy removed"* ]]; then
     echo "  Abschlussmeldung listet Icon-Kopie nicht"
     echo "$output"
     cleanup_test_env "$test_dir"
     return 1
   fi
-  if [[ "$output" != *"Windows-Verknüpfung entfernt"* ]]; then
+  if [[ "$output" != *"Windows shortcut removed"* ]]; then
     echo "  Abschlussmeldung listet Windows-Verknüpfung nicht"
     echo "$output"
     cleanup_test_env "$test_dir"
@@ -465,7 +465,7 @@ test_dry_run_shows_config_removal() {
   local output
   output=$(HOME="$home" bash "$UNINSTALL_SCRIPT" --dry-run --remove-config 2>&1)
 
-  if [[ "$output" != *"Config-Verzeichnis würde entfernt"* ]]; then
+  if [[ "$output" != *"(the config directory would be removed)"* ]]; then
     echo "  Dry-Run zeigt Config-Entfernung nicht an"
     return 1
   fi
@@ -484,15 +484,15 @@ test_completion_message_lists_actions() {
   local output
   output=$(run_uninstall_capture "$home")
 
-  if [[ "$output" != *"Durchgeführte Aktionen"* ]]; then
+  if [[ "$output" != *"Actions taken"* ]]; then
     echo "  Abschlussmeldung listet Aktionen nicht auf"
     return 1
   fi
-  if [[ "$output" != *"Installation entfernt: $home/.oc-sandbox"* ]]; then
+  if [[ "$output" != *"Installation removed: $home/.oc-sandbox"* ]]; then
     echo "  'Installation entfernt' fehlt in Abschlussmeldung"
     return 1
   fi
-  if [[ "$output" != *"Symlink"* ]]; then
+  if [[ "$output" != *"symlink"* ]]; then
     echo "  Symlink-Aktion fehlt in Abschlussmeldung"
     return 1
   fi
@@ -562,7 +562,7 @@ test_permission_error_reports_skipped_files() {
   output=$(run_uninstall_capture "$home")
   chmod -R u+w "$home" 2>/dev/null || true
 
-  if [[ "$output" != *"fehlender Berechtigungen"* ]]; then
+  if [[ "$output" != *"missing permissions"* ]]; then
     echo "  Ausgabe nennt fehlende Berechtigungen nicht"
     return 1
   fi
@@ -593,7 +593,7 @@ test_config_not_empty_permission_tracked() {
   output=$(run_uninstall_capture "$home" --remove-config --force)
   chmod -R u+w "$home" 2>/dev/null || true
 
-  if [[ "$output" != *"Nicht leer (übrige Dateien ohne Berechtigung)"* ]]; then
+  if [[ "$output" != *"not empty (remaining files without permissions)"* ]]; then
     echo "  Config-Verzeichnis nicht als 'Nicht leer' getrackt"
     return 1
   fi

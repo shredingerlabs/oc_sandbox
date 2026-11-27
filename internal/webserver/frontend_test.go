@@ -54,6 +54,40 @@ func TestFrontendSttMicWiring(t *testing.T) {
 	}
 }
 
+// The wizard's toolchain-set wiring (toolchain sets #205, spec §9 WP-3):
+// a bundle chip overwrites the units multi-select, editing the
+// multi-select flips the bundle row to Custom (never auto-back), the pkm
+// pin hides the rows and restores the prior selection on un-pin (the
+// hard-code-back dies), and the HIL checkbox presets from the §3
+// hardware units — a preset, never a pin. The old edition rule
+// (applyEditionPreset) is deleted.
+func TestFrontendWizardToolchainWiring(t *testing.T) {
+	s := startTestServer(t)
+	js := body(t, get(t, s.URL()+"js/main.js"))
+	for _, want := range []string{
+		`data-role="wizard-bundle"`, // the bundle chip row handler
+		`setUnits`,                  // a bundle pick overwrites the multi-select
+		`data-role="wizard-units"`,  // the multi-select reads back
+		`"custom"`,                  // the Custom flip
+		`applyHILPreset`,            // the HIL preset rule
+		`"arm-embedded"`,            // the §3 hardware unit list
+		`"picoscope"`, `"pyvisa"`,   // …its members
+		`wizardPriorUnits`,        // the pkm un-pin restores the prior selection
+		`data-role="units-count"`, // the "n of m selected" header updates
+		`syncBundleRow`,           // draft replay re-derives the chips
+		`syncUnitsCount`,          // …and the header
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("main.js missing %q (toolchain wiring)", want)
+		}
+	}
+	for _, gone := range []string{"applyEditionPreset", `setEdition(q(form, '[data-role="wizard-edition"]'), "swdev")`} {
+		if strings.Contains(js, gone) {
+			t.Fatalf("main.js still carries the deleted edition rule %q", gone)
+		}
+	}
+}
+
 // The card grid stylesheet carries the Signal card language (#153, §5).
 func TestFrontendCardStyles(t *testing.T) {
 	s := startTestServer(t)
@@ -116,9 +150,12 @@ func TestFrontendWorkspaceOpsWiring(t *testing.T) {
 		`runWorkspaceOp(card, "stop")`,    // the stop confirm row's op (ADR-0033 update)
 		`post(card, "adopt")`,             // the adopt confirm's action
 		`mismatch`,                        // the #115 verdict handling in the start chain
-		`running_edition`,                 // the mismatch prompt names what runs
+		`v.running`,                       // the mismatch prompt names what runs (WP-6 re-key)
+		`v.body`,                          // the prompt body is the member delta (WP-6)
 		`an agent may be mid-task`,        // the adopt confirm copy
 		`variant=`,                        // the requested access rides the start POST
+		`v.build`,                         // the missing-set sidecar (WP-6)
+		`build=1`,                         // Build now re-POSTs with the build flag
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("main.js missing %q", want)

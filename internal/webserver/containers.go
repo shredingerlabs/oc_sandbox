@@ -1,6 +1,7 @@
 package webserver
 
 import (
+	"errors"
 	"html"
 	"net/http"
 	"slices"
@@ -32,6 +33,12 @@ func (s *Server) wireRoutes(inner *http.ServeMux) {
 	inner.HandleFunc("GET /images", s.handleImages)
 	inner.HandleFunc("POST /images/build", s.handleImagesBuild)
 	inner.HandleFunc("POST /images/delete", s.handleImagesDelete)
+	inner.HandleFunc("POST /images/clean", s.handleImagesClean)
+	// Recipe version editor (WP-9): the per-row Edit recipe affordance
+	// and its synchronous save/reset — no task key, the follow-up GC
+	// pass rides the shared images key skip-if-busy.
+	inner.HandleFunc("POST /images/edit", s.handleImagesEdit)
+	inner.HandleFunc("POST /images/recipe/save", s.handleImagesRecipeSave)
 	// Proxy screen (ADR 0034): member lifecycle + the per-workspace
 	// allowlist editor; the ops share the workspace container-name key.
 	inner.HandleFunc("GET /proxy", s.handleProxyScreen)
@@ -50,7 +57,9 @@ type unitRow struct {
 	Pod       bool
 	State     string // running / exited / created / missing
 	Busy      bool
-	Hue       string // edition hue of the workspace's tile ("" → accent)
+	Label     string // derived bundle name (exact member-match), else "Custom" ("" unreadable config)
+	Hue       string // the matching bundle's hue (CSS --ed), "" → the neutral accent
+	Subtitle  string // member-list tooltip ("n toolchains: …")
 }
 
 // containerRows builds the one container list fresh per request (data
@@ -91,12 +100,15 @@ func (s *Server) containerRows() []unitRow {
 		} else {
 			registryContainers[cname] = true
 		}
-		// The row's tile tints with the workspace's edition hue (the
-		// prototype's set-containers letter tiles); an unreadable
-		// config keeps the accent default.
-		hue := ""
-		if cfg, err := readSandboxCfg(p.Path); err == nil {
-			hue = editionFor(cfg.ContainerEdition).Hue
+		// The row's tile tints with the workspace's derived identity
+		// (WP-5): the matching bundle's hue, the neutral accent
+		// otherwise. The derived label rides the
+		// sub row, the member list its tooltip; an unreadable config
+		// renders no label at all.
+		label, subtitle, hue := "", "", ""
+		if cfg, err := s.readSandboxCfg(p.Path); err == nil {
+			id := setIdentityFor(cfg, s.toolchainsRoot(), cfg.WorkspaceKind)
+			label, subtitle, hue = id.Label, id.Subtitle, id.Hue
 		}
 		rows = append(rows, unitRow{
 			Workspace: p.Name,
@@ -104,7 +116,9 @@ func (s *Server) containerRows() []unitRow {
 			Pod:       isPod,
 			State:     state,
 			Busy:      s.queue.BusyKey(cname),
+			Label:     label,
 			Hue:       hue,
+			Subtitle:  subtitle,
 		})
 	}
 	// leftovers: pods as units (their members ride the pod row),
@@ -143,7 +157,7 @@ func busyMarker() string {
 
 // renderContainers renders the one container list (spec §7) with the
 // three actions per registry row and the delete-only leftovers, as
-// prototype-style plist rows (letter tile on the edition hue for
+// prototype-style plist rows (letter tile on the neutral accent for
 // registry workspaces, a muted container glyph for leftovers). Toast
 // (a refused confirm) rides at the top when msg is non-empty.
 func (s *Server) renderContainers(msg string) string {
@@ -161,11 +175,11 @@ func (s *Server) renderContainers(msg string) string {
 		}
 		b.WriteString(`>`)
 		if row.Workspace != "" {
+			b.WriteString(`<div class="ic"`)
 			if row.Hue != "" {
-				b.WriteString(`<div class="ic" style="--ed:` + row.Hue + `">`)
-			} else {
-				b.WriteString(`<div class="ic">`)
+				b.WriteString(` style="--ed:` + html.EscapeString(row.Hue) + `"`)
 			}
+			b.WriteString(`>`)
 			b.WriteString(html.EscapeString(wsLetter(row.Workspace)) + `</div>`)
 		} else {
 			b.WriteString(`<div class="ic muted">` + string(iconSVG("container")) + `</div>`)
@@ -177,6 +191,11 @@ func (s *Server) renderContainers(msg string) string {
 			b.WriteString(`<span class="muted">leftover</span>`)
 		}
 		b.WriteString(`</div><div class="s">`)
+		if row.Workspace != "" {
+			// The derived identity (WP-5): the bundle label, the
+			// member list as its tooltip.
+			b.WriteString(`<span class="unit-sub" title="` + html.EscapeString(row.Subtitle) + `">` + html.EscapeString(row.Label) + `</span>`)
+		}
 		b.WriteString(`<span class="unit-sub">` + html.EscapeString(row.Unit) + `</span>`)
 		b.WriteString(stateMarker(row.State))
 		if row.Busy {
@@ -298,14 +317,18 @@ func (s *Server) stopFirstHint(name string) string {
 // key (the workspace's container name — the key the stop/delete ops
 // share, so confirms refuse across all of a workspace's actions).
 // With a variant form field (#154, the Open chain's card start) the
-// route answers a JSON sidecar and runs the mismatch detection the TUI
-// reconcile does (#115): a live container whose image edition diverges
-// from the saved one refuses the silent reuse with a {mismatch} sidecar
-// — the registry flips truthful first (the container IS running,
+// route answers JSON sidecars and runs the mismatch detection the TUI
+// reconcile does (#115, re-keyed to the derived set tag — WP-6): a live
+// container whose image ref diverges from the stored selection's
+// derived set tag refuses the silent reuse with a {mismatch} sidecar —
+// the registry flips truthful first (the container IS running,
 // verified live) and last_used bumps (the Open action is a use); the
-// replacement itself is the adopt confirm's move. A first-run setup
-// session holds the workspace under the one-at-a-time rule (#161) —
-// both paths refuse while it holds.
+// replacement itself is the adopt confirm's move. With the derived set
+// image missing the {build} sidecar offers Build now / Build later /
+// Go back; build=1 queues ONE op that builds the set (missing
+// components + assembly via build-images.sh, spec §7) and then starts.
+// A first-run setup session holds the workspace under the one-at-a-time
+// rule (#161) — both paths refuse while it holds.
 func (s *Server) handleWorkspaceStart(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -325,48 +348,132 @@ func (s *Server) handleWorkspaceStart(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
+	build := r.PostFormValue("build") == "1"
+	// The §10 unresolved refusal (WP-10): an unknown stored edition —
+	// or both selection fields absent — refuses before any prompt
+	// machinery or op launch, the old image/container never touched.
+	// The same refusal answers both paths; an unreadable config keeps
+	// today's behavior (the queued op re-verifies).
+	if cfg, cfgErr := s.readSandboxCfg(ws.Path); cfgErr == nil && !cfg.Resolved {
+		refusal := cfg.UnresolvedError().Error()
+		if r.PostFormValue("variant") != "" {
+			refuseSidecar(w, refusal)
+		} else {
+			_, _ = w.Write([]byte(s.renderContainers(refusal)))
+		}
+		return
+	}
 	if variant := r.PostFormValue("variant"); variant != "" {
 		if !validVariant(variant) {
 			http.Error(w, "invalid variant", http.StatusBadRequest)
 			return
 		}
 		cname := registry.ContainerName(ws.ContainerID)
-		if slices.Contains(discovery.RunningContainers(s.deps.Run), cname) {
+		if !build && slices.Contains(discovery.RunningContainers(s.deps.Run), cname) {
 			// Truthfulness first (#115 reconcile parity): the live
 			// status rides the fresh ps before any verdict, and the
 			// Open action is a use.
 			_ = s.deps.Registry.UpdateStatus(ws.Path, "running")
 			_ = s.deps.Registry.UpdateLastUsed(ws.Path)
-			if cfg, cfgErr := readSandboxCfg(ws.Path); cfgErr == nil {
-				if running := s.runningEdition(cname); running != "" &&
-					running != cfg.ContainerEdition {
+			if cfg, cfgErr := s.readSandboxCfg(ws.Path); cfgErr == nil {
+				// Reuse-running matches the derived set tag only
+				// (WP-6/§10); anything else prompts.
+				running := s.runningImageRef(cname)
+				if running != "" {
+					if verdict := s.setMismatchVerdict(cfg, running); verdict.Mismatch {
+						w.Header().Set("Content-Type", "application/json")
+						_, _ = w.Write([]byte(jsonMarshal(verdict)))
+						return
+					}
+				}
+			}
+		}
+		if !build {
+			// The missing-set sidecar (WP-6): the derived set image is
+			// not built — Build now (one queued op: missing components
+			// + assembly, then the start) or Build later (stayed
+			// stopped, the Images hint). Offline hosts get the
+			// builder's own preflight refusal at Build-now time (§7;
+			// the Go preflight is #212).
+			if cfg, cfgErr := s.readSandboxCfg(ws.Path); cfgErr == nil && !slices.Contains(discovery.RunningContainers(s.deps.Run), cname) {
+				if tag, ok := s.savedSetTag(cfg); ok && !discovery.ImageExistsTag(s.deps.Run, tag) {
 					w.Header().Set("Content-Type", "application/json")
-					_, _ = w.Write([]byte(jsonMarshal(mismatchSidecar{
-						Mismatch:       true,
-						RunningEdition: running,
-						SavedEdition:   cfg.ContainerEdition,
+					_, _ = w.Write([]byte(jsonMarshal(buildSidecar{
+						Build: true,
+						Set:   setIdentityFor(cfg, s.toolchainsRoot(), cfg.WorkspaceKind).Subtitle,
+						Hint:  "build the set image under Settings → Images",
 					})))
 					return
 				}
 			}
-			// Agreeing editions (or an unreadable config): the queued
-			// reuse op re-verifies the live container.
 		}
-		s.queue.Launch(webOp{Key: cname, Run: s.startOp(name)})
+		// Agreeing refs (or Build now): the queued op re-verifies the
+		// live container and builds the set first when asked.
+		s.queue.Launch(webOp{Key: cname, Run: s.startOp(name, build)})
 		okSidecar(w, s.queue.CurrentOpID(cname))
 		return
 	}
-	s.queue.Launch(webOp{Key: registry.ContainerName(ws.ContainerID), Run: s.startOp(name)})
+	// Non-variant path (the Containers screen): the same WP-6 verdicts
+	// answer as rendered rows — the missing-set prompt (Build now /
+	// Build later / Go back) and the stale-ref refusal.
+	cfg, cfgErr := s.readSandboxCfg(ws.Path)
+	cname := registry.ContainerName(ws.ContainerID)
+	live := slices.Contains(discovery.RunningContainers(s.deps.Run), cname)
+	if cfgErr == nil && cfg.Resolved && !build {
+		if live {
+			// Reuse-running matches the derived set tag only (§10):
+			// a stale/old-world running ref refuses the silent reuse
+			// with the honest mismatch note (the Open screen's prompt
+			// is the interactive recovery).
+			_ = s.deps.Registry.UpdateStatus(ws.Path, "running")
+			if running := s.runningImageRef(cname); running != "" {
+				if verdict := s.setMismatchVerdict(cfg, running); verdict.Mismatch {
+					_, _ = w.Write([]byte(s.renderContainers(
+						verdict.Body + " — open the workspace to use it or switch")))
+					return
+				}
+			}
+		} else if tag, ok := s.savedSetTag(cfg); ok && !discovery.ImageExistsTag(s.deps.Run, tag) {
+			_, _ = w.Write([]byte(s.renderStartBuildPrompt(name,
+				setIdentityFor(cfg, s.toolchainsRoot(), cfg.WorkspaceKind).Subtitle)))
+			return
+		}
+	}
+	s.queue.Launch(webOp{Key: cname, Run: s.startOp(name, build)})
 	_, _ = w.Write([]byte(s.renderContainers("")))
 }
 
+// renderStartBuildPrompt renders the containers screen with the missing-
+// set prompt row (WP-6, Containers-screen start): Build now posts the
+// same start route with build=1 (one queued op — missing components +
+// assembly, then the start); Build later and Go back reload the screen,
+// the stay-stopped escape carries the Images hint in the note.
+func (s *Server) renderStartBuildPrompt(name, set string) string {
+	doc := s.renderContainers("")
+	prompt := `<div class="inline-toast" data-build-prompt>` +
+		`<span class="note">the set image (` + html.EscapeString(set) +
+		`) is not built — Build later stays stopped (build it under Settings → Images)</span>` +
+		`<button class="btn" data-action="start" data-href="workspaces/` +
+		html.EscapeString(name) + `/start" data-form="build=1">Build now</button>` +
+		`<button class="btn ghost" data-act="containers-reload">Build later</button>` +
+		`<button class="btn ghost" data-act="containers-reload">Go back</button>` +
+		`</div>`
+	marker := `</div></div></section>`
+	if i := strings.LastIndex(doc, marker); i >= 0 {
+		return doc[:i] + prompt + doc[i:]
+	}
+	return doc + prompt
+}
+
 // startOp mirrors the TUI Container-center start (containerview
-// startStart, one workspace): already-running containers are reused,
-// the rest run start.sh with the values from the workspace's
-// sandbox_config.json (openworkspace.StartArgs, --detach); the registry
-// receives "running" only after the container is verified live against
-// a fresh podman ps.
-func (s *Server) startOp(name string) func(emit func(string)) error {
+// startStart, one workspace): containers running the derived set image
+// are reused (set-tag refs only — WP-6), the rest run start.sh with the
+// values from the workspace's sandbox_config.json
+// (openworkspace.StartArgs, --detach), after building the missing set
+// image when the start carried Build now. The registry receives
+// "running" only after the container is verified live against a fresh
+// podman ps.
+func (s *Server) startOp(name string, build bool) func(emit func(string)) error {
 	d := s.deps
 	return func(emit func(string)) error {
 		ws, err := d.Registry.ByName(name)
@@ -377,6 +484,14 @@ func (s *Server) startOp(name string) func(emit func(string)) error {
 		if slices.Contains(discovery.RunningContainers(d.Run), cname) {
 			emit("already running — reusing " + cname)
 		} else {
+			cfg, err := s.readSandboxCfg(ws.Path)
+			if err == nil && build {
+				// Build now (WP-6): one queued op — missing components
+				// + assembly, streamed here, then the start continues.
+				if err := s.buildSetNow(cfg, emit); err != nil {
+					return err
+				}
+			}
 			if err := s.freshStart(ws, emit); err != nil {
 				return err
 			}
@@ -402,18 +517,30 @@ func (s *Server) finishVerifiedStart(ws registry.Workspace) error {
 }
 
 // freshStart runs the non-reuse start branch: the current stored config,
-// pre-start validations, the edition image check, then start.sh with
-// fully rebuilt args.
+// pre-start validations, the derived set-tag image check, then start.sh
+// with fully rebuilt args.
 func (s *Server) freshStart(ws registry.Workspace, emit func(string)) error {
-	cfg, err := readSandboxCfg(ws.Path)
+	cfg, err := s.readSandboxCfg(ws.Path)
 	if err != nil {
 		return err
 	}
 	if err := validateStartCfg(cfg); err != nil {
 		return err
 	}
-	if !discovery.ImageExists(s.deps.Run, cfg.ContainerEdition) {
-		return errImageMissing(cfg.ContainerEdition)
+	// The §10 unresolved refusal re-checked at op time (WP-10): the
+	// config may have changed between the handler's guard and the run.
+	if !cfg.Resolved {
+		return cfg.UnresolvedError()
+	}
+	// The derived set image must exist (WP-6 re-key): the tag rides the
+	// stored selection's content hash, so a recipe edit honestly
+	// re-addresses it; the Images hint is the Build-later escape.
+	tag, ok := s.savedSetTag(cfg)
+	if !ok || !discovery.ImageExistsTag(s.deps.Run, tag) {
+		if !ok {
+			return errors.New("the set image could not be derived from the stored selection — check the toolchain recipes")
+		}
+		return errSetImageMissing(tag)
 	}
 	cname := registry.ContainerName(ws.ContainerID)
 	emit("==> " + cname)

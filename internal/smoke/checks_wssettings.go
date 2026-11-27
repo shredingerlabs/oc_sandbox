@@ -5,6 +5,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"sync"
@@ -29,7 +30,7 @@ import (
 func checkWebUISettings(home, root string) Item {
 	p := newPhase("A15", "Workspace Settings screen: Standard/Advanced matrix rows (hidden rows render nowhere), next-start settings persistence with Standard↔Advanced cross-edit stickiness, VCS save (vector + vcs_tracking mirror + replace-credentials gate), provider add/edit/replace flows, remove-from-list registry-only delete, setup-retry link (#157)")
 
-	// Fixture install: the edition registry fixture + two workspaces.
+	// Fixture install: the toolchains tree + two workspaces.
 	install := filepath.Join(home, ".oc-sandbox")
 	if err := os.MkdirAll(filepath.Join(install, "scripts"), 0o755); err != nil {
 		p.reasonf("install dir: %v", err)
@@ -68,7 +69,6 @@ func checkWebUISettings(home, root string) Item {
 			Registry:        &registry.Registry{Home: home},
 			StartScript:     filepath.Join(install, "scripts", "start.sh"),
 			ConfigureScript: filepath.Join(install, "scripts", "configure-workspace.sh"),
-			Dockerfile:      filepath.Join(install, "Dockerfile"),
 		},
 	})
 	if err := s.Start(); err != nil {
@@ -145,24 +145,40 @@ func checkWebUISettings(home, root string) Item {
 		}
 	}
 
-	// Next-start persistence (Advanced): edition switch, modes incl. HIL,
-	// proxy, search, dictation — one atomic write into the stored
-	// sandbox_config.json (the start_option row is retired, ADR-0033).
+	// Next-start persistence (Advanced): the toolchain multi-select
+	// (#208 WP-4), modes incl. HIL, proxy, search, dictation — one atomic
+	// write into the stored sandbox_config.json (the start_option row is
+	// retired, ADR-0033).
 	post(s.URL()+"settings", map[string]string{"display_mode": "advanced"})
-	resp, _ := post(s.URL()+"workspaces/mural/settings", map[string]string{
-		"edition": "embedded", "proxy": "yes",
-		"search_mode": "none", "modes_present": "1", "offline": "on", "hil": "on",
-		"use_stt": "on", "use_stt_present": "1",
-	})
+	_, advBody := getURL(s.URL() + "workspaces/mural/settings")
+	for _, want := range []string{
+		`data-role="settings-bundles"`,            // the bundle chip row
+		`data-bundle="swdev" aria-pressed="true"`, // derived bundle (exact member match)
+		`name="toolchains" value="cpp" checked`,   // prefilled from the stored set
+		`name="toolchains_present"`,               // the ∅-is-a-selection sentinel
+	} {
+		if !strings.Contains(advBody, want) {
+			p.reasonf("Advanced Toolchains row missing %q", want)
+		}
+	}
+	tcVals := url.Values{"toolchains_present": {"1"}, "proxy": {"yes"}, "search_mode": {"none"},
+		"modes_present": {"1"}, "offline": {"on"}, "hil": {"on"},
+		"use_stt": {"on"}, "use_stt_present": {"1"}}
+	for _, id := range []string{"go", "usb", "arm-embedded", "arduino", "platformio", "micropython", "picoscope", "pyvisa"} {
+		tcVals.Add("toolchains", id)
+	}
+	resp, _ := client.PostForm(s.URL()+"workspaces/mural/settings", tcVals)
 	if resp == nil || resp.StatusCode != http.StatusOK {
 		p.reasonf("settings POST: want 200, got %v", respStatusCT(resp))
 	}
-	cfg, err := sandboxcfg.Read(sandboxcfg.Path(rootA))
+	cfg, err := sandboxcfg.Read(sandboxcfg.Path(rootA), toolchainsRoot(root))
 	if err != nil {
 		p.reasonf("sandbox_config unreadable: %v", err)
 		return p.finish()
 	}
-	if cfg.ContainerEdition != "embedded" ||
+	// The edition POST expands to the embedded bundle's ids, materialized.
+	if !reflect.DeepEqual(cfg.Toolchains, []string{"arduino", "arm-embedded", "go", "micropython", "picoscope", "platformio", "pyvisa", "usb"}) ||
+		!cfg.ToolchainsStored ||
 		!cfg.UseProxy || cfg.SearchMode != "none" ||
 		len(cfg.ContainerModes) != 2 || !cfg.UseStt {
 		p.reasonf("next-start values not persisted: %+v", cfg)
@@ -185,7 +201,7 @@ func checkWebUISettings(home, root string) Item {
 	if resp == nil || resp.StatusCode != http.StatusOK {
 		p.reasonf("second advanced edit: want 200, got %v", respStatusCT(resp))
 	}
-	cfg, _ = sandboxcfg.Read(sandboxcfg.Path(rootA))
+	cfg, _ = sandboxcfg.Read(sandboxcfg.Path(rootA), toolchainsRoot(root))
 	if cfg.SearchMode != "none" || !cfg.UseProxy || cfg.UseStt {
 		p.reasonf("second edit lost the first edit's values (or re-imposed stt): %+v", cfg)
 	}
@@ -194,7 +210,7 @@ func checkWebUISettings(home, root string) Item {
 	// hard-exits on).
 	before := cfg
 	post(s.URL()+"workspaces/mural/settings", map[string]string{"search_mode": "searxng"})
-	cfg, _ = sandboxcfg.Read(sandboxcfg.Path(rootA))
+	cfg, _ = sandboxcfg.Read(sandboxcfg.Path(rootA), toolchainsRoot(root))
 	if cfg.SearchMode != before.SearchMode {
 		p.reasonf("refused search_mode must not persist")
 	}
@@ -209,7 +225,7 @@ func checkWebUISettings(home, root string) Item {
 		p.reasonf("vcs save: want 200, got %v", respStatusCT(resp))
 	}
 	waitForIdleQueue(p, s)
-	cfg, _ = sandboxcfg.Read(sandboxcfg.Path(rootA))
+	cfg, _ = sandboxcfg.Read(sandboxcfg.Path(rootA), toolchainsRoot(root))
 	if cfg.VCSTracking != "own GitLab" {
 		p.reasonf("vcs_tracking = %q, want own GitLab", cfg.VCSTracking)
 	}

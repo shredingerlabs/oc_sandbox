@@ -34,10 +34,14 @@ var matrix = []Row{
 	{Screen: "ws-settings", Key: "cbm_ui", Label: "CBM-UI", AdvancedOnly: true},
 	{Screen: "ws-settings", Key: "hil", Label: "HIL", AdvancedOnly: true},
 	// New Workspace wizard (#156, §6): Standard shows name, source pair,
-	// agent, edition, VCS-credential + AI-provider selects — the §6
-	// presets (start web, proxy off, searxng, offline/CBM-UI off, HIL on
-	// for embedded) are recorded without their rows. The start_option
-	// row is retired (ADR-0033: the card buttons own the variant access).
+	// agent, the bundle row, VCS-credential + AI-provider selects — the
+	// §6 presets (start web, proxy off, searxng, offline/CBM-UI off, HIL
+	// on iff the selection carries a hardware unit) are recorded without
+	// their rows. The start_option row is retired (ADR-0033: the card
+	// buttons own the variant access). The toolchain multi-select is
+	// Advanced-only (toolchain sets #205, WP-3); the bundle row stays
+	// Standard-visible.
+	{Screen: "ws-new", Key: "toolchains", Label: "Toolchains", AdvancedOnly: true},
 	{Screen: "ws-new", Key: "proxy", Label: "Proxy", AdvancedOnly: true},
 	{Screen: "ws-new", Key: "search_mode", Label: "Search mode", AdvancedOnly: true},
 	{Screen: "ws-new", Key: "offline", Label: "Offline", AdvancedOnly: true},
@@ -52,6 +56,10 @@ var matrix = []Row{
 	// screen (Standard hides it and silently records the ON preset).
 	{Screen: "ws-settings", Key: "stt", Label: "Dictation", AdvancedOnly: true},
 	{Screen: "ws-new", Key: "stt", Label: "Dictation", AdvancedOnly: true},
+	// Recipe version editor (toolchain sets #211, WP-9): the per-row
+	// Edit recipe affordance on the Images screen's component and base
+	// rows — host-global build inputs, advanced-only.
+	{Screen: "images", Key: "edit-recipe", Label: "Edit recipe", AdvancedOnly: true},
 }
 
 // ScreenRows returns the matrix rows of a screen in display order.

@@ -27,7 +27,11 @@
 #   --cbm_ui           enables the CBM graph UI on port 9749
 #   --start_opencode   starts OpenCode directly after container start
 #   --start_web        starts OpenCode web (port 4096) after container start
-#   --edition          container edition (e.g. built via build-container.sh)
+#   --toolchains       comma-separated toolchain ids (order-free, validated
+#                      against live discovery; "" = the base-only set) — the
+#                      container runs the derived opencode-sandbox-set:<hash12>
+#   --edition          alias for --toolchains: expands via the manifest bundle;
+#                      both flags together are refused
 #   --detach            start the container in the background
 #   --container-id      persisted workspace container identity
 #
@@ -47,11 +51,20 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
+# The toolchains tree (base recipe, recipes/, manifest.json) feeds the set-tag
+# derivation (lib-identity.sh, golden-vector-pinned to the Go side) and the
+# live-discovery validation.
+TOOLCHAINS_ROOT="${TOOLCHAINS_ROOT:-$REPO_ROOT/toolchains}"
+
 # --- Flags parsen -------------------------------------------------------------
 WORKSPACE_ROOT="${1:-}"
 if [[ "$WORKSPACE_ROOT" == "--help" || "$WORKSPACE_ROOT" == "-h" ]]; then
-  echo "Usage: $0 <workspace-root> --edition <edition> [Flags]"
-  echo "  --edition          select the container edition (required)"
+  echo "Usage: $0 <workspace-root> --toolchains <ids> | --edition <name> [Flags]"
+  echo "  --toolchains <ids>  comma-separated toolchain ids (order-free; \"\" ="
+  echo "                      base-only set); the container runs the derived"
+  echo "                      opencode-sandbox-set:<hash12> image"
+  echo "  --edition <name>    alias: expands via the manifest bundle; both flags"
+  echo "                      together are refused"
   echo "  --use_proxy        start and use the Squid egress-allowlist proxy"
   echo "  --use_stt          start the oc-stt pod member (local dictation)"
   echo "  --search_mode <m>  web search: websearch (default), none, searxng"
@@ -65,10 +78,11 @@ if [[ "$WORKSPACE_ROOT" == "--help" || "$WORKSPACE_ROOT" == "-h" ]]; then
   exit 0
 fi
 if [[ -z "$WORKSPACE_ROOT" ]]; then
-  echo "Usage: $0 <workspace-root> --edition <edition> [--use_proxy] [--use_stt] [--search_mode <none|websearch|searxng>] [--offline] [--hil_mode] [--cbm_ui] [--start_opencode] [--start_web] [--detach]" >&2
+  echo "Usage: $0 <workspace-root> --toolchains <ids> | --edition <name> [--use_proxy] [--use_stt] [--search_mode <none|websearch|searxng>] [--offline] [--hil_mode] [--cbm_ui] [--start_opencode] [--start_web] [--detach]" >&2
   echo "" >&2
   echo "  <workspace-root>        path to the workspace root (see init-workspace.sh)" >&2
-  echo "  --edition <edition>   select the container edition (required)" >&2
+  echo "  --toolchains <ids>    comma-separated toolchain ids (order-free; \"\" = base-only set)" >&2
+  echo "  --edition <name>      alias: expands via the manifest bundle" >&2
   echo "  --use_proxy           start and use the Squid egress-allowlist proxy" >&2
   echo "  --use_stt             start the oc-stt pod member (local dictation)" >&2
   echo "  --search_mode <m>     web search: websearch (default), none, searxng" >&2
@@ -91,12 +105,23 @@ START_OPENCODE=false
 START_WEB=false
 DETACH=false
 CONTAINER_ID=""
+TOOLCHAINS_FLAG=""
+EDITION_FLAG=""
+TOOLCHAINS_GIVEN=0
+EDITION_GIVEN=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --toolchains)
+      [[ $# -ge 2 ]] || { echo "--toolchains requires a value" >&2; exit 1; }
+      TOOLCHAINS_FLAG="$2"
+      TOOLCHAINS_GIVEN=1
+      shift 2
+      ;;
     --edition)
       [[ $# -ge 2 ]] || { echo "--edition requires a value" >&2; exit 1; }
-      EDITION="$2"
+      EDITION_FLAG="$2"
+      EDITION_GIVEN=1
       shift 2
       ;;
     --use_proxy)        USE_PROXY=true; shift ;;
@@ -119,22 +144,106 @@ while [[ $# -gt 0 ]]; do
       ;;
     *)
       echo "Unknown flag: $1" >&2
-      echo "Usage: $0 <workspace-root> --edition <edition> [--use_proxy] [--use_stt] [--search_mode <none|websearch|searxng>] [--offline] [--hil_mode] [--cbm_ui] [--start_opencode] [--start_web] [--detach]" >&2
+      echo "Usage: $0 <workspace-root> --toolchains <ids> | --edition <name> [--use_proxy] [--use_stt] [--search_mode <none|websearch|searxng>] [--offline] [--hil_mode] [--cbm_ui] [--start_opencode] [--start_web] [--detach]" >&2
       exit 1
       ;;
   esac
 done
 
-# --- Edition validation ---------------------------------------------------------
+# --- Toolchain-set derivation (toolchain sets #200, spec §8) --------------------
 #
-# Editions are Dockerfile stages named opencode-sandbox-<name>
-# (see ADR 0019). The list is discovered live from the shipped Dockerfile
-# and the custom edition Dockerfile — no hardcoded whitelist.
-[[ -n "${EDITION:-}" ]] || {
-  echo "Error: --edition <edition> is required." >&2
-  echo "Usage: $0 <workspace-root> --edition <edition> [--use_proxy] [--use_stt] [--search_mode <none|websearch|searxng>] [--offline] [--hil_mode] [--cbm_ui] [--start_opencode] [--start_web] [--detach]" >&2
+# The container runs the derived opencode-sandbox-set:<hash12> image (the hash
+# is re-derived from the member recipes + base recipe — lib-identity.sh,
+# golden-vector-pinned to the Go side; the set array is semantically unordered,
+# the canonical order is derived here). --edition is an alias expanding via the
+# manifest bundle at arg parsing; both flags together are refused (explicit
+# conflict beats silent precedence); one of the two is required. start.sh still
+# never builds — a missing set image refuses naming the build command.
+if ((TOOLCHAINS_GIVEN)) && ((EDITION_GIVEN)); then
+  echo "Error: --toolchains and --edition are mutually exclusive — pass one of the two." >&2
+  exit 1
+fi
+if ((! TOOLCHAINS_GIVEN)) && ((! EDITION_GIVEN)); then
+  echo "Error: one of --toolchains <ids> or --edition <name> is required." >&2
+  echo "  --toolchains <ids>  comma-separated toolchain ids (\"\" = base-only set)" >&2
+  echo "  --edition <name>    alias: expands via the manifest bundle" >&2
+  exit 1
+fi
+
+[[ -f "$TOOLCHAINS_ROOT/base.Dockerfile" ]] || {
+  echo "Error: toolchains tree not found at $TOOLCHAINS_ROOT (base.Dockerfile missing) — is the installation complete?" >&2
   exit 1
 }
+# shellcheck source=lib-identity.sh
+source "$SCRIPT_DIR/lib-identity.sh"
+
+# resolved_ids — validates and resolves each id against live discovery,
+# keeping the canonical (sorted) member list in TOOLCHAIN_IDS and the recipe
+# paths in RECIPE_OF.
+TOOLCHAIN_IDS=()
+declare -A RECIPE_OF=()
+resolve_ids() {
+  local id out
+  for id in "$@"; do
+    [[ -n "$id" ]] || continue
+    [[ -n "${RECIPE_OF[$id]:-}" ]] && continue
+    if ! out="$(bash "$SCRIPT_DIR/toolchains.sh" resolve "$TOOLCHAINS_ROOT" "$id" 2>&1)"; then
+      echo "Error: refusing to start — $out" >&2
+      exit 1
+    fi
+    RECIPE_OF[$id]="$out"
+  done
+  if ((${#RECIPE_OF[@]} > 0)); then
+    mapfile -t TOOLCHAIN_IDS < <(printf '%s\n' "${!RECIPE_OF[@]}" | LC_ALL=C sort -u)
+  fi
+}
+
+if ((TOOLCHAINS_GIVEN)); then
+  # comma-separated, order-free, "" = base-only
+  IFS=',' read -r -a _requested_ids <<< "$TOOLCHAINS_FLAG"
+  resolve_ids "${_requested_ids[@]}"
+else
+  # --edition is an alias expanding via the manifest bundle (live discovery)
+  if [[ ! "$EDITION_FLAG" =~ ^[a-z0-9-]+$ ]]; then
+    echo "Error: invalid edition name: $EDITION_FLAG" >&2
+    echo "Only lowercase [a-z0-9-] is allowed." >&2
+    exit 1
+  fi
+  bundle_record="$(bash "$SCRIPT_DIR/toolchains.sh" discover "$TOOLCHAINS_ROOT" |
+    awk -F'\t' -v e="$EDITION_FLAG" '$1 == "bundle" && $2 == e')"
+  if [[ -z "$bundle_record" ]]; then
+    echo "Error: unknown edition: $EDITION_FLAG" >&2
+    echo "Available editions: $(bash "$SCRIPT_DIR/toolchains.sh" discover "$TOOLCHAINS_ROOT" |
+      awk -F'\t' '$1 == "bundle" { printf "%s ", $2 }')" >&2
+    exit 1
+  fi
+  bundle_status="$(awk -F'\t' '{print $3}' <<< "$bundle_record")"
+  if [[ "$bundle_status" != "valid" ]]; then
+    echo "Error: edition '$EDITION_FLAG' is invalid — $(awk -F'\t' '{print $4}' <<< "$bundle_record")" >&2
+    exit 1
+  fi
+  # shellcheck disable=SC2086 — the bundle's member list is a word list
+  resolve_ids $(awk -F'\t' '{print $4}' <<< "$bundle_record")
+fi
+
+# the derived set tag; the stored set stays plain ids — the hash is always
+# re-derived (never stored)
+set_tag_args=("$TOOLCHAINS_ROOT/base.Dockerfile")
+for _id in "${TOOLCHAIN_IDS[@]}"; do
+  set_tag_args+=("$_id" "${RECIPE_OF[$_id]}")
+done
+IMAGE="$(tc_set_tag "${set_tag_args[@]}")"
+if ! podman image exists "$IMAGE" 2>/dev/null; then
+  _ids_csv="$(printf '%s\n' "${TOOLCHAIN_IDS[@]:-}" | paste -sd, -)"
+  echo "Error: the set image $IMAGE is missing — build it first:" >&2
+  if [[ -n "$_ids_csv" ]]; then
+    echo "  build-images.sh --set $_ids_csv" >&2
+  else
+    echo '  build-images.sh --set ""' >&2
+  fi
+  exit 1
+fi
+printf '==> Toolchain set: %s\n' "${TOOLCHAIN_IDS[*]:-"(base only)"}" >&2
 
 # --- Search mode validation --------------------------------------------------------
 case "$SEARCH_MODE" in
@@ -167,46 +276,6 @@ fi
 # block below is guarded by ! $OFFLINE anyway).
 if $USE_STT && $OFFLINE; then
   echo "Note: --offline excludes the STT member (dictation stays off for this run)" >&2
-fi
-
-if [[ ! "$EDITION" =~ ^[a-z0-9_-]+$ ]]; then
-  echo "Error: invalid edition name: $EDITION" >&2
-  echo "Only lowercase [a-z0-9_-] is allowed." >&2
-  exit 1
-fi
-
-discover_editions() {
-  for f in "${REPO_ROOT}/Dockerfile" "${REPO_ROOT}/Dockerfile.custom"; do
-    [[ -f "$f" ]] || continue
-    while IFS= read -r name; do
-      [[ "$name" =~ ^[a-z0-9_-]+$ ]] || continue
-      if [[ -z "${DISCOVERED_FILE[$name]:-}" ]]; then
-        DISCOVERED_FILE[$name]="$f"
-        printf '%s\n' "$name"
-      elif [[ "${DISCOVERED_FILE[$name]}" != "$f" ]]; then
-        echo "Warning: edition 'opencode-sandbox-$name' appears in both Dockerfile and Dockerfile.custom — edition skipped." >&2
-      fi
-    done < <(sed -nE '/^[[:space:]]*#/d; s/^[[:space:]]*FROM[[:space:]]+[^[:space:]]+[[:space:]]+AS[[:space:]]+opencode-sandbox-([^[:space:]]+)[[:space:]]*(#.*)?$/\1/p' "$f" || true)
-  done
-}
-
-declare -A DISCOVERED_FILE=()
-AVAILABLE_EDITIONS=()
-while IFS= read -r ed; do
-  [[ -n "$ed" ]] && AVAILABLE_EDITIONS+=("$ed")
-done < <(discover_editions)
-
-edition_known=false
-for ed in "${AVAILABLE_EDITIONS[@]:-}"; do
-  if [[ "$ed" == "$EDITION" ]]; then
-    edition_known=true
-    break
-  fi
-done
-if ! $edition_known; then
-  echo "Error: unknown edition: $EDITION" >&2
-  echo "Available editions: ${AVAILABLE_EDITIONS[*]:-}" >&2
-  exit 1
 fi
 
 # --- Workspace root validation -------------------------------------------------
@@ -834,7 +903,6 @@ elif ! jq -e '.hostname == "0.0.0.0" and .port == 4096' "$SERVICE_FILE" >/dev/nu
     && mv "$tmp_service_json" "$SERVICE_FILE"
 fi
 
-IMAGE="opencode-sandbox-${EDITION}"
 RUN_MODE=(-it)
 CONTAINER_COMMAND=()
 if $DETACH; then

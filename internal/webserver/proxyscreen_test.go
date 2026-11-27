@@ -26,6 +26,7 @@ type proxyFixture struct {
 	root    string // the workspace root
 	home    string // oc-sandbox home (global config, atomic backups)
 	install string // install root (proxy/allowlist.txt lives here)
+	infra   string // infra root (the oc-proxy Dockerfile's context)
 	ctr     string // the workspace's container name
 	member  string // the proxy member name
 	pod     string // the workspace's pod name
@@ -34,7 +35,7 @@ type proxyFixture struct {
 	members   map[string]string // member name → state
 	images    []string          // present image tags
 	wsRunning bool              // the workspace container runs (default true)
-	builds    syncList          // build-container.sh args
+	builds    syncList          // infra image build args (podman build)
 	calls     syncList          // recorded podman/bash calls (joined)
 }
 
@@ -47,6 +48,7 @@ func newProxyFixture(t *testing.T) *proxyFixture {
 		root:      root,
 		home:      reg.Home,
 		install:   t.TempDir(),
+		infra:     t.TempDir(),
 		ctr:       registry.ContainerName(registry.ContainerIdentity(root)),
 		member:    proxyMemberName(registry.ContainerIdentity(root)),
 		pod:       registry.PodName(registry.ContainerIdentity(root)),
@@ -56,6 +58,7 @@ func newProxyFixture(t *testing.T) *proxyFixture {
 	}
 	f.enableProxy(t)
 	f.writeShared(t, "github.com\n.gitlab.com\n")
+	seedToolchainsManifest(t, f.home) // the bundle map the derived identity matches against
 	f.startFake(t)
 	return f
 }
@@ -65,7 +68,7 @@ func newProxyFixture(t *testing.T) *proxyFixture {
 func (f *proxyFixture) enableProxy(t *testing.T) {
 	t.Helper()
 	if _, err := os.Stat(sandboxcfg.Path(f.root)); err != nil {
-		if err := sandboxcfg.Create(f.home, sandboxcfg.Path(f.root), "swdev", nil, "web", "", "websearch"); err != nil {
+		if err := sandboxcfg.Create(f.home, sandboxcfg.Path(f.root), []string{"cpp", "go", "java", "rust"}, nil, "web", "", "websearch"); err != nil {
 			t.Fatalf("sandboxcfg.Create: %v", err)
 		}
 	}
@@ -125,23 +128,22 @@ func (f *proxyFixture) startFake(t *testing.T) {
 		InstallRoot: f.install,
 		Deps: &Deps{
 			Registry:    f.reg,
-			BuildScript: "/opt/oc-sandbox/scripts/build-container.sh",
+			InfraRoot:   f.infra,
 			StartScript: "/opt/oc-sandbox/scripts/start.sh",
-			Dockerfile:  "../discovery/testdata/Dockerfile",
 		},
 	})
 	f.s.deps.Run = &cmdrun.Fake{Script: func(name string, args []string) (string, error) {
 		rest := strings.Join(args, " ")
 		f.calls.add(name + " " + rest)
 		switch {
-		case name == "bash" && len(args) > 1 && args[0] == "/opt/oc-sandbox/scripts/build-container.sh":
-			f.builds.add(args[1])
+		case name == "podman" && len(args) > 1 && args[0] == "build":
+			f.builds.add(strings.Join(args, " "))
 			f.mu.Lock()
-			if !slices_Contains(f.images, args[1]) {
-				f.images = append(f.images, args[1])
+			if ti := indexOf(args, "-t"); ti >= 0 && !slices_Contains(f.images, args[ti+1]) {
+				f.images = append(f.images, args[ti+1])
 			}
 			f.mu.Unlock()
-			return "built " + args[1], nil
+			return "built " + args[2], nil
 		case name == "podman" && (strings.HasPrefix(rest, "run -d") || strings.HasPrefix(rest, "start ") ||
 			strings.HasPrefix(rest, "stop ") || strings.HasPrefix(rest, "rm ")):
 			return f.answerProxy(args)
@@ -452,8 +454,8 @@ func TestProxyMemberStop(t *testing.T) {
 // --- Rebuild ---
 
 // Rebuild recreates the member with the current allowlist: stop, rm,
-// fresh run. The image build stays a start.sh concern — no
-// build-container.sh call while the image exists.
+// fresh run. The image build stays a start.sh concern — no podman
+// build while the image exists.
 func TestProxyMemberRebuild(t *testing.T) {
 	f := newProxyFixture(t)
 	f.advancedMode(t)
@@ -477,8 +479,9 @@ func TestProxyMemberRebuild(t *testing.T) {
 	}
 }
 
-// Rebuild with a missing oc-proxy image builds it first via
-// build-container.sh.
+// Rebuild with a missing oc-proxy image builds it first via podman —
+// the start.sh vector (proxy/Dockerfile from the proxy context, no
+// --network pin).
 func TestProxyMemberRebuildBuildsMissingImage(t *testing.T) {
 	f := newProxyFixture(t)
 	f.advancedMode(t)
@@ -493,8 +496,17 @@ func TestProxyMemberRebuildBuildsMissingImage(t *testing.T) {
 		return f.members[f.member] == "running"
 	})
 	builds := f.builds.snapshot()
-	if len(builds) != 1 || builds[0] != discovery.ProxyImageTag {
-		t.Fatalf("missing image must build first: %v", builds)
+	if len(builds) != 1 {
+		t.Fatalf("missing image must build first, exactly once: %v", builds)
+	}
+	b := builds[0]
+	for _, want := range []string{"build", "-t " + discovery.ProxyImageTag, "-f", filepath.Join(f.infra, "proxy", "Dockerfile"), filepath.Join(f.infra, "proxy")} {
+		if !strings.Contains(b, want) {
+			t.Fatalf("infra build vector missing %q: %s", want, b)
+		}
+	}
+	if strings.Contains(b, "--network") {
+		t.Fatalf("oc-proxy builds without the --network pin (start.sh parity): %s", b)
 	}
 }
 
@@ -611,5 +623,24 @@ func TestSettingsEnableSeedsAllowlist(t *testing.T) {
 	}
 	if al := f.workspaceAllowlist(); !strings.Contains(al, "github.com") {
 		t.Fatalf("enable must seed the workspace copy:\n%q", al)
+	}
+}
+
+// The proxy row carries the derived identity (WP-5): the bundle label
+// beside the workspace name, the member list as the avatar's tooltip —
+// the avatar tints with the matching bundle's hue, the neutral accent
+// otherwise.
+func TestProxyRowDerivedIdentity(t *testing.T) {
+	f := newProxyFixture(t)
+	f.advancedMode(t)
+	doc := body(t, get(t, f.s.URL()+"proxy"))
+	for _, want := range []string{
+		`<span class="unit-sub">swdev</span>`, // derived bundle label
+		`title="4 toolchains: cpp, go, java, rust"`,
+		`<span class="avatar" style="--ed:#2f6fed" title="4 toolchains: cpp, go, java, rust">`, // the swdev hue
+	} {
+		if !strings.Contains(doc, want) {
+			t.Fatalf("proxy screen missing %q:\n%s", want, doc)
+		}
 	}
 }

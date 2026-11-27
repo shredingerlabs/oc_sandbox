@@ -16,7 +16,10 @@ import (
 )
 
 // seedWorkspace writes one registry entry plus its sandbox_config.json
-// under a fake home — the card-fragment fixtures.
+// under a fake home — the card-fragment fixtures. The config is LEGACY
+// (container_edition): these fixtures pin the legacy-world rendering the
+// shipped read support keeps serving (spec §10); the materialized-world
+// shapes are pinned in the sandboxcfg/openworkspace unit tests.
 func seedWorkspace(t *testing.T, home, name, edition string, modes []string) string {
 	t.Helper()
 	root := t.TempDir()
@@ -27,7 +30,34 @@ func seedWorkspace(t *testing.T, home, name, edition string, modes []string) str
 	if err := reg.AddWorkspace(registry.AddRequest{Name: name, Path: root}); err != nil {
 		t.Fatalf("seed registry: %v", err)
 	}
-	if err := sandboxcfg.Create(home, sandboxcfg.Path(root), edition, modes, "web", "", sandboxcfg.SearchSearxng); err != nil {
+	quoted := func(ss []string) string {
+		out := make([]string, len(ss))
+		for i, s := range ss {
+			out[i] = `"` + s + `"`
+		}
+		return "[" + strings.Join(out, ", ") + "]"
+	}
+	cfg := `{
+  "container_edition": "` + edition + `",
+  "container_modes": ` + quoted(modes) + `,
+  "start_option": "web",
+  "cbm_auto_index": true,
+  "cbm_auto_watch": true,
+  "ai_provider": "none",
+  "workspace_source": "empty",
+  "repo_url": "",
+  "search_mode": "searxng",
+  "use_stt": true,
+  "setup_clone_complete": false,
+  "setup_cbm_complete": false,
+  "setup_skills_complete": false,
+  "setup_complete": false,
+  "version": "2.0"
+}`
+	if err := os.MkdirAll(filepath.Join(root, ".opencode_config"), 0o755); err != nil {
+		t.Fatalf("seed config dir: %v", err)
+	}
+	if err := os.WriteFile(sandboxcfg.Path(root), []byte(cfg), 0o644); err != nil {
 		t.Fatalf("seed sandbox_config: %v", err)
 	}
 	return root
@@ -229,9 +259,12 @@ func TestWorkspacesQueryFiltersWithinSections(t *testing.T) {
 	}
 }
 
-// startFixtureServer starts a test server pointed at a fake home.
+// startFixtureServer starts a test server pointed at a fake home. The
+// fixture install layout carries the shipped bundle map — the derived
+// identity (WP-5) and the legacy expansion (§10) read it.
 func startFixtureServer(t *testing.T, home string) *Server {
 	t.Helper()
+	seedToolchainsManifest(t, home)
 	s := New(Options{BasePort: 0, Home: home})
 	if err := s.Start(); err != nil {
 		t.Fatalf("Start: %v", err)
@@ -240,9 +273,10 @@ func startFixtureServer(t *testing.T, home string) *Server {
 	return s
 }
 
-// GET /workspaces (#153, spec §7): workspace cards in a grid — edition
-// icon tile tinted via the edition hue, name, settings row, relative
-// last-used date, action rows.
+// GET /workspaces (#153, spec §7): workspace cards in a grid — generic
+// set glyph in the tile, derived bundle label chip carrying the member
+// list as its tooltip, name, settings row, relative last-used date,
+// action rows (WP-5 identity).
 func TestWorkspacesCards(t *testing.T) {
 	home := t.TempDir()
 	seedWorkspace(t, home, "alpha", "swdev", nil)
@@ -260,13 +294,89 @@ func TestWorkspacesCards(t *testing.T) {
 	for _, want := range []string{
 		`data-ws="alpha"`,
 		`data-ws="hil-lab"`,
-		`data-edition="swdev"`,    // inline Lucide glyph in the tile (§5, currentColor picks up --ed)
-		`data-edition="embedded"`, // per-edition glyph
-		`--ed:#2f6fed`,            // swdev hue tints the tile
-		`--ed:#0ea5a4`,            // embedded hue
+		`data-glyph="layers"`, // one generic set glyph for every set (WP-5)
+		`>swdev</span>`,       // derived bundle name on exact member-match
+		`>embedded</span>`,
+		// the member list rides the chip tooltip ("n toolchains: …")
+		`title="4 toolchains: cpp, go, java, rust"`,
+		`title="8 toolchains: arduino, arm-embedded, go, micropython, picoscope, platformio, pyvisa, usb"`,
+		// the tile tints with the matching bundle's hue (WP-5)
+		`data-ws="alpha" style="--ed:#2f6fed"`,
+		`data-ws="hil-lab" style="--ed:#0ea5a4"`,
 	} {
 		if !strings.Contains(doc, want) {
 			t.Fatalf("card fragment missing %q", want)
+		}
+	}
+	for _, banned := range []string{`data-edition=`} {
+		if strings.Contains(doc, banned) {
+			t.Fatalf("card fragment carries the retired per-edition identity (%s)", banned)
+		}
+	}
+}
+
+// The chip label is derived, never stored: a set whose members exactly
+// match a manifest bundle shows that bundle's name, any other selection
+// shows Custom — a materialized config and a legacy one derive the same.
+func TestWorkspacesCardDerivedLabel(t *testing.T) {
+	home := t.TempDir()
+	seedWorkspace(t, home, "derived", "web", nil)
+	rootCustom := seedWorkspace(t, home, "custom", "swdev", nil)
+	custom := `{"toolchains": ["go", "fonts"], "container_modes": [], "start_option": "web", "ai_provider": "none", "search_mode": "websearch", "setup_complete": false, "version": "2.0"}`
+	if err := os.WriteFile(sandboxcfg.Path(rootCustom), []byte(custom), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	s := startFixtureServer(t, home)
+	doc := body(t, get(t, s.URL()+"workspaces"))
+	for _, want := range []string{
+		`>web</span>`,    // legacy container_edition expands → exact match
+		`>Custom</span>`, // no bundle matches ["fonts", "go"]
+		`title="2 toolchains: fonts, go"`,
+	} {
+		if !strings.Contains(doc, want) {
+			t.Fatalf("cards missing %q:\n%s", want, doc)
+		}
+	}
+}
+
+// An unknown stored edition reads unresolved (§10): the card stays up
+// with the Custom chip naming the refusal reason in the tooltip —
+// nothing destroyed; start refuses with the same refusal.
+func TestWorkspacesCardUnresolved(t *testing.T) {
+	home := t.TempDir()
+	root := seedWorkspace(t, home, "weird", "swdev", nil)
+	if err := sandboxcfg.PatchString(home, sandboxcfg.Path(root), "container_edition", "nonexistent-edition"); err != nil {
+		t.Fatalf("patch edition: %v", err)
+	}
+	s := startFixtureServer(t, home)
+	doc := body(t, get(t, s.URL()+"workspaces"))
+	for _, want := range []string{
+		`>Custom</span>`,
+		`title="stored edition &#39;nonexistent-edition&#39; maps to no bundle"`,
+	} {
+		if !strings.Contains(doc, want) {
+			t.Fatalf("unresolved card missing %q:\n%s", want, doc)
+		}
+	}
+}
+
+// The empty set is base only: a pkm-kind workspace derives its pkm
+// bundle, chat derives chat — the empty selection exactly matches both,
+// the workspace kind disambiguates.
+func TestWorkspacesCardBaseOnly(t *testing.T) {
+	home := t.TempDir()
+	seedWorkspace(t, home, "wiki", "pkm", nil)
+	seedWorkspace(t, home, "chatty", "chat", nil)
+	s := startFixtureServer(t, home)
+	doc := body(t, get(t, s.URL()+"workspaces"))
+	for _, want := range []string{
+		`>pkm</span>`,
+		`>chat</span>`,
+		`title="base only"`,
+	} {
+		if !strings.Contains(doc, want) {
+			t.Fatalf("base-only cards missing %q:\n%s", want, doc)
 		}
 	}
 }
@@ -638,17 +748,40 @@ func TestWorkspacesEmpty(t *testing.T) {
 	}
 }
 
-// Unknown editions fall back to the base glyph + hue — a card never
-// renders a broken tile.
-func TestWorkspacesUnknownEditionFallsBack(t *testing.T) {
+// The unresolved card keeps the workspace reachable (§10: nothing
+// destroyed) — covered by TestWorkspacesCardUnresolved.
+
+// The hue rides the same derivation as the label (WP-5, spec §9): the
+// matching bundle tints the tile — the empty set matches chat and pkm
+// and the legacy edition/kind preference disambiguates which one's hue
+// applies — and every unmatched or unresolved selection renders the
+// neutral accent.
+func TestWorkspacesCardDerivedHue(t *testing.T) {
 	home := t.TempDir()
-	root := seedWorkspace(t, home, "weird", "swdev", nil)
-	if err := sandboxcfg.PatchString(home, sandboxcfg.Path(root), "container_edition", "nonexistent-edition"); err != nil {
-		t.Fatalf("patch edition: %v", err)
+	// legacy edition chat: the empty set matches chat and pkm — the
+	// stored edition names which bundle's hue applies
+	seedWorkspace(t, home, "chat-ed", "chat", nil)
+	// a workspace_kind disambiguates the other way (pkm kind)
+	seedWorkspace(t, home, "pkm-kind", "pkm", nil)
+	// a non-matching selection → Custom, the neutral accent
+	rootCustom := seedWorkspace(t, home, "custom", "swdev", nil)
+	custom := `{"toolchains": ["go", "fonts"], "container_modes": [], "start_option": "web", "ai_provider": "none", "search_mode": "websearch", "setup_complete": false, "version": "2.0"}`
+	if err := os.WriteFile(sandboxcfg.Path(rootCustom), []byte(custom), 0o644); err != nil {
+		t.Fatal(err)
 	}
+
 	s := startFixtureServer(t, home)
 	doc := body(t, get(t, s.URL()+"workspaces"))
-	if !strings.Contains(doc, `data-edition="base"`) {
-		t.Fatalf("unknown edition must fall back to the base glyph, got:\n%s", doc)
+	for _, want := range []string{
+		`data-ws="chat-ed" style="--ed:#0891b2"`,  // chat bundle's hue
+		`data-ws="pkm-kind" style="--ed:#db2777"`, // pkm bundle's hue
+	} {
+		if !strings.Contains(doc, want) {
+			t.Fatalf("card fragment missing %q", want)
+		}
+	}
+	customCard := doc[strings.Index(doc, `data-ws="custom"`):]
+	if strings.Contains(customCard[:strings.Index(customCard, "</article>")], "style=\"--ed:") {
+		t.Fatalf("a Custom selection must render the neutral accent:\n%s", customCard)
 	}
 }

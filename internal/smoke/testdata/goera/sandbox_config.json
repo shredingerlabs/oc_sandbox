@@ -1,0 +1,25 @@
+{
+  "toolchains": [
+    "cpp",
+    "go",
+    "java",
+    "rust"
+  ],
+  "container_modes": [
+    "offline",
+    "hil_mode"
+  ],
+  "start_option": "console",
+  "cbm_auto_index": true,
+  "cbm_auto_watch": true,
+  "ai_provider": "gwdg-saia",
+  "workspace_source": "empty",
+  "repo_url": "",
+  "search_mode": "websearch",
+  "use_stt": true,
+  "setup_clone_complete": false,
+  "setup_cbm_complete": false,
+  "setup_skills_complete": false,
+  "setup_complete": false,
+  "version": "2.0"
+}

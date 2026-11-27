@@ -80,17 +80,20 @@ func fakePodman(running []string, pods []string, containers []string, images []s
 }
 
 // depsServer starts a Server wired with the given runner and registry
-// plus the discovery testdata Dockerfile (edition registry fixture).
+// plus the fixture bundle map — the legacy expansion and the derived
+// identity derive through it (spec toolchain-sets §10/WP-5).
 func depsServer(t *testing.T, run *cmdrun.Fake, reg *registry.Registry) *Server {
 	t.Helper()
+	seedToolchainsManifest(t, reg.Home)
 	s := New(Options{
 		BasePort: 0,
 		Deps: &Deps{
-			Run:         run,
-			Registry:    reg,
-			BuildScript: "/opt/oc-sandbox/scripts/build-container.sh",
-			StartScript: "/opt/oc-sandbox/scripts/start.sh",
-			Dockerfile:  "../discovery/testdata/Dockerfile",
+			Run:               run,
+			Registry:          reg,
+			InfraRoot:         "/opt/oc-sandbox",
+			BuildImagesScript: "/opt/oc-sandbox/scripts/build-images.sh",
+			StartScript:       "/opt/oc-sandbox/scripts/start.sh",
+			Toolchains:        tcRootOf(reg.Home),
 		},
 	})
 	if err := s.Start(); err != nil {
@@ -117,6 +120,18 @@ func post(t *testing.T, url string, form string) *http.Response {
 	}
 	t.Cleanup(func() { resp.Body.Close() })
 	return resp
+}
+
+// allImagesExist answers podman image exists affirmatively — fixture
+// wiring for op chains whose set-tag image check must pass (the
+// identity derivation itself is pinned by the identity/golden tests).
+func allImagesExist(next func(string, []string) (string, error)) func(string, []string) (string, error) {
+	return func(name string, args []string) (string, error) {
+		if name == "podman" && len(args) >= 2 && args[0] == "image" && args[1] == "exists" {
+			return "", nil
+		}
+		return next(name, args)
+	}
 }
 
 // containerState renders a `podman ps -a` row "name\tstate".
@@ -207,6 +222,19 @@ func sandboxConfigFixture(t *testing.T, root string) {
 // podState renders a `podman pod ps` row "name\tstatus".
 func podState(name, state string) string { return name + "\t" + state }
 
+// writeRawConfig writes a raw sandbox_config.json fixture verbatim —
+// the broken/legacy/unresolved shapes the start guards read.
+func writeRawConfig(t *testing.T, root, cfg string) {
+	t.Helper()
+	dir := filepath.Join(root, ".opencode_config")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "sandbox_config.json"), []byte(cfg), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // imageLine renders a `podman images` row "repo:tag\tsize".
 func imageLine(tag, size string) string { return tag + "\t" + size }
 
@@ -261,7 +289,7 @@ func TestStartRunsScriptAndFlipsRegistry(t *testing.T) {
 	running := newSyncSet()
 	startCalls := &syncList{}
 	run := fakePodman(nil, nil, nil, []string{"opencode-sandbox-swdev"}, nil)
-	base := run.Script
+	base := allImagesExist(run.Script)
 	run.Script = func(name string, args []string) (string, error) {
 		rest := ""
 		if name == "podman" {
@@ -334,6 +362,122 @@ func TestStartReusesRunningContainer(t *testing.T) {
 	})
 	if startCalls != 0 {
 		t.Fatalf("start.sh calls = %d, want 0 (reuse)", startCalls)
+	}
+}
+
+// The Containers-screen start (no variant) offers the same three-way
+// Build now / Build later / Go back sidecar when the derived set image
+// is missing (WP-6): rendered as the prompt row — Build now posts the
+// same route with build=1.
+func TestContainersStartOffersBuildWhenSetImageMissing(t *testing.T) {
+	reg, roots := fixtureRegistry(t, "alpha")
+	root := roots["alpha"]
+	seedToolchains(t, reg.Home)
+	seedToolchainsConfig(t, root, []string{"go"}, nil)
+	startCalls := &syncList{}
+	run := fakePodman(nil, nil, nil, nil, nil)
+	base := run.Script
+	run.Script = func(name string, args []string) (string, error) {
+		if name == "bash" && len(args) > 0 && args[0] == "/opt/oc-sandbox/scripts/start.sh" {
+			startCalls.add("start")
+			return "started", nil
+		}
+		return base(name, args)
+	}
+	s := depsServer(t, run, reg)
+
+	resp := post(t, s.URL()+"workspaces/alpha/start", "")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	doc := body(t, resp)
+	if !strings.Contains(doc, "Build now") || !strings.Contains(doc, `data-form="build=1"`) {
+		t.Fatalf("containers start without the set image must render the build prompt:\n%s", doc)
+	}
+	waitFor(t, "op to drain", func() bool { return !s.Busy() })
+	if len(startCalls.snapshot()) != 0 {
+		t.Fatalf("start.sh ran despite the missing set image")
+	}
+
+	// Build now (build=1): the queued op builds the set, then starts —
+	// the answer is the refreshed containers screen (the op streams into
+	// the busy pane).
+	cname := "opencode-sandbox-" + registry.ContainerIdentity(root)
+	running := newSyncSet()
+	exists := false
+	run.Script = func(name string, args []string) (string, error) {
+		rest := strings.Join(args, " ")
+		switch {
+		case name == "bash" && len(args) > 0 && strings.HasSuffix(args[0], "build-images.sh"):
+			exists = true
+			return "built", nil
+		case name == "bash" && len(args) > 0 && args[0] == "/opt/oc-sandbox/scripts/start.sh":
+			running.set(cname, true)
+			return "started", nil
+		case name == "podman" && strings.HasPrefix(rest, "ps --format {{.Names}}"):
+			return strings.Join(running.keys(), "\n"), nil
+		case name == "podman" && strings.HasPrefix(rest, "ps -a --format {{.Names}}"):
+			var rows []string
+			for _, n := range running.keys() {
+				rows = append(rows, containerState(n, "running"))
+			}
+			return strings.Join(rows, "\n"), nil
+		case name == "podman" && strings.HasPrefix(rest, "image exists"):
+			if exists {
+				return "", nil
+			}
+			return "", fmt.Errorf("no such image")
+		}
+		return base(name, args)
+	}
+	resp = post(t, s.URL()+"workspaces/alpha/start", "build=1")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("build=1 start: status = %d, want 200", resp.StatusCode)
+	}
+	waitFor(t, "build+start op flips the registry", func() bool {
+		ws, err := reg.ByName("alpha")
+		return err == nil && ws.ContainerStatus == "running"
+	})
+	waitFor(t, "op to drain", func() bool { return !s.Busy() })
+}
+
+// The Containers-screen start refuses the silent reuse of a container
+// running a stale ref: reuse-running matches the derived set tag only
+// (WP-6/§10) — the honest mismatch note renders instead.
+func TestContainersStartRefusesStaleRunningRef(t *testing.T) {
+	reg, roots := fixtureRegistry(t, "alpha")
+	root := roots["alpha"]
+	seedToolchains(t, reg.Home)
+	seedToolchainsConfig(t, root, []string{"go"}, nil)
+	cname := "opencode-sandbox-" + registry.ContainerIdentity(root)
+	startCalls := &syncList{}
+	run := fakePodman([]string{cname}, nil,
+		[]string{containerState(cname, "running")}, nil, nil)
+	base := run.Script
+	run.Script = func(name string, args []string) (string, error) {
+		rest := ""
+		if name == "podman" {
+			rest = strings.Join(args, " ")
+		}
+		switch {
+		case name == "bash" && len(args) > 0 && args[0] == "/opt/oc-sandbox/scripts/start.sh":
+			startCalls.add("start")
+			return "started", nil
+		case name == "podman" && strings.HasPrefix(rest, "ps --format {{.Names}}\t{{.Image}}"):
+			return cname + "\topencode-sandbox-web:latest", nil
+		}
+		return base(name, args)
+	}
+	s := depsServer(t, run, reg)
+
+	resp := post(t, s.URL()+"workspaces/alpha/start", "")
+	doc := body(t, resp)
+	if !strings.Contains(doc, "predates toolchain sets") {
+		t.Fatalf("stale-ref containers start must refuse with the mismatch note:\n%s", doc)
+	}
+	waitFor(t, "op to drain", func() bool { return !s.Busy() })
+	if len(startCalls.snapshot()) != 0 {
+		t.Fatalf("start.sh ran on a stale live container")
 	}
 }
 
@@ -705,7 +849,7 @@ func TestQueueConflictSemantics(t *testing.T) {
 	total := map[string]int{"alpha": 0, "beta": 0}   // total invocations
 	maxSeen := map[string]int{"alpha": 0, "beta": 0} // peak concurrency
 	run := fakePodman(nil, nil, nil, []string{"opencode-sandbox-swdev"}, nil)
-	base := run.Script
+	base := allImagesExist(run.Script)
 	run.Script = func(name string, args []string) (string, error) {
 		if name == "bash" && len(args) > 0 && args[0] == "/opt/oc-sandbox/scripts/start.sh" {
 			ws := "alpha"
@@ -744,9 +888,14 @@ func TestQueueConflictSemantics(t *testing.T) {
 	mu.Lock()
 	both := running["alpha"] == 1 && running["beta"] == 1
 	mu.Unlock()
-	if !both {
-		t.Fatalf("expected one running start per workspace in parallel")
-	}
+	// the ops re-derive the set tag before start.sh — wait for the
+	// blocked state instead of racing it
+	waitFor(t, "one running start per workspace in parallel", func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return running["alpha"] == 1 && running["beta"] == 1
+	})
+	_ = both
 	close(release["beta"])
 	close(release["alpha"])
 	waitFor(t, "both queued ops to drain", func() bool {
@@ -771,7 +920,7 @@ func TestContainerStopRefusesConfirmWhileBusy(t *testing.T) {
 	stopCalls := 0
 	var mu sync.Mutex
 	run := fakePodman(nil, nil, nil, []string{"opencode-sandbox-swdev"}, nil)
-	base := run.Script
+	base := allImagesExist(run.Script)
 	run.Script = func(name string, args []string) (string, error) {
 		rest := ""
 		if name == "podman" {
@@ -801,5 +950,124 @@ func TestContainerStopRefusesConfirmWhileBusy(t *testing.T) {
 	defer mu.Unlock()
 	if stopCalls != 0 {
 		t.Fatalf("stop ran while the workspace was busy")
+	}
+}
+
+// The §10 unresolved refusal (WP-10): an unknown stored edition — or a
+// config with both selection fields absent — refuses every start POST
+// before any prompt machinery or op launch. One refusal everywhere,
+// with the settings pointer; the old image/container is never touched.
+func TestStartRefusesUnresolvedEdition(t *testing.T) {
+	reg, roots := fixtureRegistry(t, "alpha", "beta")
+	writeRawConfig(t, roots["alpha"], `{"container_edition": "vanished", "container_modes": [], "start_option": "web", "search_mode": "websearch", "version": "2.0"}`)
+	writeRawConfig(t, roots["beta"], `{"container_modes": [], "start_option": "web", "search_mode": "websearch", "version": "2.0"}`)
+	startCalls := &syncList{}
+	run := fakePodman(nil, nil, nil, nil, nil)
+	base := run.Script
+	run.Script = func(name string, args []string) (string, error) {
+		if name == "bash" && len(args) > 0 && args[0] == "/opt/oc-sandbox/scripts/start.sh" {
+			startCalls.add(strings.Join(args, "\x1f"))
+			return "started", nil
+		}
+		return base(name, args)
+	}
+	s := depsServer(t, run, reg)
+
+	// Plain Containers-center start: the refusal rides the screen toast
+	// (html-escaped like every interpolated fragment string).
+	doc := body(t, post(t, s.URL()+"workspaces/alpha/start", ""))
+	if !strings.Contains(doc, "stored edition &#39;vanished&#39; maps to no bundle") {
+		t.Fatalf("unresolved start not refused with the §10 reason:\n%s", doc)
+	}
+
+	// Variant (Open chain) start: the same refusal as the {ok:false}
+	// sidecar the card renders.
+	v := sidecarPOST(t, s.URL()+"workspaces/beta/start", "variant=web")
+	if scOK(v) || !strings.Contains(scStr(v, "error"), "no stored toolchain selection") {
+		t.Fatalf("unresolved variant start sidecar = %v, want the §10 refusal", v)
+	}
+
+	// Nothing launched, nothing touched.
+	if n := len(startCalls.snapshot()); n != 0 {
+		t.Fatalf("start.sh calls = %d, want 0 (the refusal precedes any op)", n)
+	}
+	for _, name := range []string{"alpha", "beta"} {
+		if ws, err := reg.ByName(name); err != nil || ws.ContainerStatus == "running" {
+			t.Fatalf("workspace %s: status = %v (refusal must not touch the registry)", name, err)
+		}
+	}
+}
+
+// The container row carries the derived identity (WP-5): the bundle
+// label in the sub row, the member list as its tooltip — the letter
+// tile tints with the matching bundle's hue, the neutral accent
+// otherwise.
+func TestContainersRowDerivedIdentity(t *testing.T) {
+	reg, roots := fixtureRegistry(t, "alpha")
+	sandboxConfigFixture(t, roots["alpha"]) // legacy swdev → the manifest's swdev members
+	run := fakePodman(nil, nil, nil, nil, nil)
+	s := depsServer(t, run, reg)
+
+	doc := body(t, get(t, s.URL()+"containers"))
+	for _, want := range []string{
+		`<span class="unit-sub" title="4 toolchains: cpp, go, java, rust">swdev</span>`,
+		`<div class="ic" style="--ed:#2f6fed">`, // the swdev bundle's hue
+	} {
+		if !strings.Contains(doc, want) {
+			t.Fatalf("containers screen missing %q:\n%s", want, doc)
+		}
+	}
+}
+
+// The §10 unresolved refusal re-checked at op time (WP-10, #213's
+// cross-surface pass): a config that resolved at confirm time may read
+// unresolved when the queued op runs (the file is live, re-read fresh)
+// — the op re-verifies and refuses before any machinery: start.sh never
+// runs, the container/image is never touched.
+func TestFreshStartOpRechecksUnresolvedAtOpTime(t *testing.T) {
+	reg, roots := fixtureRegistry(t, "alpha")
+	quoted := func(ids ...string) string {
+		out := make([]string, len(ids))
+		for i, id := range ids {
+			out[i] = `"` + id + `"`
+		}
+		return "[" + strings.Join(out, ", ") + "]"
+	}
+	writeRawConfig(t, roots["alpha"], `{
+  "toolchains": `+quoted("cpp", "go")+`,
+  "container_modes": [],
+  "start_option": "web",
+  "search_mode": "websearch",
+  "version": "2.0"
+}`)
+	ws, err := reg.ByName("alpha")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The workspace resolved at confirm time; the config turns
+	// unresolved before the op runs.
+	writeRawConfig(t, ws.Path, `{"container_edition": "vanished", "container_modes": [], "start_option": "web", "search_mode": "websearch", "version": "2.0"}`)
+	run := fakePodman(nil, nil, nil, nil, nil)
+	base := run.Script
+	var startCalls int
+	run.Script = func(name string, args []string) (string, error) {
+		if name == "bash" && len(args) > 0 && args[0] == "/opt/oc-sandbox/scripts/start.sh" {
+			startCalls++
+			return "started", nil
+		}
+		if name == "podman" && len(args) > 0 && (args[0] == "stop" || args[0] == "rm" || args[0] == "rmi") {
+			t.Fatalf("podman %s ran on an unresolved workspace: %v", args[0], args)
+		}
+		return base(name, args)
+	}
+	s := depsServer(t, run, reg)
+
+	var emitted []string
+	err = s.freshStart(ws, func(l string) { emitted = append(emitted, l) })
+	if err == nil || !strings.Contains(err.Error(), "stored edition 'vanished' maps to no bundle") {
+		t.Fatalf("freshStart op error = %v, want the §10 refusal", err)
+	}
+	if startCalls != 0 {
+		t.Fatalf("start.sh ran on an unresolved workspace")
 	}
 }

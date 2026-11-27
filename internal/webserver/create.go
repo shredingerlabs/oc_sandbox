@@ -1,11 +1,19 @@
-// New Workspace wizard + create chain (spec §7/§8/§9, #156): the
-// Workspace → New screen as one HTMX fragment — source radio pair
-// (Blank Workspace / From Repo, name derived live from the repo URL),
-// Agent row (default code; pkm pins the edition), Edition preselected
-// swdev with the inline "Image build" row when the image is missing,
-// VCS-credential and AI-provider selects fed from the global catalogs
-// (pick-only — entries are managed in Settings › VCS Tracker /
-// AI-Provider), each with its per-workspace token input inline.
+// New Workspace wizard + create chain (spec §7/§8/§9, #156; toolchain
+// sets #205 WP-3): the Workspace → New screen as one HTMX fragment —
+// source radio pair (Blank Workspace / From Repo, name derived live
+// from the repo URL), Agent row (default code; pkm pins the set to base
+// only), the bundle chip row (the 9 manifest bundles
+// as chips, chat/pkm rendered "base only", a missing-member bundle
+// rendered disabled with its reason) over the Advanced-only toolchain
+// multi-select (flat alphabetical, live cached markers, invalid units
+// disabled with their reason, "n of m selected" header) — the
+// multi-select is the payload, a bundle chip overwrites it, editing it
+// flips the row to Custom, the default preselect is the swdev bundle,
+// and the build-plan row keys to the selection's set-tag existence with
+// the honest cost line (counts, no time estimates) —, VCS-credential
+// and AI-provider selects fed from the global catalogs (pick-only —
+// entries are managed in Settings › VCS Tracker / AI-Provider), each
+// with its per-workspace token input inline.
 //
 // Create runs ONE create-chain task — image build (when missing and
 // Build now) → init-workspace.sh → configure-workspace.sh in credential
@@ -14,7 +22,8 @@
 // SSE line events keyed by the op ID. Standard visible rows only per
 // §6; Advanced reveals the full option set (matrix-driven, #152): the
 // presets — start web, proxy off, searxng, offline off, CBM-UI off, HIL
-// on for embedded — are recorded regardless of the mode.
+// on iff the selection carries a hardware unit — are recorded
+// regardless of the mode.
 package webserver
 
 import (
@@ -23,30 +32,31 @@ import (
 	"html/template"
 	"net/http"
 	"net/url"
+	"slices"
 	"sort"
 	"strings"
 
 	"github.com/shredingerlabs/oc-sandbox/internal/catalogs"
 	"github.com/shredingerlabs/oc-sandbox/internal/cmdrun"
 	"github.com/shredingerlabs/oc-sandbox/internal/discovery"
+	"github.com/shredingerlabs/oc-sandbox/internal/identity"
 	"github.com/shredingerlabs/oc-sandbox/internal/newworkspace"
 	"github.com/shredingerlabs/oc-sandbox/internal/providerid"
 	"github.com/shredingerlabs/oc-sandbox/internal/registry"
 	"github.com/shredingerlabs/oc-sandbox/internal/sandboxcfg"
 )
 
-// wizardEditionDefault is the §6 preselected edition.
-const wizardEditionDefault = "swdev"
+// wizardBundleDefault is the §6 preselected bundle.
+const wizardBundleDefault = "swdev"
 
 // wizardTemplate renders the New Workspace fragments (form, confirm).
 // P carries the tokenized path prefix so hx-* targets stay absolute.
 // Styling per the signed-off prototype (ws-new): a pagehead with the
 // Blank/From-Repo segment, .flabel/.sub rows, .edotsel chips for the
-// edition, .switch toggles for the Advanced booleans. The functional
+// toolchain bundles, .switch toggles for the Advanced booleans. The functional
 // payload (field names, defaults, hidden round-trip) keeps the previous
 // contract minus the removed inline-new rows.
 var wizardTemplate = template.Must(template.New("wizard").
-	Funcs(template.FuncMap{"hueFor": editionHue}).
 	Funcs(iconFuncs).
 	Parse(`
 {{define "wizard"}}
@@ -83,24 +93,33 @@ var wizardTemplate = template.Must(template.New("wizard").
         <option value="chat" {{if eq .Agent "chat"}}selected{{end}}>Chat Agent (NO_CODE)</option>
         <option value="pkm" {{if eq .Agent "pkm"}}selected{{end}}>PKM (Personal Knowledge Wiki)</option>
       </select>
-      <span class="sub">PKM pins the edition to pkm (ADR-0027).</span>
+      <span class="sub">PKM pins the set to base only (ADR-0027).</span>
     </div>
-    <div class="row" data-row="edition" {{if eq .Agent "pkm"}}data-pkm-pin{{end}}>
-      <span class="label">Edition</span>
-      <span class="edotsel" data-role="wizard-edition" data-edition="{{.Edition}}">
-        <input type="hidden" name="edition" value="{{.Edition}}">
-        {{range .Editions}}<button type="button" class="edopt" data-ed="{{.}}" aria-pressed="{{if eq . $.Edition}}true{{else}}false{{end}}"><i style="--ed:{{hueFor .}}"></i>{{.}}</button>{{end}}
+    <div class="row" data-row="bundle" {{if eq .Agent "pkm"}}data-pkm-pin{{end}}>
+      <span class="label">Toolchain set</span>
+      <span class="edotsel" data-role="wizard-bundle">
+        {{range .Bundles}}<button type="button" class="edopt" data-bundle="{{.Name}}" data-members="{{.Members}}" aria-pressed="{{if .Pressed}}true{{else}}false{{end}}"{{if not .Valid}} disabled title="{{.Reason}}"{{end}}><i style="--ed:var(--accent)"></i>{{.Name}}{{if .BaseOnly}} (base only){{end}}</button>{{end}}
+        <button type="button" class="edopt" data-bundle="custom" data-members="" aria-pressed="{{if .Custom}}true{{else}}false{{end}}" disabled>Custom</button>
       </span>
-      <div class="sub">Container image for this workspace.</div>
+      <div class="sub">A bundle preselects the units below (Advanced); a custom unit list reads Custom.</div>
     </div>
-    {{if .ImageMissing}}
+    <div class="row" data-row="toolchains" data-advanced-only{{if eq .Agent "pkm"}} data-pkm-pin{{end}}>
+      <span class="label">Toolchains</span>
+      <span class="edotsel units" data-role="wizard-units">
+        <span class="sub" data-role="units-count">{{.SelCount}} of {{.UnitCount}} selected</span>
+        <input type="hidden" name="units_present" value="1">
+        {{range .Units}}<label class="unit"{{if not .Valid}} data-invalid{{end}}><input type="checkbox" name="toolchain" value="{{.ID}}"{{if .Checked}} checked{{end}}{{if not .Valid}} disabled{{end}}>{{.ID}}{{if .Cached}}<span class="cached">cached</span>{{end}}{{if not .Valid}}<span class="reason">{{.Reason}}</span>{{end}}</label>{{end}}
+      </span>
+      <div class="sub">The set image assembles these toolchains — a cached one skips its build.</div>
+    </div>
+    {{if .SetMissing}}
     <div class="row" data-row="image_build">
       <span class="label">Image build</span>
       <span class="seg">
         <label>{{icon "hammer"}}Build now<input type="radio" name="build" value="now" {{if not .BuildLater}}checked{{end}}></label>
         <label>{{icon "clock"}}Build later<input type="radio" name="build" value="later" {{if .BuildLater}}checked{{end}}></label>
       </span>
-      <span class="sub">the {{.Edition}} image is missing — Create runs the build, or the workspace registers deferred</span>
+      <span class="sub">{{.BuildCost}}</span>
     </div>
     {{end}}
 
@@ -173,6 +192,25 @@ var wizardTemplate = template.Must(template.New("wizard").
 {{end}}
 `))
 
+// wizardBundle is one chip of the bundle row.
+type wizardBundle struct {
+	Name     string
+	Members  string // comma-joined member ids (the chip's preselect data)
+	Pressed  bool
+	BaseOnly bool // chat/pkm: the empty bundle renders "base only"
+	Valid    bool
+	Reason   string // why unselectable (missing/invalid member, bad name)
+}
+
+// wizardUnit is one checkbox of the toolchain multi-select.
+type wizardUnit struct {
+	ID      string
+	Checked bool
+	Cached  bool // the live marker: the unit's component image exists
+	Valid   bool
+	Reason  string // invalid units render disabled with their reason
+}
+
 // wizardForm is the wizard's rendered state — the parsed payload with
 // defaults applied (the GET's blank form and the POST's redisplay share
 // one shape).
@@ -184,9 +222,21 @@ type wizardForm struct {
 	RepoURL  string
 	Name     string
 	Agent    string
-	Edition  string
 
-	ImageMissing bool
+	// The toolchain selection (spec §9 WP-3): the multi-select is the
+	// payload — canonicalized sorted per ADR 0042; the bundle row is its
+	// chip preselect (Custom when it matches no bundle); pkm pins it to
+	// the empty set. nil (no units row posted) resolves to the §6
+	// default (the swdev bundle's members).
+	Selected     []string
+	UnitsPresent bool // the units row rendered (units_present) — gates the default
+	Bundles      []wizardBundle
+	Units        []wizardUnit
+	Custom       bool // the selection matches no bundle
+	SelCount     int
+	UnitCount    int
+	SetMissing   bool   // the selection's set image is missing
+	BuildCost    string // the honest cost line (counts, no time estimates)
 	BuildLater   bool
 
 	VCS      string
@@ -203,7 +253,6 @@ type wizardForm struct {
 
 	Trackers    []catalogs.Tracker
 	Providers   []catalogs.Provider
-	Editions    []string
 	PresetsHint string
 
 	// create-chain log pane state (inert form while the chain runs)
@@ -226,13 +275,13 @@ type formField struct {
 type formFields []formField
 
 // wizardDefaults returns the §6 preset state the wizard opens with:
-// agent code, edition swdev, start web, proxy off, searxng, offline /
-// CBM-UI off. HIL presets on for embedded (passed in at render time —
-// the preset follows the selected edition).
+// agent code, the swdev bundle preselected, start web, proxy off,
+// searxng, offline / CBM-UI off. HIL presets on iff the selection
+// carries a hardware unit (client-side preset — the checkbox posts the
+// preset).
 func wizardDefaults() wizardForm {
 	return wizardForm{
 		Agent:       "code",
-		Edition:     wizardEditionDefault,
 		VCS:         "none",
 		Provider:    "none",
 		StartOption: "web",
@@ -242,7 +291,7 @@ func wizardDefaults() wizardForm {
 }
 
 // handleNewWorkspaceGET serves GET /workspaces/new: the blank wizard
-// form with the catalog feeds and the live edition/image discovery.
+// form with the catalog feeds and the live toolchain discovery.
 func (s *Server) handleNewWorkspaceGET(w http.ResponseWriter, r *http.Request) {
 	f := wizardDefaults()
 	s.renderWizard(w, f)
@@ -252,58 +301,145 @@ func (s *Server) handleNewWorkspaceGET(w http.ResponseWriter, r *http.Request) {
 // discovery (fresh per call, data map §2). Retired-kind entries
 // (ADR-0038) never reach the pick list.
 func (s *Server) renderWizard(w http.ResponseWriter, f wizardForm) {
-	cat := catalogs.Read(s.opts.Home)
+	cat := s.wizardCatalog()
+	wizardResolveSelection(&f, cat)
+	s.fillWizardSelection(&f, cat)
+	if f.Agent != "pkm" { // pkm pins the set — the build-plan row hides
+		f.SetMissing, f.BuildCost, _ = s.wizardBuildPlan(cat, f.Selected)
+	}
+	cat0 := catalogs.Read(s.opts.Home)
 	f.P = s.pathPrefix()
 	f.PresetsHint = PresetsHint
-	for _, t := range cat.Trackers {
+	for _, t := range cat0.Trackers {
 		if catalogs.SelectableKind(t.Kind) {
 			f.Trackers = append(f.Trackers, t)
 		}
 	}
-	f.Providers = cat.Providers
-	f.Editions = s.wizardEditions()
-	if f.Edition == "" || !wizardHasEdition(f.Editions, f.Edition) {
-		f.Edition = wizardPickEdition(f.Editions)
-	}
-	if f.Agent != "pkm" { // pkm pins the edition (ADR-0027)
-		f.ImageMissing = f.Edition != "" && !discovery.ImageExists(s.runner(), f.Edition)
-	}
+	f.Providers = cat0.Providers
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := wizardTemplate.ExecuteTemplate(w, "wizard", f); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
 }
 
-// wizardEditions lists the selectable editions from the Dockerfile
-// registry; an unreadable registry yields nil (the wizard shows the
-// refusal on create — never guesses an edition).
-func (s *Server) wizardEditions() []string {
-	eds, err := discovery.SelectableEditions(s.deps.Dockerfile, s.deps.DockerfileCustom)
-	if err != nil {
-		return nil
-	}
-	return eds
+// wizardCatalog is the live toolchain discovery over the server's
+// toolchains dir (fresh per call — nothing cached, spec §2).
+func (s *Server) wizardCatalog() discovery.Catalog {
+	return discovery.Discover(s.toolchainsRoot())
 }
 
-// wizardPickEdition preselects swdev when present (§6), else the first
-// selectable edition.
-func wizardPickEdition(eds []string) string {
-	if wizardHasEdition(eds, wizardEditionDefault) {
-		return wizardEditionDefault
+// wizardResolveSelection applies the payload rules: pkm pins the
+// selection to the empty set (ADR-0027); a post without the units row
+// (and the blank GET) resolves to the §6 default — the swdev bundle's
+// members, else the first valid bundle.
+func wizardResolveSelection(f *wizardForm, cat discovery.Catalog) {
+	if f.Agent == "pkm" {
+		f.Selected = nil
+		return
 	}
-	if len(eds) > 0 {
-		return eds[0]
+	if f.Selected == nil && !f.UnitsPresent {
+		f.Selected = wizardDefaultSelection(cat)
 	}
-	return ""
 }
 
-func wizardHasEdition(eds []string, e string) bool {
-	for _, x := range eds {
-		if x == e {
-			return true
+// wizardDefaultSelection preselects the swdev bundle's members (§6),
+// else the first valid bundle's, else none.
+func wizardDefaultSelection(cat discovery.Catalog) []string {
+	if b, ok := cat.Bundle(wizardBundleDefault); ok && b.Valid {
+		return b.Members
+	}
+	for _, b := range cat.Bundles {
+		if b.Valid {
+			return b.Members
 		}
 	}
-	return false
+	return nil
+}
+
+// fillWizardSelection renders the bundle row's pressed state (exact
+// member-match, else Custom — never auto-back) and the units
+// multi-select's checked/cached/disabled states.
+func (s *Server) fillWizardSelection(f *wizardForm, cat discovery.Catalog) {
+	for _, b := range cat.Bundles {
+		wb := wizardBundle{
+			Name:     b.Name,
+			Members:  strings.Join(b.Members, ","),
+			BaseOnly: b.Valid && len(b.Members) == 0,
+			Valid:    b.Valid,
+			Reason:   b.Reason,
+			Pressed:  b.Valid && slices.Equal(b.Members, f.Selected),
+		}
+		f.Bundles = append(f.Bundles, wb)
+	}
+	f.Custom = true
+	for _, wb := range f.Bundles {
+		if wb.Pressed {
+			f.Custom = false
+		}
+	}
+	for _, u := range cat.Units {
+		f.Units = append(f.Units, wizardUnit{
+			ID:      u.ID,
+			Valid:   u.Valid,
+			Reason:  u.Reason,
+			Checked: slices.Contains(f.Selected, u.ID),
+			Cached:  u.Valid && s.componentCached(u),
+		})
+	}
+	f.SelCount = len(f.Selected)
+	f.UnitCount = len(cat.Units)
+}
+
+// componentCached is the live cached marker: the unit's
+// content-addressed component image exists (identity.ComponentTag + a
+// per-tag podman query).
+func (s *Server) componentCached(u discovery.Unit) bool {
+	tag, err := identity.ComponentTag(s.baseRecipePath(), u.ID, u.Path)
+	return err == nil && discovery.ImageExistsTag(s.runner(), tag)
+}
+
+// setTagFor derives the selection's content-addressed set tag
+// (identity.SetTag over the base recipe and the discovered recipes).
+// ok=false names an underivable tag (an invalid member, no base
+// recipe) — honestly rendered as a missing set image.
+func (s *Server) setTagFor(cat discovery.Catalog, ids []string) (string, bool) {
+	members, ok := discovery.MembersFor(cat, ids)
+	if !ok {
+		return "", false
+	}
+	tag, err := identity.SetTag(s.baseRecipePath(), members)
+	if err != nil {
+		return "", false
+	}
+	return tag, true
+}
+
+// wizardBuildPlan keys the Build-plan row to set-tag existence (spec §9
+// WP-3): the honest cost line carries counts — never time estimates.
+// The summary is the confirm popup's "image build:" members summary.
+func (s *Server) wizardBuildPlan(cat discovery.Catalog, ids []string) (missing bool, cost, summary string) {
+	tag, ok := s.setTagFor(cat, ids)
+	if ok && discovery.ImageExistsTag(s.runner(), tag) {
+		return false, "", ""
+	}
+	n := 0
+	for _, id := range ids {
+		if u, found := cat.Unit(id); found && u.Valid && !s.componentCached(u) {
+			n++
+		}
+	}
+	switch {
+	case len(ids) == 0:
+		summary = "the base-only set image"
+		cost = "the set image is missing — Create assembles it from the base image"
+	case n == 0:
+		summary = fmt.Sprintf("all %d toolchains are cached plus the set image", len(ids))
+		cost = fmt.Sprintf("the set image is missing — all %d toolchains are cached, Create assembles the set image", len(ids))
+	default:
+		summary = fmt.Sprintf("%d of %d toolchains need building plus the set image", n, len(ids))
+		cost = fmt.Sprintf("the set image is missing — Create builds %d of %d toolchains, then assembles the set image", n, len(ids))
+	}
+	return true, cost, summary
 }
 
 // runner resolves the command runner (nil → exec).
@@ -428,13 +564,14 @@ func (s *Server) wizardProvider(name string) (catalogs.Provider, bool) {
 // TUI confirm set carried 1:1 — newworkspace.askCreate parity) with the
 // payload round-tripping in hidden fields.
 func (s *Server) renderConfirm(w http.ResponseWriter, r *http.Request, f wizardForm) {
-	if f.Agent == "pkm" { // pkm pins the edition (ADR-0027)
-		f.Edition = "pkm"
+	summary := "base only"
+	if len(f.Selected) > 0 {
+		summary = strings.Join(f.Selected, ", ")
 	}
 	lines := []string{
 		"name: " + f.Name,
 		"path: " + s.wizardRoot(f.Name),
-		"edition: " + f.Edition,
+		"toolchains: " + summary,
 	}
 	if f.Agent == "chat" {
 		lines = append(lines, "agent: chat")
@@ -448,19 +585,23 @@ func (s *Server) renderConfirm(w http.ResponseWriter, r *http.Request, f wizardF
 	} else {
 		lines = append(lines, "AI provider: none")
 	}
-	if !discovery.ImageExists(s.runner(), f.Edition) {
-		line := "image build: Build later"
+	if _, cost, sum := s.wizardBuildPlan(s.wizardCatalog(), f.Selected); cost != "" {
+		decision := "Build later"
 		if !f.BuildLater {
-			line = "image build: Build now"
+			decision = "Build now"
 		}
-		lines = append(lines, line)
+		lines = append(lines, "image build: "+decision+" — "+sum)
 	}
 	fields := formFields{}
 	for _, k := range sortedFormKeys(r.PostForm) {
 		if k == "confirm" {
 			continue
 		}
-		fields = append(fields, formField{Name: k, Value: r.PostForm.Get(k)})
+		// repeated keys (the toolchain multi-select) round-trip every
+		// value, never just the first
+		for _, v := range r.PostForm[k] {
+			fields = append(fields, formField{Name: k, Value: v})
+		}
 	}
 	data := struct {
 		P      string
@@ -492,7 +633,9 @@ func (s *Server) parseWizardForm(r *http.Request) wizardForm {
 	f.RepoURL = strings.TrimSpace(r.PostFormValue("repo_url"))
 	f.Name = strings.TrimSpace(r.PostFormValue("name"))
 	f.Agent = r.PostFormValue("agent")
-	f.Edition = r.PostFormValue("edition")
+	f.Selected = canonicalIDs(r.PostForm["toolchain"])
+	f.UnitsPresent = r.PostFormValue("units_present") == "1"
+	wizardResolveSelection(&f, s.wizardCatalog())
 	f.BuildLater = r.PostFormValue("build") == "later"
 	f.VCS = r.PostFormValue("vcs")
 	if f.VCS == "" {
@@ -519,6 +662,21 @@ func (s *Server) parseWizardForm(r *http.Request) wizardForm {
 	return f
 }
 
+// canonicalIDs dedupes and sorts the posted toolchain ids — the
+// canonical order of every stored id list (ADR 0042).
+func canonicalIDs(vals []string) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, v := range vals {
+		if v != "" && !seen[v] {
+			seen[v] = true
+			out = append(out, v)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
 // validateWizard checks the payload; "" when valid. Mirrors the TUI's
 // validateInputs plus the ADR-0026 exclusions start.sh hard-exits on.
 func (s *Server) validateWizard(r *http.Request, f wizardForm) string {
@@ -528,11 +686,13 @@ func (s *Server) validateWizard(r *http.Request, f wizardForm) string {
 	if f.FromRepo && f.RepoURL == "" {
 		return "Repo URL is required for a From Repo workspace."
 	}
-	if f.Agent == "pkm" { // pkm pins the edition (ADR-0027)
-		f.Edition = "pkm"
-	}
-	if f.Edition == "" {
-		return "No container editions found in Dockerfile/Dockerfile.custom."
+	// every posted id must be a discovered, valid unit (spec §8's
+	// validation rule at the wizard's write path)
+	cat := s.wizardCatalog()
+	for _, id := range f.Selected {
+		if u, ok := cat.Unit(id); !ok || !u.Valid {
+			return "unknown toolchain '" + id + "' — choose a listed one"
+		}
 	}
 	reg := s.registry()
 	if _, err := reg.ByName(f.Name); err == nil {
@@ -571,12 +731,6 @@ func (s *Server) wizardRoot(name string) string {
 
 // --- the create chain (ONE task: image build → init → configure) ------------
 
-// editionHue is the template's handle on the Signal hue map (the
-// edition chip dots tint like the Open screen's cards).
-func editionHue(name string) string {
-	return editionFor(name).Hue
-}
-
 // createChain is the captured payload of one confirmed create — every
 // request-scoped value (tokens included) is read before the chain goes
 // to its own goroutine.
@@ -585,10 +739,10 @@ type createChain struct {
 	name string
 	root string
 
-	fromRepo bool
-	repoURL  string
-	agent    string // code | chat | pkm
-	edition  string // pkm pinned for the pkm agent
+	fromRepo   bool
+	repoURL    string
+	agent      string   // code | chat | pkm
+	toolchains []string // the posted selection (sorted; pkm pinned empty)
 
 	vcsLabel string // stored vcs_tracking value (none/github.com/…)
 	vcsKind  string // catalog kind slug driving the invocation
@@ -614,21 +768,19 @@ type createChain struct {
 	build      bool // Build now decision (the row only drives visibility)
 }
 
-// newCreateChain captures the confirmed payload (fresh image/edition
+// newCreateChain captures the confirmed payload (fresh image/selection
 // decision re-checked here, like the TUI's create()).
 func (s *Server) newCreateChain(r *http.Request, f wizardForm) *createChain {
-	if f.Agent == "pkm" { // pkm pins the edition (ADR-0027)
-		f.Edition = "pkm"
-	}
 	c := &createChain{
-		name:          f.Name,
-		root:          s.wizardRoot(f.Name),
-		fromRepo:      f.FromRepo,
-		repoURL:       f.RepoURL,
-		agent:         f.Agent,
-		edition:       f.Edition,
-		vcsLabel:      s.wizardVCSTracking(f),
-		vcsToken:      r.PostFormValue("vcs_token"),
+		name:       f.Name,
+		root:       s.wizardRoot(f.Name),
+		fromRepo:   f.FromRepo,
+		repoURL:    f.RepoURL,
+		agent:      f.Agent,
+		toolchains: f.Selected,
+		vcsLabel:   s.wizardVCSTracking(f),
+		vcsToken:   r.PostFormValue("vcs_token"),
+
 		providerToken: r.PostFormValue("provider_token"),
 		modes:         wizardModes(f),
 		start:         f.StartOption,
@@ -637,7 +789,8 @@ func (s *Server) newCreateChain(r *http.Request, f wizardForm) *createChain {
 		stt:           f.STT,
 		sttPresent:    f.STTPresent,
 	}
-	c.build = !discovery.ImageExists(s.runner(), c.edition) && !f.BuildLater
+	_, cost, _ := s.wizardBuildPlan(s.wizardCatalog(), c.toolchains)
+	c.build = cost != "" && !f.BuildLater
 	// resolve the picked catalog entries (the wizard only picks — the
 	// entries live in Settings › VCS Tracker / AI-Provider); an unknown
 	// pick materializes nothing (none stays the default, fail-soft)
@@ -699,12 +852,30 @@ func (c *createChain) runSteps(s *Server, emit func(string)) error {
 		return errors.New(msg)
 	}
 
-	// image build (only when the image is missing and Build now won)
+	// image build (only when the set image is missing and Build now
+	// won): build-images.sh --set <ids> builds the missing components
+	// and assembles the set image (lazy, cached-skip per tag); "" is
+	// the base-only set (spec §9 WP-3).
 	if c.build {
-		emitf("==> Building image %s", c.edition)
-		if err := runScript(s.deps.BuildScript, c.edition); err != nil ||
-			!discovery.ImageExists(s.runner(), c.edition) {
-			return fail("Build failed — the " + c.edition + " image is still unavailable. Press Create Workspace to retry.")
+		ids := strings.Join(c.toolchains, ",")
+		if ids == "" {
+			emit("==> Building base-only set image")
+		} else {
+			emitf("==> Building toolchain set (%s)", strings.Join(c.toolchains, ", "))
+		}
+		// The §7 preflight (WP-8 #212) refuses first on a low-disk or
+		// offline host — the chain stops before any build call.
+		if plan, ok := s.builderPlanSet(c.toolchains); ok {
+			if err := s.preflightBuild(plan); err != nil {
+				return fail(err.Error())
+			}
+		}
+		if err := runScript(s.deps.BuildImagesScript, "--set", ids); err != nil {
+			return fail("Build failed — the set image is still unavailable. Press Create Workspace to retry.")
+		}
+		if tag, ok := s.setTagFor(s.wizardCatalog(), c.toolchains); !ok ||
+			!discovery.ImageExistsTag(s.runner(), tag) {
+			return fail("Build failed — the set image is still unavailable. Press Create Workspace to retry.")
 		}
 	}
 
@@ -727,7 +898,9 @@ func (c *createChain) runSteps(s *Server, emit func(string)) error {
 	if providerID == "" {
 		providerID = "none"
 	}
-	if err := sandboxcfg.Create(s.opts.Home, cfgPath, c.edition, c.modes, c.start, providerID, c.search); err != nil {
+	// The create payload is the posted, validated selection itself —
+	// materialized as the sorted id list (spec §10, ADR 0042).
+	if err := sandboxcfg.Create(s.opts.Home, cfgPath, c.toolchains, c.modes, c.start, providerID, c.search); err != nil {
 		return fail("sandbox_config.json could not be created: " + err.Error())
 	}
 	if err := c.patchConfig(s, s.opts.Home, cfgPath); err != nil {

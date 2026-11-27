@@ -291,8 +291,14 @@ if ! bash "$PROJECT_ROOT/dist/scripts/start.sh" "$root_pkm" --edition pkm --deta
   cat "$test_home/pkm-start" >&2
   exit 1
 fi
-grep -q -- 'opencode-sandbox-pkm' "$PODMAN_LOG"
-printf 'pkm start on opencode-sandbox-pkm passed\n'
+# toolchain sets (#200, spec §8): the container runs the derived
+# opencode-sandbox-set:<hash12> — pkm expands to the base-only set
+# shellcheck source=../dist/scripts/lib-identity.sh
+source "$PROJECT_ROOT/dist/scripts/lib-identity.sh"
+baseonly_tag="$(tc_set_tag "$PROJECT_ROOT/dist/toolchains/base.Dockerfile")"
+grep -q -- "opencode-sandbox-set:" "$PODMAN_LOG"
+grep -q -- " $baseonly_tag " "$PODMAN_LOG"
+printf 'pkm start on the base-only set passed\n'
 
 baseline="$(seed_state)"
 # Und zurueck... (vorerst) — Switch: das Settings-Rewrite der Go-TUI aendert
@@ -301,6 +307,11 @@ tmp_cfg="$(mktemp)"
 jq '.container_edition = "swdev"' "$root_pkm/.opencode_config/sandbox_config.json" > "$tmp_cfg"
 mv "$tmp_cfg" "$root_pkm/.opencode_config/sandbox_config.json"
 
+swdev_tag="$(tc_set_tag "$PROJECT_ROOT/dist/toolchains/base.Dockerfile" \
+  cpp "$PROJECT_ROOT/dist/toolchains/recipes/cpp.Dockerfile" \
+  go "$PROJECT_ROOT/dist/toolchains/recipes/go.Dockerfile" \
+  java "$PROJECT_ROOT/dist/toolchains/recipes/java.Dockerfile" \
+  rust "$PROJECT_ROOT/dist/toolchains/recipes/rust.Dockerfile")"
 if ! bash "$PROJECT_ROOT/dist/scripts/start.sh" "$root_pkm" --edition swdev --detach \
   > "$test_home/pkm-switch" 2>&1; then
   printf 'start.sh failed for the switched-away pkm project\n' >&2
@@ -308,7 +319,7 @@ if ! bash "$PROJECT_ROOT/dist/scripts/start.sh" "$root_pkm" --edition swdev --de
   exit 1
 fi
 [[ "$(seed_state)" == "$baseline" ]]
-grep -q -- 'opencode-sandbox-swdev' "$PODMAN_LOG"
+grep -q -- " $swdev_tag " "$PODMAN_LOG"
 
 # und zurueck auf pkm — ebenfalls ohne Re-Seed (Rewrite der Go-TUI gespiegelt)
 jq '.container_edition = "pkm"' "$root_pkm/.opencode_config/sandbox_config.json" > "$tmp_cfg"

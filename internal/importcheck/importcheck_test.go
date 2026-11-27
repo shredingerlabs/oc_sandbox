@@ -3,6 +3,7 @@ package importcheck
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/shredingerlabs/oc-sandbox/internal/registry"
@@ -34,20 +35,33 @@ func seedRoot(t *testing.T, sandboxCfg, contentDir string) string {
 
 const goodCfg = `{"workspace_kind":"code","workspace_source":"cloned","container_edition":"swdev","start_option":"web","vcs_tracking":"github","repo_url":"https://github.com/x/y"}`
 
+// tcRoot is a toolchains dir with the shipped bundle map — the legacy
+// expansion source (spec §3/§10).
+func tcRoot(t *testing.T) string {
+	t.Helper()
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "manifest.json"),
+		[]byte(`{"bundles": {"swdev": ["cpp", "go", "java", "rust"]}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return root
+}
+
 // A canonical folder (sandbox_config.json + workspace/ git worktree)
 // matches: the ordinary import summary flow runs, with edition/modes/
 // start option straight from the stored config and the name prefilled
 // from the folder basename.
 func TestCheckMatchingRoot(t *testing.T) {
 	root := seedRoot(t, goodCfg, "workspace")
-	res, err := Check(root, nil)
+	res, err := Check(root, nil, tcRoot(t))
 	if err != nil {
 		t.Fatalf("Check: %v", err)
 	}
 	if res.Kind != KindMatch {
 		t.Fatalf("Kind = %v, want KindMatch", res.Kind)
 	}
-	if res.Config.ContainerEdition != "swdev" || res.Config.StartOption != "web" || res.Config.VCSTracking != "github" {
+	if !res.Config.Resolved || res.Config.ToolchainsStored || res.Config.LegacyEdition != "swdev" ||
+		res.Config.StartOption != "web" || res.Config.VCSTracking != "github" {
 		t.Fatalf("Config not read from sandbox_config.json: %+v", res.Config)
 	}
 	if res.Name != filepath.Base(root) {
@@ -60,7 +74,7 @@ func TestCheckMatchingRoot(t *testing.T) {
 // never silent).
 func TestCheckLegacyLayout(t *testing.T) {
 	root := seedRoot(t, `{"project_kind":"code"}`, "project")
-	res, err := Check(root, nil)
+	res, err := Check(root, nil, tcRoot(t))
 	if err != nil {
 		t.Fatalf("Check: %v", err)
 	}
@@ -72,7 +86,7 @@ func TestCheckLegacyLayout(t *testing.T) {
 // A folder with neither layout is plain non-matching → referrer prompt.
 func TestCheckNonMatching(t *testing.T) {
 	root := seedRoot(t, "", "")
-	res, err := Check(root, nil)
+	res, err := Check(root, nil, tcRoot(t))
 	if err != nil {
 		t.Fatalf("Check: %v", err)
 	}
@@ -84,7 +98,7 @@ func TestCheckNonMatching(t *testing.T) {
 // A broken sandbox_config.json gets its own prompt, not the referrer one.
 func TestCheckBrokenConfig(t *testing.T) {
 	root := seedRoot(t, "{not json", "workspace")
-	res, err := Check(root, nil)
+	res, err := Check(root, nil, tcRoot(t))
 	if err != nil {
 		t.Fatalf("Check: %v", err)
 	}
@@ -105,7 +119,7 @@ func TestCheckRegisteredGuard(t *testing.T) {
 	if err := reg.AddWorkspace(registry.AddRequest{Name: "some", Path: root}); err != nil {
 		t.Fatal(err)
 	}
-	res, err := Check(root, reg)
+	res, err := Check(root, reg, tcRoot(t))
 	if err != nil {
 		t.Fatalf("Check: %v", err)
 	}
@@ -126,5 +140,28 @@ func TestDeriveName(t *testing.T) {
 		if got := DeriveName(c.in); got != c.want {
 			t.Errorf("DeriveName(%q) = %q, want %q", c.in, got, c.want)
 		}
+	}
+}
+
+// Import validation accepts both stored shapes (WP-5): the materialized
+// toolchains key derives the same resolved selection the legacy
+// container_edition expands to — neither shape is rejected or rewritten.
+func TestCheckAcceptsBothConfigShapes(t *testing.T) {
+	legacy := seedRoot(t, goodCfg, "workspace")
+	resLegacy, err := Check(legacy, nil, tcRoot(t))
+	if err != nil || resLegacy.Kind != KindMatch {
+		t.Fatalf("legacy shape: Kind = %v err = %v, want KindMatch", resLegacy.Kind, err)
+	}
+	if resLegacy.Config.ToolchainsStored || !slices.Equal(resLegacy.Config.Toolchains, []string{"cpp", "go", "java", "rust"}) {
+		t.Fatalf("legacy expansion = %+v, want the swdev bundle members", resLegacy.Config)
+	}
+
+	materialized := seedRoot(t, `{"workspace_kind":"code","toolchains":["rust","cpp","go","java"],"start_option":"web"}`, "workspace")
+	resMat, err := Check(materialized, nil, tcRoot(t))
+	if err != nil || resMat.Kind != KindMatch {
+		t.Fatalf("materialized shape: Kind = %v err = %v, want KindMatch", resMat.Kind, err)
+	}
+	if !resMat.Config.ToolchainsStored || !slices.Equal(resMat.Config.Toolchains, []string{"cpp", "go", "java", "rust"}) {
+		t.Fatalf("materialized read = %+v, want the sorted stored ids", resMat.Config)
 	}
 }

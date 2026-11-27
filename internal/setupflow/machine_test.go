@@ -86,7 +86,7 @@ func fixture(t *testing.T, source string) (home, root string, reg *registry.Regi
 		t.Fatal(err)
 	}
 	cfgPath := sandboxcfg.Path(root)
-	if err := sandboxcfg.Create(home, cfgPath, "swdev", []string{"offline"}, "console", "none", sandboxcfg.SearchWebsearch); err != nil {
+	if err := sandboxcfg.Create(home, cfgPath, []string{"cpp", "go", "java", "rust"}, []string{"offline"}, "console", "none", sandboxcfg.SearchWebsearch); err != nil {
 		t.Fatal(err)
 	}
 	if err := sandboxcfg.PatchString(home, cfgPath, "workspace_source", source); err != nil {
@@ -109,7 +109,7 @@ func newMachine(t *testing.T, st Stager, home, root string, reg *registry.Regist
 
 func cfgOf(t *testing.T, root string) sandboxcfg.Config {
 	t.Helper()
-	c, err := sandboxcfg.Read(sandboxcfg.Path(root))
+	c, err := sandboxcfg.Read(sandboxcfg.Path(root), "")
 	if err != nil {
 		t.Fatal(err)
 	}
