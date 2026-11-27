@@ -4,6 +4,7 @@
 package sandboxcfg
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -170,6 +171,19 @@ func readSelection(doc *jsonfmt.Doc, toolchainsRoot string) (ids []string, store
 	out := slices.Clone(members)
 	slices.Sort(out)
 	return out, false, edition, true
+}
+
+// UnresolvedError is the §10 unresolved refusal — the one refusal
+// everywhere a start flow reads an unknown stored edition (or both
+// selection fields absent), before any prompt machinery; the old
+// image/container is never touched. sandboxcfg owns the message: every
+// surface (start flows, setup retry, settings, import) shows the same
+// words.
+func (c Config) UnresolvedError() error {
+	if c.LegacyEdition != "" {
+		return errors.New("stored edition '" + c.LegacyEdition + "' maps to no bundle — choose toolchains under Workspace Settings")
+	}
+	return errors.New("no stored toolchain selection — choose toolchains under Workspace Settings")
 }
 
 // ExpandBundle maps a bundle/edition name to its member ids via the

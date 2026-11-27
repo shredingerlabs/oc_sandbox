@@ -317,6 +317,7 @@ func (s *Server) renderImages(msg string, opID int, editID string) string {
 	if msg != "" {
 		b.WriteString(`<div class="inline-toast" data-toast>` + html.EscapeString(msg) + `</div>`)
 	}
+	s.writeCustomPortingRow(&b)
 	legacyHead := false
 	for _, row := range s.imageRows() {
 		if row.Kind == kindLegacy && !legacyHead {
@@ -723,6 +724,32 @@ func (s *Server) writeImagesFooter(b *strings.Builder, busy bool) {
 			html.EscapeString(confirm) + `" data-danger>Clean intermediates</button>`)
 	}
 	b.WriteString(`</div></div>`)
+}
+
+// writeCustomPortingRow renders the §10 Dockerfile.custom warning row
+// (Images + settings hand-holding): a legacy file holding an
+// uncommented stage warns with the inline porting gist — each stage's
+// RUN/ENV/USER lines → toolchains/custom/<id>.Dockerfile, one toolchain
+// per file. The row informs only: no build/delete/edit machinery, the
+// legacy file is never touched, and the porting doc lives in docs/
+// (linked from the release notes — production serves dist/ only).
+func (s *Server) writeCustomPortingRow(b *strings.Builder) {
+	custom := ""
+	if s.deps != nil {
+		custom = s.deps.DockerfileCustom
+	}
+	stages := customPorting(custom)
+	if len(stages) == 0 {
+		return
+	}
+	b.WriteString(`<div class="row" data-role="custom-porting">`)
+	b.WriteString(`<div class="ic"><svg class="ic" data-glyph="container" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 9v4"/><path d="M12 17h.01"/><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0"/></svg></div>`)
+	b.WriteString(`<div class="rl"><div class="t">⚠ Dockerfile.custom</div><div class="s">`)
+	b.WriteString(`<span class="marker st-off">⚠ ` + html.EscapeString(portingGistLead) + `</span>`)
+	for _, st := range stages {
+		b.WriteString(`<div class="unit-sub">` + html.EscapeString(st.ID+" → toolchains/custom/"+st.ID+".Dockerfile — "+strings.Join(st.Lines, " ; ")) + `</div>`)
+	}
+	b.WriteString(`</div></div></div>`)
 }
 
 func itoa(n int) string {

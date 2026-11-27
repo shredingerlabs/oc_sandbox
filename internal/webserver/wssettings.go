@@ -131,6 +131,7 @@ type wsSettingsView struct {
 	UnitTotal      int
 	MembersSummary string // the stored members, rendered ("a, b, c")
 	ImageMissing   bool
+	PortingWarn    string // the §10 Dockerfile.custom porting gist ("" when the legacy file holds no uncommented stage)
 	Proxy          bool
 	SearchMode     string
 	Offline        bool
@@ -378,6 +379,13 @@ var wsSettingsTemplate = template.Must(template.New("wssettings").
       <span class="field-hint">custom set — edit it under Advanced</span>
     </div>
     {{end}}
+    {{end}}
+
+    {{if .PortingWarn}}
+    <div class="row" data-row="tc-porting">
+      <span class="label">Legacy stages</span>
+      <p class="warn" data-role="tc-porting">{{.PortingWarn}}</p>
+    </div>
     {{end}}
 
     <div class="row hint" data-row="presets">{{.PresetsHint}}</div>
@@ -967,6 +975,15 @@ func (s *Server) renderWsSettingsScreen(w http.ResponseWriter, name, errMsg stri
 		v.Workspaces = append(v.Workspaces, wsSelOpt{
 			Name: e.Name, Running: e.ContainerStatus == "running", Sel: e.Name == ws.Name,
 		})
+	}
+
+	// The §10 Dockerfile.custom porting warning (WP-10's hand-holding):
+	// a legacy file holding an uncommented stage warns with the same
+	// inline porting gist Images shows — mode-independent.
+	if s.deps != nil {
+		if stages := customPorting(s.deps.DockerfileCustom); len(stages) > 0 {
+			v.PortingWarn = portingGistText(stages)
+		}
 	}
 
 	// The Toolchains view data fills regardless of the row's visibility —
