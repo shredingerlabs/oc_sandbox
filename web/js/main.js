@@ -808,7 +808,6 @@
     syncBundleRow(form);
     applyHILPreset(form);
   }
-
   // --- the toolchain set rows (toolchain sets #205, spec §9 WP-3): the
   // bundle row is a chip preselect over the units multi-select — the
   // multi-select is the payload, a bundle chip overwrites it, and
@@ -873,33 +872,65 @@
     });
   }
 
-  // setEdition drives the Workspace-settings .edotsel chip group (#157):
-  // the hidden payload input value + the chips' pressed state move
-  // together. (The settings bundle row re-keys with #206 — WP-4.)
-  function setEdition(holder, value) {
-    if (!holder) return;
-    holder.querySelector('input[name="edition"]').value = value;
-    holder.querySelectorAll(".edopt").forEach(function (b) {
-      b.setAttribute("aria-pressed", String(b.dataset.ed === value));
-    });
-  }
-
   // Bundle chips (#205) overwrite the wizard's units multi-select and
-  // fire the HIL preset rule; the Workspace-settings chips (#157) keep
-  // the hidden-input payload until #206 (WP-4) re-keys them.
+  // fire the HIL preset rule; the Workspace-settings chips (#208) run
+  // their own settings-toolchains handler below.
   document.addEventListener("click", function (ev) {
     var chip = ev.target.closest(".edopt");
     if (!chip || chip.disabled) return;
     var holder = chip.closest('[data-role="wizard-bundle"]');
-    if (holder) {
-      var form = holder.closest('[data-role="new-workspace-form"]');
-      if (!form) return;
-      setUnits(form, (chip.dataset.members || "").split(",").filter(Boolean));
-      syncBundleRow(form);
-      applyHILPreset(form);
-      return;
+    if (!holder) return;
+    var form = holder.closest('[data-role="new-workspace-form"]');
+    if (!form) return;
+    setUnits(form, (chip.dataset.members || "").split(",").filter(Boolean));
+    syncBundleRow(form);
+    applyHILPreset(form);
+  });
+
+  // --- Toolchains row (Workspace settings, #208, WP-4): the bundle
+  // chips are presets over the multi-select — a chip click checks
+  // exactly its members; editing the multi-select re-derives the pressed
+  // chip (exact member match, else Custom; the empty selection is the
+  // base-only ∅ the base chip stands for). The stored truth still posts
+  // as the checkbox list — the chips never carry a payload of their own.
+  function syncToolchainsRow(form) {
+    var holder = form && form.querySelector('[data-role="settings-toolchains"]');
+    if (!holder) return;
+    var picked = Array.prototype.slice.call(holder.querySelectorAll('input[name="toolchains"]:checked'))
+      .map(function (el) { return el.value; }).sort();
+    var count = holder.querySelector('[data-role="tc-count"]');
+    if (count) {
+      count.textContent = picked.length + " of " +
+        holder.querySelectorAll('input[name="toolchains"]').length + " selected";
     }
-    setEdition(chip.closest('[data-role="settings-edition"]'), chip.dataset.ed);
+    var custom = true;
+    holder.querySelectorAll('[data-role="settings-bundles"] .edopt').forEach(function (chip) {
+      var members = (chip.dataset.members || "").split(",").filter(Boolean).sort();
+      var match = members.length === picked.length &&
+                  members.every(function (m, i) { return m === picked[i]; });
+      if (match) custom = false;
+      chip.setAttribute("aria-pressed", String(match));
+    });
+    var customChip = holder.querySelector('[data-role="settings-bundles"] .edopt[data-bundle="custom"]');
+    if (customChip) customChip.setAttribute("aria-pressed", String(custom));
+  }
+
+  document.addEventListener("click", function (ev) {
+    var chip = ev.target.closest('[data-role="settings-bundles"] .edopt');
+    if (!chip || chip.disabled) return;
+    var holder = chip.closest('[data-role="settings-toolchains"]');
+    var members = (chip.dataset.members || "").split(",").filter(Boolean);
+    holder.querySelectorAll('input[name="toolchains"]').forEach(function (el) {
+      if (el.disabled) return;
+      el.checked = members.indexOf(el.value) >= 0;
+    });
+    syncToolchainsRow(holder.closest("form"));
+  });
+
+  document.addEventListener("change", function (ev) {
+    if (ev.target.name !== "toolchains") return;
+    var holder = ev.target.closest('[data-role="settings-toolchains"]');
+    if (holder) syncToolchainsRow(holder.closest("form"));
   });
 
   document.addEventListener("change", function (ev) {
@@ -1241,13 +1272,7 @@
     if (form.getAttribute("data-role") === "new-workspace-form") {
       syncWizardDraftView(form);
     }
-    // The Workspace-settings chip group renders a hidden input as the
-    // payload; a restored hidden value must move the chips with it.
-    var holder = form.querySelector('[data-role="settings-edition"]');
-    if (holder) {
-      var ed = holder.querySelector('input[name="edition"]');
-      if (ed) setEdition(holder, ed.value);
-    }
+    syncToolchainsRow(form); // the settings multi-select re-derives its pressed chip
     var kind = form.querySelector('select[name="kind"]');
     if (kind) { // VCS Host visibility follows the restored tracker kind
       var host = form.querySelector('[data-field="host"]');

@@ -61,8 +61,9 @@ func toolchainsRoot(root string) string {
 
 // seedToolchains copies the shipped toolchains dir (manifest, base
 // recipe, unit recipes) into the smoke home's install layout — the
-// WebUI's LayoutFor resolution discovers the whole catalog there (spec
-// §1/§10; the wizard's set-tag derivation hashes the recipes).
+// WebUI's LayoutFor resolution finds the bundle map there, and live
+// discovery derives bundles and set tags only when the recipes are on
+// disk (spec §1/§10).
 func seedToolchains(home, root string) error {
 	src := toolchainsRoot(root)
 	dst := filepath.Join(home, ".oc-sandbox", "toolchains")

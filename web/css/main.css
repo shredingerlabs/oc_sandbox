@@ -386,6 +386,12 @@ body { background:var(--bg); color:var(--ink);
 .wssettings .settings-form .row[data-row="modes"] { flex-wrap:wrap; }
 .wssettings .settings-form .row[data-row="modes"] .swgroup { margin-left:auto; }
 .wssettings .settings-form .row[data-row="modes"] .field-hint { flex-basis:100%; }
+/* the Toolchains row (#208, WP-4): the bundle chips + the multi-select
+   stack under the label; the count and hints wrap below */
+.wssettings .settings-form .row[data-row="edition"] { flex-wrap:wrap; align-items:flex-start; }
+.wssettings .tcedit { display:flex; flex-direction:column; gap:6px; flex:1 1 auto; }
+.wssettings .settings-form .row[data-row="edition"] > .field-hint { flex-basis:100%; }
+.wssettings p.warn { color:var(--warn); font-weight:800; margin:0; }
 .wssettings .confirm-block { background:var(--surface2); border-radius:8px;
   border:1px solid color-mix(in srgb,var(--warn) 40%, var(--hairline));
   padding:10px 14px; margin:10px 0; }
