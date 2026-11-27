@@ -25,7 +25,6 @@ import (
 // ride a scripted fake runner — nothing external, nothing hanging.
 func checkWebUIScreens(home, root string) Item {
 	p := newPhase("A10", "Container/Image screens: auth-gated routes, one container list (running marker, confirm attrs), start.sh StartArgs vector + reuse, verified-gone registry flip, stop-first/in-use refusals, build-container.sh all + SSE line streaming")
-	_ = home
 
 	// Fixture registry: one workspace "alpha" with a sandbox_config.json
 	// (edition swdev, hil_mode, start option web).
@@ -126,7 +125,7 @@ func checkWebUIScreens(home, root string) Item {
 		return "", nil
 	}}
 
-	s := webserver.New(webserver.Options{BasePort: 0, Deps: &webserver.Deps{
+	s := webserver.New(webserver.Options{BasePort: 0, Home: home, Deps: &webserver.Deps{
 		Run:              fake,
 		Registry:         reg,
 		BuildScript:      filepath.Join(root, "dist", "scripts", "build-container.sh"),

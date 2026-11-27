@@ -890,7 +890,7 @@ func (s *Server) renderWsSettingsScreen(w http.ResponseWriter, name, errMsg stri
 	if hostFile := workspacesettings.VCSHostFile(v.VCSTrackingSt, ws.Path); hostFile != "" {
 		v.VCSHasCreds = fileExists(hostFile) // the replace confirm gates an overwrite
 	}
-	v.Hue = editionFor(v.Edition).Hue
+	v.Hue = "" // neutral accent — the per-edition hues died with the stage world (WP-5)
 	v.Letter = wsLetter(ws.Name)
 	v.SetupDone = cfgErr == nil && cfg.SetupComplete
 

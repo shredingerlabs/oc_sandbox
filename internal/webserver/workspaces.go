@@ -1,7 +1,10 @@
 // Workspaces screen (#153, spec §7 Workspace → Open): the card grid of
-// registered workspaces — edition icon tile (left, tinted via the
-// edition hue through CSS --ed), name, settings row with icons, the
-// relative last-used date from the registry, and the action rows.
+// registered workspaces — generic set glyph (left), name, settings row
+// with icons, the relative last-used date from the registry, and the
+// action rows. The card identity is derived (toolchain-sets WP-5): the
+// chip shows the bundle whose members exactly match the stored set,
+// else Custom, with the member list as its tooltip — no per-edition
+// hues or glyphs survive the stage world.
 // Open honors the §6 matrix: Standard always leads into web (no
 // terminal buttons); Advanced keeps the single Open button honoring the
 // configured start option plus the console/OpenCode/Web access rows.
@@ -11,78 +14,98 @@
 package webserver
 
 import (
+	"errors"
 	"html/template"
-	"io/fs"
+	"maps"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/shredingerlabs/oc-sandbox/internal/config"
+	"github.com/shredingerlabs/oc-sandbox/internal/discovery"
 	"github.com/shredingerlabs/oc-sandbox/internal/registry"
+	"github.com/shredingerlabs/oc-sandbox/internal/sandboxcfg"
 )
 
-// editionMeta is the per-edition card metadata: Lucide glyph file under
-// img/editions/ and the Signal hue (prototype-webui-design.html, §5).
-type editionMeta struct {
-	Hue   string
-	Label string
+// setIdentity is the derived identity of a workspace's toolchain set
+// (spec toolchain-sets WP-5): the bundle whose members exactly match the
+// stored set names it, any other selection is Custom. Every set renders
+// the neutral accent and the one generic glyph — matched or Custom.
+type setIdentity struct {
+	Label    string // derived bundle name, else "Custom"
+	Subtitle string // "n toolchains: a, b" / "base only" / the unresolved reason
 }
 
-// editions is the hue map of the signed-off Signal mockup; unknown
-// editions fall back to the base glyph and accent hue.
-var editions = map[string]editionMeta{
-	"swdev":    {Hue: "#2f6fed", Label: "Software Dev"},
-	"web":      {Hue: "#8b5cf6", Label: "Web"},
-	"embedded": {Hue: "#0ea5a4", Label: "Embedded"},
-	"matlab":   {Hue: "#e8721c", Label: "MATLAB"},
-	"ros2":     {Hue: "#16a34a", Label: "ROS 2"},
-	"writing":  {Hue: "#d97757", Label: "Writing"},
-	"latex":    {Hue: "#4f46e5", Label: "LaTeX"},
-	"pkm":      {Hue: "#db2777", Label: "PKM"},
-	"base":     {Hue: "#94a3b8", Label: "Base"},
-}
-
-func editionFor(name string) editionMeta {
-	if m, ok := editions[name]; ok {
-		return m
+// setIdentityFor derives a stored config's identity against the
+// manifest bundle map: exact member-match (canonical sorted comparison)
+// picks the bundle name; a selection matching several bundles (the
+// empty set matches chat and pkm) prefers the legacy edition name, then
+// the workspace kind, then the first bundle in canonical order. An
+// unresolved config (§10) shows Custom with the refusal reason as its
+// subtitle — the card stays up, nothing destroyed.
+func setIdentityFor(cfg sandboxcfg.Config, toolchainsRoot, workspaceKind string) setIdentity {
+	if !cfg.Resolved {
+		if cfg.LegacyEdition != "" {
+			return setIdentity{Label: "Custom", Subtitle: "stored edition '" + cfg.LegacyEdition + "' maps to no bundle"}
+		}
+		return setIdentity{Label: "Custom", Subtitle: "no stored toolchain selection — choose toolchains"}
 	}
-	return editionMeta{Hue: "", Label: name}
+	var matches []string
+	bundles := discovery.ManifestBundles(toolchainsRoot)
+	for _, name := range slices.Sorted(maps.Keys(bundles)) {
+		members := slices.Clone(bundles[name])
+		slices.Sort(members)
+		if slices.Equal(members, cfg.Toolchains) {
+			matches = append(matches, name)
+		}
+	}
+	label := "Custom"
+	switch {
+	case len(matches) == 1:
+		label = matches[0]
+	case len(matches) > 1:
+		switch {
+		case slices.Contains(matches, cfg.LegacyEdition):
+			label = cfg.LegacyEdition
+		case slices.Contains(matches, workspaceKind):
+			label = workspaceKind
+		default:
+			label = matches[0]
+		}
+	}
+	subtitle := "base only"
+	if n := len(cfg.Toolchains); n > 0 {
+		subtitle = strconv.Itoa(n) + " toolchains: " + strings.Join(cfg.Toolchains, ", ")
+	}
+	return setIdentity{Label: label, Subtitle: subtitle}
 }
 
-// editionGlyph carries the inline SVG markup of one Lucide edition glyph
-// from the embedded assets. Inlined (not <img>) so stroke="currentColor"
-// resolves against the card's CSS --ed hue, exactly like the signed-off
-// Signal mockup's tiles (spec §5); unknown editions fall back to base.
-var glyphCache sync.Map // name → template.HTML
-
-func glyphFor(name string) template.HTML {
-	if v, ok := glyphCache.Load(name); ok {
-		return v.(template.HTML)
+// errUnresolvedSelection is the §10 unresolved refusal — the one
+// refusal everywhere a start flow reads an unknown stored edition,
+// before any prompt machinery (WP-10). The old image/container is
+// never touched.
+func errUnresolvedSelection(cfg sandboxcfg.Config) error {
+	if cfg.LegacyEdition != "" {
+		return errors.New("stored edition '" + cfg.LegacyEdition + "' maps to no bundle — choose toolchains under Workspace Settings")
 	}
-	data, err := fs.ReadFile(assetsFS, "img/editions/"+name+".svg")
-	if err != nil {
-		data, err = fs.ReadFile(assetsFS, "img/editions/base.svg")
-	}
-	markup := template.HTML(strings.Replace(string(data), "viewBox=\"0 0 24 24\"",
-		"viewBox=\"0 0 24 24\" data-edition=\""+template.HTMLEscapeString(name)+"\"", 1))
-	got, _ := glyphCache.LoadOrStore(name, markup)
-	return got.(template.HTML)
+	return errors.New("no stored toolchain selection — choose toolchains under Workspace Settings")
 }
 
-// glyphFuncs is the workspace template's marker func: the inline glyph
-// test hook (per-edition data-edition attribute on the root element).
-var glyphFuncs = template.FuncMap{"edicon": glyphFor}
+// glyphFuncs carries the card tile's one generic set glyph (WP-5: one
+// glyph for every set — the per-edition SVG assets died with the stage
+// world). Inlined like every UI glyph so stroke="currentColor" resolves
+// against the tile's accent.
+var glyphFuncs = template.FuncMap{"seticon": func() template.HTML { return iconSVG("layers") }}
 
 // cardView is the template data of one workspace card.
 type cardView struct {
 	Name       string
 	OpID       int    // op id of the in-flight op (start response) — line events match it
-	Icon       string // edition glyph file (base.svg fallback)
-	Hue        string // CSS --ed value, "" → accent default
-	Edition    string // edition label chip
-	Hil        bool   // HIL chip: hil_mode recorded in the modes (any edition, §6)
+	Label      string // derived bundle name chip (exact member-match), else "Custom"
+	Subtitle   string // member list tooltip ("n toolchains: …"), base only, or the unresolved reason
+	Hil        bool   // HIL chip: hil_mode recorded in the modes
 	Proxy      bool   // advanced-only chips: stored truth straight from sandbox_config
 	Offline    bool
 	CBMUI      bool
@@ -120,9 +143,9 @@ var wsTemplate = template.Must(template.New("ws").
 	Funcs(glyphFuncs).
 	Parse(`
 {{define "card"}}
-<article class="card" data-ws="{{.Name}}"{{if .Hue}} style="--ed:{{.Hue}}"{{end}}{{if .OpID}} data-op-id="{{.OpID}}"{{end}}>
+<article class="card" data-ws="{{.Name}}"{{if .OpID}} data-op-id="{{.OpID}}"{{end}}>
   <div class="toprow">
-    <div class="tile">{{edicon .Icon}}</div>
+    <div class="tile">{{seticon}}</div>
     <div class="body">
       <div class="name">{{.Name}}{{if .Running}}<span class="dot" data-running title="running"></span>{{end}}</div>
       <div class="sub">last used {{.LastUsed}}</div>
@@ -146,7 +169,7 @@ var wsTemplate = template.Must(template.New("ws").
     </div>
   </div>
   <div class="meta">
-    <span class="chip" data-chip="edition">{{.Edition}}</span>
+    <span class="chip" data-chip="edition" title="{{.Subtitle}}">{{.Label}}</span>
     {{if .Hil}}<span class="chip" data-chip="hil">HIL</span>{{end}}
     {{if .Advanced}}
       {{if .Proxy}}<span class="chip" data-chip="proxy">proxy</span>{{end}}
@@ -258,7 +281,6 @@ func (s *Server) handleWorkspacesGET(w http.ResponseWriter, r *http.Request) {
 func (s *Server) cardFor(e registry.Workspace, mode string) cardView {
 	c := cardView{
 		Name:     e.Name,
-		Icon:     "base",
 		Running:  e.ContainerStatus == "running",
 		LastUsed: relativeLastUsed(e.LastUsed, s.now()),
 		Advanced: mode == config.DisplayAdvanced,
@@ -287,16 +309,13 @@ func (s *Server) cardFor(e registry.Workspace, mode string) cardView {
 			c.OpID = opID // the relay's outcome lines find the card log
 		}
 	}
-	// The card identity still keys on the legacy edition name; the
-	// toolchain-sets derived-label re-key is #207 (WP-5). A materialized
-	// (new-world) config reads as an unknown name — base tile, neutral hue.
-	meta := editionFor(cfg.LegacyEdition)
-	c.Icon = cfg.LegacyEdition
-	if _, ok := editions[cfg.LegacyEdition]; !ok {
-		c.Icon = "base"
-	}
-	c.Hue = meta.Hue
-	c.Edition = meta.Label
+	// The derived identity (WP-5): the bundle whose members exactly
+	// match the stored set names the chip, else Custom — the member
+	// list rides the chip's tooltip; unresolved configs (§10) show
+	// Custom naming the reason, the card stays up, nothing destroyed.
+	id := setIdentityFor(cfg, s.toolchainsRoot(), cfg.WorkspaceKind)
+	c.Label = id.Label
+	c.Subtitle = id.Subtitle
 	for _, m := range cfg.ContainerModes {
 		switch m {
 		case "hil_mode":

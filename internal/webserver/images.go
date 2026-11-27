@@ -130,11 +130,9 @@ func (s *Server) renderImages(msg string, opID int) string {
 			b.WriteString(` data-busy`)
 		}
 		b.WriteString(`>`)
-		if hue := editionFor(row.Edition).Hue; hue != "" {
-			b.WriteString(`<div class="ic" style="--ed:` + hue + `">`)
-		} else {
-			b.WriteString(`<div class="ic">`)
-		}
+		// Neutral accent — the per-edition hues died with the stage
+		// world (WP-5); the Images rows re-key fully in #209.
+		b.WriteString(`<div class="ic">`)
 		b.WriteString(string(iconSVG("container")) + `</div>`)
 		b.WriteString(`<div class="rl"><div class="t">` + html.EscapeString(row.Edition) + `</div><div class="s">`)
 		if row.Built {

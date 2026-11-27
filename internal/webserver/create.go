@@ -571,10 +571,12 @@ func (s *Server) wizardRoot(name string) string {
 
 // --- the create chain (ONE task: image build → init → configure) ------------
 
-// editionHue is the template's handle on the Signal hue map (the
-// edition chip dots tint like the Open screen's cards).
+// editionHue is the template's handle on the Signal hue map — the
+// per-edition hues died with the stage world (toolchain-sets WP-5):
+// every dot tints with the neutral accent until the wizard/settings
+// re-key lands.
 func editionHue(name string) string {
-	return editionFor(name).Hue
+	return "var(--accent)"
 }
 
 // createChain is the captured payload of one confirmed create — every

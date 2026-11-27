@@ -140,7 +140,12 @@ func checkWebUIWorkspaces(home, root string) Item {
 	} else {
 		for _, want := range []string{
 			`data-ws="mural"`, `data-ws="lab"`,
-			`data-edition="swdev"`, `data-edition="web"`,
+			// WP-5 derived identity: bundle-name chips with the member
+			// list as tooltip, one generic glyph, no per-edition hues.
+			`>swdev</span>`, `>web</span>`,
+			`title="4 toolchains: cpp, go, java, rust"`,
+			`title="2 toolchains: node-dev, playwright"`,
+			`data-glyph="layers"`,
 			`data-chip="hil"`,
 			`data-act="web"`, `data-act="opencode"`, `data-act="console"`,
 			`data-confirm="restart"`, `data-confirm="stop"`,
@@ -149,9 +154,9 @@ func checkWebUIWorkspaces(home, root string) Item {
 				p.reasonf("cards missing %q", want)
 			}
 		}
-		for _, banned := range []string{`data-act="open"`, `data-confirm="delete"`} {
+		for _, banned := range []string{`data-act="open"`, `data-confirm="delete"`, `data-edition=`} {
 			if strings.Contains(body, banned) {
-				p.reasonf("cards must not carry the retired action (%s)", banned)
+				p.reasonf("cards must not carry the retired surface (%s)", banned)
 			}
 		}
 	}
