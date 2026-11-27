@@ -56,6 +56,10 @@ var matrix = []Row{
 	// screen (Standard hides it and silently records the ON preset).
 	{Screen: "ws-settings", Key: "stt", Label: "Dictation", AdvancedOnly: true},
 	{Screen: "ws-new", Key: "stt", Label: "Dictation", AdvancedOnly: true},
+	// Recipe version editor (toolchain sets #211, WP-9): the per-row
+	// Edit recipe affordance on the Images screen's component and base
+	// rows — host-global build inputs, advanced-only.
+	{Screen: "images", Key: "edit-recipe", Label: "Edit recipe", AdvancedOnly: true},
 }
 
 // ScreenRows returns the matrix rows of a screen in display order.
