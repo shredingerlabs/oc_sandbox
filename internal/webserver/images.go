@@ -686,15 +686,18 @@ func (s *Server) launchEditorGC() int {
 }
 
 // editorGCOp is the recipe-editor save's follow-up GC pass: the §11
-// host-wide dangling-only sweep as ONE sequential op (the shared
-// reclaim core — the rmi auto-prune's sweep, the #214 update pass's
-// engine). Recipe edits re-address their image's hash; the superseded
-// intermediates die here.
+// second trigger, the same full pass the update completion runs (the
+// shared engine — gc.go). Recipe edits re-address their image's hash;
+// the superseded tags (and the sweep's intermediates) die here.
 func (s *Server) editorGCOp() func(emit func(string)) error {
 	return func(emit func(string)) error {
-		emit("==> gc (recipe edit saved — host-wide dangling sweep)")
-		_, err := s.pruneDangling(emit)
-		return err
+		emit("==> gc (recipe edit saved — reclaiming superseded images)")
+		summary, err := s.imageGCPass(emit)
+		if err != nil {
+			return err
+		}
+		emit(summary)
+		return nil
 	}
 }
 
@@ -963,11 +966,7 @@ func (s *Server) deleteImageOp(tag string) func(emit func(string)) error {
 // intermediates op is the same sweep behind the danger confirm; the
 // GC-at-update pass (#214) reuses it.
 func (s *Server) pruneDangling(emit func(string)) (string, error) {
-	before := reclaimableEstimate(s.deps.Run)
-	out, err := s.deps.Run.Output("podman", "image", "prune", "--force")
-	for _, l := range cmdrun.Lines(out) {
-		emit(l)
-	}
+	before, err := s.pruneDanglingCore(emit)
 	if err != nil {
 		return before, err
 	}

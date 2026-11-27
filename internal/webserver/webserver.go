@@ -115,6 +115,9 @@ func New(opts Options) *Server {
 	if opts.UpdateRun != nil {
 		s.updater.runScript = opts.UpdateRun
 	}
+	if s.deps != nil && s.deps.Run != nil {
+		s.updater.gc = s.updateGCPass // the §11 update-completion GC pass
+	}
 	return s
 }
 

@@ -209,7 +209,10 @@ While an update runs it is globally exclusive
 (no other operations); the live log streams in the browser. When applied, the
 banner clears, VERSION is re-read, and a "Update installed — restart
 oc-sandbox to apply" note appears — the restart is yours (the per-launch token
-never surprises you with reconnects).
+never surprises you with reconnects). The update never builds anything; its
+completion runs an image GC pass that reclaims the toolchain images nothing
+derives from the current recipes anymore (containers keep theirs pinned), and
+the log pane carries the "reclaimed ~X GB" summary line.
 
 **Settings → Uninstall** runs a guided wizard (warning → options → typed
 `uninstall` confirmation). It removes only the installation, never workspace

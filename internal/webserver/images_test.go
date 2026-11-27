@@ -1,6 +1,7 @@
 package webserver
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -56,11 +57,12 @@ func waitImagesIdle(t *testing.T, s *Server) {
 // unknown call falls through to the base fake.
 type fakeImages struct {
 	run       *cmdrun.Fake
-	setRows   []string // `podman images --filter label=kind=set` rows
-	dangling  []string // dangling size tokens ("1.2 GB")
-	freeSpace string   // the df footer line's Avail column ("60G")
-	prune     *syncList
-	rmi       *syncList
+	setRows   []string          // `podman images --filter label=kind=set` rows
+	dangling  []string          // dangling size tokens ("1.2 GB")
+	freeSpace string            // the df footer line's Avail column ("60G")
+	prune     *syncList         // recorded image-prune sweeps
+	rmi       *syncList         // recorded podman rmi targets
+	rmiErr    map[string]string // tag → error the rmi must fail with
 }
 
 func fakePodmanImages(running, pods, containers, images, refs []string, f fakeImages) *cmdrun.Fake {
@@ -86,6 +88,9 @@ func fakePodmanImages(running, pods, containers, images, refs []string, f fakeIm
 			return "Deleted: dangling", nil
 		case name == "podman" && strings.HasPrefix(rest, "rmi "):
 			f.rmi.add(args[1])
+			if e, ok := f.rmiErr[args[1]]; ok {
+				return "error removing " + args[1], errors.New(e)
+			}
 			return "Untagged: " + args[1], nil
 		case name == "df":
 			return "Filesystem Size Used Avail Use% Mounted on\n/dev/sda1 100G 40G " + f.freeSpace + " 40% /", nil
