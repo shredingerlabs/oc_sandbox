@@ -51,6 +51,7 @@ func newSetupFixture(t *testing.T, headless bool) *setupFixture {
 	}
 
 	f := &setupFixture{home: home, root: root}
+	imageBuilt := false
 	fake := &cmdrun.Fake{Script: func(name string, args []string) (string, error) {
 		if name == "podman" && len(args) > 0 && args[0] == "exec" {
 			// the in-container probe/clone/CBM bash: probe fails once
@@ -61,6 +62,18 @@ func newSetupFixture(t *testing.T, headless bool) *setupFixture {
 				}
 			}
 			return "in-container ok\n", nil
+		}
+		if name == "podman" && len(args) > 1 && args[0] == "image" && args[1] == "exists" {
+			// the derived set image exists only after a build landed
+			// (the setup-retry Build now path, WP-6)
+			if imageBuilt {
+				return "", nil
+			}
+			return "", errTestImageMissing
+		}
+		if name == "bash" && len(args) > 0 && strings.HasSuffix(args[0], "build-images.sh") {
+			imageBuilt = true
+			return "built\n", nil
 		}
 		if name == "podman" && len(args) > 0 && args[0] == "ps" {
 			return "", nil // nothing running yet
@@ -73,10 +86,11 @@ func newSetupFixture(t *testing.T, headless bool) *setupFixture {
 		BasePort: 0,
 		Home:     home,
 		Deps: &Deps{
-			Run:             fake,
-			Registry:        &registry.Registry{Home: home},
-			StartScript:     filepath.Join(home, ".oc-sandbox", "scripts", "start.sh"),
-			ConfigureScript: filepath.Join(home, ".oc-sandbox", "scripts", "configure-workspace.sh"),
+			Run:               fake,
+			Registry:          &registry.Registry{Home: home},
+			StartScript:       filepath.Join(home, ".oc-sandbox", "scripts", "start.sh"),
+			ConfigureScript:   filepath.Join(home, ".oc-sandbox", "scripts", "configure-workspace.sh"),
+			BuildImagesScript: filepath.Join(home, ".oc-sandbox", "scripts", "build-images.sh"),
 		},
 		TerminalSpawn: func(command string) error {
 			f.mu.Lock()
@@ -259,6 +273,81 @@ func TestSetupRetryRunsMachineAndAutoOpensSkills(t *testing.T) {
 			t.Fatalf("skills slot missing %q, card:\n%s", want, card)
 		}
 	}
+}
+
+// The missing-set sidecar on the setup-retry start path (WP-6): the
+// derived set image is not built — the retry POST answers {build} and
+// launches nothing; build=1 pre-builds the set inside the same queued
+// op before the machine's stages run.
+func TestSetupRetryOffersBuildWhenSetImageMissing(t *testing.T) {
+	f := newSetupFixture(t, false)
+	seedToolchains(t, f.home) // base recipe + unit recipes — the tag derives
+	resp := postSetup(t, f.s, "alpha", "retry")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("setup/retry status = %d, want 200", resp.StatusCode)
+	}
+	var v map[string]any
+	if err := jsonDecode(body(t, resp), &v); err != nil {
+		t.Fatalf("setup/retry sidecar decode: %v\nbody: %s", err, body(t, resp))
+	}
+	if v["build"] != true {
+		t.Fatalf("setup/retry sidecar = %v, want the build sidecar", v)
+	}
+	deadline := time.Now().Add(300 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		if !f.s.Busy() {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	for _, c := range f.fake.Snapshot() {
+		if c.Name == "bash" && (strings.HasSuffix(c.Args[0], "start.sh") ||
+			strings.HasSuffix(c.Args[0], "build-images.sh")) {
+			t.Fatalf("a script ran despite the missing set image: %v", c.Args)
+		}
+	}
+}
+
+// Build now on the retry path (build=1): ONE queued op — the builder's
+// missing components + assembly plan streams into the busy pane, then
+// the setup machine's stages run.
+func TestSetupRetryBuildNowPrebuildsSet(t *testing.T) {
+	f := newSetupFixture(t, false)
+	seedToolchains(t, f.home)
+	resp, err := http.PostForm(f.s.URL()+"workspaces/alpha/setup/retry",
+		url.Values{"build": {"1"}})
+	if err != nil {
+		t.Fatalf("POST setup/retry: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("setup/retry status = %d, want 200", resp.StatusCode)
+	}
+	waitFor(t, "build rode the setup op", func() bool {
+		for _, c := range f.fake.Snapshot() {
+			if c.Name == "bash" && len(c.Args) > 0 &&
+				strings.HasSuffix(c.Args[0], "build-images.sh") &&
+				strings.Join(c.Args[1:], " ") == "--set cpp,go,java,rust" {
+				return true
+			}
+		}
+		return false
+	})
+	waitFor(t, "start stage ran after the build", func() bool {
+		var buildIdx, startIdx int
+		for i, c := range f.fake.Snapshot() {
+			if c.Name != "bash" || len(c.Args) == 0 {
+				continue
+			}
+			if strings.HasSuffix(c.Args[0], "build-images.sh") {
+				buildIdx = i
+			}
+			if strings.HasSuffix(c.Args[0], "start.sh") {
+				startIdx = i
+			}
+		}
+		return startIdx > buildIdx && startIdx > 0
+	})
 }
 
 // Exit relay: the webserver polls the status file and feeds the exit

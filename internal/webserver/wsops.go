@@ -11,24 +11,41 @@
 package webserver
 
 import (
+	"errors"
+	"fmt"
 	"net/http"
 	"slices"
+	"strings"
 
 	"github.com/shredingerlabs/oc-sandbox/internal/cmdrun"
 	"github.com/shredingerlabs/oc-sandbox/internal/discovery"
+	"github.com/shredingerlabs/oc-sandbox/internal/identity"
 	"github.com/shredingerlabs/oc-sandbox/internal/openworkspace"
 	"github.com/shredingerlabs/oc-sandbox/internal/registry"
 	"github.com/shredingerlabs/oc-sandbox/internal/sandboxcfg"
 )
 
-// mismatchSidecar is the start route's edition-mismatch verdict (#154):
-// the live container's image edition diverges from the saved one — the
-// card offers Use current / Switch to <saved>, the switch behind the
-// adopt confirm.
+// mismatchSidecar is the start route's set-tag mismatch verdict (#154,
+// re-keyed to the derived set tag — spec §9 WP-6/§10): the live
+// container's image ref diverges from the stored selection's derived
+// set tag — the card offers Use current / Switch to <saved>, the
+// switch behind the adopt confirm; body is the member delta the prompt
+// shows.
 type mismatchSidecar struct {
-	Mismatch       bool   `json:"mismatch"`
-	RunningEdition string `json:"running_edition"`
-	SavedEdition   string `json:"saved_edition"`
+	Mismatch bool   `json:"mismatch"`
+	Running  string `json:"running"` // the live container's image ref
+	Saved    string `json:"saved"`   // the stored set's derived label
+	Body     string `json:"body"`    // the member-delta line
+}
+
+// buildSidecar is the start route's missing-set verdict (WP-6): the
+// derived set image is not built — the card offers Build now / Build
+// later / Go back; set is the member summary, hint the Build-later
+// escape.
+type buildSidecar struct {
+	Build bool   `json:"build"`
+	Set   string `json:"set"`
+	Hint  string `json:"hint"`
 }
 
 // opSidecar is the {ok, error} answer of the confirm-row verbs; op is
@@ -97,9 +114,10 @@ func (s *Server) guardWorkspaceOp(w http.ResponseWriter, r *http.Request) (regis
 // container with the saved settings applied, always available on a
 // running container. Always re-checked fresh at click time: an already
 // stopped container refuses (the start options are the recovery), a
-// busy key or a pending setup session holds it, and an edition-diverged
-// restart refuses before stopping anything when the saved edition's
-// image is missing (#117: never destroy without a replacement).
+// busy key or a pending setup session holds it, and the replacement is
+// built BEFORE anything stops (WP-6: never stop without a replacement
+// → build the replacement, then stop; the builder's preflight refusal
+// or a failed build leaves the container untouched).
 func (s *Server) handleWorkspaceRestart(w http.ResponseWriter, r *http.Request) {
 	ws, cname, refused := s.guardWorkspaceOp(w, r)
 	if refused {
@@ -120,28 +138,39 @@ func (s *Server) handleWorkspaceRestart(w http.ResponseWriter, r *http.Request) 
 		refuseSidecar(w, err.Error())
 		return
 	}
-	if running := s.runningEdition(cname); running != "" && running != cfg.LegacyEdition {
-		if !cfg.ToolchainsStored && !discovery.ImageExists(s.runnerSeam(), cfg.LegacyEdition) {
-			refuseSidecar(w, errImageMissing(cfg.LegacyEdition).Error()+" — build it first (Settings → Images); nothing was stopped")
-			return
-		}
+	if !cfg.Resolved {
+		// The §10 unresolved refusal (WP-10): before any machinery —
+		// the old image/container is never touched.
+		refuseSidecar(w, errUnresolvedSelection(cfg).Error())
+		return
 	}
 	s.queue.Launch(webOp{Key: cname, Run: s.restartOp(ws)})
 	okSidecar(w, s.queue.CurrentOpID(cname))
 }
 
-// restartOp is the verified replacement chain (ADR-0033): the pod-aware
-// stop with the registry flipping truthful after the verified-gone
-// check, then the fresh start from the CURRENT stored settings (the
-// image check re-runs inside the op — build-container work may have
-// landed since the confirm), the registry flipping to "running" only
-// after a fresh-ps verification. A failed start leaves the workspace
-// stopped with the failure streamed into the op log (no rollback —
-// start options are the recovery).
+// restartOp is the verified replacement chain (ADR-0033): the inline
+// Build now for a missing set image (WP-6 — the replacement is built
+// while the old container still runs), then the pod-aware stop with the
+// registry flipping truthful after the verified-gone check, then the
+// fresh start from the CURRENT stored settings (the image check re-runs
+// inside the op — builds may have landed since the confirm), the
+// registry flipping to "running" only after a fresh-ps verification. A
+// failed build or start leaves the workspace untouched/stopped with the
+// failure streamed into the op log (no rollback — start options are the
+// recovery).
 func (s *Server) restartOp(ws registry.Workspace) func(emit func(string)) error {
 	return func(emit func(string)) error {
 		cname := registry.ContainerName(ws.ContainerID)
 		emit("==> restart " + cname)
+		if cfg, err := s.readSandboxCfg(ws.Path); err == nil && cfg.Resolved {
+			// Build the replacement before anything stops (WP-6): the
+			// builder's own preflight refuses offline/low-disk hosts
+			// (§7; the Go preflight is #212).
+			if err := s.buildSetNow(cfg, emit); err != nil {
+				emit("Restart refused — " + err.Error())
+				return err
+			}
+		}
 		if err := s.stopUnitOnce(cname, emit); err != nil {
 			return err
 		}
@@ -200,28 +229,142 @@ func (s *Server) handleWorkspaceDelete(w http.ResponseWriter, r *http.Request) {
 	okSidecar(w, s.queue.CurrentOpID(cname))
 }
 
-// runningEdition reads the live container's edition off its image (the
-// image is the truth about what runs, #115) — "" when it is not live
-// or the image is not an edition image.
-func (s *Server) runningEdition(cname string) string {
+// runningImageRef reads the live container's image ref (the image is
+// the truth about what runs, #115) — "" when the container is not live.
+func (s *Server) runningImageRef(cname string) string {
 	for _, c := range discovery.RunningContainersWithImages(s.runnerSeam()) {
 		if c.Name == cname {
-			return discovery.EditionFromImage(c.Image)
+			return c.Image
 		}
 	}
 	return ""
 }
 
+// savedSetTag derives the stored selection's content-addressed set tag
+// (spec toolchain-sets §6): the resolved member ids — the read path
+// already expanded a legacy edition through the bundle map (§10) —
+// content-addressed against live discovery. ok=false names an
+// underivable tag (an invalid or unknown member, no base recipe): the
+// honest missing-set state, never guessed around.
+func (s *Server) savedSetTag(cfg sandboxcfg.Config) (string, bool) {
+	return openworkspace.SetTagFor(s.toolchainsRoot(), cfg.Toolchains)
+}
+
+// setMismatchVerdict classifies the live container's image ref against
+// the stored selection's derived set tag (spec §9 WP-6, §10): reuse
+// matches set-tag refs only — an old-world ref mismatches on every
+// touch. The body is the member delta the three-way prompt shows:
+// added/removed ids off the running set's members label; same members
+// with a new hash → "toolchain recipes updated"; an old-world ref →
+// "predates toolchain sets" plus the bundle-map-expanded delta;
+// members unknown → the honest Switch-rebuilds line.
+func (s *Server) setMismatchVerdict(cfg sandboxcfg.Config, runningRef string) mismatchSidecar {
+	v := mismatchSidecar{Running: runningRef}
+	id := setIdentityFor(cfg, s.toolchainsRoot(), cfg.WorkspaceKind)
+	v.Saved = id.Label
+	parsed := discovery.ParseImageRef(runningRef)
+	v.Mismatch = true // reuse matches the derived set tag only (§10)
+	switch parsed.Kind {
+	case discovery.RefSet:
+		tag, ok := s.savedSetTag(cfg)
+		if ok && parsed.Tag == strings.TrimPrefix(tag, identity.SetRepo+":") {
+			return mismatchSidecar{Running: runningRef, Saved: id.Label} // the derived set tag — reuse
+		}
+		running, known := discovery.SetMembers(s.runnerSeam(), runningRef)
+		if !known {
+			v.Body = "members unknown — Switch rebuilds from your set"
+			return v
+		}
+		if v.Body = memberDelta(running, cfg.Toolchains); v.Body == "" {
+			v.Body = "toolchain recipes updated"
+		}
+	case discovery.RefLegacy:
+		v.Body = "this container predates toolchain sets"
+		if members, ok := sandboxcfg.ExpandBundle(s.toolchainsRoot(), parsed.ID); ok {
+			if d := memberDelta(members, cfg.Toolchains); d != "" {
+				v.Body += " — " + d
+			}
+		} else {
+			v.Body += " — members unknown, Switch rebuilds from your set"
+		}
+	default:
+		v.Body = "members unknown — Switch rebuilds from your set"
+	}
+	return v
+}
+
+// memberDelta renders the added/removed member delta line ("added go /
+// removed java, rust"); empty when the member lists agree.
+func memberDelta(running, saved []string) string {
+	var added, removed []string
+	for _, id := range saved {
+		if !slices.Contains(running, id) {
+			added = append(added, id)
+		}
+	}
+	for _, id := range running {
+		if !slices.Contains(saved, id) {
+			removed = append(removed, id)
+		}
+	}
+	var parts []string
+	if len(added) > 0 {
+		parts = append(parts, "added "+strings.Join(added, ", "))
+	}
+	if len(removed) > 0 {
+		parts = append(parts, "removed "+strings.Join(removed, ", "))
+	}
+	return strings.Join(parts, " / ")
+}
+
+// buildSetNow runs the builder's --set plan (missing components +
+// assembly, spec §7) streamed through emit, then re-verifies the derived
+// tag landed. An existing image skips the build; the script's own
+// preflight (disk, network, podman floor) refuses before any podman call
+// — its refusal output streams into the pane (the Go preflight is #212).
+func (s *Server) buildSetNow(cfg sandboxcfg.Config, emit func(string)) error {
+	tag, ok := s.savedSetTag(cfg)
+	if ok && discovery.ImageExistsTag(s.runnerSeam(), tag) {
+		return nil
+	}
+	ids := strings.Join(cfg.Toolchains, ",")
+	if ids == "" {
+		emit("==> Building base-only set image")
+	} else {
+		emit("==> Building toolchain set (" + strings.Join(cfg.Toolchains, ", ") + ")")
+	}
+	out, err := s.runnerSeam().Output("bash", append([]string{s.deps.BuildImagesScript}, "--set", ids)...)
+	for _, l := range cmdrun.Lines(out) {
+		emit(l)
+	}
+	if err != nil {
+		return errors.New("build failed — the set image is still unavailable; nothing was stopped")
+	}
+	tag, ok = s.savedSetTag(cfg)
+	if !ok || !discovery.ImageExistsTag(s.runnerSeam(), tag) {
+		return errors.New("build failed — the set image is still unavailable; nothing was stopped")
+	}
+	return nil
+}
+
+// errSetImageMissing is the missing-set refusal: the Images hint is the
+// Build-later escape (WP-6).
+func errSetImageMissing(tag string) error {
+	return fmt.Errorf("set image %s is not built yet — build it under Settings → Images, or start again and choose Build now", tag)
+}
+
 // handleWorkspaceAdopt serves POST /workspaces/{name}/adopt (#154) —
-// behind the new web-native adopt confirm (§9): the edition-mismatch
-// switch and the web re-adopt both replace a running container (an
-// agent may be mid-task), so both confirm first. The switch runs the
-// TUI's verified stop → start chain (launchSwitch semantics, mirrored
-// exactly): stop the old container, registry → stopped only after it
-// verifies gone, start with args fully rebuilt from the current
+// behind the new web-native adopt confirm (§9): the set-tag mismatch
+// switch (WP-6) and the web re-adopt both replace a running container
+// (an agent may be mid-task), so both confirm first. The switch runs
+// the verified build → stop → start chain (WP-6: the replacement is
+// built inline before anything stops): build the stored set's image
+// when missing, stop the old container, registry → stopped only after
+// it verifies gone, start with args fully rebuilt from the current
 // settings carrying the requested access variant, registry → running
-// on a verified success. A switch whose start fails leaves the
-// workspace stopped with the error surfaced in the op log.
+// on a verified success. A switch whose build or start fails leaves
+// the workspace stopped (a failed build stops nothing) with the error
+// surfaced in the op log.
 func (s *Server) handleWorkspaceAdopt(w http.ResponseWriter, r *http.Request) {
 	ws, cname, refused := s.guardWorkspaceOp(w, r)
 	if refused {
@@ -245,27 +388,30 @@ func (s *Server) handleWorkspaceAdopt(w http.ResponseWriter, r *http.Request) {
 		refuseSidecar(w, err.Error())
 		return
 	}
+	if !cfg.Resolved {
+		// The §10 unresolved refusal (WP-10): before any prompt
+		// machinery — the old image/container is never touched.
+		refuseSidecar(w, errUnresolvedSelection(cfg).Error())
+		return
+	}
 	if !slices.Contains(discovery.RunningContainers(s.runnerSeam()), cname) {
 		refuseSidecar(w, errNotRunning(cname).Error())
 		return
 	}
-	running := s.runningEdition(cname)
-	if running != "" && running != cfg.LegacyEdition {
-		// The mismatch switch (#115/#116): never destroy without a
-		// replacement — the saved edition's image must exist before
-		// anything stops (#117); the build rides Settings → Image. The
-		// set-tag re-key is #208 (WP-6); the legacy world keeps the
-		// edition-image guard.
-		if !cfg.ToolchainsStored && !discovery.ImageExists(s.runnerSeam(), cfg.LegacyEdition) {
-			refuseSidecar(w, errImageMissing(cfg.LegacyEdition).Error()+" — build it first (Settings → Image: Build); nothing was stopped")
-			return
-		}
+	running := s.runningImageRef(cname)
+	if running == "" || s.setMismatchVerdict(cfg, running).Mismatch {
+		// The mismatch switch (WP-6 re-key): "never stop without a
+		// replacement" became "build the replacement, then stop" — the
+		// inline Build now rides the op BEFORE anything stops; a failed
+		// build or start leaves the workspace stopped with the error in
+		// the busy pane (or untouched, when the build refuses).
 	} else {
-		// The web re-adopt (TUI access(): a live container without a
-		// published 4096 port adopts web by replacing it with a
-		// --start_web start). Nothing to replace otherwise.
+		// The web re-adopt (TUI access(): a live container matching the
+		// stored set without a published 4096 port adopts web by
+		// replacing it with a --start_web start). Nothing to replace
+		// otherwise.
 		if variant != "web" {
-			refuseSidecar(w, "nothing to adopt — the running container matches the saved edition")
+			refuseSidecar(w, "nothing to adopt — the running container matches the saved set")
 			return
 		}
 		if port := discovery.WebPort(s.runnerSeam(), cname); port != "" {
@@ -277,21 +423,31 @@ func (s *Server) handleWorkspaceAdopt(w http.ResponseWriter, r *http.Request) {
 	okSidecar(w, s.queue.CurrentOpID(cname))
 }
 
-// adoptOp is the verified stop → start replacement chain (TUI
-// launchSwitch, mirrored exactly): a bare `podman stop` (containers run
-// --rm, gone = removed; start.sh's pod recreate-at-start rebuilds the
-// unit), verified gone on a fresh ps before the registry flips to
-// "stopped", then start.sh with args rebuilt from the CURRENT settings
-// (sandbox_config.json) carrying the requested access variant. The
-// registry flips to "running" only on a verified success; a failed
-// start leaves the workspace stopped — no rollback (the previous
-// edition's image still exists, the user can switch back) — with the
-// failure streamed into the op log.
+// adoptOp is the verified build → stop → start replacement chain (TUI
+// launchSwitch, WP-6 re-key): the stored set's image is built inline
+// FIRST when missing (build-images.sh --set, the builder's preflight
+// refusing offline hosts — a failed build stops nothing), then a bare
+// `podman stop` (containers run --rm, gone = removed; start.sh's pod
+// recreate-at-start rebuilds the unit), verified gone on a fresh ps
+// before the registry flips to "stopped", then start.sh with args
+// rebuilt from the CURRENT settings (sandbox_config.json) carrying the
+// requested access variant. The registry flips to "running" only on a
+// verified success; a failed start leaves the workspace stopped — no
+// rollback (the previous image still exists, the user can switch back)
+// — with the failure streamed into the op log.
 func (s *Server) adoptOp(ws registry.Workspace, cfg sandboxcfg.Config, variant string) func(emit func(string)) error {
 	d := s.deps
 	return func(emit func(string)) error {
 		cname := registry.ContainerName(ws.ContainerID)
 		args := openworkspace.StartArgs(ws.Path, cfg, ws.ContainerID, variant)
+		// 0. Build the replacement while the old container still runs
+		// (WP-6: never stop without a replacement).
+		if cfg.Resolved {
+			if err := s.buildSetNow(cfg, emit); err != nil {
+				emit("Switch refused — " + err.Error())
+				return err
+			}
+		}
 		// 1. Stop the old container, verify gone (fresh ps), registry
 		// → stopped only after verification.
 		out, err := d.Run.Output("podman", "stop", cname)

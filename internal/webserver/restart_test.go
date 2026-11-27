@@ -81,10 +81,10 @@ func TestWorkspaceRestartRefusals(t *testing.T) {
 		t.Fatalf("stopped restart sidecar = %v, want the not-running refusal", v)
 	}
 
-	// running but the saved edition's image is missing → refused before
-	// anything stops: the mismatch switch's never-destroy rule (#117).
-	// The live container's image name carries another edition.
-	imageMissing := &cmdrun.Fake{Script: func(name string, args []string) (string, error) {
+	// running with the set image missing and a REFUSING builder → the
+	// restart builds the replacement before anything stops (WP-6); a
+	// failed build stops nothing and the error names the build.
+	refusingBuild := &cmdrun.Fake{Script: func(name string, args []string) (string, error) {
 		if name == "podman" {
 			rest := strings.Join(args, " ")
 			switch {
@@ -97,13 +97,20 @@ func TestWorkspaceRestartRefusals(t *testing.T) {
 			}
 			return "", nil
 		}
+		if name == "bash" && len(args) > 0 && strings.HasSuffix(args[0], "build-images.sh") {
+			return "offline — preflight refused", fmt.Errorf("preflight refused")
+		}
 		return "", nil
 	}}
-	s2 := startServerWith(t, home, imageMissing)
+	s2 := startServerWith(t, home, refusingBuild)
 	v = sidecarPOST(t, s2.URL()+"workspaces/alpha/restart", "")
-	if scOK(v) || !strings.Contains(scStr(v, "error"), "not built yet") {
-		t.Fatalf("missing-image restart sidecar = %v, want the build-first refusal", v)
+	if !scOK(v) {
+		t.Fatalf("restart sidecar = %v, want ok:true (the failure surfaces in the op)", v)
 	}
+	waitFor(t, "failed build stops nothing", func() bool {
+		ws, err := reg.ByName("alpha")
+		return err == nil && ws.ContainerStatus == "running"
+	})
 }
 
 // sidecarPOST issues a form POST and decodes the {ok, error} sidecar.

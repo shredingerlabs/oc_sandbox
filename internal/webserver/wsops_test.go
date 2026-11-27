@@ -4,10 +4,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
 
+	"github.com/shredingerlabs/oc-sandbox/internal/identity"
+	"github.com/shredingerlabs/oc-sandbox/internal/openworkspace"
 	"github.com/shredingerlabs/oc-sandbox/internal/registry"
 )
 
@@ -68,8 +71,6 @@ func TestStartVariantDetectsEditionMismatch(t *testing.T) {
 		case name == "bash" && len(args) > 0 && args[0] == "/opt/oc-sandbox/scripts/start.sh":
 			startCalls.add("start")
 			return "started", nil
-		case name == "podman" && strings.HasPrefix(rest, "pod stop") || name == "podman" && strings.HasPrefix(rest, "stop "):
-			t.Fatal("mismatch detection must not stop anything")
 		case name == "podman" && strings.HasPrefix(rest, "ps --format {{.Names}}\t{{.Image}}"):
 			return cname + "\tlocalhost/opencode-sandbox-web:latest", nil // runs web, saved is swdev
 		}
@@ -78,7 +79,7 @@ func TestStartVariantDetectsEditionMismatch(t *testing.T) {
 	s := depsServer(t, run, reg)
 
 	v := postSidecar(t, s.URL()+"workspaces/alpha/start", "variant=web")
-	if v["mismatch"] != true || v["running_edition"] != "web" || v["saved_edition"] != "swdev" {
+	if v["mismatch"] != true || v["running"] != "localhost/opencode-sandbox-web:latest" {
 		t.Fatalf("start sidecar = %v, want the mismatch verdict", v)
 	}
 	waitFor(t, "registry truthfulness on mismatch", func() bool {
@@ -90,10 +91,197 @@ func TestStartVariantDetectsEditionMismatch(t *testing.T) {
 	}
 }
 
-// Agreeing editions (or no variant — the Container-center route) keep
-// the reuse semantics: the variant POST answers ok and the queued reuse
-// op re-verifies the live container.
-func TestStartVariantAgreeingEditionsReuses(t *testing.T) {
+// The set-tag re-key (WP-6): a start whose derived set image is missing
+// answers the Build now / Build later / Go back sidecar instead of
+// queueing a doomed op — nothing starts, nothing builds until Build now
+// is pressed.
+func TestStartVariantOffersBuildWhenSetImageMissing(t *testing.T) {
+	reg, roots := fixtureRegistry(t, "alpha")
+	root := roots["alpha"]
+	seedToolchains(t, reg.Home)
+	seedToolchainsConfig(t, root, []string{"go"}, []string{"hil_mode"})
+	startCalls := &syncList{}
+	run := fakePodman(nil, nil, nil, nil, nil) // nothing built, nothing running
+	base := run.Script
+	run.Script = func(name string, args []string) (string, error) {
+		if name == "bash" && len(args) > 0 && args[0] == "/opt/oc-sandbox/scripts/start.sh" {
+			startCalls.add("start")
+			return "started", nil
+		}
+		return base(name, args)
+	}
+	s := depsServer(t, run, reg)
+
+	v := postSidecar(t, s.URL()+"workspaces/alpha/start", "variant=web")
+	if v["build"] != true {
+		t.Fatalf("start sidecar = %v, want the build sidecar", v)
+	}
+	if set := v["set"].(string); !strings.Contains(set, "go") {
+		t.Fatalf("build sidecar set summary = %q, want the member summary", set)
+	}
+	if calls := startCalls.snapshot(); len(calls) != 0 {
+		t.Fatalf("start.sh ran despite the missing set image")
+	}
+	waitFor(t, "op to drain", func() bool { return !s.Busy() })
+}
+
+// Build now (build=1 on the same route): ONE queued op runs the builder
+// (missing components + assembly, build-images.sh --set) and then the
+// start — the registry flips running only on the verified start.
+func TestStartVariantBuildNowBuildsThenStarts(t *testing.T) {
+	reg, roots := fixtureRegistry(t, "alpha")
+	root := roots["alpha"]
+	seedToolchains(t, reg.Home)
+	seedToolchainsConfig(t, root, []string{"go"}, []string{"hil_mode"})
+	cname := "opencode-sandbox-" + registry.ContainerIdentity(root)
+	calls := &syncList{}
+	running := newSyncSet()
+	exists := false
+	run := fakePodman(nil, nil, nil, nil, nil)
+	base := run.Script
+	run.Script = func(name string, args []string) (string, error) {
+		rest := strings.Join(args, " ")
+		switch {
+		case name == "bash" && len(args) > 0 && strings.HasSuffix(args[0], "build-images.sh"):
+			calls.add(rest)
+			exists = true // the build lands the set image
+			return "built", nil
+		case name == "bash" && len(args) > 0 && args[0] == "/opt/oc-sandbox/scripts/start.sh":
+			calls.add("start")
+			running.set(cname, true)
+			return "started", nil
+		case name == "podman" && strings.HasPrefix(rest, "image exists"):
+			if exists {
+				return "", nil
+			}
+			return "", fmt.Errorf("no such image")
+		case name == "podman" && strings.HasPrefix(rest, "ps --format {{.Names}}"):
+			return strings.Join(running.keys(), "\n"), nil
+		case name == "podman" && strings.HasPrefix(rest, "ps -a --format {{.Names}}"):
+			var rows []string
+			for _, n := range running.keys() {
+				rows = append(rows, containerState(n, "running"))
+			}
+			return strings.Join(rows, "\n"), nil
+		}
+		return base(name, args)
+	}
+	s := depsServer(t, run, reg)
+
+	v := postSidecar(t, s.URL()+"workspaces/alpha/start", "variant=web&build=1")
+	if v["ok"] != true {
+		t.Fatalf("start sidecar = %v, want ok:true", v)
+	}
+	waitFor(t, "build+start op ran", func() bool {
+		got := calls.snapshot()
+		return len(got) == 2 && got[0] == "/opt/oc-sandbox/scripts/build-images.sh --set go" &&
+			got[1] == "start"
+	})
+	waitFor(t, "op to drain", func() bool { return !s.Busy() })
+	ws, err := reg.ByName("alpha")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ws.ContainerStatus != "running" {
+		t.Fatalf("registry status = %q, want running after the build+start", ws.ContainerStatus)
+	}
+}
+
+// A Build now whose builder refuses (an offline host's preflight — §7,
+// the script's own refusal output streams into the pane; the Go
+// preflight is #212) fails the op before anything starts: the workspace
+// stays stopped with the error in the busy pane.
+func TestStartVariantBuildNowRefusedBuilder(t *testing.T) {
+	reg, roots := fixtureRegistry(t, "alpha")
+	root := roots["alpha"]
+	seedToolchains(t, reg.Home)
+	seedToolchainsConfig(t, root, []string{"go"}, nil)
+	startCalls := &syncList{}
+	run := fakePodman(nil, nil, nil, nil, nil)
+	base := run.Script
+	run.Script = func(name string, args []string) (string, error) {
+		rest := strings.Join(args, " ")
+		switch {
+		case name == "bash" && len(args) > 0 && strings.HasSuffix(args[0], "build-images.sh"):
+			return "offline — preflight refused", fmt.Errorf("preflight refused")
+		case name == "bash" && len(args) > 0 && args[0] == "/opt/oc-sandbox/scripts/start.sh":
+			startCalls.add("start")
+			return "started", nil
+		case name == "podman" && strings.HasPrefix(rest, "image exists"):
+			return "", fmt.Errorf("no such image")
+		}
+		return base(name, args)
+	}
+	s := depsServer(t, run, reg)
+
+	v := postSidecar(t, s.URL()+"workspaces/alpha/start", "variant=web&build=1")
+	if v["ok"] != true {
+		t.Fatalf("start sidecar = %v, want ok:true (the failure surfaces in the op)", v)
+	}
+	waitFor(t, "op to drain", func() bool { return !s.Busy() })
+	if len(startCalls.snapshot()) != 0 {
+		t.Fatalf("start.sh ran despite the failed build")
+	}
+	ws, err := reg.ByName("alpha")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ws.ContainerStatus == "running" {
+		t.Fatalf("registry flipped running despite the failed build")
+	}
+}
+
+// The mismatch detection re-keyed to the derived set tag vs the running
+// container's image ref (WP-6): an old-world edition ref mismatches —
+// the prompt body names the predates line plus the bundle-map-expanded
+// delta, and nothing starts or stops.
+func TestStartVariantMismatchOldWorldRef(t *testing.T) {
+	reg, roots := fixtureRegistry(t, "alpha")
+	root := roots["alpha"]
+	sandboxConfigFixture(t, root) // legacy swdev → cpp, go, java, rust via the bundle map
+	cname := "opencode-sandbox-" + registry.ContainerIdentity(root)
+	startCalls := &syncList{}
+	run := fakePodman([]string{cname}, nil,
+		[]string{containerState(cname, "running")}, nil, nil)
+	base := run.Script
+	run.Script = func(name string, args []string) (string, error) {
+		rest := ""
+		if name == "podman" {
+			rest = strings.Join(args, " ")
+		}
+		switch {
+		case name == "bash" && len(args) > 0 && args[0] == "/opt/oc-sandbox/scripts/start.sh":
+			startCalls.add("start")
+			return "started", nil
+		case name == "podman" && (strings.HasPrefix(rest, "stop ") || strings.HasPrefix(rest, "pod stop")):
+			t.Fatal("mismatch detection must not stop anything")
+		case name == "podman" && strings.HasPrefix(rest, "ps --format {{.Names}}\t{{.Image}}"):
+			return cname + "\tlocalhost/opencode-sandbox-web:latest", nil
+		}
+		return base(name, args)
+	}
+	s := depsServer(t, run, reg)
+
+	v := postSidecar(t, s.URL()+"workspaces/alpha/start", "variant=web")
+	if v["mismatch"] != true {
+		t.Fatalf("start sidecar = %v, want the mismatch verdict", v)
+	}
+	want := "this container predates toolchain sets — added cpp, go, java, rust / removed node-dev, playwright"
+	if v["body"] != want {
+		t.Fatalf("mismatch body = %q, want %q", v["body"], want)
+	}
+	waitFor(t, "registry truthfulness on mismatch", func() bool {
+		ws, err := reg.ByName("alpha")
+		return err == nil && ws.ContainerStatus == "running"
+	})
+	if len(startCalls.snapshot()) != 0 {
+		t.Fatalf("start.sh ran on a mismatched live container")
+	}
+}
+
+// An old-world ref whose edition name maps to no bundle renders the
+// honest members-unknown line — Switch rebuilds from the stored set.
+func TestStartVariantMismatchOldWorldUnknownName(t *testing.T) {
 	reg, roots := fixtureRegistry(t, "alpha")
 	root := roots["alpha"]
 	sandboxConfigFixture(t, root)
@@ -107,15 +295,114 @@ func TestStartVariantAgreeingEditionsReuses(t *testing.T) {
 			rest = strings.Join(args, " ")
 		}
 		if name == "podman" && strings.HasPrefix(rest, "ps --format {{.Names}}\t{{.Image}}") {
-			return cname + "\topencode-sandbox-swdev", nil // agrees with the saved edition
+			return cname + "\topencode-sandbox-obsolete:latest", nil
 		}
 		return base(name, args)
 	}
 	s := depsServer(t, run, reg)
 
 	v := postSidecar(t, s.URL()+"workspaces/alpha/start", "variant=web")
+	if v["mismatch"] != true {
+		t.Fatalf("start sidecar = %v, want the mismatch verdict", v)
+	}
+	if v["body"] != "this container predates toolchain sets — members unknown, Switch rebuilds from your set" {
+		t.Fatalf("mismatch body = %q, want the members-unknown line", v["body"])
+	}
+}
+
+// A set-tag ref whose members differ renders the added/removed delta
+// (the members ride the image label, never tag parsing).
+func TestStartVariantMismatchSetTagMemberDelta(t *testing.T) {
+	reg, roots := fixtureRegistry(t, "alpha")
+	root := roots["alpha"]
+	seedToolchains(t, reg.Home)
+	seedToolchainsConfig(t, root, []string{"go"}, nil)
+	cname := "opencode-sandbox-" + registry.ContainerIdentity(root)
+	run := fakePodman([]string{cname}, nil,
+		[]string{containerState(cname, "running")}, nil, nil)
+	base := run.Script
+	run.Script = func(name string, args []string) (string, error) {
+		rest := strings.Join(args, " ")
+		switch {
+		case name == "podman" && strings.HasPrefix(rest, "ps --format {{.Names}}\t{{.Image}}"):
+			return cname + "\topencode-sandbox-set:aaaaaaaaaaaa", nil
+		case name == "podman" && strings.HasPrefix(rest, "image inspect"):
+			return "java\nrust", nil // the running set's members label
+		}
+		return base(name, args)
+	}
+	s := depsServer(t, run, reg)
+
+	v := postSidecar(t, s.URL()+"workspaces/alpha/start", "variant=web")
+	if v["mismatch"] != true || v["body"] != "added go / removed java, rust" {
+		t.Fatalf("start sidecar = %v, want the member delta", v)
+	}
+}
+
+// Same members, new recipe content → a different set tag: the prompt is
+// honest ("the image really differs") — toolchain recipes updated.
+func TestStartVariantMismatchSameMembersNewHash(t *testing.T) {
+	reg, roots := fixtureRegistry(t, "alpha")
+	root := roots["alpha"]
+	seedToolchains(t, reg.Home)
+	seedToolchainsConfig(t, root, []string{"go"}, nil)
+	cname := "opencode-sandbox-" + registry.ContainerIdentity(root)
+	run := fakePodman([]string{cname}, nil,
+		[]string{containerState(cname, "running")}, nil, nil)
+	base := run.Script
+	run.Script = func(name string, args []string) (string, error) {
+		rest := strings.Join(args, " ")
+		switch {
+		case name == "podman" && strings.HasPrefix(rest, "ps --format {{.Names}}\t{{.Image}}"):
+			return cname + "\topencode-sandbox-set:bbbbbbbbbbbb", nil
+		case name == "podman" && strings.HasPrefix(rest, "image inspect"):
+			return "go", nil
+		}
+		return base(name, args)
+	}
+	s := depsServer(t, run, reg)
+
+	v := postSidecar(t, s.URL()+"workspaces/alpha/start", "variant=web")
+	if v["mismatch"] != true || v["body"] != "toolchain recipes updated" {
+		t.Fatalf("start sidecar = %v, want the recipes-updated line", v)
+	}
+}
+
+// Reuse-running matches set-tag refs only (spec §10): the running
+// container's image equals the derived set tag — the silent reuse stands.
+func TestStartVariantAgreeingEditionsReuses(t *testing.T) {
+	reg, roots := fixtureRegistry(t, "alpha")
+	root := roots["alpha"]
+	seedToolchains(t, reg.Home)
+	seedToolchainsConfig(t, root, []string{"go"}, nil)
+	cname := "opencode-sandbox-" + registry.ContainerIdentity(root)
+	run := fakePodman([]string{cname}, nil,
+		[]string{containerState(cname, "running")}, nil, nil)
+	s := depsServer(t, run, reg)
+	// The agreeing ref is the derived set tag — derived independently
+	// from the fixture recipes through the golden-pinned identity seam
+	// (after the fixture seeding so the recipe bytes are the served
+	// ones).
+	tag, err := identity.SetTag(filepath.Join(tcRootOf(reg.Home), "base.Dockerfile"),
+		[]identity.Member{{ID: "go", RecipePath: filepath.Join(tcRootOf(reg.Home), "recipes", "go.Dockerfile")}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := run.Script
+	run.Script = func(name string, args []string) (string, error) {
+		rest := ""
+		if name == "podman" {
+			rest = strings.Join(args, " ")
+		}
+		if name == "podman" && strings.HasPrefix(rest, "ps --format {{.Names}}\t{{.Image}}") {
+			return cname + "\tlocalhost/" + tag, nil // agrees with the stored set
+		}
+		return base(name, args)
+	}
+
+	v := postSidecar(t, s.URL()+"workspaces/alpha/start", "variant=web")
 	if v["ok"] != true {
-		t.Fatalf("start sidecar = %v, want ok:true on agreeing editions", v)
+		t.Fatalf("start sidecar = %v, want ok:true on the agreeing set tag", v)
 	}
 	waitFor(t, "reuse op flips the registry", func() bool {
 		ws, err := reg.ByName("alpha")
@@ -196,7 +483,7 @@ func TestWorkspaceStopRefusesWhileBusy(t *testing.T) {
 	var mu sync.Mutex
 	stopCalls := 0
 	run := fakePodman(nil, nil, nil, []string{"opencode-sandbox-swdev"}, nil)
-	base := run.Script
+	base := allImagesExist(run.Script)
 	run.Script = func(name string, args []string) (string, error) {
 		rest := ""
 		if name == "podman" {
@@ -263,7 +550,7 @@ func TestAdoptSwitchReplacesContainerWithCurrentSettings(t *testing.T) {
 	stopCalls := &syncList{}
 	startArgs := &syncList{}
 	run := fakePodman(nil, nil, nil, []string{"opencode-sandbox-swdev"}, nil)
-	base := run.Script
+	base := allImagesExist(run.Script)
 	run.Script = func(name string, args []string) (string, error) {
 		rest := ""
 		if name == "podman" {
@@ -398,43 +685,57 @@ func TestAdoptRefusesWhileBusy(t *testing.T) {
 	}
 }
 
-// Never destroy without a replacement (#117): the mismatch switch
-// refuses while the saved edition's image is missing — before anything
-// stops. The container keeps running, the registry stays truthful.
-func TestAdoptRefusesMissingImageBeforeAnythingStops(t *testing.T) {
+// Never stop without a replacement (WP-6 re-key of #117): the mismatch
+// switch builds the replacement INLINE before anything stops — a failed
+// build stops nothing, the container keeps running, the registry stays
+// truthful; a successful build lands before the podman stop.
+func TestAdoptSwitchBuildsReplacementBeforeStop(t *testing.T) {
 	reg, roots := fixtureRegistry(t, "alpha")
-	sandboxConfigFixture(t, roots["alpha"]) // saved swdev
-	if err := reg.UpdateStatus(roots["alpha"], "running"); err != nil {
+	root := roots["alpha"]
+	sandboxConfigFixture(t, root) // saved swdev
+	if err := reg.UpdateStatus(root, "running"); err != nil {
 		t.Fatal(err)
 	}
-	cname := "opencode-sandbox-" + registry.ContainerIdentity(roots["alpha"])
+	cname := "opencode-sandbox-" + registry.ContainerIdentity(root)
+
+	// (a) the builder refuses (an offline host's preflight, §7): nothing
+	// is stopped, the error names the build.
+	buildCalls := &syncList{}
 	stopCalls := &syncList{}
-	run := fakePodman([]string{cname}, nil,
+	refusing := fakePodman([]string{cname}, nil,
 		[]string{containerState(cname, "running")},
 		[]string{"opencode-sandbox-web"}, nil) // only the web image is built
-	base := run.Script
-	run.Script = func(name string, args []string) (string, error) {
+	baseRefusing := refusing.Script
+	refusing.Script = func(name string, args []string) (string, error) {
 		rest := ""
 		if name == "podman" {
 			rest = strings.Join(args, " ")
 		}
 		switch {
+		case name == "bash" && len(args) > 0 && strings.HasSuffix(args[0], "build-images.sh"):
+			buildCalls.add(strings.Join(args, " "))
+			return "offline — preflight refused", fmt.Errorf("preflight refused")
 		case name == "podman" && strings.HasPrefix(rest, "stop "):
 			stopCalls.add(args[1])
 			return "stopped", nil
 		case name == "podman" && strings.HasPrefix(rest, "ps --format {{.Names}}\t{{.Image}}"):
 			return cname + "\topencode-sandbox-web:latest", nil
 		}
-		return base(name, args)
+		return baseRefusing(name, args)
 	}
-	s := depsServer(t, run, reg)
+	s := depsServer(t, refusing, reg)
 
 	v := postSidecar(t, s.URL()+"workspaces/alpha/adopt", "variant=web")
-	if v["ok"] != false || !strings.Contains(v["error"].(string), "not built yet") {
-		t.Fatalf("adopt sidecar = %v, want the missing-image refusal", v)
+	if v["ok"] != true {
+		t.Fatalf("adopt sidecar = %v, want ok:true (the failure surfaces in the op)", v)
+	}
+	waitFor(t, "adopt op to drain", func() bool { return !s.Busy() })
+	if got := buildCalls.snapshot(); len(got) != 1 ||
+		!strings.HasSuffix(got[0], "build-images.sh --set cpp,go,java,rust") {
+		t.Fatalf("build calls = %v, want one build-images.sh --set call", got)
 	}
 	if calls := stopCalls.snapshot(); len(calls) != 0 {
-		t.Fatalf("podman stop ran despite the missing image: %v", calls)
+		t.Fatalf("podman stop ran despite the failed build: %v", calls)
 	}
 	ws, err := reg.ByName("alpha")
 	if err != nil {
@@ -443,6 +744,58 @@ func TestAdoptRefusesMissingImageBeforeAnythingStops(t *testing.T) {
 	if ws.ContainerStatus != "running" {
 		t.Fatalf("registry status = %q, want untouched running", ws.ContainerStatus)
 	}
+
+	// (b) the build lands: it runs BEFORE the stop, then the verified
+	// switch chain proceeds.
+	running := newSyncSet(cname)
+	buildLands := fakePodman(nil, nil, nil, nil, nil)
+	baseLands := buildLands.Script
+	landCalls := &syncList{}
+	exists := false
+	buildLands.Script = func(name string, args []string) (string, error) {
+		rest := strings.Join(args, " ")
+		switch {
+		case name == "bash" && len(args) > 0 && strings.HasSuffix(args[0], "build-images.sh"):
+			landCalls.add("build")
+			exists = true // the build lands the set image
+			return "", nil
+		case name == "bash" && len(args) > 0 && args[0] == "/opt/oc-sandbox/scripts/start.sh":
+			landCalls.add("start")
+			running.set(cname, true)
+			return "started", nil
+		case name == "podman" && strings.HasPrefix(rest, "stop "):
+			landCalls.add("stop")
+			running.set(cname, false)
+			return "stopped", nil
+		case name == "podman" && strings.HasPrefix(rest, "image exists"):
+			if exists {
+				return "", nil
+			}
+			return "", fmt.Errorf("no such image")
+		case name == "podman" && strings.HasPrefix(rest, "ps --format {{.Names}}"):
+			return strings.Join(running.keys(), "\n"), nil
+		case name == "podman" && strings.HasPrefix(rest, "ps -a --format {{.Names}}"):
+			var rows []string
+			for _, n := range running.keys() {
+				rows = append(rows, containerState(n, "running"))
+			}
+			return strings.Join(rows, "\n"), nil
+		case name == "podman" && strings.HasPrefix(rest, "ps --format {{.Names}}\t{{.Image}}"):
+			return cname + "\topencode-sandbox-web:latest", nil
+		}
+		return baseLands(name, args)
+	}
+	s2 := depsServer(t, buildLands, reg)
+
+	v = postSidecar(t, s2.URL()+"workspaces/alpha/adopt", "variant=web")
+	if v["ok"] != true {
+		t.Fatalf("adopt sidecar = %v, want ok:true", v)
+	}
+	waitFor(t, "build → stop → start order", func() bool {
+		got := landCalls.snapshot()
+		return len(got) == 3 && got[0] == "build" && got[1] == "stop" && got[2] == "start"
+	})
+	waitFor(t, "adopt op to drain", func() bool { return !s2.Busy() })
 }
 
 // Adopt replaces a RUNNING container — a stopped one is refused.
@@ -456,6 +809,60 @@ func TestAdoptRefusesWhenNotRunning(t *testing.T) {
 	if v["ok"] != false || !strings.Contains(v["error"].(string), "is not running") {
 		t.Fatalf("adopt sidecar = %v, want the not-running refusal", v)
 	}
+}
+
+// An unresolved workspace (an unknown stored edition) refuses before
+// any prompt machinery or op launch — the old image/container is never
+// touched (§10, WP-10).
+func TestAdoptRefusesUnresolvedBeforeAnythingStops(t *testing.T) {
+	reg, roots := fixtureRegistry(t, "alpha")
+	writeRawConfig(t, roots["alpha"], `{
+  "container_edition": "obsolete",
+  "container_modes": [],
+  "start_option": "web",
+  "search_mode": "websearch",
+  "version": "2.0"
+}`)
+	if err := reg.UpdateStatus(roots["alpha"], "running"); err != nil {
+		t.Fatal(err)
+	}
+	cname := "opencode-sandbox-" + registry.ContainerIdentity(roots["alpha"])
+	stopCalls := &syncList{}
+	run := fakePodman([]string{cname}, nil,
+		[]string{containerState(cname, "running")}, nil, nil)
+	base := run.Script
+	run.Script = func(name string, args []string) (string, error) {
+		rest := strings.Join(args, " ")
+		switch {
+		case name == "podman" && strings.HasPrefix(rest, "stop "):
+			stopCalls.add(args[1])
+			return "stopped", nil
+		case name == "podman" && strings.HasPrefix(rest, "ps --format {{.Names}}\t{{.Image}}"):
+			return cname + "\topencode-sandbox-obsolete:latest", nil
+		}
+		return base(name, args)
+	}
+	s := depsServer(t, run, reg)
+
+	v := postSidecar(t, s.URL()+"workspaces/alpha/adopt", "variant=web")
+	if v["ok"] != false || !strings.Contains(v["error"].(string), "maps to no bundle") {
+		t.Fatalf("adopt sidecar = %v, want the unresolved refusal", v)
+	}
+	if calls := stopCalls.snapshot(); len(calls) != 0 {
+		t.Fatalf("podman stop ran on an unresolved workspace: %v", calls)
+	}
+}
+
+// agreeTag derives the stored selection's (legacy swdev fixture)
+// content-addressed set tag from the seeded fixture recipes — the
+// agreeing image ref the reuse path matches (WP-6).
+func agreeTag(t *testing.T, home string) string {
+	t.Helper()
+	tag, ok := openworkspace.SetTagFor(tcRootOf(home), []string{"cpp", "go", "java", "rust"})
+	if !ok {
+		t.Fatal("fixture set tag underivable")
+	}
+	return tag
 }
 
 // The web re-adopt replaces the running container with a --start_web
@@ -482,7 +889,9 @@ func TestAdoptWebAdoptGuards(t *testing.T) {
 			}
 			return "", nil
 		case name == "podman" && strings.HasPrefix(rest, "ps --format {{.Names}}\t{{.Image}}"):
-			return cname + "\topencode-sandbox-swdev:latest", nil // editions agree
+			// The agreeing ref: the stored selection's derived set tag
+			// (WP-6 reuse-running matches set-tag refs only).
+			return cname + "\tlocalhost/" + agreeTag(t, reg.Home), nil
 		}
 		return base(name, args)
 	}
@@ -518,7 +927,7 @@ func TestAdoptWebAdoptReplacesUnpublishedContainer(t *testing.T) {
 	running := newSyncSet(cname)
 	startArgs := &syncList{}
 	run := fakePodman(nil, nil, nil, []string{"opencode-sandbox-swdev"}, nil)
-	base := run.Script
+	base := allImagesExist(run.Script)
 	run.Script = func(name string, args []string) (string, error) {
 		rest := ""
 		if name == "podman" {
@@ -544,7 +953,7 @@ func TestAdoptWebAdoptReplacesUnpublishedContainer(t *testing.T) {
 		case name == "podman" && strings.HasPrefix(rest, "ps --format {{.Names}}"):
 			return strings.Join(running.keys(), "\n"), nil
 		case name == "podman" && strings.HasPrefix(rest, "ps --format {{.Names}}\t{{.Image}}"):
-			return cname + "\topencode-sandbox-swdev:latest", nil
+			return cname + "\tlocalhost/" + agreeTag(t, reg.Home), nil
 		}
 		return base(name, args)
 	}
@@ -581,7 +990,7 @@ func TestAdoptFailedSwitchLeavesStoppedWithError(t *testing.T) {
 	cname := "opencode-sandbox-" + registry.ContainerIdentity(roots["alpha"])
 	running := newSyncSet(cname)
 	run := fakePodman(nil, nil, nil, []string{"opencode-sandbox-swdev"}, nil)
-	base := run.Script
+	base := allImagesExist(run.Script)
 	run.Script = func(name string, args []string) (string, error) {
 		rest := ""
 		if name == "podman" {

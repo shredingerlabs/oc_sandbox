@@ -200,6 +200,28 @@ func EditionFromImage(image string) string {
 	return ed
 }
 
+// SetMembers reads a set image's sorted member list off its `members`
+// label (spec toolchain-sets §6 — the WebUI enumerates set content by
+// label, never tag parsing); ok=false when the label is absent or
+// unreadable (the delta then renders the honest members-unknown line).
+func SetMembers(run cmdrun.Runner, image string) ([]string, bool) {
+	out, err := run.Output("podman", "image", "inspect", "--format",
+		`{{index .Config.Labels "members"}}`, image)
+	if err != nil {
+		return nil, false
+	}
+	var members []string
+	for _, l := range cmdrun.Lines(out) { // the label is one comma-joined
+		members = append(members, // line; fakes may answer it split
+			strings.Split(l, ",")...)
+	}
+	if len(members) == 0 {
+		return nil, false
+	}
+	slices.Sort(members)
+	return members, true
+}
+
 // ContainerState is one `podman ps -a` row: the container name and its
 // lifecycle state ("running", "exited", "created", …).
 type ContainerState struct {

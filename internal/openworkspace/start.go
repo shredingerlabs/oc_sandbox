@@ -1,9 +1,12 @@
 package openworkspace
 
 import (
+	"path/filepath"
 	"slices"
 	"strings"
 
+	"github.com/shredingerlabs/oc-sandbox/internal/discovery"
+	"github.com/shredingerlabs/oc-sandbox/internal/identity"
 	"github.com/shredingerlabs/oc-sandbox/internal/sandboxcfg"
 )
 
@@ -47,6 +50,29 @@ func SelectionFlags(cfg sandboxcfg.Config) []string {
 		return []string{"--toolchains", strings.Join(ids, ",")}
 	}
 	return []string{"--edition", cfg.LegacyEdition}
+}
+
+// SetTagFor derives the content-addressed set tag for a member id list
+// against live discovery over the toolchains dir (spec toolchain-sets
+// §6/§9 WP-6): every id must resolve to a valid discovered unit (its
+// recipe feeds the content hash) and the base recipe must exist.
+// ok=false names an underivable tag — the honest missing-set-image
+// state every start path renders.
+func SetTagFor(toolchainsDir string, ids []string) (string, bool) {
+	cat := discovery.Discover(toolchainsDir)
+	var members []identity.Member
+	for _, id := range ids {
+		u, ok := cat.Unit(id)
+		if !ok || !u.Valid {
+			return "", false
+		}
+		members = append(members, identity.Member{ID: id, RecipePath: u.Path})
+	}
+	tag, err := identity.SetTag(filepath.Join(toolchainsDir, "base.Dockerfile"), members)
+	if err != nil {
+		return "", false
+	}
+	return tag, true
 }
 
 // ValidModes rejects the mutually exclusive offline + cbm_ui combination

@@ -239,10 +239,6 @@ func startScriptArgs(root, containerID string, cfg sandboxcfg.Config) []string {
 	return openworkspace.StartArgs(root, cfg, containerID, "web")
 }
 
-func errImageMissing(edition string) error {
-	return fmt.Errorf("image opencode-sandbox-%s is not built yet", edition)
-}
-
 func errNotRunning(name string) error {
 	return fmt.Errorf("%s is not running", name)
 }

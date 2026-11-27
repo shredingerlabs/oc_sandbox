@@ -49,9 +49,10 @@ func startServerWith(t *testing.T, home string, fake *cmdrun.Fake) *Server {
 	s := New(Options{
 		BasePort: 0, Home: home,
 		Deps: &Deps{
-			Run:         fake,
-			Registry:    &registry.Registry{Home: home},
-			StartScript: LayoutFor(home).StartScript,
+			Run:               fake,
+			Registry:          &registry.Registry{Home: home},
+			StartScript:       LayoutFor(home).StartScript,
+			BuildImagesScript: LayoutFor(home).BuildImagesScript,
 		},
 	})
 	if err := s.Start(); err != nil {
