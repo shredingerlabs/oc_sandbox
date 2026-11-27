@@ -1,0 +1,10 @@
+base_hash12 303885d0a655
+base_tag opencode-sandbox-base:303885d0a655
+component_go_hash12 9069e5c31616
+component_go_tag opencode-sandbox-tc-go:9069e5c31616
+component_playwright_hash12 e4c3e75b16f6
+component_playwright_tag opencode-sandbox-tc-playwright:e4c3e75b16f6
+component_rust_hash12 8c3229d41752
+component_rust_tag opencode-sandbox-tc-rust:8c3229d41752
+set_hash12 3a3910012ae8
+set_tag opencode-sandbox-set:3a3910012ae8

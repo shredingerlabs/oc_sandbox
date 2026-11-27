@@ -15,7 +15,7 @@ Where a new workspace's code comes from: "Blank Workspace" (wizard-created scaff
 _Avoid_: project source (the pre-rename term), import repo, repo migration, connect repo.
 
 **workspace kind**:
-What a workspace is for, chosen by the New Workspace wizard's Agent row (identical for both workspace sources): `code` (default, standard agent rules), `chat` — the "Chat Agent (NO_CODE)" option for a non-code workspace that behaves like plain AI chat — or `pkm` — the "PKM (Personal Knowledge Wiki)" option, which additionally pins the edition and seeds the PKM templates (see pkm edition, ADR 0027). Decided and recorded once at creation (`workspace_kind` in sandbox_config.json, absent reads as code); never re-applied or offered in the revisit sequence — later changes are a hand edit of `.opencode_config/AGENTS.md`. Only `code` workspaces run the first-run skills setup; `chat` and `pkm` skip it (see first-run setup, ADR 0041).
+What a workspace is for, chosen by the New Workspace wizard's Agent row (identical for both workspace sources): `code` (default, standard agent rules), `chat` — the "Chat Agent (NO_CODE)" option for a non-code workspace that behaves like plain AI chat — or `pkm` — the "PKM (Personal Knowledge Wiki)" option, which additionally pins its toolchain set (base-only) and seeds the PKM templates (see pkm bundle, ADR 0027). Decided and recorded once at creation (`workspace_kind` in sandbox_config.json, absent reads as code); never re-applied or offered in the revisit sequence — later changes are a hand edit of `.opencode_config/AGENTS.md`. Only `code` workspaces run the first-run skills setup; `chat` and `pkm` skip it (see first-run setup, ADR 0041).
 _Avoid_: project kind (the pre-rename term), nocode workspace, agent template, NO_CODE workspace.
 
 **OKF (Open Knowledge Format)**:
@@ -121,14 +121,14 @@ Re-establishing a registered workspace's VCS credentials from Workspace Settings
 _Avoid_: re-authentication, sign-in, token replace (that is the write step inside the flow).
 
 **credential bridge**:
-Activated `[credential] helper = store` block in the gitconfig template plus `configure_vcs_credentials` writing a host-scoped `https://<user>:<token>@<host>` entry into `.git_local/credentials` whenever a VCS token is captured — regardless of workspace source — so HTTPS clone and later push work with the same token in all editions.
+Activated `[credential] helper = store` block in the gitconfig template plus `configure_vcs_credentials` writing a host-scoped `https://<user>:<token>@<host>` entry into `.git_local/credentials` whenever a VCS token is captured — regardless of workspace source — so HTTPS clone and later push work with the same token in every workspace.
 _Avoid_: credential-store side effect, token persistence.
 
-### Containers, images & editions
+### Containers, images & toolchain sets
 
-**pkm edition**:
-Container edition for Personal Knowledge Wiki work (`opencode-sandbox-pkm` stage in dist/Dockerfile, building from base like every shipped edition): no additional installs, only the `ENTRYPOINT ["/bin/bash", "-l"]` that base lacks. Handled like every other edition everywhere (runtime detection, Build Images / Delete Images, build plan, start, edition mismatch); selectable by the wizard only implicitly — when a new workspace's workspace kind is `pkm`, the Edition row is hidden and `container_edition: "pkm"` is forced at creation. Edition switches later (revisit sequence, next-start apply) remain allowed in both directions, but the PKM seeding — `AGENTS.md` (the wiki schema, overriding the code/chat swap), `agents/`/`commands/`/`skills/` templates, `default_agent` + `permissions` appended into opencode.json, pkm `.gitignore` entries appended with dedupe, and the `notes/`/`raw/`/`wiki/` vault skeleton with the OKF `wiki/index.md` bundle metadata in `workspace/` — happens only at creation; switching to pkm later yields the image, never a re-seed. Templates also seed over anything an in-container clone brought (same as chat).
-_Avoid_: PKM workspace type (it is a workspace kind, not a separate type axis), wiki edition.
+**pkm bundle**:
+The base-only bundle a `pkm`-kind workspace is pinned to at creation: the wizard hides the bundle and toolchain rows and stores `toolchains: []` (pkm has no toolchains, like chat); un-pinning the kind restores the *prior* selection. The kind, not the set, is the single selector; the PKM seeding — `AGENTS.md` (the wiki schema, overriding the code/chat swap), `agents/`/`commands/`/`skills/` templates, `default_agent` + `permissions` appended into opencode.json, pkm `.gitignore` entries appended with dedupe, and the `notes/`/`raw/`/`wiki/` vault skeleton with the OKF `wiki/index.md` bundle metadata in `workspace/` — happens only at creation; switching the set later yields the image, never a re-seed. Templates also seed over anything an in-container clone brought (same as chat).
+_Avoid_: PKM workspace type (it is a workspace kind, not a separate type axis), pkm edition (the superseded stage-era term), wiki edition.
 
 **concurrent containers**:
 Multiple workspace containers can run simultaneously using workspace-specific naming (opencode-sandbox-WORKSPACENAME), with the WebUI using podman exec for accessing running containers instead of starting new ones.
@@ -137,47 +137,99 @@ Multiple workspace containers can run simultaneously using workspace-specific na
 Graceful shutdown of a running workspace container — via `podman pod stop` on the workspace's pod (`opencode-sandbox-pod-<container-id>`; running containers inside it, companions and all, go down as one unit, #125) or via plain `podman stop` (SIGTERM, then SIGKILL after the default timeout) when no pod exists (pre-upgrade runs), initiated from the workspace card's stop confirm (ADR-0033's update) or the WebUI Containers screen for a single selected workspace. Because containers run with `--rm`, a stopped container is removed automatically; the registry's container_status (keyed to the workspace container name) is set to "stopped" only after the container is verified gone.
 
 **start container (Containers screen)**:
-Starting a registered workspace's container from the WebUI Containers screen (distinct from the Open Workspace flow): start.sh runs with the values stored in sandbox_config.json (edition, modes, start_option, proxy, `--detach`; identical arg rebuild to the Open Workspace start). Already-running containers are reused, not restarted. The registry's container_status is set to "running" only after every started container is verified live via `podman ps`.
+Starting a registered workspace's container from the WebUI Containers screen (distinct from the Open Workspace flow): start.sh runs with the values stored in sandbox_config.json (toolchain set, modes, start_option, proxy, `--detach`; identical arg rebuild to the Open Workspace start). Already-running containers are reused, not restarted; a missing set image joins the start-time build prompt like every start path. The registry's container_status is set to "running" only after every started container is verified live via `podman ps`.
 _Avoid_: silent restart (the reuse is explicit).
 
 **restart**:
-Explicit, confirmed WebUI replacement of a RUNNING workspace container (ADR-0033's verified chain, ADR-0037's activation; deliberately overturns both the earlier never-killed rule and the stale-only gate): the card's Restart stops the running container and starts a fresh one with the saved settings, registry flipping truthful like every op (stopped after the verified stop, running after the verified fresh start). Always accessible on the card — no staleness gate, no started-config evidence (the machinery is deleted); a stopped container, busy op key, or pending first-run setup session answers the confirm with a sidecar refusal (the start options are the recovery), and a pending setup session also disables the button with the refusal title. Edition mismatches preflight the saved edition's image before anything stops; the edition-mismatch switch stays the edition-specific path. A restart recreates the workspace's pod, so it also re-mounts the current workspace allowlist (ADR-0034's Rebuild stays the lighter path). Distinct from a Server restart (oc-sandbox the process, never itself restartable in-WebUI).
+Explicit, confirmed WebUI replacement of a RUNNING workspace container (ADR-0033's verified chain, ADR-0037's activation; deliberately overturns both the earlier never-killed rule and the stale-only gate): the card's Restart stops the running container and starts a fresh one with the saved settings, registry flipping truthful like every op (stopped after the verified stop, running after the verified fresh start). Always accessible on the card — no staleness gate, no started-config evidence (the machinery is deleted); a stopped container, busy op key, or pending first-run setup session answers the confirm with a sidecar refusal (the start options are the recovery), and a pending setup session also disables the button with the refusal title. Set mismatches preflight the ensure-built step (inline Build now) before anything stops; the set-mismatch Switch stays the set-specific path. A restart recreates the workspace's pod, so it also re-mounts the current workspace allowlist (ADR-0034's Rebuild stays the lighter path). Distinct from a Server restart (oc-sandbox the process, never itself restartable in-WebUI).
 _Avoid_: server restart, reload, reattach (session re-entry without any container change).
 
 **delete container**:
 Removing an existing oc-sandbox unit from the WebUI Containers screen: one row per registered workspace (the row carries the workspace's container name and the live state of its pod when one exists; members are never listed separately) alongside delete-only rows for leftover sandbox pods (`podman pod ps` filtered by the `opencode-sandbox-pod-` naming convention) and pod-less legacy containers in any state (`podman ps -a` filtered by the `opencode-sandbox-` convention), including exited/created leftovers of gone workspaces, with the workspace name echoed for registered ones. Pod-aware (ADR 0029): the delete resolves the workspace's pod when one exists and removes the pod as the unit — `podman pod rm` takes the workspace container, its companions (oc-proxy/oc-searxng/oc-stt) and the infra member down together; pod-less runs (pre-upgrade, `--offline`) fall back to a bare `podman rm` of the container. Running units are refused with a stop-first hint (`podman pod stop <pod>` when the pod exists — the pod's running state covers the workspace container and any member still up — `podman stop <name>` for pod-less containers); deleting a running unit would be an ungraceful kill, and pods are never force-killed. Removal verifies gone against a fresh `podman pod ps` / `podman ps -a` before any registry touch, then only flips a stale container_status (keyed to the workspace container name, `running` → `stopped`). The running unit's delete button stays clickable and the server answers the confirm with the fresh-state refusal (inline toast / sidecar); delete always works on non-running units in any state (stopped/created/missing). It frees the unit's writable layer only (real data lives in host bind-mounts; images are untouched).
 _Avoid_: force delete, image delete.
 
+**toolchain**:
+The fine-grained installable unit of the image system (ADR 0042): one language/ecosystem/toolset (`go`, `playwright`, `cpp`, `pdf-tools`, …), defined by exactly one recipe file, discovered live at each render, built once per machine as a component image. The runtime content is the unit's boundary; build-only dependencies (e.g. gnupg for a repo key) are transient steps inside the recipe, never members. Ids match `[a-z0-9-]`; `base` is reserved.
+_Avoid_: feature (the devcontainer term), package, edition (the superseded bundle-era noun for a unit).
+
+**toolchain set**:
+A workspace's own selection of toolchains, stored as `toolchains: []` in sandbox_config.json — the only stored truth (ADR 0042); the array is semantically unordered and the canonical order (alphabetical by id) is derived at every use, never stored. Each set composes one workspace image; chat/pkm kinds store the empty set (base only).
+_Avoid_: container edition (the superseded stored value), edition config, per-workspace edition.
+
+**edition**:
+A named bundle of toolchains offered as a starting selection (ADR 0042): the nine shipped bundles (web, embedded, swdev, matlab, ros2, writing, latex, chat, pkm) are declared bundles-only in `dist/toolchains/manifest.json` — no version fields, no toolchain list; the recipe files are the registry. Never stored per-workspace: the bundle row derives the shown bundle by exact member-match against the live manifest, and no match shows Custom.
+_Avoid_: container edition (the superseded Dockerfile-stage term), stage, editions.json.
+
+**toolchain recipe**:
+The Dockerfile-fragment file that defines a toolchain (`dist/toolchains/recipes/<id>.Dockerfile`, user-authored in `custom/`): exactly `RUN`/`ENV`/`USER` plus comments and `# extra: <absolute path>` lines — anything else is a lint error. User switching is monotonic root→dev; ENV values are literal-only and `ENV PATH` is forbidden (PATH rides base's `~/.profile.d/*.sh` hook; direct `~/.profile`/`~/.bashrc` writes are lint errors); versions are pinned everywhere, enforced by the builder's lint (apt exempt via the suite pin), so new versions arrive only via update-flow rewrites. An invalid recipe is refused by the builder and surfaced by discovery visibly-with-reason.
+_Avoid_: edition stage, Dockerfile.custom stage, feature definition.
+
+**recipe dirs**:
+Where recipes live (ADR 0042): `dist/toolchains/recipes/` (shipped, wholesale-overwritten on update) and `dist/toolchains/custom/` (user-authored, always-keep on update, recreated from a commented example template when absent). A user/shipped id collision → the user recipe is skipped with a warning, shipped wins. `toolchains/snapshots/` is never-discovered (write-once pristine backups, see recipe snapshot).
+_Avoid_: Dockerfile.custom (the superseded single file), stage registry.
+
 **runtime detection**:
-Dynamic discovery of available container editions and modes at runtime, avoiding hardcoded lists. Editions come from the Dockerfile stage registry (ADR 0019): every `FROM ... AS opencode-sandbox-<name>` stage in `dist/Dockerfile` or `dist/Dockerfile.custom`, grepped live at each menu render. Modes are still parsed from start.sh help text.
-_Avoid_: hardcoded edition lists, help-text edition parsing.
+Dynamic discovery of available toolchains, bundles, and modes at runtime, avoiding hardcoded lists (the ADR-0019 stage grep's successor, ADR 0042): list + parse + lint of the recipe dirs plus a manifest read, live at each menu render. Invalid recipes and bundles render visibly-with-reason, never silently skipped; a member id without a recipe file invalidates the bundle, a manifest parse failure invalidates all bundles. Modes are still parsed from start.sh help text.
+_Avoid_: stage grep, hardcoded edition/toolchain lists, help-text edition parsing.
 
-**base edition**:
-The parent stage `opencode-sandbox-base` in `dist/Dockerfile` that all shipped editions build `FROM`: infrastructure, not a user-facing edition. The WebUI never offers it as a selectable edition for a workspace (New Workspace wizard, change-settings, re-selection); it remains discoverable and buildable via the WebUI Images screen, `build-container.sh`, and `start.sh`. Workspaces stored with `container_edition: "base"` stay valid.
-_Avoid_: base image edition, selectable base.
+**base image**:
+The shared root image every component builds `FROM` and every set assembles from (ADR 0043), content-addressed `opencode-sandbox-base:<hash12>` over `dist/toolchains/base.Dockerfile`'s content: infrastructure, never a selectable toolchain. The base recipe hash feeds every component and set identity — a base bump re-addresses everything at next build. Its Images-screen row is never in-use-pinned; delete carries the honest line "needed for every component/set build". Legacy `container_edition: "base"` expands to the empty set.
+_Avoid_: base edition (the superseded stage term), base stage, selectable base.
 
-**latex edition**:
-Container edition for LaTeX/TeX document work (`opencode-sandbox-latex` stage in dist/Dockerfile, building from base like every shipped edition). Full compile toolchain: latexmk plus the texlive collections recommended/extra/science/bibtex-extra/publishers/xetex/luatex/pictures/plain-generic/extra-utils/lang-european, biber, chktex, latexdiff, ghostscript, poppler-utils, dvipng, python3-pygments (minted), tex-gyre, lmodern, pandoc, Liberation/Noto fonts, and matplotlib/pandas (apt) for plot generation. Deliberately fat: any document should compile first try, no rebuild-on-complaint. Stands alone from the writing edition — duplicates pandoc and the font packages rather than layering (writing keeps its own pandoc for office/docx conversion), keeping edition images independently rebuildable. Provision-only: tools are shell-invocable, nothing is seeded into opencode.json.
-_Avoid_: TeX edition, writing edition (the LibreOffice sibling).
+**component image**:
+The once-per-machine build of one toolchain: `opencode-sandbox-tc-<id>:<hash12>` (ADR 0043), hash over the recipe content plus the base recipe hash. "A toolchain is cached" means its tagged component image exists in podman — the layer cache is never the cache; assembly checks member tags, builds missing ones, then assembles. Components are never runtime-pinned: set images are self-contained after assembly.
+_Avoid_: toolchain image (ambiguous with the set), edition image, stage target.
 
-**image-existence marker (Images screen)**:
-Status shown on each row of the WebUI Images screen (editions and the shared SearXNG/STT infra rows alike): `● built` when the image exists in podman, `○ missing` otherwise. Checked fresh on every screen render and re-rendered after every build/delete op completes (a check that fails reads as missing).
-_Avoid_: missing image (the start-time error about a missing image is a separate concern).
+**set image**:
+The per-workspace composed image `opencode-sandbox-set:<hash12>` (ADR 0043), assembled from the set's members' payload archives — extract in canonical order, dpkg stanza-union merge, ENV re-emission, uniform `USER dev` + `ENTRYPOINT ["/bin/bash","-l"]` footer — always under `--network=none`. A set image is the reuse surface everywhere (reuse-running, mismatch detection): the running container's image ref equals the derived set tag or it does not. Self-contained: deleting components never breaks a built set.
+_Avoid_: workspace image (the container's writable layer is not this), edition image, composed stage.
+
+**set identity**:
+The content-addressing scheme of set images (ADR 0043): first 12 hex of the hash over sorted (toolchain id, recipe content hash) pairs plus the base recipe content hash — recipe *content*, not version fields, so any edit re-addresses automatically; identical member ids with changed recipe content produce a different tag (and the mismatch prompt, honestly). Always re-derived from the stored set, never stored itself; Images enumerates set rows by label (sorted member list), never by parsing tags. A base bump re-addresses every set.
+_Avoid_: edition name, image version, stored hash.
+
+**delta assembly**:
+The two assembly paths of set images (ADR 0043): **full canonical** (COPY every member's payload archive, extract all in alphabetical order, stanza-union merge) is the sole semantics — fresh sets, member drops, base bumps/recipe changes, deleted or pre-label parents, any contested package. **Incremental** (build `FROM` the parent set image, extract only new members) is an optimization that runs iff a valid parent exists (members form a strict subset by component hash, same base/component versions) and the contest check passes — new members' dpkg/pip names disjoint from the parent union label; a detected contest forces full canonical, and an incremental sanity-gate failure auto-falls-back to it. Multi-add applies new members alphabetically.
+_Avoid_: second build semantics, history-dependent image, layered chain build.
+
+**sanity gates**:
+The four hard coherence checks every assembled set must pass (ADR 0043): dpkg `--audit` clean; full `dpkg -l` keeps the base's and every member's packages (the gcc case naive merging lost); pip RECORD metadata intact; member binaries run. Parameterized by image + member list in `tests/verify-set-image.sh` — a standing acceptance check run on a real-podman host, never a build flag. Full-vs-incremental file-list equivalence rides the same script.
+_Avoid_: smoke test, image validation flag, post-build hook.
+
+**cached marker**:
+The Images-screen row state `● cached` / `○ not cached` on base and component rows: the tagged image exists in podman, checked fresh on every render and re-rendered after every build/delete op (a check that fails reads as not cached). Also carries the honest cost line of build-plan rows — counts of cached/missing members, never time estimates.
+_Avoid_: built/missing marker (the superseded edition-era term), image-existence marker, existence check.
 
 **build images (Images screen)**:
-The WebUI Images screen: lists the live edition registry (ADR 0019, base included) plus the shared SearXNG/STT infra rows with the image-existence marker; each row carries its own Build/Rebuild button and the header a Build all — Build all scales to `all` via build-container.sh, a row build passes the edition (or infra tag) — each as one sequential op through the task manager on the shared images queue key, streamed into the embedded log pane. A rebuild never disturbs running containers (they keep the old image until replaced). Creates images, never containers.
-_Avoid_: build container (misnomer — podman builds images), build prompt (the start-time Build now / Build later prompt is a separate flow).
+The WebUI Images screen: base row, component rows (union of discovered recipes and tagged component images — an invalid recipe renders its row with the reason, an orphan image shows "recipe missing", a user/shipped collision shows its warning line), set rows, the infra rows, and the Legacy group; cached markers throughout. Base/components/infra rows carry per-row Build/Rebuild; set rows are Delete-only (derived artifacts, rebuilt by their workspace's start path); Build all = base + every discovered component — the infra rows drop out and keep their lazy auto-build at member start. Ops run sequentially on the shared images queue key, streamed into the embedded log pane; a rebuild never disturbs running containers. Footer shows host free space; the Clean intermediates button shows the reclaimable estimate; row sizes are logical (podman counts shared layers per row) and are never summed into a usage claim.
+_Avoid_: build container (misnomer — podman builds images), Build Images tab (the full-TUI name), build prompt (the start-time prompt is a separate flow).
+
+**set row**:
+An Images-screen row per built set image, enumerated by label (never tag parsing; title = the sorted member list): tag, size, use marker — `● in use` when any container in any state references the set image — and Delete only, behind the danger confirm. No Build/Rebuild: sets are derived artifacts re-addressed on recipe change anyway; their workspace's start path (start-time build prompt, mismatch Switch, restart preflight) is the rebuild surface.
+_Avoid_: edition row, buildable row, image family row.
+
+**Legacy row**:
+An Images-screen row for an old-world image — an `opencode-sandbox-*` ref that is no current base/tc/set tag, the old base included: Delete-only (recipes gone; the confirm's honest label says "superseded by toolchain sets — delete freely"), in-use pinned like every row, in an own group that hides when empty. Nothing is ever auto-deleted; unreferenced rows also sweep away with clean intermediates.
+_Avoid_: old edition row, stale image, migration row.
 
 **delete image**:
-The delete lives on the WebUI Images screen rows: every edition plus the shared SearXNG/STT infra rows show tag, size, and use marker — `● in use` when the image is in use, `○ unused` otherwise — with the danger-confirmed Delete beside Build/Rebuild. In use means: any container in any state references the image — edition images by their edition suffix (the container's ref carries no registry prefix or tag), infra images (oc-proxy, oc-searxng) by name — or, for the sandbox family's dependent images (the infra images and parent stages such as base), any container in any state references **any edition image at all**: the sandbox family loses the pin together, with the last edition container. A direct infra container ref itself keeps its pin. Unrelated host images and dangling `<none>` images are never listed, and there is no prune action. Not-built or in-use deletes render disabled with the reason, and the server keeps its fresh-state refusal regardless (podman rmi never deletes a referenced image); removal runs `podman rmi` per image behind the danger confirmation popup, verified gone against a fresh image list. Deletion also refreshes the Images screen's existence markers.
-_Avoid_: image delete (ambiguous with delete container), image prune (no prune action).
+The danger-confirmed Delete on Images-screen rows, verified gone against a fresh image list. Base and component rows are never in-use-pinned — the cache, not a dependency — and the confirm carries the honest cost ("one rebuild when next needed"; base: "needed for every component/set build"). Set and Legacy rows keep the use pin (any container in any state references the image). Parent-having rows are refusal-first: `podman rmi` refuses images with children (exit 2), the refusal surfaces with the honest reason ("build parent of newer images — shares their layers, holds no space of its own; remove the newer ones first"), and no preflight children query exists — podman's CLI exposes none. Every successful `podman rmi` also prunes the target's dangling parents.
+_Avoid_: image delete (ambiguous with delete container), force delete, image prune (the clean-intermediates op is the sanctioned sweep).
 
-**custom edition Dockerfile**:
-User-editable `dist/Dockerfile.custom` holding user-defined edition stages as standalone build recipes (typically `FROM opencode-sandbox-base`, ending `USER dev` + `ENTRYPOINT ["/bin/bash","-l"]`). Shipped as a commented example template on install; never overwritten on update — recreated only if absent. The main `dist/Dockerfile` is still overwritten on update, so it is not a sanctioned home for user stages.
-_Avoid_: edition manifest, editions.json.
+**clean intermediates**:
+The danger-confirmed host-wide dangling sweep on the Images screen (`podman image prune` semantics, never `-a`): removes untagged and unreferenced images of any origin, never tagged images, never container-referenced ones, never host files. The confirm context line shows the reclaimable estimate ("~X GB reclaimable — removes dangling (untagged, unused) images from all projects on this machine"), fresh per render; the op runs on the shared images key. Chosen host-wide because the motivating pile is old-world stage-era intermediates carrying no label we control.
+_Avoid_: image prune button (the underlying podman op), deep clean, family-filtered prune (rejected).
+
+**image GC pass**:
+The automatic reclaim routine with two triggers — update completion (summary line in the update log pane) and a recipe-editor save (its own follow-up op on the shared images key, skip-if-busy, never queued): removes family-tagged images whose hash is no longer derivable from current recipes and have zero container refs (exit-2 child targets skipped — shared layers, zero reclaim lost), plus the same host-wide dangling sweep as clean intermediates. Abandoned sets (no stored workspace derives them, no container refs) die at the next pass; a workspace returning to a swept set pays one rebuild. No grace period, no timestamps, no reaper.
+_Avoid_: auto-prune (targets, not schedules), background reaper, update cleanup.
+
+**build preflight**:
+The refuse-with-reason gate before every build op (row build, Build all, create chain, mismatch/restart preflight): free space on the podman store path vs what the op will build — missing components only (lazy build), estimated as same-id existing image size else the budget formula with the largest known payload floored at 1 GB, sets via the formula — refusing when free < estimate + 20 % headroom, the reason naming both numbers and pointing at clean intermediates; plus a native-Go network probe (one HEAD per distinct source host of the plan's download needs, host-proxy-env aware), refusing offline Build-now for download-needing plans only — fully-cached plans build offline by construction. Skipped for assembly-only plans.
+_Avoid_: disk check (one of two entries), offline mode, warn-and-proceed.
 
 **native script enhancement**:
-Strategy of extending existing scripts (start.sh, build-container.sh, init-workspace.sh) with additional parameters (like --start_opencode) rather than creating parallel screen-specific implementations, preserving backward compatibility and avoiding code duplication.
+Strategy of extending existing scripts (start.sh, init-workspace.sh) with additional parameters (like --start_opencode) rather than creating parallel screen-specific implementations, preserving backward compatibility and avoiding code duplication.
 
 **container identity**:
 Stable workspace-specific identifier derived from the canonical workspace root, persisted with the workspace, and used to avoid container-name collisions.
@@ -189,12 +241,32 @@ Registered workspace state in which the container image is not yet built; the wo
 Launch style that runs the workspace container as a web server: the OpenCode v2 background service, pinned via the mounted service config (`service.json` hostname `0.0.0.0` / port 4096, pre-seeded on the host by start.sh before first start) with a single `opencode service start`, then a keep-alive (ADR 0024). Selectable at workspace creation and in settings; the server runs from the first start (first-run setup executes alongside via exec). Following the detached+exec start architecture, the detached container runs the service as its main process, the host port is auto-scanned upward from 4096 (like the CBM-UI range), and access announces a one-time pair link rather than opening a browser (the browser tab opens within the Web access click — see pair link). The server is stopped via normal container stop. Direct CLI usage of start.sh with `--start_web` and without `--detach` runs `opencode serve` foreground, where Ctrl+C stops and removes the container (`--rm`). Implemented via the `--start_web` flag on start.sh, mirroring `--start_opencode`.
 
 **next-start apply**:
-Contract that any settings change (including edition switch) is only recorded and never reconfigures a running container; applying requires a later stop/start, where a missing edition image gets the existing Build now / Build later / Go back prompt at start time. If the stored edition differs from a running container's edition, the next Open Workspace start surfaces the edition-mismatch prompt (see edition mismatch) instead of silently reusing the old container.
+Contract that any settings change (including a toolchain-set change) is only recorded and never reconfigures a running container; applying requires a later stop/start, where a missing set image gets the Build now / Build later / Go back prompt at start time (see start-time build prompt). If the stored set's derived tag differs from a running container's image ref, the next Open Workspace start surfaces the set-mismatch prompt (see set mismatch) instead of silently reusing the old container.
 _Avoid_: live apply, hot reload.
 
-**edition mismatch**:
-Divergence between the edition recorded in sandbox_config.json and the edition a workspace's running container actually runs (read from the container's image name `opencode-sandbox-<edition>` via `podman ps`; no labels, nothing stored in the registry). Surfaced only by the Open Workspace start buttons (Console / OpenCode / Web) as a three-way prompt: **Switch** (explicitly confirmed `podman stop` of the old container, then a normal start with rebuilt args — all current settings ride along — continuing into the requested access), **Use current** (access the old container unchanged), **Cancel**. The old container is never stopped until the new edition's image exists (missing image gets the start-time build prompt first); a switch whose start fails leaves the workspace stopped with the error in the busy pane. The Containers screen's Start is unaffected and keeps reuse-running; restart covers the same never-destroy rule generally (preflight before stopping).
-_Avoid_: live apply (the switch is an explicit, confirmed replacement, never a silent one).
+**set mismatch**:
+Divergence between the set a workspace's sandbox_config.json derives and the set its running container actually runs — the derived `opencode-sandbox-set:<hash12>` tag compared against the container's image ref (ADR 0043). Surfaced by the start paths as a three-way prompt: **Switch** (Build now — missing components plus assembly — then explicitly confirmed stop of the old container and a normal start with rebuilt args, all current settings riding along, continuing into the requested access), **Use current** (access the old container unchanged; the prompt returns next touch), **Cancel**. The body shows the member delta (added X / removed Y; same members, new hash → "toolchain recipes updated"); an old-world-ref container gets "this container predates toolchain sets" with the bundle-map-expanded delta. The old container is never stopped before the new image exists; a failed switch leaves the workspace stopped with the error in the busy pane. Restart's preflight is the same ensure-built step; the Containers screen's Start keeps reuse-running.
+_Avoid_: live apply (the switch is an explicit, confirmed replacement, never a silent one), edition mismatch (the superseded term).
+
+**unresolved state**:
+The state of a workspace whose stored legacy `container_edition` maps to no bundle (ADR 0044) — former `Dockerfile.custom` stages, catalog-removed editions, corruption: start refuses with a visible reason and a settings pointer ("stored edition 'X' maps to no bundle — choose toolchains"), settings renders a warning with nothing preselected, and picking a set materializes `toolchains` — nothing destroyed, the old image and container never touched. One refusal everywhere, before any prompt machinery runs.
+_Avoid_: broken workspace, failed migration, silent empty set.
+
+**start-time build prompt**:
+The three-way WebUI sidecar answering a start whose set image is missing — **Build now** (one queued op: build missing components + assembly, streamed into the card/busy log pane, then continue the start), **Build later** (stays stopped, Images hint), **Go back** (cancel) — restored deliberately (ADR 0043/#183): under sets a missing image is the norm (a newly added toolchain is an unbuilt component), and every start path surfaces it (Open Workspace card buttons, Containers-screen start, setup retry); offline hosts get the preflight refusal instead. The mismatch Switch and restart preflight use the same inline Build now — "never stop without a replacement" becomes "build the replacement, then stop".
+_Avoid_: errImageMissing refusal (the superseded hard refusal), build wizard, deferred build (the stored Build-later workspace state).
+
+**build-images.sh**:
+The CLI build script `dist/scripts/build-images.sh` (ADR 0042/#183), successor of the deleted `build-container.sh`: `--base`, `--tc <id>[,<id>…]`, `--set <ids>` (assembly — the path every start flow calls), `--all` (base + every discovered component, what Build all invokes). Owns recipe lint, generation, preflight refusals, component builds and set assembly; validates ids against live discovery, refuses invalid recipes, never runs inside start.sh.
+_Avoid_: build-container.sh (deleted at cutover), stage builder.
+
+**version editor**:
+The Advanced-only per-row **Edit recipe** affordance on the Images screen's component and base rows (ADR 0044/#191; the proxy-editor pattern): edits the host-global recipe file in place (`recipes/<id>.Dockerfile`, `custom/<id>.Dockerfile`, or `base.Dockerfile`) — recipes are host-global, so workspace Settings is the wrong home, and set rows get nothing (derived, not authored). Save runs the builder's same loud lint (pin enforcement rides it; an edit that un-pins is refused) then an atomic write, synchronous, no task key; a follow-up image GC pass launches on the shared images key (skip-if-busy). Honest durability copy: shipped and base edits are ephemeral by design — the next update wholesale-overwrites them — custom edits are durable by nature; the durable path for shipped units stays manual (fork to `custom/<new-id>.Dockerfile`). Base rows add: a base bump re-addresses every image at next build. **Reset from shipped** per row, confirm-gated, restores the pristine snapshot when one exists and differs.
+_Avoid_: fork-to-new-id button (rejected), pin bumper, per-workspace version pinning (out of scope).
+
+**recipe snapshot**:
+The write-once pristine backup created on the first save against a shipped/base recipe (never at editor-open — browsing creates nothing): `toolchains/snapshots/<id>.Dockerfile`, preserved on update, never-discovered, excluded from image GC by construction. Later saves never overwrite it; after an update re-ships pristine files, snapshot == live and Reset from shipped disables itself ("not edited"); the odd case (the update changed the shipped file) gets truthful confirm copy ("restores the version from before your last edit — may be older than the latest update"). Custom rows have no snapshot, no reset.
+_Avoid_: recipe backup (generic), restore point, shipped copy.
 
 ### Proxy & egress
 
@@ -235,15 +307,15 @@ Remote MCP server (`mcp.context7.com/mcp`) seeded into every sandbox's OpenCode 
 _Avoid_: docs MCP, exa MCP (websearch is a built-in tool, not an MCP server).
 
 **oc-searxng**:
-The SearXNG image (`dist/searxng/Dockerfile`, outside the edition stage registry, so never offered as a workspace edition) run as a **per-workspace pod member** (ADR 0029): start.sh starts one detached `oc-searxng-<container-id>` container inside the workspace's pod (`opencode-sandbox-pod-<container-id>`, network mode `pasta:--ipv4-only`, with a dual-stack-pasta then slirp4netns retry when the host has no usable pasta interface — ADR 0029 amendment) when the workspace's search mode is searxng — image auto-built if missing, settings.yml bind mount, generated secret, no port publish. The workspace container reaches it over pod-internal loopback via the `SEARXNG_URL=http://127.0.0.1:8080 (bare base URL — mcp-searxng appends /search itself)` constant — no shared host-side instance, no service-port scan, no hosts-entry (under pasta, `host.containers.internal` resolves to the container's own address and can never reach loopback-published ports). The member is recreated with the pod on every start and goes down with it on stop/delete. Listed on the WebUI Images screen as a non-edition row (build/rebuild/delete included) and part of the sandbox family for the in-use pins. Never runs under the squid proxy: SearXNG search is mutually exclusive with `use_proxy` (the SearXNG MCP reads arbitrary URLs, so the allowlist could not bound the agent — incompatible, not unproxied-by-exception, ADR 0026).
+The SearXNG image (`dist/searxng/Dockerfile`, outside the toolchain recipe dirs, so never offered as a workspace toolchain) run as a **per-workspace pod member** (ADR 0029): start.sh starts one detached `oc-searxng-<container-id>` container inside the workspace's pod (`opencode-sandbox-pod-<container-id>`, network mode `pasta:--ipv4-only`, with a dual-stack-pasta then slirp4netns retry when the host has no usable pasta interface — ADR 0029 amendment) when the workspace's search mode is searxng — image auto-built if missing, settings.yml bind mount, generated secret, no port publish. The workspace container reaches it over pod-internal loopback via the `SEARXNG_URL=http://127.0.0.1:8080 (bare base URL — mcp-searxng appends /search itself)` constant — no shared host-side instance, no service-port scan, no hosts-entry (under pasta, `host.containers.internal` resolves to the container's own address and can never reach loopback-published ports). The member is recreated with the pod on every start and goes down with it on stop/delete. Listed on the WebUI Images screen as an infra row (build/rebuild/delete included) and pinned only by a direct member container ref. Never runs under the squid proxy: SearXNG search is mutually exclusive with `use_proxy` (the SearXNG MCP reads arbitrary URLs, so the allowlist could not bound the agent — incompatible, not unproxied-by-exception, ADR 0026).
 _Avoid_: searxng image (the upstream image), shared searxng container (the retired host-side topology).
 
 **oc-stt**:
-The local speech-to-text image (`dist/stt/Dockerfile`, outside the edition stage registry, so never offered as a workspace edition) running the whisper.cpp server (pinned v1.9.5) with the small multilingual ggml model baked in (zero runtime downloads). Run as a **per-workspace pod member** (ADR 0029/0036): start.sh starts one detached `oc-stt-<container-id>` container inside the workspace's pod when the dictation toggle is on — image auto-built if missing, the workspace's `stt.json` bind-mounted read-only (the ADR-0034 allowlist pattern), no publish on the member itself (the one loopback publish `-p 127.0.0.1:<scan>:8090` lives on `pod create`, the web/CBM precedent, ADR 0029; the host scan starts at **8091** — the WebUI deterministically holds 8090 as the host's single instance, so members pack upward from 8091). In-pod port constant **8090** — deliberately not searxng's 8080, so both pod members coexist in one pod (the dictation toggle is independent of search_mode). The workspace container reaches it over pod-internal loopback via the `STT_URL=http://127.0.0.1:8090` env constant (bare pod-internal constant like `SEARXNG_URL`, never the scanned host port). The member is recreated with the pod on every start and goes down with it on stop/delete, and never runs under `--offline` (SearXNG exclusion pattern: offline + dictation is a silent skip, not an error). Request shape: `POST /inference` multipart (`file=@audio.wav`, `response_format=json`).
+The local speech-to-text image (`dist/stt/Dockerfile`, outside the toolchain recipe dirs, so never offered as a workspace toolchain) running the whisper.cpp server (pinned v1.9.5) with the small multilingual ggml model baked in (zero runtime downloads). Run as a **per-workspace pod member** (ADR 0029/0036): start.sh starts one detached `oc-stt-<container-id>` container inside the workspace's pod when the dictation toggle is on — image auto-built if missing, the workspace's `stt.json` bind-mounted read-only (the ADR-0034 allowlist pattern), no publish on the member itself (the one loopback publish `-p 127.0.0.1:<scan>:8090` lives on `pod create`, the web/CBM precedent, ADR 0029; the host scan starts at **8091** — the WebUI deterministically holds 8090 as the host's single instance, so members pack upward from 8091). In-pod port constant **8090** — deliberately not searxng's 8080, so both pod members coexist in one pod (the dictation toggle is independent of search_mode). The workspace container reaches it over pod-internal loopback via the `STT_URL=http://127.0.0.1:8090` env constant (bare pod-internal constant like `SEARXNG_URL`, never the scanned host port). The member is recreated with the pod on every start and goes down with it on stop/delete, and never runs under `--offline` (SearXNG exclusion pattern: offline + dictation is a silent skip, not an error). Request shape: `POST /inference` multipart (`file=@audio.wav`, `response_format=json`).
 _Avoid_: whisper container (the implementation), STT server (reads as one shared host instance — it is per-workspace), shared STT container.
 
 **SearXNG MCP**:
-The npm package `mcp-searxng` (ihor-sokoliuk, pre-installed globally in the base image together with the node runtime it needs, so every edition can serve the server — not just web, whose stage reuses the base node for its dev toolchain) registered as a local MCP server inside the workspace container: tools `searxng_web_search` (query → the pod's SearXNG member's JSON API) and `web_url_read` (fetches page content). Seeded into the workspace's opencode.json when the workspace's search mode is SearXNG, removed otherwise (applied at next container start). Its base URL is never written into opencode.json — start.sh carries it per container in the `SEARXNG_URL=http://127.0.0.1:8080 (bare base URL — mcp-searxng appends /search itself)` env constant (the per-pod instance's loopback address, ADR 0029), so nothing about the address can go stale.
+The npm package `mcp-searxng` (ihor-sokoliuk, pre-installed globally in the base image together with the node runtime it needs, so every set image can serve the server) registered as a local MCP server inside the workspace container: tools `searxng_web_search` (query → the pod's SearXNG member's JSON API) and `web_url_read` (fetches page content). Seeded into the workspace's opencode.json when the workspace's search mode is SearXNG, removed otherwise (applied at next container start). Its base URL is never written into opencode.json — start.sh carries it per container in the `SEARXNG_URL=http://127.0.0.1:8080 (bare base URL — mcp-searxng appends /search itself)` env constant (the per-pod instance's loopback address, ADR 0029), so nothing about the address can go stale.
 _Avoid_: websearch MCP (websearch is the built-in Exa/Parallel tool), fetch MCP (web_url_read is one tool of this server, not the server's identity).
 
 **search_mode**:
@@ -255,7 +327,7 @@ The speak-into-prompt feature of a workspace: toggled from inside an OpenCode cl
 _Avoid_: voice mode, speech mode, STT mode (STT names the machinery, dictation names the feature), whisper (the server implementation).
 
 **STT member**:
-The per-workspace pod member `oc-stt-<container-id>` (image `oc-stt`, a dist/ Dockerfile outside the edition stage registry, like oc-searxng and oc-proxy) running the local whisper transcription server: started by start.sh inside the workspace pod when the dictation toggle is on, reached by the workspace container over pod-internal loopback, recreated with the pod on every start and gone with it on stop/delete, and never started under `--offline` (the SearXNG exclusion pattern, ADR 0026/0029).
+The per-workspace pod member `oc-stt-<container-id>` (image `oc-stt`, a dist/ Dockerfile outside the toolchain recipe dirs, like oc-searxng and oc-proxy) running the local whisper transcription server: started by start.sh inside the workspace pod when the dictation toggle is on, reached by the workspace container over pod-internal loopback, recreated with the pod on every start and gone with it on stop/delete, and never started under `--offline` (the SearXNG exclusion pattern, ADR 0026/0029).
 _Avoid_: whisper container (the implementation), STT server (reads as one shared host instance — it is per-workspace), STT container.
 
 **dictation toggle**:
@@ -280,7 +352,7 @@ A WebUI form's unsaved values, kept for the lifetime of the browser tab so leavi
 _Avoid_: entry (a catalog entry is stored data), form state, session state, autosave.
 
 **build plan (New Workspace)**:
-Recorded Build now / Build later radio choice of the New Workspace form: while the selected edition's image is missing, an inline "Image build" row sits directly under the Editions row (image-existence memoized per edition for row visibility; create re-checks fresh). The create confirm popup lists it ("image build: …") and the Create button executes it: Build now runs build-container.sh, revalidates the image, then proceeds; Build later registers the workspace stopped (deferred build). While the create chain runs (build, init, credentials), the New Workspace view streams every step into an embedded log pane below the form card — the form stays visible but inert until the chain ends; the pane stays readable after a failure. Replaces the former create-time Build now / Build later / Go back prompt (Go back dropped — the form itself is home); the start-time prompt keeps its Go back.
+Recorded Build now / Build later radio choice of the New Workspace form: while the selected set's image is missing, an inline "Image build" row sits directly under the toolchain rows (existence memoized per set tag for row visibility; create re-checks fresh), with the honest cost line from the cached markers — counts of cached/missing members, never time estimates. The create confirm popup lists it ("image build: <members summary>") and the Create button executes it: Build now runs build-images.sh (missing components + assembly), revalidates the set image, then proceeds; Build later registers the workspace stopped (deferred build). While the create chain runs (build, init, credentials), the New Workspace view streams every step into an embedded log pane below the form card — the form stays visible but inert until the chain ends; the pane stays readable after a failure. Replaces the former create-time Build now / Build later / Go back prompt (Go back dropped — the form itself is home); the start-time prompt keeps its Go back.
 _Avoid_: build prompt (start-time prompt unchanged), build wizard.
 
 **server-stopped screen**:
@@ -292,11 +364,11 @@ The WebUI's Standard/Advanced presentation switch: a segmented control in the he
 _Avoid_: theme (dark/bright colors are a separate toggle), fixed mode (nothing is fixed; rows are preset and hidden).
 
 **change workspace settings**:
-WebUI flow (Settings → Workspace Settings) re-editing the full stored settings set (edition, modes, start option, VCS, AI provider, proxy toggle) for any registered workspace, including running containers and workspaces with incomplete first-run setup. Changes are persisted to sandbox_config.json immediately and take effect on next container start; no live-apply.
+WebUI flow (Settings → Workspace Settings) re-editing the full stored settings set (bundle row and toolchain multi-select, modes, start option, VCS, AI provider, proxy toggle) for any registered workspace, including running containers and workspaces with incomplete first-run setup. Changes are persisted to sandbox_config.json immediately and take effect on next container start; no live-apply.
 _Avoid_: project settings (the pre-rename label), edit settings, live settings.
 
 **revisit sequence**:
-The shared prefilled settings chain (edition → modes → start option → VCS → AI provider, plus proxy) used by both the change-workspace-settings flow and the failure-recovery retry path; one implementation, reachable from either entry point.
+The shared prefilled settings chain (bundle and toolchain selection → modes → start option → VCS → AI provider, plus proxy) used by both the change-workspace-settings flow and the failure-recovery retry path; one implementation, reachable from either entry point.
 _Avoid_: settings redo, reconfigure loop.
 
 **embedded log pane**:
@@ -323,15 +395,15 @@ The Open Workspace card's second content row: the registry's last_used stamp ren
 _Avoid_: path row (superseded on stamped workspaces), last open date.
 
 **muted card frame**:
-Frame treatment of unselected cards in the card grids: the rounded border renders in the unfocused border color instead of the accent (workspace cards via `shell.CardMuted`; the edition cards of the build view style their own muted border). Content is untouched; only the frame is muted.
+Frame treatment of unselected cards in the card grids: the rounded border renders in the unfocused border color instead of the accent (workspace cards via `shell.CardMuted`). Content is untouched; only the frame is muted.
 _Avoid_: dimmed card (reserved for modal popup overlay), disabled card (buttons of unselected cards still select).
 
 **panel**:
 The WebUI's raised surface object (Signal design language, prototype variant C): a rounded card sitting in soft elevation (shadow, never a hairline outline) grouping one screen segment; the segments inside are separated by hairline rules, not per-segment boxes. The catalog screens' add forms render as their own small panels.
-_Avoid_: card (Workspace › Open's per-workspace object with the edition accent bar), unit (the Containers screen's grey strip), box.
+_Avoid_: card (Workspace › Open's per-workspace object with the bundle accent bar), unit (the Containers screen's grey strip), box.
 
 **row**:
-One full-width segment of a panel: icon tile (a Lucide glyph on the edition/accent hue), title with sub line, right-aligned actions — separated from sibling rows by a hairline. Never the left sidebar menu (text-only by design) and never the Standard/Advanced control.
+One full-width segment of a panel: icon tile (a Lucide glyph on the accent hue), title with sub line, right-aligned actions — separated from sibling rows by a hairline. Never the left sidebar menu (text-only by design) and never the Standard/Advanced control.
 _Avoid_: entry (a generic form or list item), unit (the Containers screen's strip), line.
 
 **switch**:
@@ -339,7 +411,7 @@ The WebUI's on/off control for boolean rows: a 36×21 pill with a sliding knob (
 _Avoid_: toggle button, checkbox pill, on/off selector.
 
 **sidebar count pill**:
-The small numeric pill at the right edge of five left-sidebar menu entries — Workspace › Open (registered workspaces), VCS Tracker (tracker catalog entries), AI-Provider (provider catalog entries), Containers (running sandbox containers), Images (built edition images, infra images never counted). Always rendered, 0 included; all five numbers ride one counts fetch per navigation. A count the server cannot produce fresh keeps the pill's last value rather than breaking the sidebar (unreadable workspace registry); the podman-backed counts read fresh-or-zero, exactly what their own screens render on the same failure. A count always mirrors what the entry's own screen would list.
+The small numeric pill at the right edge of five left-sidebar menu entries — Workspace › Open (registered workspaces), VCS Tracker (tracker catalog entries), AI-Provider (provider catalog entries), Containers (running sandbox containers), Images (sandbox-family images — the screen's own row count, base/components/sets included, infra and Legacy never counted). Always rendered, 0 included; all five numbers ride one counts fetch per navigation. A count the server cannot produce fresh keeps the pill's last value rather than breaking the sidebar (unreadable workspace registry); the podman-backed counts read fresh-or-zero, exactly what their own screens render on the same failure. A count always mirrors what the entry's own screen would list.
 _Avoid_: badge (the footer update-available banner is a separate object), menu counter.
 
 ### Launcher & terminal
@@ -469,7 +541,7 @@ Install script output uses plain text only for maximum compatibility. Helper scr
 Standard exit codes: 0 (success), 1 (general error), 2 (user abort), 3 (missing dependencies).
 
 **configuration preservation**:
-During updates, asks before overwriting `proxy/allowlist.txt` with option to skip; overwrites all other files.
+During updates, the preserve list is root-level flattened runtime paths: `toolchains/custom/` and `toolchains/snapshots/` are always-keep (never prompted — user-authored and pristine backups), `proxy/allowlist.txt` is prompted default-keep, `searxng/settings.yml` is preserved; everything else in the installation folder is wholesale-overwritten (recipes/, manifest.json, base.Dockerfile included — pinned-version refreshes arrive via these rewrites).
 
 **shell compatibility**:
 Written for bash specifically (`#!/usr/bin/env bash`) for cleaner syntax and better feature support.
@@ -523,14 +595,7 @@ Sets a simple user agent identifying the opencode-sandbox install script for Git
 The update check's comparison of the installed release tag against the latest GitHub release; non-comparable or unknown tags count as outdated (update offered). The interactive install script itself still prompts regardless of versions.
 
 **special file handling**:
-Preserved across updates (root-level flattened runtime paths; the legacy
-`dist/`-prefixed locations still work): `proxy/allowlist.txt` (prompted,
-default keep), `Dockerfile.custom`, `searxng/settings.yml`, and the
-always-kept `toolchains/custom/` + `toolchains/snapshots/` (the latter two
-until #197 a no-op — `toolchains/` ships with toolchain sets). Deleted files
-reappear from the shipped template on the next update; everything else
-(`recipes/`, `manifest.json`, `base.Dockerfile` once #197 lands) is
-wholesale-overwritten.
+The update flow's file-disposition rules (ADR 0044): preserve checks run against the flattened runtime layout (`$target_dir/toolchains/custom/`, `$target_dir/searxng/settings.yml`, …), never `dist/`-prefixed paths — the former `dist/`-prefixed checks missed real flattened installs and clobbered user-edited searxng settings (fixed alongside the toolchain-sets cutover, install tests follow); see configuration preservation for the list itself.
 
 **post-installation message**:
 Shows brief reminder about system requirements (podman, etc.) and suggests next steps after successful installation.
@@ -569,7 +634,7 @@ _Avoid_: committing binaries, duplicating Go source into dist/.
 ### Config & storage
 
 **sandbox_config.json**:
-Per-workspace configuration file stored in `<workspace_root>/.opencode_config/` containing container edition, modes, auto-start options, CBM settings, and setup completion status.
+Per-workspace configuration file stored in `<workspace_root>/.opencode_config/` containing the workspace's toolchain set, modes, auto-start options, CBM settings, and setup completion status.
 
 **global_config.json**:
 Global user preferences stored in `$HOME/.config/oc-sandbox/` containing `default_workspace_path` and user-specific settings not tied to individual workspaces.
