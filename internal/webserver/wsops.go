@@ -111,7 +111,7 @@ func (s *Server) handleWorkspaceRestart(w http.ResponseWriter, r *http.Request) 
 		refuseSidecar(w, "stopped — restart starts nothing; use the start options")
 		return
 	}
-	cfg, err := readSandboxCfg(ws.Path)
+	cfg, err := s.readSandboxCfg(ws.Path)
 	if err != nil {
 		refuseSidecar(w, err.Error())
 		return
@@ -120,9 +120,9 @@ func (s *Server) handleWorkspaceRestart(w http.ResponseWriter, r *http.Request) 
 		refuseSidecar(w, err.Error())
 		return
 	}
-	if running := s.runningEdition(cname); running != "" && running != cfg.ContainerEdition {
-		if !discovery.ImageExists(s.runnerSeam(), cfg.ContainerEdition) {
-			refuseSidecar(w, errImageMissing(cfg.ContainerEdition).Error()+" — build it first (Settings → Images); nothing was stopped")
+	if running := s.runningEdition(cname); running != "" && running != cfg.LegacyEdition {
+		if !cfg.ToolchainsStored && !discovery.ImageExists(s.runnerSeam(), cfg.LegacyEdition) {
+			refuseSidecar(w, errImageMissing(cfg.LegacyEdition).Error()+" — build it first (Settings → Images); nothing was stopped")
 			return
 		}
 	}
@@ -236,7 +236,7 @@ func (s *Server) handleWorkspaceAdopt(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid variant", http.StatusBadRequest)
 		return
 	}
-	cfg, err := readSandboxCfg(ws.Path)
+	cfg, err := s.readSandboxCfg(ws.Path)
 	if err != nil {
 		refuseSidecar(w, err.Error())
 		return
@@ -250,12 +250,14 @@ func (s *Server) handleWorkspaceAdopt(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	running := s.runningEdition(cname)
-	if running != "" && running != cfg.ContainerEdition {
+	if running != "" && running != cfg.LegacyEdition {
 		// The mismatch switch (#115/#116): never destroy without a
 		// replacement — the saved edition's image must exist before
-		// anything stops (#117); the build rides Settings → Image.
-		if !discovery.ImageExists(s.runnerSeam(), cfg.ContainerEdition) {
-			refuseSidecar(w, errImageMissing(cfg.ContainerEdition).Error()+" — build it first (Settings → Image: Build); nothing was stopped")
+		// anything stops (#117); the build rides Settings → Image. The
+		// set-tag re-key is #208 (WP-6); the legacy world keeps the
+		// edition-image guard.
+		if !cfg.ToolchainsStored && !discovery.ImageExists(s.runnerSeam(), cfg.LegacyEdition) {
+			refuseSidecar(w, errImageMissing(cfg.LegacyEdition).Error()+" — build it first (Settings → Image: Build); nothing was stopped")
 			return
 		}
 	} else {
@@ -289,8 +291,7 @@ func (s *Server) adoptOp(ws registry.Workspace, cfg sandboxcfg.Config, variant s
 	d := s.deps
 	return func(emit func(string)) error {
 		cname := registry.ContainerName(ws.ContainerID)
-		args := openworkspace.StartArgs(ws.Path, cfg.ContainerEdition, ws.ContainerID,
-			cfg.ContainerModes, variant, cfg.UseProxy, cfg.UseStt, cfg.SearchMode)
+		args := openworkspace.StartArgs(ws.Path, cfg, ws.ContainerID, variant)
 		// 1. Stop the old container, verify gone (fresh ps), registry
 		// → stopped only after verification.
 		out, err := d.Run.Output("podman", "stop", cname)

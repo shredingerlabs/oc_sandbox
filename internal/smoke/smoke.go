@@ -22,6 +22,9 @@ func Run(root string) Report {
 	if !distTreePresent(root) {
 		return Report{Items: skipAll("missing dist tree under " + root)}
 	}
+	if err := seedToolchains(home, root); err != nil {
+		return Report{Items: failAll(err)}
+	}
 	var items []Item
 	for _, check := range []func(home, root string) Item{
 		checkConfigCompat,
@@ -48,6 +51,45 @@ func Run(root string) Report {
 	}
 	return Report{Items: items}
 }
+
+// toolchainsRoot is the repo's shipped toolchains dir — the bundle-map
+// source the config read path expands legacy container_edition through
+// (spec toolchain-sets §3/§10).
+func toolchainsRoot(root string) string {
+	return filepath.Join(root, "dist", "toolchains")
+}
+
+// seedToolchains copies the shipped toolchains dir (manifest, base
+// recipe, unit recipes) into the smoke home's install layout — the
+// WebUI's LayoutFor resolution finds the bundle map there, and live
+// discovery derives bundles and set tags only when the recipes are on
+// disk (spec §1/§10).
+func seedToolchains(home, root string) error {
+	src := toolchainsRoot(root)
+	dst := filepath.Join(home, ".oc-sandbox", "toolchains")
+	return filepath.WalkDir(src, func(p string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(src, p)
+		if err != nil {
+			return err
+		}
+		out := filepath.Join(dst, rel)
+		if d.IsDir() {
+			return os.MkdirAll(out, 0o755)
+		}
+		data, err := os.ReadFile(p)
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(out, data, 0o644)
+	})
+}
+
+// swdevToolchains is the shipped swdev bundle expansion (the manifest's
+// swdev members, canonically sorted) — the smoke suite's Create payload.
+var swdevToolchains = []string{"cpp", "go", "java", "rust"}
 
 // Box IDs of the A-list in run order (failAll/skipAll mirrors).
 var boxIDs = []string{"A1", "A2", "A3", "A4", "A5", "A6", "A7", "A8", "A9", "A10", "A11", "A12", "A13", "A14", "A15", "A16", "A17", "A18", "A19"}

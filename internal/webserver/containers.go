@@ -50,7 +50,8 @@ type unitRow struct {
 	Pod       bool
 	State     string // running / exited / created / missing
 	Busy      bool
-	Hue       string // edition hue of the workspace's tile ("" → accent)
+	Label     string // derived bundle name (exact member-match), else "Custom" ("" unreadable config)
+	Subtitle  string // member-list tooltip ("n toolchains: …")
 }
 
 // containerRows builds the one container list fresh per request (data
@@ -91,12 +92,15 @@ func (s *Server) containerRows() []unitRow {
 		} else {
 			registryContainers[cname] = true
 		}
-		// The row's tile tints with the workspace's edition hue (the
-		// prototype's set-containers letter tiles); an unreadable
-		// config keeps the accent default.
-		hue := ""
-		if cfg, err := readSandboxCfg(p.Path); err == nil {
-			hue = editionFor(cfg.ContainerEdition).Hue
+		// The row's tile tints with the workspace's derived identity
+		// (WP-5): the neutral accent for every set — the per-edition
+		// hues died with the stage world. The derived label rides the
+		// sub row, the member list its tooltip; an unreadable config
+		// renders no label at all.
+		label, subtitle := "", ""
+		if cfg, err := s.readSandboxCfg(p.Path); err == nil {
+			id := setIdentityFor(cfg, s.toolchainsRoot(), cfg.WorkspaceKind)
+			label, subtitle = id.Label, id.Subtitle
 		}
 		rows = append(rows, unitRow{
 			Workspace: p.Name,
@@ -104,7 +108,8 @@ func (s *Server) containerRows() []unitRow {
 			Pod:       isPod,
 			State:     state,
 			Busy:      s.queue.BusyKey(cname),
-			Hue:       hue,
+			Label:     label,
+			Subtitle:  subtitle,
 		})
 	}
 	// leftovers: pods as units (their members ride the pod row),
@@ -161,11 +166,7 @@ func (s *Server) renderContainers(msg string) string {
 		}
 		b.WriteString(`>`)
 		if row.Workspace != "" {
-			if row.Hue != "" {
-				b.WriteString(`<div class="ic" style="--ed:` + row.Hue + `">`)
-			} else {
-				b.WriteString(`<div class="ic">`)
-			}
+			b.WriteString(`<div class="ic">`)
 			b.WriteString(html.EscapeString(wsLetter(row.Workspace)) + `</div>`)
 		} else {
 			b.WriteString(`<div class="ic muted">` + string(iconSVG("container")) + `</div>`)
@@ -177,6 +178,11 @@ func (s *Server) renderContainers(msg string) string {
 			b.WriteString(`<span class="muted">leftover</span>`)
 		}
 		b.WriteString(`</div><div class="s">`)
+		if row.Workspace != "" {
+			// The derived identity (WP-5): the bundle label, the
+			// member list as its tooltip.
+			b.WriteString(`<span class="unit-sub" title="` + html.EscapeString(row.Subtitle) + `">` + html.EscapeString(row.Label) + `</span>`)
+		}
 		b.WriteString(`<span class="unit-sub">` + html.EscapeString(row.Unit) + `</span>`)
 		b.WriteString(stateMarker(row.State))
 		if row.Busy {
@@ -325,6 +331,20 @@ func (s *Server) handleWorkspaceStart(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
+	// The §10 unresolved refusal (WP-10): an unknown stored edition —
+	// or both selection fields absent — refuses before any prompt
+	// machinery or op launch, the old image/container never touched.
+	// The same refusal answers both paths; an unreadable config keeps
+	// today's behavior (the queued op re-verifies).
+	if cfg, cfgErr := s.readSandboxCfg(ws.Path); cfgErr == nil && !cfg.Resolved {
+		refusal := errUnresolvedSelection(cfg).Error()
+		if r.PostFormValue("variant") != "" {
+			refuseSidecar(w, refusal)
+		} else {
+			_, _ = w.Write([]byte(s.renderContainers(refusal)))
+		}
+		return
+	}
 	if variant := r.PostFormValue("variant"); variant != "" {
 		if !validVariant(variant) {
 			http.Error(w, "invalid variant", http.StatusBadRequest)
@@ -337,14 +357,14 @@ func (s *Server) handleWorkspaceStart(w http.ResponseWriter, r *http.Request) {
 			// Open action is a use.
 			_ = s.deps.Registry.UpdateStatus(ws.Path, "running")
 			_ = s.deps.Registry.UpdateLastUsed(ws.Path)
-			if cfg, cfgErr := readSandboxCfg(ws.Path); cfgErr == nil {
+			if cfg, cfgErr := s.readSandboxCfg(ws.Path); cfgErr == nil {
 				if running := s.runningEdition(cname); running != "" &&
-					running != cfg.ContainerEdition {
+					running != cfg.LegacyEdition {
 					w.Header().Set("Content-Type", "application/json")
 					_, _ = w.Write([]byte(jsonMarshal(mismatchSidecar{
 						Mismatch:       true,
 						RunningEdition: running,
-						SavedEdition:   cfg.ContainerEdition,
+						SavedEdition:   cfg.LegacyEdition,
 					})))
 					return
 				}
@@ -405,15 +425,23 @@ func (s *Server) finishVerifiedStart(ws registry.Workspace) error {
 // pre-start validations, the edition image check, then start.sh with
 // fully rebuilt args.
 func (s *Server) freshStart(ws registry.Workspace, emit func(string)) error {
-	cfg, err := readSandboxCfg(ws.Path)
+	cfg, err := s.readSandboxCfg(ws.Path)
 	if err != nil {
 		return err
 	}
 	if err := validateStartCfg(cfg); err != nil {
 		return err
 	}
-	if !discovery.ImageExists(s.deps.Run, cfg.ContainerEdition) {
-		return errImageMissing(cfg.ContainerEdition)
+	// The §10 unresolved refusal re-checked at op time (WP-10): the
+	// config may have changed between the handler's guard and the run.
+	if !cfg.Resolved {
+		return errUnresolvedSelection(cfg)
+	}
+	// Legacy world: the edition image must exist. New-world configs
+	// carry --toolchains — start.sh re-keys with #200; until then the
+	// script's flag parser refuses with a visible reason.
+	if !cfg.ToolchainsStored && !discovery.ImageExists(s.deps.Run, cfg.LegacyEdition) {
+		return errImageMissing(cfg.LegacyEdition)
 	}
 	cname := registry.ContainerName(ws.ContainerID)
 	emit("==> " + cname)

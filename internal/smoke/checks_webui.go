@@ -67,7 +67,10 @@ func checkWebUI(home, root string) Item {
 	// land in later tickets are covered here centrally, not per-box.
 	base := strings.Replace(s.URL(), "/t/"+s.Token()+"/", "/", 1)
 	routes := []string{
-		"", "css/main.css", "js/htmx.min.js", "js/main.js", "img/editions/swdev.svg",
+		"", "css/main.css", "js/htmx.min.js", "js/main.js",
+		// The per-edition SVGs died at the WP-5 re-key — every route the
+		// server registers is 404-checked below, the retired assets with them.
+		"img/editions/swdev.svg", "img/editions/base.svg",
 		"events",
 		"workspaces", "workspaces/new",
 		"workspaces/mural/access", "workspaces/mural/pair-link",
@@ -130,8 +133,6 @@ func checkWebUI(home, root string) Item {
 		{"css/main.css", "text/css"},
 		{"js/htmx.min.js", "text/javascript"},
 		{"js/main.js", "text/javascript"},
-		{"img/editions/swdev.svg", "image/svg+xml"},
-		{"img/editions/base.svg", "image/svg+xml"},
 	} {
 		resp, _ = get("GET", s.URL()+asset.path)
 		if resp == nil || resp.StatusCode != http.StatusOK || !strings.HasPrefix(resp.Header.Get("Content-Type"), asset.ct) {

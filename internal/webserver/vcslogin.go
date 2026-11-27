@@ -249,7 +249,7 @@ func (s *Server) handleVCSDeviceLogin(w http.ResponseWriter, ws registry.Workspa
 	}
 	label := trackerLabel(kind)
 	stored := ""
-	if cfg, err := readSandboxCfg(ws.Path); err == nil {
+	if cfg, err := s.readSandboxCfg(ws.Path); err == nil {
 		stored = cfg.VCSTracking
 	}
 	if label != stored {

@@ -29,13 +29,14 @@ var matrixCases = []struct {
 	{"ws-settings", config.DisplayAdvanced,
 		[]string{"edition", "proxy", "search_mode", "offline", "cbm_ui", "hil", "stt"},
 		nil, false},
-	// New Workspace wizard (#156, §6): Standard hides the preset rows,
+	// New Workspace wizard (#156, §6): Standard hides the preset rows and
+	// the toolchain multi-select (the bundle row stays Standard-visible),
 	// Advanced reveals them all.
 	{"ws-new", config.DisplayStandard, nil,
-		[]string{"proxy", "search_mode", "offline", "cbm_ui", "hil", "stt"},
+		[]string{"proxy", "search_mode", "offline", "cbm_ui", "hil", "stt", "toolchains"},
 		true},
 	{"ws-new", config.DisplayAdvanced,
-		[]string{"proxy", "search_mode", "offline", "cbm_ui", "hil", "stt"},
+		[]string{"proxy", "search_mode", "offline", "cbm_ui", "hil", "stt", "toolchains"},
 		nil, false},
 }
 
@@ -92,7 +93,7 @@ func TestPresetsNotPinningModeSwitchNeverTouchesWorkspaceConfig(t *testing.T) {
 	}
 	// A workspace as an Advanced user left it: Standard-hidden options
 	// edited off their presets (searxng search, proxy on).
-	if err := sandboxcfg.Create(home, cfgPath, "swdev", nil, "web", "", sandboxcfg.SearchSearxng); err != nil {
+	if err := sandboxcfg.Create(home, cfgPath, []string{"cpp", "go", "java", "rust"}, nil, "web", "", sandboxcfg.SearchSearxng); err != nil {
 		t.Fatal(err)
 	}
 	if err := sandboxcfg.PatchBool(home, cfgPath, "use_proxy", true); err != nil {
@@ -129,7 +130,7 @@ func TestPresetsNotPinningModeSwitchNeverTouchesWorkspaceConfig(t *testing.T) {
 		!RowVisible(config.DisplayAdvanced, "ws-settings", "proxy") {
 		t.Error("Advanced must reveal stored values")
 	}
-	cfg, err := sandboxcfg.Read(cfgPath)
+	cfg, err := sandboxcfg.Read(cfgPath, tcRootOf(home))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -147,7 +148,7 @@ func TestPresetsNotPinningModeSwitchNeverTouchesWorkspaceConfig(t *testing.T) {
 		[]byte("{\n  \"container_edition\": \"swdev\",\n  \"version\": \"1.0\"\n}\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	legacy, err := sandboxcfg.Read(legacyPath)
+	legacy, err := sandboxcfg.Read(legacyPath, tcRootOf(home))
 	if err != nil {
 		t.Fatal(err)
 	}

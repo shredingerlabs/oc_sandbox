@@ -73,10 +73,11 @@ const (
 // Deps injects the data surfaces: workspace home, registered workspace root,
 // the registry (repo_url mirror) and the stage runner.
 type Deps struct {
-	Home   string
-	Root   string
-	Reg    *registry.Registry
-	Stager Stager
+	Home       string
+	Root       string
+	Reg        *registry.Registry
+	Stager     Stager
+	Toolchains string // toolchains dir — the config read's bundle-map root
 }
 
 // Phase is the machine state surfaced to the view.
@@ -116,7 +117,7 @@ type Machine struct {
 // recovery): the plan contains only stages whose sandbox flag is still
 // false. A workspace with setup_complete true is done immediately.
 func NewMachine(d Deps) (*Machine, error) {
-	cfg, err := sandboxcfg.Read(sandboxcfg.Path(d.Root))
+	cfg, err := sandboxcfg.Read(sandboxcfg.Path(d.Root), d.Toolchains)
 	if err != nil {
 		return nil, err
 	}

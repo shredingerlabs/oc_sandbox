@@ -140,7 +140,12 @@ func checkWebUIWorkspaces(home, root string) Item {
 	} else {
 		for _, want := range []string{
 			`data-ws="mural"`, `data-ws="lab"`,
-			`data-edition="swdev"`, `data-edition="web"`,
+			// WP-5 derived identity: bundle-name chips with the member
+			// list as tooltip, one generic glyph, no per-edition hues.
+			`>swdev</span>`, `>web</span>`,
+			`title="4 toolchains: cpp, go, java, rust"`,
+			`title="2 toolchains: node-dev, playwright"`,
+			`data-glyph="layers"`,
 			`data-chip="hil"`,
 			`data-act="web"`, `data-act="opencode"`, `data-act="console"`,
 			`data-confirm="restart"`, `data-confirm="stop"`,
@@ -149,9 +154,9 @@ func checkWebUIWorkspaces(home, root string) Item {
 				p.reasonf("cards missing %q", want)
 			}
 		}
-		for _, banned := range []string{`data-act="open"`, `data-confirm="delete"`} {
+		for _, banned := range []string{`data-act="open"`, `data-confirm="delete"`, `data-edition=`} {
 			if strings.Contains(body, banned) {
-				p.reasonf("cards must not carry the retired action (%s)", banned)
+				p.reasonf("cards must not carry the retired surface (%s)", banned)
 			}
 		}
 	}
@@ -314,16 +319,46 @@ func checkWebUIWorkspaces(home, root string) Item {
 }
 
 // seedWSFixture writes one workspace fixture under the smoke home:
-// registry entry + sandbox_config.json.
+// registry entry + a LEGACY sandbox_config.json (container_edition).
+// The start-path flows stay pinned on the legacy world here — a legacy
+// workspace starts unchanged via the --edition alias (spec §10); the
+// materialized-world StartArgs vector is pinned in the openworkspace
+// unit tests.
 func seedWSFixture(home, name, edition string, modes []string, startOption string) string {
 	root := filepath.Join(home, "workspaces", name)
-	if err := os.MkdirAll(root, 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(root, ".opencode_config"), 0o755); err != nil {
 		return ""
 	}
 	reg := &registry.Registry{Home: home}
 	_ = reg.CreateWorkspacesFile()
 	_ = reg.AddWorkspace(registry.AddRequest{Name: name, Path: root})
-	_ = sandboxcfg.Create(home, sandboxcfg.Path(root), edition, modes, startOption, "", sandboxcfg.SearchSearxng)
+	quoted := func(ss []string) string {
+		out := make([]string, len(ss))
+		for i, s := range ss {
+			out[i] = `"` + s + `"`
+		}
+		return "[" + strings.Join(out, ", ") + "]"
+	}
+	cfg := `{
+  "container_edition": "` + edition + `",
+  "container_modes": ` + quoted(modes) + `,
+  "start_option": "` + startOption + `",
+  "cbm_auto_index": true,
+  "cbm_auto_watch": true,
+  "ai_provider": "none",
+  "workspace_source": "empty",
+  "repo_url": "",
+  "search_mode": "searxng",
+  "use_stt": true,
+  "setup_clone_complete": false,
+  "setup_cbm_complete": false,
+  "setup_skills_complete": false,
+  "setup_complete": false,
+  "version": "2.0"
+}`
+	if err := os.WriteFile(sandboxcfg.Path(root), []byte(cfg), 0o644); err != nil {
+		return ""
+	}
 	return root
 }
 

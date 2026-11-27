@@ -168,7 +168,7 @@ func TestVCSDeviceLoginGitHub(t *testing.T) {
 		t.Fatalf("writer never ran with the extracted token:\n%v", fx.fake.Snapshot())
 	}
 	// The tracker label persists (stored none → github.com).
-	cfg, err := sandboxcfg.Read(sandboxcfg.Path(root))
+	cfg, err := sandboxcfg.Read(sandboxcfg.Path(root), tcRootOf(fx.home))
 	if err != nil {
 		t.Fatal(err)
 	}

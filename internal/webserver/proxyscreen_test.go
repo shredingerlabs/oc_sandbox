@@ -56,6 +56,7 @@ func newProxyFixture(t *testing.T) *proxyFixture {
 	}
 	f.enableProxy(t)
 	f.writeShared(t, "github.com\n.gitlab.com\n")
+	seedToolchainsManifest(t, f.home) // the bundle map the derived identity matches against
 	f.startFake(t)
 	return f
 }
@@ -65,7 +66,7 @@ func newProxyFixture(t *testing.T) *proxyFixture {
 func (f *proxyFixture) enableProxy(t *testing.T) {
 	t.Helper()
 	if _, err := os.Stat(sandboxcfg.Path(f.root)); err != nil {
-		if err := sandboxcfg.Create(f.home, sandboxcfg.Path(f.root), "swdev", nil, "web", "", "websearch"); err != nil {
+		if err := sandboxcfg.Create(f.home, sandboxcfg.Path(f.root), []string{"cpp", "go", "java", "rust"}, nil, "web", "", "websearch"); err != nil {
 			t.Fatalf("sandboxcfg.Create: %v", err)
 		}
 	}
@@ -611,5 +612,25 @@ func TestSettingsEnableSeedsAllowlist(t *testing.T) {
 	}
 	if al := f.workspaceAllowlist(); !strings.Contains(al, "github.com") {
 		t.Fatalf("enable must seed the workspace copy:\n%q", al)
+	}
+}
+
+// The proxy row carries the derived identity (WP-5): the bundle label
+// beside the workspace name, the member list as the avatar's tooltip —
+// every tile tints with the neutral accent, no per-edition hues.
+func TestProxyRowDerivedIdentity(t *testing.T) {
+	f := newProxyFixture(t)
+	f.advancedMode(t)
+	doc := body(t, get(t, f.s.URL()+"proxy"))
+	for _, want := range []string{
+		`<span class="unit-sub">swdev</span>`, // derived bundle label
+		`title="4 toolchains: cpp, go, java, rust"`,
+	} {
+		if !strings.Contains(doc, want) {
+			t.Fatalf("proxy screen missing %q:\n%s", want, doc)
+		}
+	}
+	if strings.Contains(doc, `--ed:#`) {
+		t.Fatalf("proxy screen carries a retired per-edition hue:\n%s", doc)
 	}
 }

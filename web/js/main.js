@@ -784,59 +784,164 @@
 
   function applyAgent(form) {
     var agentSel = q(form, '[data-role="wizard-agent"]');
-    var row = q(form, '[data-row="edition"]');
-    if (agentSel.value === "pkm") { // pkm pins the edition — the row hides
-      row.setAttribute("data-pkm-pin", "1");
-      setEdition(q(form, '[data-role="wizard-edition"]'), "pkm");
-    } else {
-      if (row.getAttribute("data-pkm-pin") !== null) {
-        row.removeAttribute("data-pkm-pin");
-        setEdition(q(form, '[data-role="wizard-edition"]'), "swdev"); // §6 preselect
+    var pinned = q(form, '[data-row="bundle"]');
+    if (agentSel.value === "pkm") {
+      // pkm pins the set to base only (ADR-0027) — the rows hide and the
+      // prior selection is remembered, restored on un-pin.
+      if (pinned && pinned.getAttribute("data-pkm-pin") === null) {
+        wizardPriorUnits = checkedUnits(form).join(",");
       }
+      if (pinned) pinned.setAttribute("data-pkm-pin", "1");
+      var unitsRow = q(form, '[data-row="toolchains"]');
+      if (unitsRow) unitsRow.setAttribute("data-pkm-pin", "1");
+      setUnits(form, []);
+      syncBundleRow(form);
+      return;
     }
-    if (row.getAttribute("data-pkm-pin") === null) applyEditionPreset(form);
+    if (pinned && pinned.getAttribute("data-pkm-pin") !== null) {
+      // un-pin restores the prior selection — never a hard-coded default
+      pinned.removeAttribute("data-pkm-pin");
+      var urow = q(form, '[data-row="toolchains"]');
+      if (urow) urow.removeAttribute("data-pkm-pin");
+      setUnits(form, (wizardPriorUnits || "").split(",").filter(Boolean));
+    }
+    syncBundleRow(form);
+    applyHILPreset(form);
+  }
+  // --- the toolchain set rows (toolchain sets #205, spec §9 WP-3): the
+  // bundle row is a chip preselect over the units multi-select — the
+  // multi-select is the payload, a bundle chip overwrites it, and
+  // editing it flips the bundle row to Custom (never auto-back).
+
+  // hilUnits are the §3 HIL hardware units: the HIL checkbox presets ON
+  // iff the selection contains any of them — a preset, not a pin.
+  var hilUnits = ["arm-embedded", "arduino", "platformio", "micropython",
+                  "picoscope", "pyvisa", "usb"];
+  // wizardPriorUnits remembers the selection across a pkm pin (the
+  // un-pin restores it) — in-memory like the drafts, same lifetime.
+  var wizardPriorUnits = "";
+
+  function wizardUnits(form) {
+    return Array.prototype.slice.call(
+      form.querySelectorAll('[data-role="wizard-units"] input[name="toolchain"]'));
+  }
+  function checkedUnits(form) {
+    return wizardUnits(form).filter(function (c) { return c.checked; })
+                            .map(function (c) { return c.value; });
+  }
+  function setUnits(form, ids) {
+    wizardUnits(form).forEach(function (c) {
+      c.checked = ids.indexOf(c.value) >= 0;
+    });
+  }
+  function sameSet(a, b) {
+    return a.slice().sort().join(",") === b.slice().sort().join(",");
+  }
+  function syncUnitsCount(form) {
+    var el = q(form, '[data-role="units-count"]');
+    if (!el) return;
+    el.textContent = checkedUnits(form).length + " of " +
+      wizardUnits(form).length + " selected";
+  }
+  // syncBundleRow derives the chips' pressed state from the selection:
+  // the bundle matching it exactly, else the Custom chip.
+  function syncBundleRow(form) {
+    var row = q(form, '[data-role="wizard-bundle"]');
+    if (!row) return;
+    var sel = checkedUnits(form);
+    var custom = true;
+    row.querySelectorAll(".edopt").forEach(function (b) {
+      var pressed = b.dataset.members !== undefined &&
+        sameSet((b.dataset.members || "").split(",").filter(Boolean), sel);
+      if (pressed) custom = false;
+      b.setAttribute("aria-pressed", String(pressed));
+    });
+    var customChip = row.querySelector('.edopt[data-bundle="custom"]');
+    if (customChip) customChip.setAttribute("aria-pressed", String(custom));
+    syncUnitsCount(form);
   }
 
-  // setEdition drives the .edotsel chip group: the hidden payload input
-  // value + the chips' pressed state move together.
-  function setEdition(holder, value) {
-    if (!holder) return;
-    holder.querySelector('input[name="edition"]').value = value;
-    holder.querySelectorAll(".edopt").forEach(function (b) {
-      b.setAttribute("aria-pressed", String(b.dataset.ed === value));
+  // applyHILPreset: the §3 rule — ON iff the selection contains any
+  // hardware unit. A preset, not a pin: the user can toggle it right
+  // back off in the same row.
+  function applyHILPreset(form) {
+    var hil = q(form, '[name="hil"]');
+    if (!hil) return;
+    hil.checked = checkedUnits(form).some(function (id) {
+      return hilUnits.indexOf(id) >= 0;
     });
   }
 
-  // Edition chips (#156, prototype ws-new .edotsel): one chip per
-  // edition; the click sets the hidden input (the confirm round-trip
-  // unaffected) and fires the HIL preset rule like the old select did.
-  // The Workspace-settings Advanced row (#157) uses the same chip
-  // group under data-role="settings-edition" — no HIL preset coupling
-  // there (the HIL row is its own checkbox).
+  // Bundle chips (#205) overwrite the wizard's units multi-select and
+  // fire the HIL preset rule; the Workspace-settings chips (#208) run
+  // their own settings-toolchains handler below.
   document.addEventListener("click", function (ev) {
     var chip = ev.target.closest(".edopt");
     if (!chip || chip.disabled) return;
-    var holder = chip.closest('[data-role="wizard-edition"], [data-role="settings-edition"]');
+    var holder = chip.closest('[data-role="wizard-bundle"]');
     if (!holder) return;
-    setEdition(holder, chip.dataset.ed);
     var form = holder.closest('[data-role="new-workspace-form"]');
-    if (form) applyEditionPreset(form);
+    if (!form) return;
+    setUnits(form, (chip.dataset.members || "").split(",").filter(Boolean));
+    syncBundleRow(form);
+    applyHILPreset(form);
   });
 
-  function applyEditionPreset(form) {
-    // §6: HIL presets on for embedded creations — a preset, not a pin:
-    // the user can toggle it right back off in the same row.
-    var ed = q(form, '[data-role="wizard-edition"]').value;
-    var hil = q(form, '[name="hil"]');
-    if (hil) hil.checked = ed === "embedded";
+  // --- Toolchains row (Workspace settings, #208, WP-4): the bundle
+  // chips are presets over the multi-select — a chip click checks
+  // exactly its members; editing the multi-select re-derives the pressed
+  // chip (exact member match, else Custom; the empty selection is the
+  // base-only ∅ the base chip stands for). The stored truth still posts
+  // as the checkbox list — the chips never carry a payload of their own.
+  function syncToolchainsRow(form) {
+    var holder = form && form.querySelector('[data-role="settings-toolchains"]');
+    if (!holder) return;
+    var picked = Array.prototype.slice.call(holder.querySelectorAll('input[name="toolchains"]:checked'))
+      .map(function (el) { return el.value; }).sort();
+    var count = holder.querySelector('[data-role="tc-count"]');
+    if (count) {
+      count.textContent = picked.length + " of " +
+        holder.querySelectorAll('input[name="toolchains"]').length + " selected";
+    }
+    var custom = true;
+    holder.querySelectorAll('[data-role="settings-bundles"] .edopt').forEach(function (chip) {
+      var members = (chip.dataset.members || "").split(",").filter(Boolean).sort();
+      var match = members.length === picked.length &&
+                  members.every(function (m, i) { return m === picked[i]; });
+      if (match) custom = false;
+      chip.setAttribute("aria-pressed", String(match));
+    });
+    var customChip = holder.querySelector('[data-role="settings-bundles"] .edopt[data-bundle="custom"]');
+    if (customChip) customChip.setAttribute("aria-pressed", String(custom));
   }
+
+  document.addEventListener("click", function (ev) {
+    var chip = ev.target.closest('[data-role="settings-bundles"] .edopt');
+    if (!chip || chip.disabled) return;
+    var holder = chip.closest('[data-role="settings-toolchains"]');
+    var members = (chip.dataset.members || "").split(",").filter(Boolean);
+    holder.querySelectorAll('input[name="toolchains"]').forEach(function (el) {
+      if (el.disabled) return;
+      el.checked = members.indexOf(el.value) >= 0;
+    });
+    syncToolchainsRow(holder.closest("form"));
+  });
+
+  document.addEventListener("change", function (ev) {
+    if (ev.target.name !== "toolchains") return;
+    var holder = ev.target.closest('[data-role="settings-toolchains"]');
+    if (holder) syncToolchainsRow(holder.closest("form"));
+  });
 
   document.addEventListener("change", function (ev) {
     var form = wizardForm(ev.target);
     if (!form) return;
     if (ev.target.name === "source") applySource(form);
     else if (ev.target.name === "agent") applyAgent(form);
-    else if (ev.target.name === "edition") applyEditionPreset(form);
+    else if (ev.target.name === "toolchain") { // an edit flips the row to
+      syncBundleRow(form);                     // Custom and re-aims HIL
+      applyHILPreset(form);
+    }
   });
 
   // --- ADR-0026 exclusions live in the forms (openworkspace.applyOption
@@ -1138,9 +1243,9 @@
   }
 
   // Restore only replays the view state the controls drive (source row,
-  // PKM edition pin, chip pressed state) — never the live presets: the
-  // restored HIL checkbox is itself draft data and must not be reset by
-  // applyEditionPreset.
+  // pkm pin, chip pressed state, units count) — never the live presets:
+  // the restored HIL checkbox is itself draft data and must not be reset
+  // by applyHILPreset.
   function syncWizardDraftView(form) {
     var radio = repoSourceRadio();
     var repoRow = q(form, '[data-row="repo_url"]');
@@ -1149,30 +1254,25 @@
       else repoRow.setAttribute("data-repo-only", "1");
     }
     var agentSel = q(form, '[data-role="wizard-agent"]');
-    var edRow = q(form, '[data-row="edition"]');
-    var holder = q(form, '[data-role="wizard-edition"]');
-    if (!agentSel || !edRow || !holder) return;
-    if (agentSel.value === "pkm") {
-      edRow.setAttribute("data-pkm-pin", "1");
-      setEdition(holder, "pkm");
-      return;
+    var pinned = q(form, '[data-row="bundle"]');
+    if (!agentSel || !pinned) return;
+    if (agentSel.value === "pkm") { // pkm pins the set to base only
+      pinned.setAttribute("data-pkm-pin", "1");
+      var urow = q(form, '[data-row="toolchains"]');
+      if (urow) urow.setAttribute("data-pkm-pin", "1");
+    } else {
+      pinned.removeAttribute("data-pkm-pin");
+      var urow2 = q(form, '[data-row="toolchains"]');
+      if (urow2) urow2.removeAttribute("data-pkm-pin");
     }
-    edRow.removeAttribute("data-pkm-pin");
-    var ed = holder.querySelector('input[name="edition"]');
-    if (ed) setEdition(holder, ed.value);
+    syncBundleRow(form);
   }
 
   function applyDraftDerivations(form) {
     if (form.getAttribute("data-role") === "new-workspace-form") {
       syncWizardDraftView(form);
     }
-    // Both edition chip groups render a hidden input as the payload; a
-    // restored hidden value must move the chips with it.
-    var holder = form.querySelector('[data-role="wizard-edition"], [data-role="settings-edition"]');
-    if (holder) {
-      var ed = holder.querySelector('input[name="edition"]');
-      if (ed) setEdition(holder, ed.value);
-    }
+    syncToolchainsRow(form); // the settings multi-select re-derives its pressed chip
     var kind = form.querySelector('select[name="kind"]');
     if (kind) { // VCS Host visibility follows the restored tracker kind
       var host = form.querySelector('[data-field="host"]');

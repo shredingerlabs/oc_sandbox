@@ -40,7 +40,7 @@ func checkUpgradeInPlace(home, root string) Item {
 	}); err != nil {
 		p.reasonf("registry add: %v", err)
 	}
-	if err := sandboxcfg.Create(sub, sc, "swdev", []string{"offline", "hil_mode"}, "console", "gwdg-saia", sandboxcfg.SearchWebsearch); err != nil {
+	if err := sandboxcfg.Create(sub, sc, swdevToolchains, []string{"offline", "hil_mode"}, "console", "gwdg-saia", sandboxcfg.SearchWebsearch); err != nil {
 		p.reasonf("sandbox create: %v", err)
 	}
 	if err := sandboxcfg.PatchString(sub, sc, "vcs_tracking", "github.com"); err != nil {
@@ -104,10 +104,10 @@ func checkUpgradeInPlace(home, root string) Item {
 			p.reasonf("repo_url not updated: %q", afterProjs[0].RepoURL)
 		}
 	}
-	cfg, err := sandboxcfg.Read(sc)
+	cfg, err := sandboxcfg.Read(sc, toolchainsRoot(root))
 	if err != nil {
 		p.reasonf("sandbox read-back: %v", err)
-	} else if cfg.RepoURL != "https://github.com/u/my-project-fork" || cfg.ContainerEdition != "swdev" || !equalModes(cfg.ContainerModes, []string{"offline", "hil_mode"}) || cfg.VCSTracking != "github.com" {
+	} else if cfg.RepoURL != "https://github.com/u/my-project-fork" || !cfg.ToolchainsStored || !equalModes(cfg.Toolchains, swdevToolchains) || !equalModes(cfg.ContainerModes, []string{"offline", "hil_mode"}) || cfg.VCSTracking != "github.com" {
 		p.reasonf("sandbox_config lost data: %+v", cfg)
 	}
 

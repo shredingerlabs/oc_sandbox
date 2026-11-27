@@ -140,7 +140,8 @@ func TestImagesBuildSttTagAllowlist(t *testing.T) {
 
 // POST /images/build refuses while an image op is queued or running
 // (confirms refuse while an op is queued/running, §9).
-func TestImagesBuildRefusesWhileBusy(t *testing.T) {	reg, _ := fixtureRegistry(t)
+func TestImagesBuildRefusesWhileBusy(t *testing.T) {
+	reg, _ := fixtureRegistry(t)
 	release := make(chan struct{})
 	run := fakePodman(nil, nil, nil, nil, nil)
 	base := run.Script

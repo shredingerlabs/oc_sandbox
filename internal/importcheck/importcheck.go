@@ -82,7 +82,7 @@ func IsLegacyLayout(root string) bool {
 // guard even when its folder is incomplete), then the broken-config
 // prompt, then the structure check. An unreadable-but-parseable config
 // returns an error.
-func Check(root string, reg *registry.Registry) (Result, error) {
+func Check(root string, reg *registry.Registry, toolchainsRoot string) (Result, error) {
 	if reg != nil {
 		if _, err := reg.ByPath(root); err == nil {
 			return Result{Kind: KindRegistered}, nil
@@ -100,7 +100,7 @@ func Check(root string, reg *registry.Registry) (Result, error) {
 		}
 		return Result{Kind: KindNonMatching}, nil
 	}
-	cfg, err := sandboxcfg.Read(cfgPath)
+	cfg, err := sandboxcfg.Read(cfgPath, toolchainsRoot)
 	if err != nil {
 		return Result{}, fmt.Errorf("could not read sandbox_config.json: %w", err)
 	}
