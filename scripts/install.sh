@@ -405,6 +405,20 @@ prepare_installation() {
   exit_with_error "Download für Version $version fehlgeschlagen"
 }
 
+# Preserve-Pfad einer Sonderdatei im Ziel finden: flaches Runtime-Layout
+# (Root-Level — der reale Release-Branch-Fall) vor dem Legacy dist/-Präfix
+# bevorzugen. Die alten nur-dist/-checks verfehlten flache Installationen
+# und überschrieben deren User-Dateien.
+preserve_source_path() {
+  local target_dir="$1" rel="$2"
+  if [[ -f "$target_dir/$rel" ]]; then
+    printf '%s\n' "$target_dir/$rel"
+  elif [[ -f "$target_dir/dist/$rel" ]]; then
+    printf '%s\n' "$target_dir/dist/$rel"
+  fi
+  return 0
+}
+
 install_files() {
   local source_dir="$1"
   local target_dir="$2"
@@ -412,32 +426,54 @@ install_files() {
   log_verbose "Kopiere Dateien nach: $target_dir"
   
   # Prüfe ob allowlist.txt erhalten werden muss (basierend auf User-Entscheidung)
-  local allowlist_backup=""
-  if $PRESERVE_ALLOWLIST && [[ -d "$target_dir" && -f "$target_dir/proxy/allowlist.txt" ]]; then
-    allowlist_backup=$(mktemp)
-    cp "$target_dir/proxy/allowlist.txt" "$allowlist_backup"
-    log_verbose "Sichere proxy/allowlist.txt (User-Entscheidung: erhalten)"
-  elif ! $PRESERVE_ALLOWLIST && [[ -d "$target_dir" && -f "$target_dir/proxy/allowlist.txt" ]]; then
+  local allowlist_src allowlist_backup=""
+  if $PRESERVE_ALLOWLIST; then
+    allowlist_src=$(preserve_source_path "$target_dir" "proxy/allowlist.txt")
+    if [[ -n "$allowlist_src" ]]; then
+      allowlist_backup=$(mktemp)
+      cp "$allowlist_src" "$allowlist_backup"
+      log_verbose "Sichere ${allowlist_src#"$target_dir"/} (User-Entscheidung: erhalten)"
+    fi
+  else
     log_verbose "proxy/allowlist.txt wird überschrieben (User-Entscheidung: nicht erhalten)"
   fi
 
   # Custom-Edition-Dockerfile sichern (bleibt bei Updates immer erhalten;
-  # fehlt sie, landet nach dem Kopieren wieder das Template aus dist/)
-  local custom_dockerfile=""
-  if [[ -d "$target_dir" && -f "$target_dir/dist/Dockerfile.custom" ]]; then
+  # fehlt sie, landet nach dem Kopieren wieder das Template aus dem Release)
+  local custom_dockerfile_src custom_dockerfile=""
+  custom_dockerfile_src=$(preserve_source_path "$target_dir" "Dockerfile.custom")
+  if [[ -n "$custom_dockerfile_src" ]]; then
     custom_dockerfile=$(mktemp)
-    cp "$target_dir/dist/Dockerfile.custom" "$custom_dockerfile"
-    log_verbose "Sichere dist/Dockerfile.custom (Custom-Editionen erhalten)"
+    cp "$custom_dockerfile_src" "$custom_dockerfile"
+    log_verbose "Sichere ${custom_dockerfile_src#"$target_dir"/} (Custom-Editionen erhalten)"
   fi
 
   # SearXNG settings.yml sichern (Benutzer-editierbar, Custom-Edition-
   # Dockerfile-Regel); fehlt sie, landet nach dem Kopieren wieder das
-  # Template aus dist/
-  local searxng_settings=""
-  if [[ -d "$target_dir" && -f "$target_dir/dist/searxng/settings.yml" ]]; then
+  # Template aus dem Release
+  local searxng_settings_src searxng_settings=""
+  searxng_settings_src=$(preserve_source_path "$target_dir" "searxng/settings.yml")
+  if [[ -n "$searxng_settings_src" ]]; then
     searxng_settings=$(mktemp)
-    cp "$target_dir/dist/searxng/settings.yml" "$searxng_settings"
-    log_verbose "Sichere dist/searxng/settings.yml (Benutzer-Einstellungen erhalten)"
+    cp "$searxng_settings_src" "$searxng_settings"
+    log_verbose "Sichere ${searxng_settings_src#"$target_dir"/} (Benutzer-Einstellungen erhalten)"
+  fi
+
+  # toolchains/custom/ + toolchains/snapshots/ sichern (always-keep, §11):
+  # User-Rezepte und Recipe-Editor-Snapshots überleben Updates komplett;
+  # fehlen sie, landet nach dem Kopieren das Template aus dem Release.
+  # Forward-kompatibel geschrieben: toolchains/ existiert bis #197 noch
+  # nicht — die Regel steht schon bereit und ist bis dahin ein No-op.
+  local toolchains_backup=""
+  if [[ -d "$target_dir/toolchains/custom" || -d "$target_dir/toolchains/snapshots" ]]; then
+    toolchains_backup=$(mktemp -d)
+    if [[ -d "$target_dir/toolchains/custom" ]]; then
+      cp -r "$target_dir/toolchains/custom" "$toolchains_backup/custom"
+    fi
+    if [[ -d "$target_dir/toolchains/snapshots" ]]; then
+      cp -r "$target_dir/toolchains/snapshots" "$toolchains_backup/snapshots"
+    fi
+    log_verbose "Sichere toolchains/custom/ + toolchains/snapshots/ (immer erhalten)"
   fi
 
   # Erstelle Zielverzeichnis
@@ -457,26 +493,42 @@ install_files() {
   cp -r "$source_dir"/* "$target_dir/"
   
   # Stelle allowlist.txt wieder her wenn gewünscht
-  if $PRESERVE_ALLOWLIST && [[ -n "$allowlist_backup" && -f "$allowlist_backup" ]]; then
-    cp "$allowlist_backup" "$target_dir/proxy/allowlist.txt"
+  if [[ -n "$allowlist_backup" && -f "$allowlist_backup" ]]; then
+    mkdir -p "$(dirname "$allowlist_src")"
+    cp "$allowlist_backup" "$allowlist_src"
     rm -f "$allowlist_backup"
-    log_verbose "proxy/allowlist.txt wiederhergestellt"
+    log_verbose "${allowlist_src#"$target_dir"/} wiederhergestellt"
   fi
 
   # Custom-Edition-Dockerfile wiederherstellen, wenn vorher vorhanden
   if [[ -n "$custom_dockerfile" ]]; then
-    mkdir -p "$target_dir/dist"
-    cp "$custom_dockerfile" "$target_dir/dist/Dockerfile.custom"
+    mkdir -p "$(dirname "$custom_dockerfile_src")"
+    cp "$custom_dockerfile" "$custom_dockerfile_src"
     rm -f "$custom_dockerfile"
-    log_verbose "dist/Dockerfile.custom wiederhergestellt (Custom-Editionen erhalten)"
+    log_verbose "${custom_dockerfile_src#"$target_dir"/} wiederhergestellt (Custom-Editionen erhalten)"
   fi
 
   # SearXNG-Einstellungen wiederherstellen, wenn vorher vorhanden
   if [[ -n "$searxng_settings" ]]; then
-    mkdir -p "$target_dir/dist/searxng"
-    cp "$searxng_settings" "$target_dir/dist/searxng/settings.yml"
+    mkdir -p "$(dirname "$searxng_settings_src")"
+    cp "$searxng_settings" "$searxng_settings_src"
     rm -f "$searxng_settings"
-    log_verbose "dist/searxng/settings.yml wiederhergestellt (Benutzer-Einstellungen erhalten)"
+    log_verbose "${searxng_settings_src#"$target_dir"/} wiederhergestellt (Benutzer-Einstellungen erhalten)"
+  fi
+
+  # toolchains/custom/ + toolchains/snapshots/ wiederherstellen (immer
+  # erhalten; Merge per Inhalt — User-Dateien gewinnen gegen Templates)
+  if [[ -n "$toolchains_backup" ]]; then
+    if [[ -d "$toolchains_backup/custom" ]]; then
+      mkdir -p "$target_dir/toolchains/custom"
+      cp -r "$toolchains_backup/custom/." "$target_dir/toolchains/custom/"
+    fi
+    if [[ -d "$toolchains_backup/snapshots" ]]; then
+      mkdir -p "$target_dir/toolchains/snapshots"
+      cp -r "$toolchains_backup/snapshots/." "$target_dir/toolchains/snapshots/"
+    fi
+    rm -rf "$toolchains_backup"
+    log_verbose "toolchains/custom/ + toolchains/snapshots/ wiederhergestellt (immer erhalten)"
   fi
   
   # Entferne .git Verzeichnis um Platz zu sparen

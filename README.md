@@ -192,8 +192,10 @@ container; pasting works while stopped. See ADR-0035.
 **Settings → Update** shows installed vs. latest release version, checks for
 updates at every server start (footer banner when available; "Check now" on
 demand), and runs the install script non-interactively, fetched fresh from the
-repository's `main` branch — `proxy/allowlist.txt`, `dist/Dockerfile.custom`,
-and user configs are preserved. While an update runs it is globally exclusive
+repository's `main` branch — `proxy/allowlist.txt` (kept after a prompt,
+default keep), `Dockerfile.custom`, `searxng/settings.yml`,
+`toolchains/custom/`, `toolchains/snapshots/`, and user configs are preserved.
+While an update runs it is globally exclusive
 (no other operations); the live log streams in the browser. When applied, the
 banner clears, VERSION is re-read, and a "Update installed — restart
 oc-sandbox to apply" note appears — the restart is yours (the per-launch token

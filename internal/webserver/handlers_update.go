@@ -12,8 +12,10 @@ import (
 // the POSTs never block on the op.
 
 // keepNote is the preservation fact the popup copy carries (§12) —
-// mirrors settingsview's keepNote so the two never drift apart.
-const keepNote = "Kept: proxy/allowlist.txt, dist/Dockerfile.custom, dist/searxng/settings.yml, your configs."
+// mirrors settingsview's keepNote so the two never drift apart. Root-level
+// flattened runtime paths (§11): the flattened install is the real layout;
+// toolchains/ lands with #197, the preserve rule is already live.
+const keepNote = "Kept: proxy/allowlist.txt (prompted), Dockerfile.custom, searxng/settings.yml, toolchains/custom/, toolchains/snapshots/, your configs."
 
 // confirmTitle/confirmBody are the shared confirm popup's copy for the
 // update run (ADR-0021 set carried 1:1; the popup carries the keep-note).
