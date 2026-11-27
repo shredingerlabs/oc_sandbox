@@ -22,7 +22,7 @@ func Run(root string) Report {
 	if !distTreePresent(root) {
 		return Report{Items: skipAll("missing dist tree under " + root)}
 	}
-	if err := seedToolchainsManifest(home, root); err != nil {
+	if err := seedToolchains(home, root); err != nil {
 		return Report{Items: failAll(err)}
 	}
 	var items []Item
@@ -59,19 +59,31 @@ func toolchainsRoot(root string) string {
 	return filepath.Join(root, "dist", "toolchains")
 }
 
-// seedToolchainsManifest copies the shipped manifest into the smoke
-// home's install layout — the WebUI's LayoutFor resolution finds the
-// bundle map there (spec §1/§10).
-func seedToolchainsManifest(home, root string) error {
-	data, err := os.ReadFile(filepath.Join(toolchainsRoot(root), "manifest.json"))
-	if err != nil {
-		return err
-	}
-	dir := filepath.Join(home, ".oc-sandbox", "toolchains")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return err
-	}
-	return os.WriteFile(filepath.Join(dir, "manifest.json"), data, 0o644)
+// seedToolchains copies the shipped toolchains dir (manifest, base
+// recipe, unit recipes) into the smoke home's install layout — the
+// WebUI's LayoutFor resolution discovers the whole catalog there (spec
+// §1/§10; the wizard's set-tag derivation hashes the recipes).
+func seedToolchains(home, root string) error {
+	src := toolchainsRoot(root)
+	dst := filepath.Join(home, ".oc-sandbox", "toolchains")
+	return filepath.WalkDir(src, func(p string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(src, p)
+		if err != nil {
+			return err
+		}
+		out := filepath.Join(dst, rel)
+		if d.IsDir() {
+			return os.MkdirAll(out, 0o755)
+		}
+		data, err := os.ReadFile(p)
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(out, data, 0o644)
+	})
 }
 
 // swdevToolchains is the shipped swdev bundle expansion (the manifest's

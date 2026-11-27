@@ -34,10 +34,14 @@ var matrix = []Row{
 	{Screen: "ws-settings", Key: "cbm_ui", Label: "CBM-UI", AdvancedOnly: true},
 	{Screen: "ws-settings", Key: "hil", Label: "HIL", AdvancedOnly: true},
 	// New Workspace wizard (#156, §6): Standard shows name, source pair,
-	// agent, edition, VCS-credential + AI-provider selects — the §6
-	// presets (start web, proxy off, searxng, offline/CBM-UI off, HIL on
-	// for embedded) are recorded without their rows. The start_option
-	// row is retired (ADR-0033: the card buttons own the variant access).
+	// agent, the bundle row, VCS-credential + AI-provider selects — the
+	// §6 presets (start web, proxy off, searxng, offline/CBM-UI off, HIL
+	// on iff the selection carries a hardware unit) are recorded without
+	// their rows. The start_option row is retired (ADR-0033: the card
+	// buttons own the variant access). The toolchain multi-select is
+	// Advanced-only (toolchain sets #205, WP-3); the bundle row stays
+	// Standard-visible.
+	{Screen: "ws-new", Key: "toolchains", Label: "Toolchains", AdvancedOnly: true},
 	{Screen: "ws-new", Key: "proxy", Label: "Proxy", AdvancedOnly: true},
 	{Screen: "ws-new", Key: "search_mode", Label: "Search mode", AdvancedOnly: true},
 	{Screen: "ws-new", Key: "offline", Label: "Offline", AdvancedOnly: true},

@@ -128,14 +128,24 @@ workspace.
   `opencode pair` in a new tab within the click — a plain-URL fallback appears
   when pairing fails)
 The **Agent** row picks the workspace kind: `Code` (default) or chat/PKM
-variants. The **AI provider** selection offers `none` and `Custom` (name,
-endpoint (OpenAI-compatible API), token — written to `opencode.json` v2 and
-`.opencode_data/credentials/`, see ADR-0022/0025). Existing credentials are
-kept unless **Replace** is chosen.
+variants (PKM pins the toolchain set to base only — un-pinning restores
+the prior selection). The **AI provider** selection offers `none` and
+`Custom` (name, endpoint (OpenAI-compatible API), token — written to
+`opencode.json` v2 and `.opencode_data/credentials/`, see
+ADR-0022/0025). Existing credentials are kept unless **Replace** is
+chosen.
 
-While the edition's image is missing, an **Image build** row offers
-**Build now** / **Build later** (default: Build now). The create summary
-confirm shows the full plan before anything runs.
+The **Toolchain set** row offers the manifest bundles as chips (chat/pkm
+rendered "base only"); a bundle preselects the toolchain multi-select
+under it (Advanced-only: flat alphabetical list with live cached
+markers, invalid units disabled with their reason, "n of m selected"
+header) — editing the multi-select reads **Custom**. Selecting any
+hardware toolchain presets the **HIL** mode toggle (a preset, not a
+pin). While the selection's set image is missing, an **Image build** row
+offers **Build now** / **Build later** (default: Build now) with the
+honest cost line — how many toolchains need building, never time
+estimates. The create summary confirm shows the full plan before
+anything runs.
 
 First-run setup runs automatically in the background (CBM configuration, then —
 for `code` workspaces — interactive skills setup in a host terminal window;

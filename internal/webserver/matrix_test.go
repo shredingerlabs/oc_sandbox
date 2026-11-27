@@ -29,13 +29,14 @@ var matrixCases = []struct {
 	{"ws-settings", config.DisplayAdvanced,
 		[]string{"edition", "proxy", "search_mode", "offline", "cbm_ui", "hil", "stt"},
 		nil, false},
-	// New Workspace wizard (#156, §6): Standard hides the preset rows,
+	// New Workspace wizard (#156, §6): Standard hides the preset rows and
+	// the toolchain multi-select (the bundle row stays Standard-visible),
 	// Advanced reveals them all.
 	{"ws-new", config.DisplayStandard, nil,
-		[]string{"proxy", "search_mode", "offline", "cbm_ui", "hil", "stt"},
+		[]string{"proxy", "search_mode", "offline", "cbm_ui", "hil", "stt", "toolchains"},
 		true},
 	{"ws-new", config.DisplayAdvanced,
-		[]string{"proxy", "search_mode", "offline", "cbm_ui", "hil", "stt"},
+		[]string{"proxy", "search_mode", "offline", "cbm_ui", "hil", "stt", "toolchains"},
 		nil, false},
 }
 
