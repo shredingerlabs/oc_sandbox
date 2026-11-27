@@ -101,12 +101,15 @@ var reservedModes = map[string]bool{
 	"start_opencode": true,
 	"start_web":      true,
 	"edition":        true,
-	"detach":         true,
-	"container-id":   true,
-	"help":           true,
-	"use_proxy":      true,
-	"use_stt":        true,
-	"search_mode":    true,
+	// toolchain sets (#200): --toolchains selects the set (like the retired
+	// --edition), never a start mode
+	"toolchains":   true,
+	"detach":       true,
+	"container-id": true,
+	"help":         true,
+	"use_proxy":    true,
+	"use_stt":      true,
+	"search_mode":  true,
 }
 
 var flagRe = regexp.MustCompile(`(?m)(^|\s)--([a-zA-Z0-9_-]+)`)
