@@ -5,6 +5,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -470,13 +471,16 @@ func runBashDiscover(t *testing.T, helper, root string) []string {
 
 // renderRecords renders a Go Catalog as the bash discover records: the
 // scan-time collision warnings first, then the sorted unit records each
-// followed by its invalid warning, then the bundle records each followed
-// by their invalidation warning — the bash helper's emission order.
+// followed by its invalid warning, then any remaining warnings (the
+// manifest failure), then the bundle records each followed by their
+// invalidation warning — the bash helper's emission order.
 func renderRecords(c Catalog) []string {
 	var recs []string
+	emitted := map[string]bool{}
 	for _, w := range c.Warnings {
 		if strings.HasPrefix(w, "user recipe custom/") {
 			recs = append(recs, "warning\t"+w)
+			emitted[w] = true
 		}
 	}
 	for _, u := range c.Units {
@@ -484,7 +488,15 @@ func renderRecords(c Catalog) []string {
 			recs = append(recs, "unit\t"+u.ID+"\tvalid\t"+u.Path)
 		} else {
 			recs = append(recs, "unit\t"+u.ID+"\tinvalid\t"+u.Reason)
-			recs = append(recs, "warning\ttoolchain '"+u.ID+"' is invalid — "+u.Reason)
+			w := "toolchain '" + u.ID + "' is invalid — " + u.Reason
+			recs = append(recs, "warning\t"+w)
+			emitted[w] = true
+		}
+	}
+	for _, w := range c.Warnings {
+		if !emitted[w] && !bundleWarningRe.MatchString(w) {
+			recs = append(recs, "warning\t"+w)
+			emitted[w] = true
 		}
 	}
 	for _, b := range c.Bundles {
@@ -497,6 +509,8 @@ func renderRecords(c Catalog) []string {
 	}
 	return recs
 }
+
+var bundleWarningRe = regexp.MustCompile(`^bundle '.+' is invalidated — `)
 
 // TestDiscoverAgreesWithBash pins the Go discovery to the bash reference
 // over one fixture tree exercising the shared semantics: valid and invalid
