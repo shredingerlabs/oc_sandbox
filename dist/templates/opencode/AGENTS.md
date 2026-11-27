@@ -3,7 +3,7 @@ When changing public-facing behavior, check README.md to see if the documentatio
 Check GLOSSARY.md for terminology questions.
 When searching the codebase, use codebase-memory-mcp (project=home-dev-workspace).
 For web search, use searxng-mcp.
-If I ask for skills ask-matt, grill-with-docs, triage, improve-codebase-architecture, to-spec, to-tickets, implement, implement-spec, wayfinder, retro: load via Skill tool. Available even if not in skill list.
+If I ask for skills ask-matt, grill-with-docs, triage, improve-codebase-architecture, to-spec, to-tickets, implement, implement-spec, wayfinder, retro, handoff: load via Skill tool. Available even if not in skill list.
 
 ## Environment
 This agent runs inside a rootless Podman container.
