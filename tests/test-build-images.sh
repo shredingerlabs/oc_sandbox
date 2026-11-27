@@ -129,8 +129,29 @@ exit 0
 EOF
 chmod +x "$fake_bin/df"
 
+# curl mock: the builder's _network_probe HEAD probe (#212, §7 item 3)
+# must never touch the network here — every HEAD answers success unless
+# CURL_FAIL_HOSTS names the host (exit 7, connection-refused parity).
+# The probed URLs log into $CURL_LOG (one per line).
+cat > "$fake_bin/curl" <<'EOF'
+#!/usr/bin/env bash
+for a in "$@"; do
+  [[ "$a" == https://* ]] && printf '%s\n' "$a" >> "${CURL_LOG:-/dev/null}"
+done
+for h in ${CURL_FAIL_HOSTS:-}; do
+  for a in "$@"; do
+    if [[ "$a" == "https://$h" ]]; then
+      exit 7
+    fi
+  done
+done
+exit 0
+EOF
+chmod +x "$fake_bin/curl"
+
 export PATH="$fake_bin:/usr/bin:/bin"
 export PODMAN_LOG="$test_home/podman.log"
+export CURL_LOG="$test_home/curl.log"
 export TOOLCHAINS_ROOT="$fixture_dist/toolchains"
 
 script="$fixture_dist/scripts/build-images.sh"
@@ -856,5 +877,72 @@ if grep -q '^build' "$PODMAN_LOG"; then
   exit 1
 fi
 printf 'cached-skip precedence test passed\n'
+
+# --- 13: the network probe (#212, §7 item 3) ---------------------------------------
+
+# 13a: a download-needing plan probes one HEAD per distinct source host —
+# the base pull (docker.io) plus the base recipe's mapped constructs (apt
+# mirrors, PyPI, npm registry, the recipe's versioned URLs).
+: > "$PODMAN_LOG"
+: > "$CURL_LOG"
+PODMAN_MISSING_IMAGES="$expected_tag" run_script --base
+for want in docker.io archive.ubuntu.com security.ubuntu.com pypi.org \
+            registry.npmjs.org gitlab.com github.com deb.nodesource.com; do
+  grep -q "^https://$want\$" "$CURL_LOG" \
+    || { printf 'probe missed host %s (log: %s)\n' "$want" "$(cat "$CURL_LOG")" >&2; exit 1; }
+done
+[[ "$(wc -l < "$CURL_LOG")" -le 12 ]]  # distinct hosts only — no per-line spam
+grep -q -- "build --network host -t $expected_tag" "$PODMAN_LOG"
+printf 'probe host mapping test passed\n'
+
+# 13b: an offline base pull refuses naming the base image, the unreachable
+# host and the escape — no build call.
+: > "$PODMAN_LOG"
+CURL_FAIL_HOSTS="docker.io" PODMAN_MISSING_IMAGES="$expected_tag" \
+  run_script_failing --base
+grep -q 'refusing to build — the base image needs downloads; cannot reach: docker.io. Connect and retry, or Build later.' "$test_home/err.log"
+if grep -q '^build ' "$PODMAN_LOG"; then
+  printf 'offline probe let a build through\n' >&2
+  exit 1
+fi
+printf 'offline base-build probe refusal test passed\n'
+
+# 13c: an offline component source refuses naming the uncached unit (the
+# base image exists here — only the component downloads).
+: > "$PODMAN_LOG"
+tc_tag="$(component_tag rust)"
+CURL_FAIL_HOSTS="static.rust-lang.org" \
+  PODMAN_MISSING_IMAGES="$tc_tag" run_script_failing --tc rust
+grep -q "toolchains rust need downloads" "$test_home/err.log"
+grep -q 'cannot reach: static.rust-lang.org' "$test_home/err.log"
+if grep -q '^build ' "$PODMAN_LOG"; then
+  printf 'offline probe let a build through\n' >&2
+  exit 1
+fi
+printf 'offline component probe refusal test passed\n'
+
+# 13d: a fully-cached plan never probes — no curl call at all.
+: > "$PODMAN_LOG"
+: > "$CURL_LOG"
+run_script --base
+grep -q -- "$expected_tag already exists — skipping" "$test_home/out.log"
+if grep -q 'https://' "$CURL_LOG"; then
+  printf 'a fully-cached plan probed the network\n' >&2
+  exit 1
+fi
+printf 'cached plan never probes test passed\n'
+
+# 13e: an assembly-only --set skips the probe (components cached, set tag
+# missing — the assembly never downloads).
+: > "$PODMAN_LOG"
+: > "$CURL_LOG"
+set_one_tag="$(tc_set_tag "$base_dockerfile" rust "$fixture_dist/toolchains/recipes/rust.Dockerfile")"
+PODMAN_MISSING_IMAGES="$set_one_tag" run_script --set rust
+if grep -q 'https://' "$CURL_LOG"; then
+  printf 'an assembly-only plan probed the network\n' >&2
+  exit 1
+fi
+grep -q -- "build --network=none -t $set_one_tag" "$PODMAN_LOG"
+printf 'assembly-only probe skip test passed\n'
 
 printf 'build-images tests passed\n'

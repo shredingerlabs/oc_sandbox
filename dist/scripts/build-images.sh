@@ -71,8 +71,8 @@
 # lazy; same-id existing image size where one exists, else the budget formula
 # floored at 1 GiB).
 #
-# Later tickets: the pre-build network probe (#212, §7 item 3 — the seam is
-# _network_probe below).
+# The pre-build network probe (#212, §7 item 3) rides _network_probe
+# below — one HEAD per distinct source host of the plan's download needs.
 #
 # Usage:
 #   build-images.sh --base              build the base image
@@ -212,12 +212,90 @@ disk_preflight() {
   fi
 }
 
-# _network_probe — seam for §7 item 3, ticket #212: one HEAD per distinct
-# source host of the plan's download needs (host-proxy-env aware, short
-# timeout), honored before any build; offline hosts get a refusal naming the
-# unreachable hosts. Until #212 this is a no-op and an offline host fails at
-# the build itself.
-_network_probe() { :; }
+# _network_probe — the §7 item 3 preflight, filled by #212: one HEAD per
+# distinct source host of the plan's download needs, host-proxy-env aware
+# (curl honors the proxy environment; builds never traverse squid, so no
+# allowlist entries ever), short timeout. The caller's scope names the
+# plan (base_exists, base_file, build_ids, recipe_of — bash dynamic
+# scoping): a missing base image adds docker.io (the FROM pull) and the
+# base recipe's own sources, every missing component adds its recipe's
+# sources. An offline host refuses naming the uncached units, the
+# unreachable hosts and the escape. The WebUI's Go op layer probes
+# natively before it launches this script (WP-8, #212) — this seam is
+# the CLI path's own probe, re-verifying at build time. Without curl the
+# probe takes the false-green fallback (a false green is recoverable; a
+# false red blocks work).
+_network_probe() {
+  command -v curl >/dev/null 2>&1 || return 0
+  local -a hosts=()
+  local -a files=()
+  if ((base_exists == 0)); then
+    hosts+=(docker.io)
+    files+=("$base_file")
+  fi
+  local id
+  for id in "${build_ids[@]}"; do
+    files+=("${recipe_of[$id]}")
+  done
+  if ((${#files[@]} == 0)); then
+    return 0
+  fi
+  local f h bad=""
+  for f in "${files[@]}"; do
+    while IFS= read -r h; do
+      hosts+=("$h")
+    done < <(recipe_hosts "$f")
+  done
+  for h in $(printf '%s\n' "${hosts[@]}" | LC_ALL=C sort -u); do
+    curl -sI --max-time 3 -o /dev/null "https://$h" || bad+="$h,"
+  done
+  if [[ -n "$bad" ]]; then
+    bad="${bad%,}"
+    local ids_str needs
+    ids_str="$(IFS=,; printf '%s' "${build_ids[*]}")"
+    if ((base_exists == 0)) && ((${#build_ids[@]} > 0)); then
+      needs="the base image and toolchains ${ids_str} need downloads"
+    elif ((base_exists == 0)); then
+      needs="the base image needs downloads"
+    else
+      needs="toolchains ${ids_str} need downloads"
+    fi
+    die "refusing to build — ${needs}; cannot reach: ${bad}. Connect and retry, or Build later."
+  fi
+  return 0
+}
+
+# recipe_hosts <recipe-file> — the §7 egress list's built-in
+# construct→host mapping over one recipe, one distinct host per line:
+# apt → the distro mirrors, pip → PyPI, npm → registry.npmjs.org,
+# rustup → the rust hosts, a versioned direct URL → its own host.
+# Exotic implicit sources (the playwright browser CDN, rosdep's runtime
+# fetches) take the false-green fallback — unmapped constructs probe
+# nothing. The file is scanned whole so backslash-continuation lines
+# carry their constructs; comment lines carry nothing.
+recipe_hosts() {
+  local file=$1 line h
+  [[ -f "$file" ]] || return 0
+  while IFS= read -r line; do
+    [[ "$line" =~ ^[[:space:]]*# ]] && continue
+    if [[ "$line" == *apt-get* || "$line" == *" apt install "* ]]; then
+      printf 'archive.ubuntu.com\nsecurity.ubuntu.com\n'
+    fi
+    if [[ "$line" == *"pip install"* || "$line" == *"pip3 install"* || "$line" == *"python3 -m pip"* ]]; then
+      printf 'pypi.org\nfiles.pythonhosted.org\n'
+    fi
+    if [[ "$line" == *"npm install"* || "$line" == *"npm i "* ]]; then
+      printf 'registry.npmjs.org\n'
+    fi
+    if [[ "$line" == *rustup* ]]; then
+      printf 'sh.rustup.rs\nstatic.rust-lang.org\n'
+    fi
+    while IFS= read -r h; do
+      [[ -n "$h" ]] && printf '%s\n' "$h"
+    done < <(grep -oE 'https?://[A-Za-z0-9.-]+' <<<"$line" | sed -E 's|https?://||')
+  done < "$file"
+  return 0
+}
 
 # --- base build --------------------------------------------------------------------
 

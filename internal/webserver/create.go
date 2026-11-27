@@ -878,6 +878,13 @@ func (c *createChain) runSteps(s *Server, emit func(string)) error {
 		} else {
 			emitf("==> Building toolchain set (%s)", strings.Join(c.toolchains, ", "))
 		}
+		// The §7 preflight (WP-8 #212) refuses first on a low-disk or
+		// offline host — the chain stops before any build call.
+		if plan, ok := s.builderPlanSet(c.toolchains); ok {
+			if err := s.preflightBuild(plan); err != nil {
+				return fail(err.Error())
+			}
+		}
 		if err := runScript(s.deps.BuildImagesScript, "--set", ids); err != nil {
 			return fail("Build failed — the set image is still unavailable. Press Create Workspace to retry.")
 		}

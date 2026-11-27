@@ -140,6 +140,7 @@ func startWebserver(home, version string) *webserver.Server {
 			Dockerfile:           layout.Dockerfile,
 			DockerfileCustom:     layout.DockerfileCustom,
 			Toolchains:           layout.Toolchains,
+			NetProbe:             webserver.NativeNetProbe,
 			DefaultWorkspacePath: webserver.DefaultWorkspacePath(home),
 		},
 	})

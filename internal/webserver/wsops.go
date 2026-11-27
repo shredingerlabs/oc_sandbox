@@ -319,9 +319,9 @@ func memberDelta(running, saved []string) string {
 
 // buildSetNow runs the builder's --set plan (missing components +
 // assembly, spec §7) streamed through emit, then re-verifies the derived
-// tag landed. An existing image skips the build; the script's own
-// preflight (disk, network, podman floor) refuses before any podman call
-// — its refusal output streams into the pane (the Go preflight is #212).
+// tag landed. The Go preflight (§7 items 2+3, WP-8 #212) refuses first
+// on a low-disk or offline host — the builder's own preflight re-checks
+// at build time; a refusal stops nothing.
 func (s *Server) buildSetNow(cfg sandboxcfg.Config, emit func(string)) error {
 	tag, ok := s.savedSetTag(cfg)
 	if ok && discovery.ImageExistsTag(s.runnerSeam(), tag) {
@@ -332,6 +332,12 @@ func (s *Server) buildSetNow(cfg sandboxcfg.Config, emit func(string)) error {
 		emit("==> Building base-only set image")
 	} else {
 		emit("==> Building toolchain set (" + strings.Join(cfg.Toolchains, ", ") + ")")
+	}
+	if plan, pok := s.builderPlanSet(cfg.Toolchains); pok {
+		if err := s.preflightBuild(plan); err != nil {
+			emit(err.Error())
+			return err
+		}
 	}
 	out, err := s.runnerSeam().Output("bash", append([]string{s.deps.BuildImagesScript}, "--set", ids)...)
 	for _, l := range cmdrun.Lines(out) {
