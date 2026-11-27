@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # tests/test-build-images.sh — end-to-end tests for build-images.sh with a
 # PATH-mocked podman (and df) that log their arguments: the successor pattern
-# of tests/test-build-container.sh. Scope here is the --base flag (ticket
-# #198): flag contract, generation determinism, podman-arg pins, preflight
-# refusals and lint-refusal propagation. --tc/--set/--all arrive with tickets
-# #199/#201; the old build-container tests die only at cutover (#215).
+# of tests/test-build-container.sh. Scope: the --base (ticket #198), --tc/#199
+# and --set/#200 flags, plus the --set incremental delta assembly (#201, spec
+# §5) — parent selection, the contest check, delta generation, podman-arg
+# pins and the sanity-gate fallback. The old build-container tests die only
+# at cutover (#215).
 set -euo pipefail
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -47,9 +48,10 @@ mkdir -p "$fake_bin"
 # answers PODMAN_STAGE_ID; `images --filter reference=X` answers PODMAN_IMAGES
 # (tags, one per line — only lines matching the requested reference);
 # `image inspect --format {{.Size}}` answers PODMAN_IMAGE_SIZE; `image inspect
-# --format {{ index .Labels "tc.pkgs" }}` answers from PODMAN_LABELS_FILE
-# (<tag><TAB><value>); `image mount` answers PODMAN_MOUNT_DIR (the test places
-# the dump's tc.pkgs there).
+# --format {{ index .Labels "X" }}` answers from PODMAN_LABELS_FILE —
+# three-column rows <tag><TAB><label><TAB><value> first, then the legacy
+# two-column <tag><TAB><value> rows for tc.pkgs; `image mount` answers
+# PODMAN_MOUNT_DIR (the test places the dump's tc.pkgs there).
 cat > "$fake_bin/podman" <<'EOF'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "${PODMAN_LOG}"
@@ -89,9 +91,20 @@ case "$1 $2" in
     exit 0
     ;;
   "image inspect")
-    if [[ "$*" == *'tc.pkgs'* && -n "${PODMAN_LABELS_FILE:-}" ]]; then
+    if [[ "$*" == *'index .Labels'* && -n "${PODMAN_LABELS_FILE:-}" ]]; then
       tag="${@: -1}"
-      grep -F "$tag"$'\t' "$PODMAN_LABELS_FILE" | head -n 1 | cut -f2-
+      label=""
+      if [[ "$*" =~ index\ .Labels\ \"([^\"]+)\" ]]; then
+        label="${BASH_REMATCH[1]}"
+      fi
+      row="$(awk -F'\t' -v t="$tag" -v l="$label" '$1 == t && $2 == l { print $3; exit }' "$PODMAN_LABELS_FILE")"
+      if [[ -n "$row" ]]; then
+        printf '%s\n' "$row"
+        exit 0
+      fi
+      if [[ "$label" == "tc.pkgs" ]]; then
+        awk -F'\t' -v t="$tag" '$1 == t && NF == 2 { print $2; exit }' "$PODMAN_LABELS_FILE"
+      fi
       exit 0
     fi
     printf '%s\n' "${PODMAN_IMAGE_SIZE:-1073741824}"
@@ -625,5 +638,223 @@ grep -q -- "COPY oc-envs/playwright.env /tmp/oc-merge/playwright/envs" "$pw_gen/
 [[ "$(sed -n '1p' "$pw_gen/oc-envs/playwright.env")" == 'PLAYWRIGHT_BROWSERS_PATH=/usr/local/share/playwright-browsers' ]]
 [[ "$(sed -n '2p' "$pw_gen/oc-envs/playwright.env")" == 'PLAYWRIGHT_DOWNLOAD_CONNECTION_TIMEOUT=0' ]]
 printf 'fragment ENV re-emission staging test passed\n'
+
+# --- 12: --set incremental delta assembly (ticket #201, spec §5) ----------------------
+#
+# Parent selection + contest check read labels host-side via podman image
+# inspect; the delta builds FROM the parent set image with only the new
+# members' payload archives + PM dumps (envs staged for ALL members, so the
+# re-emitted profile fragment keeps full-canonical semantics). Labels file:
+# three-column <tag>\t<label>\t<value> rows for the set images (the legacy
+# two-column rows carry the components' tc.pkgs).
+
+pw_recipe="$fixture_dist/toolchains/recipes/playwright.Dockerfile"
+pw_tag="$(component_tag playwright)"
+set_three="$(tc_set_tag "$base_dockerfile" go "$go_recipe" playwright "$pw_recipe" usb "$usb_recipe")"
+set_go="$(tc_set_tag "$base_dockerfile" go "$go_recipe")"
+parent_set_go="$(tc_set_tag "$base_dockerfile" go "$go_recipe")"
+parent_set_go_pw="$(tc_set_tag "$base_dockerfile" go "$go_recipe" playwright "$pw_recipe")"
+delta_gen_two="$test_home/oc-build-gen-$(id -u)/set-${set_two#*:}-delta"
+delta_gen_three="$test_home/oc-build-gen-$(id -u)/set-${set_three#*:}-delta"
+set_gen_three="$test_home/oc-build-gen-$(id -u)/set-${set_three#*:}"
+set_gen_go="$test_home/oc-build-gen-$(id -u)/set-${set_go#*:}"
+base_sha="$(sha256sum "$base_dockerfile" | cut -d' ' -f1)"
+pw_sha="$(sha256sum "$pw_recipe" | cut -d' ' -f1)"
+
+labels2="$test_home/labels-delta.tsv"
+{
+  printf '%s\t%s\n' "$go_tag" 'golang-go'
+  printf '%s\t%s\n' "$usb_tag" 'usbutils libusb-1.0-0'
+  printf '%s\t%s\n' "$pw_tag" 'playwright'
+  printf '%s\tmembers\tgo\n' "$parent_set_go"
+  printf '%s\tmember.hashes\tgo:%s\n' "$parent_set_go" "$go_sha"
+  printf '%s\tbase.hash\t%s\n' "$parent_set_go" "$base_sha"
+  printf '%s\ttc.pkgs\tgolang-go\n' "$parent_set_go"
+  printf '%s\tmembers\tgo usb\n' "$set_two"
+  printf '%s\tmember.hashes\tgo:%s usb:%s\n' "$set_two" "$go_sha" "$usb_sha"
+  printf '%s\tbase.hash\t%s\n' "$set_two" "$base_sha"
+  printf '%s\ttc.pkgs\tgolang-go libusb-1.0-0 usbutils\n' "$set_two"
+  printf '%s\tmembers\tgo playwright\n' "$parent_set_go_pw"
+  printf '%s\tmember.hashes\tgo:%s playwright:%s\n' "$parent_set_go_pw" "$go_sha" "$pw_sha"
+  printf '%s\tbase.hash\t%s\n' "$parent_set_go_pw" "$base_sha"
+  printf '%s\ttc.pkgs\tgolang-go playwright\n' "$parent_set_go_pw"
+} > "$labels2"
+
+# 12a: a valid, contest-free parent builds incrementally — FROM the parent,
+# only the delta member's payload/pm staged, labels read via image inspect
+# (never a container start), enumeration labels identical to full canonical,
+# the non-normative provenance label present, gate mounts + umounts, exactly
+# one assembly build
+gate_mnt="$test_home/mnt-gate-ok"
+mkdir -p "$gate_mnt/oc-dump/pm" "$gate_mnt/var/lib/dpkg"
+printf 'Package: usbutils\nStatus: install ok installed\n' > "$gate_mnt/oc-dump/pm/status"
+printf 'Package: golang-go\nStatus: install ok installed\n\nPackage: usbutils\nStatus: install ok installed\n' \
+  > "$gate_mnt/var/lib/dpkg/status"
+: > "$PODMAN_LOG"
+PODMAN_MISSING_IMAGES="$set_two" PODMAN_IMAGES="$parent_set_go" \
+  PODMAN_LABELS_FILE="$labels2" PODMAN_MOUNT_DIR="$gate_mnt" run_script --set usb,go
+cp "$PODMAN_LOG" "$test_home/log-inc"
+grep -q -- "images --filter reference=opencode-sandbox-set" "$PODMAN_LOG"
+grep -q -- "image inspect --format {{ index .Labels \"members\" }} $parent_set_go" "$PODMAN_LOG"
+grep -q -- "image inspect --format {{ index .Labels \"member.hashes\" }} $parent_set_go" "$PODMAN_LOG"
+grep -q -- "image inspect --format {{ index .Labels \"base.hash\" }} $parent_set_go" "$PODMAN_LOG"
+grep -q -- "image inspect --format {{ index .Labels \"tc.pkgs\" }} $parent_set_go" "$PODMAN_LOG"
+grep -q -- "build --network=none -t $set_two -f $delta_gen_two/Dockerfile $delta_gen_two" "$PODMAN_LOG"
+[[ "$(grep -c -- "build --network=none -t $set_two " "$PODMAN_LOG")" -eq 1 ]]
+grep -q -- "assembling $set_two (incremental from $parent_set_go)" "$test_home/out.log"
+grep -q -- "^FROM $parent_set_go\$" "$delta_gen_two/Dockerfile"
+grep -q -- "COPY --from=$usb_tag /oc-dump/payload.tar.gz /tmp/oc-merge/usb/payload.tar.gz" "$delta_gen_two/Dockerfile"
+grep -q -- "COPY --from=$usb_tag /oc-dump/pm /tmp/oc-merge/usb/pm" "$delta_gen_two/Dockerfile"
+if grep -q -- "COPY --from=$go_tag /oc-dump" "$delta_gen_two/Dockerfile"; then
+  printf "the delta assembly staged the parent member's payload\n" >&2
+  exit 1
+fi
+if grep -q -- 'COPY oc-envs/' "$delta_gen_two/Dockerfile"; then
+  printf 'go/usb declare no ENVs — the delta assembly staged env files anyway\n' >&2
+  exit 1
+fi
+grep -q '^LABEL members="go usb"$' "$delta_gen_two/Dockerfile"
+grep -q "^LABEL member.hashes=\"go:$go_sha usb:$usb_sha\"\$" "$delta_gen_two/Dockerfile"
+grep -q "^LABEL base.hash=\"$base_sha\"\$" "$delta_gen_two/Dockerfile"
+grep -q '^LABEL tc.pkgs="golang-go libusb-1.0-0 usbutils"$' "$delta_gen_two/Dockerfile"
+grep -q -- "LABEL oc.provenance=\"mode=incremental parent=$parent_set_go\"" "$delta_gen_two/Dockerfile"
+grep -q -- "image mount $set_two" "$PODMAN_LOG"
+grep -q -- "image mount $usb_tag" "$PODMAN_LOG"
+grep -q -- "image umount $set_two" "$PODMAN_LOG"
+printf 'incremental delta assembly (valid parent) test passed\n'
+
+# 12b: no parent on host (fresh set / deleted parent) — full canonical, and
+# the identity is content alone: the full and incremental runs target the
+# SAME tag (no parent hash in it)
+: > "$PODMAN_LOG"
+PODMAN_MISSING_IMAGES="$set_two" PODMAN_LABELS_FILE="$labels2" run_script --set usb,go
+grep -q -- "build --network=none -t $set_two -f $set_gen/Dockerfile $set_gen" "$PODMAN_LOG"
+grep -q -- "^FROM opencode-sandbox-base:" "$set_gen/Dockerfile"
+grep -q -- "assembling $set_two$" "$test_home/out.log"
+inc_line="$(grep -- 'build --network=none' "$test_home/log-inc" | head -n 1)"
+full_line="$(grep -- 'build --network=none' "$PODMAN_LOG" | head -n 1)"
+inc_tag="${inc_line#* -t }"
+inc_tag="${inc_tag%% *}"
+full_tag="${full_line#* -t }"
+full_tag="${full_tag%% *}"
+[[ "$inc_tag" == "$full_tag" ]]
+printf 'no-parent full canonical + content-only identity test passed\n'
+
+# 12c: a dropped member (parent members not a subset of ours) and an
+# equal-member parent (the subset must be strict) both take full canonical
+: > "$PODMAN_LOG"
+PODMAN_MISSING_IMAGES="$set_go" PODMAN_IMAGES="$parent_set_go
+$set_two" \
+  PODMAN_LABELS_FILE="$labels2" run_script --set go
+grep -q -- "build --network=none -t $set_go -f $set_gen_go/Dockerfile $set_gen_go" "$PODMAN_LOG"
+grep -q -- "^FROM opencode-sandbox-base:" "$set_gen_go/Dockerfile"
+printf 'dropped-member / non-strict-subset full canonical test passed\n'
+
+# 12d: a base bump (the parent was built from a different base) — full
+# canonical
+bump_parent="opencode-sandbox-set:aaaa0000bbbb"
+{
+  printf '%s\tmembers\tgo\n' "$bump_parent"
+  printf '%s\tmember.hashes\tgo:%s\n' "$bump_parent" "$go_sha"
+  printf '%s\tbase.hash\t%s\n' "$bump_parent" "$(printf 'a%.0s' {1..64})"
+  printf '%s\ttc.pkgs\tgolang-go\n' "$bump_parent"
+} >> "$labels2"
+: > "$PODMAN_LOG"
+PODMAN_MISSING_IMAGES="$set_two" PODMAN_IMAGES="$bump_parent" \
+  PODMAN_LABELS_FILE="$labels2" run_script --set usb,go
+grep -q -- "build --network=none -t $set_two -f $set_gen/Dockerfile $set_gen" "$PODMAN_LOG"
+grep -q -- "^FROM opencode-sandbox-base:" "$set_gen/Dockerfile"
+printf 'base-bump full canonical test passed\n'
+
+# 12e: a pre-label parent (an image without the enumeration labels reads as
+# no parent — honest full, self-healing)
+nolabel_parent="opencode-sandbox-set:cccc0000dddd"
+: > "$PODMAN_LOG"
+PODMAN_MISSING_IMAGES="$set_two" PODMAN_IMAGES="$nolabel_parent" \
+  PODMAN_LABELS_FILE="$labels2" run_script --set usb,go
+grep -q -- "build --network=none -t $set_two -f $set_gen/Dockerfile $set_gen" "$PODMAN_LOG"
+grep -q -- "^FROM opencode-sandbox-base:" "$set_gen/Dockerfile"
+printf 'pre-label parent full canonical test passed\n'
+
+# 12f: a contest — the new member's dpkg/pip name already in the parent's
+# merged union — forces full canonical (alphabetical-last-wins stays the only
+# contested resolution)
+contest_parent="opencode-sandbox-set:eeee0000ffff"
+{
+  printf '%s\tmembers\tgo\n' "$contest_parent"
+  printf '%s\tmember.hashes\tgo:%s\n' "$contest_parent" "$go_sha"
+  printf '%s\tbase.hash\t%s\n' "$contest_parent" "$base_sha"
+  printf '%s\ttc.pkgs\tgolang-go usbutils\n' "$contest_parent"
+} >> "$labels2"
+: > "$PODMAN_LOG"
+PODMAN_MISSING_IMAGES="$set_two" PODMAN_IMAGES="$contest_parent" \
+  PODMAN_LABELS_FILE="$labels2" run_script --set usb,go
+grep -q -- "build --network=none -t $set_two -f $set_gen/Dockerfile $set_gen" "$PODMAN_LOG"
+grep -q -- "^FROM opencode-sandbox-base:" "$set_gen/Dockerfile"
+printf 'contest-forced full canonical test passed\n'
+
+# 12g: a sanity-gate failure on the incremental assembly auto-falls-back to
+# the full canonical assembly with one honest log line — the fallback IS the
+# repair path; the same tag is built twice (delta first, then full)
+gate_fail="$test_home/mnt-gate-fail"
+mkdir -p "$gate_fail/oc-dump/pm" "$gate_fail/var/lib/dpkg"
+printf 'Package: usbutils\nStatus: install ok installed\n' > "$gate_fail/oc-dump/pm/status"
+printf 'Package: golang-go\nStatus: install ok installed\n' > "$gate_fail/var/lib/dpkg/status"
+: > "$PODMAN_LOG"
+PODMAN_MISSING_IMAGES="$set_two" PODMAN_IMAGES="$parent_set_go" \
+  PODMAN_LABELS_FILE="$labels2" PODMAN_MOUNT_DIR="$gate_fail" run_script --set usb,go
+grep -q -- "build --network=none -t $set_two -f $delta_gen_two/Dockerfile $delta_gen_two" "$PODMAN_LOG"
+grep -q 'failed its sanity gate — falling back to the full canonical assembly' "$test_home/out.log"
+grep -q -- "build --network=none -t $set_two -f $set_gen/Dockerfile $set_gen" "$PODMAN_LOG"
+[[ "$(grep -c -- "build --network=none -t $set_two " "$PODMAN_LOG")" -eq 2 ]]
+grep -q -- "^FROM opencode-sandbox-base:" "$set_gen/Dockerfile"
+printf 'gate-failure fallback to full canonical test passed\n'
+
+# 12h: parent selection prefers the largest valid contest-free parent (fewest
+# new members; the tag tie-break keeps it deterministic)
+: > "$PODMAN_LOG"
+PODMAN_MISSING_IMAGES="$set_three" PODMAN_IMAGES="$parent_set_go
+$parent_set_go_pw" \
+  PODMAN_LABELS_FILE="$labels2" PODMAN_MOUNT_DIR="$gate_mnt" run_script --set go,usb,playwright
+grep -q -- "build --network=none -t $set_three -f $delta_gen_three/Dockerfile $delta_gen_three" "$PODMAN_LOG"
+grep -q -- "^FROM $parent_set_go_pw\$" "$delta_gen_three/Dockerfile"
+grep -q -- "assembling $set_three (incremental from $parent_set_go_pw)" "$test_home/out.log"
+# the single delta member (usb) is staged; the parent members are not
+grep -q -- "COPY --from=$usb_tag /oc-dump/payload.tar.gz /tmp/oc-merge/usb/payload.tar.gz" "$delta_gen_three/Dockerfile"
+if grep -q -- "COPY --from=$pw_tag /oc-dump" "$delta_gen_three/Dockerfile"; then
+  printf "the delta assembly staged a parent member's payload\n" >&2
+  exit 1
+fi
+printf 'largest-parent selection test passed\n'
+
+# 12i: multi-add — the new members' payload/pm COPYs are applied in
+# alphabetical id order (playwright < usb); envs staged for the member that
+# declares them; enumeration labels cover the full member list
+: > "$PODMAN_LOG"
+PODMAN_MISSING_IMAGES="$set_three" PODMAN_IMAGES="$parent_set_go" \
+  PODMAN_LABELS_FILE="$labels2" PODMAN_MOUNT_DIR="$gate_mnt" run_script --set go,usb,playwright
+grep -q -- "^FROM $parent_set_go\$" "$delta_gen_three/Dockerfile"
+pw_copy="$(grep -n -- "COPY --from=$pw_tag /oc-dump/payload.tar.gz" "$delta_gen_three/Dockerfile" | cut -d: -f1)"
+usb_copy="$(grep -n -- "COPY --from=$usb_tag /oc-dump/payload.tar.gz" "$delta_gen_three/Dockerfile" | cut -d: -f1)"
+[[ -n "$pw_copy" && -n "$usb_copy" && "$pw_copy" -lt "$usb_copy" ]]
+grep -q -- "COPY oc-envs/playwright.env /tmp/oc-merge/playwright/envs" "$delta_gen_three/Dockerfile"
+grep -q '^LABEL members="go playwright usb"$' "$delta_gen_three/Dockerfile"
+grep -q '^LABEL tc.pkgs="golang-go libusb-1.0-0 playwright usbutils"$' "$delta_gen_three/Dockerfile"
+printf 'multi-add alphabetical delta test passed\n'
+
+# 12j: cached-skip precedes parent selection — an existing set tag never
+# even enumerates the parents
+: > "$PODMAN_LOG"
+PODMAN_IMAGES="$parent_set_go" PODMAN_LABELS_FILE="$labels2" run_script --set usb,go
+grep -q -- "$set_two already exists — skipping" "$test_home/out.log"
+if grep -q '^images ' "$PODMAN_LOG"; then
+  printf 'cached-skip still enumerated parent candidates\n' >&2
+  exit 1
+fi
+if grep -q '^build' "$PODMAN_LOG"; then
+  printf 'cached-skip built anyway\n' >&2
+  exit 1
+fi
+printf 'cached-skip precedence test passed\n'
 
 printf 'build-images tests passed\n'
