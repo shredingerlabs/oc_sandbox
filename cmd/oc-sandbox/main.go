@@ -133,6 +133,7 @@ func startWebserver(home, version string) *webserver.Server {
 			Run:                  cmdrun.ExecRunner{},
 			Registry:             &registry.Registry{Home: home},
 			BuildScript:          layout.BuildScript,
+			ImagesBuildScript:    layout.ImagesBuildScript,
 			StartScript:          layout.StartScript,
 			InitScript:           layout.InitScript,
 			ConfigureScript:      layout.ConfigureScript,

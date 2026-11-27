@@ -368,6 +368,44 @@ func SandboxImages(run cmdrun.Runner) []SandboxImage {
 	return all
 }
 
+// SetImage is one built set image row, enumerated by label (spec
+// toolchain-sets §6 — the WebUI never parses set tags): the full tag,
+// the size, and the sorted member list from the image's `members` label.
+type SetImage struct {
+	Tag     string
+	Size    string
+	Members []string // sorted member ids (the `members` label)
+}
+
+// SetImages lists every built set image (`podman images --filter
+// label=kind=set` — enumeration by label, never tag parsing) with its
+// size and members label; a missing/empty members label yields a nil
+// member list (the base-only set). Errors yield an empty list
+// (podman-output based, like the podman ps adapters).
+func SetImages(run cmdrun.Runner) []SetImage {
+	out, err := run.Output("podman", "images", "--filter", "label=kind=set",
+		"--format", `{{.Repository}}:{{.Tag}}`+"\t"+`{{.Size}}`+"\t"+`{{ index .Labels "members" }}`)
+	if err != nil {
+		return nil
+	}
+	var all []SetImage
+	for _, l := range cmdrun.Lines(out) {
+		tag, rest, ok := strings.Cut(l, "\t")
+		if !ok {
+			continue
+		}
+		size, members, _ := strings.Cut(rest, "\t")
+		m := ParseImageRef(tag)
+		if m.Kind != RefSet {
+			continue
+		}
+		si := SetImage{Tag: tag, Size: size, Members: strings.Fields(members)}
+		slices.Sort(si.Members)
+		all = append(all, si)
+	}
+	return all
+}
+
 // ContainerImageRefs lists the image references of every container in
 // any state (`podman ps -a`, unfiltered — the oc-proxy container is not
 // an oc-sandbox container); errors yield an empty list (bash `|| true`).

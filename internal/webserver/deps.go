@@ -13,15 +13,16 @@ import (
 // #150 shell-only skeleton. #156 adds the New Workspace wizard's seams:
 // the init/configure scripts and the derived root's base directory.
 type Deps struct {
-	Run              cmdrun.Runner
-	Registry         *registry.Registry
-	BuildScript      string // scripts/build-container.sh
-	StartScript      string // scripts/start.sh
-	InitScript       string // scripts/init-workspace.sh (#156)
-	ConfigureScript  string // scripts/configure-workspace.sh (#156)
-	Dockerfile       string // edition registry (ADR 0019)
-	DockerfileCustom string // "" when the install has none
-	Toolchains       string // toolchains dir — the discovery seam's root (spec toolchain-sets §2)
+	Run               cmdrun.Runner
+	Registry          *registry.Registry
+	BuildScript       string // scripts/build-container.sh (infra images)
+	ImagesBuildScript string // scripts/build-images.sh (the toolchain-sets builder, WP-7)
+	StartScript       string // scripts/start.sh
+	InitScript        string // scripts/init-workspace.sh (#156)
+	ConfigureScript   string // scripts/configure-workspace.sh (#156)
+	Dockerfile        string // edition registry (ADR 0019)
+	DockerfileCustom  string // "" when the install has none
+	Toolchains        string // toolchains dir — the discovery seam's root (spec toolchain-sets §2)
 	// DefaultWorkspacePath is the base of the derived workspace root
 	// (#156 — the wizard has no path row); "" → Home/oc-sandbox.
 	DefaultWorkspacePath string
