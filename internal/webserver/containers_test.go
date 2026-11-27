@@ -89,12 +89,13 @@ func depsServer(t *testing.T, run *cmdrun.Fake, reg *registry.Registry) *Server 
 	s := New(Options{
 		BasePort: 0,
 		Deps: &Deps{
-			Run:         run,
-			Registry:    reg,
-			BuildScript: "/opt/oc-sandbox/scripts/build-container.sh",
-			StartScript: "/opt/oc-sandbox/scripts/start.sh",
-			Dockerfile:  "../discovery/testdata/Dockerfile",
-			Toolchains:  tcRootOf(reg.Home),
+			Run:               run,
+			Registry:          reg,
+			BuildScript:       "/opt/oc-sandbox/scripts/build-container.sh",
+			BuildImagesScript: "/opt/oc-sandbox/scripts/build-images.sh",
+			StartScript:       "/opt/oc-sandbox/scripts/start.sh",
+			Dockerfile:        "../discovery/testdata/Dockerfile",
+			Toolchains:        tcRootOf(reg.Home),
 		},
 	})
 	if err := s.Start(); err != nil {

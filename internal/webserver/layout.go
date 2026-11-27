@@ -10,8 +10,8 @@ import (
 type Layout struct {
 	InstallRoot       string // $HOME/.oc-sandbox
 	StartScript       string // scripts/start.sh
-	BuildScript       string // scripts/build-container.sh
-	BuildImagesScript string // scripts/build-images.sh (the toolchain-sets builder, spec toolchain-sets §7)
+	BuildScript       string // scripts/build-container.sh (infra images)
+	BuildImagesScript string // scripts/build-images.sh (the toolchain-sets builder, WP-7)
 	InitScript        string // scripts/init-workspace.sh
 	ConfigureScript   string // scripts/configure-workspace.sh
 	UninstallScript   string // scripts/uninstall.sh

@@ -15,8 +15,8 @@ import (
 type Deps struct {
 	Run               cmdrun.Runner
 	Registry          *registry.Registry
-	BuildScript       string // scripts/build-container.sh
-	BuildImagesScript string // scripts/build-images.sh (the toolchain-sets builder, spec toolchain-sets §7)
+	BuildScript       string // scripts/build-container.sh (infra images)
+	BuildImagesScript string // scripts/build-images.sh (the toolchain-sets builder, WP-7)
 	StartScript       string // scripts/start.sh
 	InitScript        string // scripts/init-workspace.sh (#156)
 	ConfigureScript   string // scripts/configure-workspace.sh (#156)
