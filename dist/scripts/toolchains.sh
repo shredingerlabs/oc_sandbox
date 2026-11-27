@@ -28,6 +28,8 @@
 #   bundle<TAB><name><TAB>valid<TAB><space-separated sorted member ids>
 #   bundle<TAB><name><TAB>invalid<TAB><reason>
 #   warning<TAB><text>
+# Unit records render sorted by id and bundle records sorted by name (the
+# manifest is semantically unordered — the canonical order is derived here).
 # Invalid recipes render visibly-with-reason; a member id without a (valid)
 # recipe invalidates the bundle with a warning; a manifest read/parse failure
 # invalidates all bundles with a warning; a user/shipped id collision skips the
@@ -481,7 +483,7 @@ discover_records() {
         fi
         out+=("bundle"$'\t'"$name"$'\t'"valid"$'\t'"$sorted")
       fi
-    done <<< "$bundles"
+    done < <(printf '%s\n' "$bundles" | sort -t $'\t' -k1,1)
   fi
   if ((${#out[@]})); then
     printf '%s\n' "${out[@]}"
