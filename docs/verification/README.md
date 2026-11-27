@@ -8,6 +8,8 @@ verification tiers that never run in CI.
 - **Tier-2 toolchain-set verification** — see the runbook below (`tests/verify-set-image.sh`,
   spec `docs/specs/toolchain-sets.md` §12): real-podman sanity gates against a
   built set image, run at implement-acceptance, after risky changes, on demand.
+- `toolchain-sets-cutover.md` — the #215 cutover acceptance note (what the
+  single-cutover change set deleted/shipped and the pending rig-run record).
 
 ---
 

@@ -23,8 +23,8 @@ import (
 // --- create-chain test harness (#156) --------------------------------------
 
 // createFixture builds a temp home with the install-layout paths the
-// wizard touches (Dockerfile edition registry fixture + script paths)
-// and a started test server wired with a cmdrun.Fake. The scripts never
+// wizard touches (script paths + the toolchains tree) and a started
+// test server wired with a cmdrun.Fake. The scripts never
 // really run — the Fake records the invocation vectors the TUI contract
 // prescribes, so assertions stay on externally visible behavior.
 type createFixture struct {
@@ -32,11 +32,6 @@ type createFixture struct {
 	fake *cmdrun.Fake
 	home string
 }
-
-const dockerfileFixture = `FROM scratch AS opencode-sandbox-base
-FROM opencode-sandbox-base AS opencode-sandbox-swdev
-FROM opencode-sandbox-base AS opencode-sandbox-embedded
-`
 
 // toolchainsManifestFixture is the shipped bundle map (spec toolchain-sets
 // §3 — also the legacy container_edition migration mapping).
@@ -153,9 +148,6 @@ func newCreateFixture(t *testing.T, script func(name string, args []string) (str
 	if err := os.MkdirAll(filepath.Join(install, "scripts"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(install, "Dockerfile"), []byte(dockerfileFixture), 0o644); err != nil {
-		t.Fatal(err)
-	}
 	seedToolchains(t, home)
 	fake := &cmdrun.Fake{Script: script}
 	s := New(Options{
@@ -169,8 +161,7 @@ func newCreateFixture(t *testing.T, script func(name string, args []string) (str
 			InitScript:           filepath.Join(install, "scripts", "init-workspace.sh"),
 			ConfigureScript:      filepath.Join(install, "scripts", "configure-workspace.sh"),
 			BuildImagesScript:    filepath.Join(install, "scripts", "build-images.sh"),
-			BuildScript:          filepath.Join(install, "scripts", "build-container.sh"),
-			Dockerfile:           filepath.Join(install, "Dockerfile"),
+			InfraRoot:            install,
 		},
 	})
 	if err := s.Start(); err != nil {

@@ -40,7 +40,8 @@ func TestUpdateFragmentRendersCard(t *testing.T) {
 		"data-role=\"update-run\"",                // Update
 		`data-role="update-log"`,                  // embedded log pane slot
 		`data-confirm-title="Update oc-sandbox?"`, // shared confirm popup
-		"Kept: proxy/allowlist.txt",               // popup copy carries the keep-note (§12)
+		"Kept: proxy/allowlist.txt", // popup copy carries the keep-note (§12/#215 re-key)
+		"Dockerfile.custom is never touched",
 	} {
 		if !strings.Contains(doc, want) {
 			t.Fatalf("update card missing %q:\n%s", want, doc)

@@ -2,7 +2,7 @@
 // sets #205 WP-3): the Workspace → New screen as one HTMX fragment —
 // source radio pair (Blank Workspace / From Repo, name derived live
 // from the repo URL), Agent row (default code; pkm pins the set to base
-// only), the bundle row in today's Edition slot (the 9 manifest bundles
+// only), the bundle chip row (the 9 manifest bundles
 // as chips, chat/pkm rendered "base only", a missing-member bundle
 // rendered disabled with its reason) over the Advanced-only toolchain
 // multi-select (flat alphabetical, live cached markers, invalid units
@@ -54,11 +54,10 @@ const wizardBundleDefault = "swdev"
 // P carries the tokenized path prefix so hx-* targets stay absolute.
 // Styling per the signed-off prototype (ws-new): a pagehead with the
 // Blank/From-Repo segment, .flabel/.sub rows, .edotsel chips for the
-// edition, .switch toggles for the Advanced booleans. The functional
+// toolchain bundles, .switch toggles for the Advanced booleans. The functional
 // payload (field names, defaults, hidden round-trip) keeps the previous
 // contract minus the removed inline-new rows.
 var wizardTemplate = template.Must(template.New("wizard").
-	Funcs(template.FuncMap{"hueFor": editionHue}).
 	Funcs(iconFuncs).
 	Parse(`
 {{define "wizard"}}
@@ -100,7 +99,7 @@ var wizardTemplate = template.Must(template.New("wizard").
     <div class="row" data-row="bundle" {{if eq .Agent "pkm"}}data-pkm-pin{{end}}>
       <span class="label">Toolchain set</span>
       <span class="edotsel" data-role="wizard-bundle">
-        {{range .Bundles}}<button type="button" class="edopt" data-bundle="{{.Name}}" data-members="{{.Members}}" aria-pressed="{{if .Pressed}}true{{else}}false{{end}}"{{if not .Valid}} disabled title="{{.Reason}}"{{end}}><i style="--ed:{{hueFor .Name}}"></i>{{.Name}}{{if .BaseOnly}} (base only){{end}}</button>{{end}}
+        {{range .Bundles}}<button type="button" class="edopt" data-bundle="{{.Name}}" data-members="{{.Members}}" aria-pressed="{{if .Pressed}}true{{else}}false{{end}}"{{if not .Valid}} disabled title="{{.Reason}}"{{end}}><i style="--ed:var(--accent)"></i>{{.Name}}{{if .BaseOnly}} (base only){{end}}</button>{{end}}
         <button type="button" class="edopt" data-bundle="custom" data-members="" aria-pressed="{{if .Custom}}true{{else}}false{{end}}" disabled>Custom</button>
       </span>
       <div class="sub">A bundle preselects the units below (Advanced); a custom unit list reads Custom.</div>
@@ -737,14 +736,6 @@ func (s *Server) wizardRoot(name string) string {
 
 // --- the create chain (ONE task: image build → init → configure) ------------
 
-// editionHue is the template's handle on the Signal hue map — the
-// per-edition hues died with the stage world (toolchain-sets WP-5):
-// every dot tints with the neutral accent until the wizard/settings
-// re-key lands.
-func editionHue(name string) string {
-	return "var(--accent)"
-}
-
 // createChain is the captured payload of one confirmed create — every
 // request-scoped value (tokens included) is read before the chain goes
 // to its own goroutine.
@@ -869,8 +860,7 @@ func (c *createChain) runSteps(s *Server, emit func(string)) error {
 	// image build (only when the set image is missing and Build now
 	// won): build-images.sh --set <ids> builds the missing components
 	// and assembles the set image (lazy, cached-skip per tag); "" is
-	// the base-only set (#206 re-keyed the interim build-container.sh
-	// call onto the builder, spec §9 WP-3).
+	// the base-only set (spec §9 WP-3).
 	if c.build {
 		ids := strings.Join(c.toolchains, ",")
 		if ids == "" {

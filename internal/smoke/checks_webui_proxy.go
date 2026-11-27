@@ -238,7 +238,7 @@ func checkWebUIProxy(home, root string) Item {
 	waitForState("exited", "stop")
 
 	// Rebuild: stop → rm → fresh run with the current file; the image
-	// exists, so no build-container.sh call.
+	// exists, so no podman build runs.
 	mu.Lock()
 	atRebuild := len(calls)
 	mu.Unlock()
@@ -255,8 +255,8 @@ func checkWebUIProxy(home, root string) Item {
 		p.reasonf("rebuild chain (rm → run) missing: %v", tail)
 	}
 	for _, c := range tail {
-		if strings.HasPrefix(c, "/opt") || strings.Contains(c, "build-container.sh") {
-			p.reasonf("image exists — rebuild must not call build-container.sh: %s", c)
+		if strings.HasPrefix(c, "/opt") || strings.Contains(c, "build -t oc-proxy") {
+			p.reasonf("image exists — rebuild must not rebuild the oc-proxy image: %s", c)
 		}
 	}
 

@@ -4,37 +4,32 @@ All steps of the WebUI workflow can also be run directly via the scripts in
 `dist/scripts/` (or `~/.oc-sandbox/scripts/` after installation). This is the
 legacy path — the WebUI (`oc-sandbox`) is the recommended entry point.
 
-## 1. Build an image
+## 1. Build images
 
-Build the desired sandbox edition once:
+The builder is `build-images.sh` (toolchain sets). A workspace's image is a
+**set image** assembled content-addressed from its toolchain list; the set's
+components build on the base image.
 
 ```bash
 cd opencode-sandbox
-./dist/scripts/build-container.sh web     # or: base, embedded, swdev, matlab, ros2, writing, latex, all
+dist/scripts/build-images.sh --base                          # the base image
+dist/scripts/build-images.sh --tc cpp,rust,java,go           # components
+dist/scripts/build-images.sh --set cpp,rust,java,go          # the set image
+dist/scripts/build-images.sh --all                           # base + every shipped component
 ```
 
-The script discovers editions live from the
-`FROM ... AS opencode-sandbox-<name>` stages of `dist/Dockerfile` and
-`dist/Dockerfile.custom`; `all` builds all discovered editions, including your
-own custom ones.
+- `--tc` takes comma-separated toolchain ids (valid against live discovery of
+  `toolchains/recipes/` + `toolchains/custom/`; unknown ids refuse with a
+  reason).
+- `--set ""` assembles the base-only set (what chat/pkm workspaces run).
+- An existing tag is never rebuilt — cached-skip. Deletes are the force:
+  remove the image and build again.
+- The shared infra images (`oc-proxy`, `oc-searxng`, `oc-stt`) stay outside
+  this contract; `start.sh` builds them lazily on first need.
 
-This builds:
-
-- `opencode-sandbox-base` — Python + core system packages (parent of all editions)
-- `opencode-sandbox-web` — base + Node/TypeScript/Playwright
-- `opencode-sandbox-embedded` — base + ARM toolchains/Arduino/MicroPython
-- `opencode-sandbox-swdev` — base + C/C++, Java, Rust, Go + test frameworks
-- `opencode-sandbox-matlab` — base + GNU Octave + Python scientific stack
-- `opencode-sandbox-ros2` — base + ROS 2 Jazzy + colcon/rosdep/vcstool
-- `opencode-sandbox-writing` — base + LibreOffice + pandoc
-- `opencode-sandbox-latex` — base + latexmk + TeX Live collections
-- `opencode-sandbox-pkm` — base only (Personal Knowledge Wiki edition)
-- plus all custom editions from `dist/Dockerfile.custom`
-- `oc-proxy` — Squid egress proxy image (started as a per-workspace pod member
-  by `start.sh --use_proxy`; the image itself is only needed then)
-- `oc-searxng` — SearXNG image for web search (started as a per-workspace pod
-  member by `start.sh --search_mode searxng`; configuration in
-  `dist/searxng/settings.yml`, survives updates)
+A first build of a never-built toolchain is long (one download-and-build per
+toolchain); every workspace afterwards reuses it — adding an already-built
+toolchain to a set costs seconds (assembly only).
 
 ## 2. Set up a workspace root
 
@@ -72,8 +67,11 @@ Personal-Knowledge-Wiki templates, also applied to cloned workspaces).
 
 Note: re-running `init-workspace.sh` overwrites the workspace-specific templates
 (incl. `.opencode_config/opencode.json`) — your own customizations there are
-lost; only `proxy/allowlist.txt` is preserved on updates.
-`dist/Dockerfile.custom` is also preserved on updates.
+lost; only `proxy/allowlist.txt` and the toolchains user dirs
+(`toolchains/custom/`, `toolchains/snapshots/`) are preserved on updates.
+Your legacy `Dockerfile.custom` (from pre-toolchain-sets installs) is also
+never touched — port it to `toolchains/custom/` recipes, see
+`docs/porting-dockerfile-custom.md`.
 
 ### `.git_local/` adjustments
 
@@ -96,10 +94,9 @@ own GitLab: workspace → Deploy Keys). Adjust `.ssh_local/config`.
 
 Instead of SSH deploy keys you can use **HTTPS with a personal access token**.
 The token is stored once and covers git authentication + the CLI tools
-(issues, PRs etc.):
+(secretly stored workspace-locally):
 
 **GitHub (`gh`):**
-
 ```bash
 cp templates/git_local/gh-cli/hosts.yml ~/workspaces/customer-x/.git_local/gh-cli/hosts.yml
 $EDITOR ~/workspaces/customer-x/.git_local/gh-cli/hosts.yml   # enter oauth_token
@@ -110,7 +107,6 @@ Token: GitHub → Settings → Developer settings → Personal access tokens →
 Tokens (classic). Required scopes: `repo`, `read:org`, `workflow`.
 
 **GitLab (`glab`):**
-
 ```bash
 cp templates/git_local/glab-cli/config.yml ~/workspaces/customer-x/.git_local/glab-cli/config.yml
 $EDITOR ~/workspaces/customer-x/.git_local/glab-cli/config.yml   # uncomment hosts: block, enter token
@@ -135,17 +131,25 @@ captured (GitHub: `https://oauth2:<token>@github.com`).
 ## 3. Start the sandbox
 
 ```bash
-dist/scripts/start.sh ~/workspaces/customer-x --edition web            # full network
+dist/scripts/start.sh ~/workspaces/customer-x --toolchains cpp,rust,java,go
 ```
 
-The `--edition` flag accepts any edition discovered from
-`Dockerfile`/`Dockerfile.custom` (no fixed default).
+`--toolchains` takes a comma-separated, order-free list of toolchain ids
+(validated against live discovery; `""` selects the base-only set). The old
+`--edition <name>` flag still works as an alias — it expands through the
+manifest bundle map; `--edition` together with `--toolchains` refuses
+(explicit conflict beats silent precedence). One of the two is required.
+
+The container runs the derived `opencode-sandbox-set:<hash12>` image (the
+hash derives from the sorted member list + recipe content hashes + the base
+recipe — same derivation as the builder). A missing set image refuses with
+the exact build command (`build-images.sh --set <ids>`) — the WebUI start
+paths offer the Build now / Build later prompt instead.
 
 ```bash
-dist/scripts/start.sh ~/workspaces/customer-x --edition web       # Web only
-dist/scripts/start.sh ~/workspaces/customer-x --edition embedded  # Embedded only
-dist/scripts/start.sh ~/workspaces/customer-x --edition base      # Minimal Python
-dist/scripts/start.sh ~/workspaces/customer-x --edition swdev     # C/C++, Java, Rust, Go
+dist/scripts/start.sh ~/workspaces/customer-x --toolchains ""       # base-only set
+dist/scripts/start.sh ~/workspaces/customer-x --toolchains playwright,node-dev
+dist/scripts/start.sh ~/workspaces/customer-x --edition swdev       # bundle alias
 ```
 
 | Flag combination         | Network | Proxy           | Devices                    | Use case                           |
@@ -175,11 +179,11 @@ registry (otherwise: basename of the workspace root).
 Examples:
 
 ```bash
-# Coding, no restrictions (web edition)
-dist/scripts/start.sh ~/workspaces/customer-x --edition web
+# Coding, no restrictions (swdev bundle alias)
+dist/scripts/start.sh ~/workspaces/customer-x --edition swdev
 
-# Embedded edition with HIL
-dist/scripts/start.sh ~/workspaces/hil-tests --edition embedded --hil_mode
+# Embedded toolchains with HIL
+dist/scripts/start.sh ~/workspaces/hil-tests --toolchains go,arm-embedded,arduino,platformio,micropython,picoscope,pyvisa,usb --hil_mode
 
 # Egress proxy (allowlist)
 dist/scripts/start.sh ~/workspaces/customer-x --use_proxy

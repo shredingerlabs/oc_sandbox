@@ -1,32 +1,39 @@
 # OpenCode Sandbox – Production Distribution
 
-Dieser Ordner enthält die **produktionsreifen Dateien** für die OpenCode Sandbox –
-ein direkt lauffähiges Grundgerüst für eine einheitliche Entwicklungssandbox mit
-mehreren Editionen.
+This folder holds the **production-ready files** for the OpenCode Sandbox — a
+directly runnable foundation for a unified development sandbox with
+content-addressed toolchain sets.
 
-## Enthaltene Dateien
+## Included files
 
 ```
 dist/
-├── Dockerfile                    <- Multi-Stage: base, web, embedded, swdev, matlab, ros2, writing, latex, pkm
+├── toolchains/
+│   ├── base.Dockerfile             <- The fixed base recipe (content-hashed family identity)
+│   ├── manifest.json               <- Bundle map: curated toolchain sets
+│   ├── recipes/                    <- Shipped toolchain recipes (overwritten on updates)
+│   ├── custom/                     <- User recipes (always kept; example template)
+│   └── spot-check.tsv              <- Tier-2 spot-check table (id → invocations/imports)
 ├── scripts/
-│   ├── start.sh                  <- Einheitliches Start-Skript (--edition flag)
-│   ├── configure-workspace.sh      <- Workspace-Konfiguration (Git-Identität, VCS-Credentials, AI-Provider)
-│   ├── build-container.sh        <- Baut Sandbox-Editionen + Proxy
-│   ├── init-workspace.sh           <- Legt Workspace-Root-Struktur an
-│   └── uninstall.sh              <- Deinstalliert opencode-sandbox
-├── Dockerfile.custom              <- Vorlage für eigene Editionen (auto-entdeckt)
+│   ├── start.sh                    <- Unified start script (--toolchains flag)
+│   ├── build-images.sh             <- The toolchain-sets builder (--base/--tc/--set/--all)
+│   ├── lib-identity.sh             <- Shared identity/tag derivation (builder + start.sh)
+│   ├── toolchains.sh               <- Discovery/lint helpers over the toolchains tree
+│   ├── dump.sh / merge-pm.py       <- The payload-archive dump + stanza-union merge core
+│   ├── configure-workspace.sh      <- Workspace configuration (git identity, VCS credentials, AI provider)
+│   ├── init-workspace.sh           <- Creates the workspace-root structure
+│   └── uninstall.sh                <- Uninstalls opencode-sandbox
 ├── proxy/
-│   ├── Dockerfile                <- Separates Squid-Proxy-Image
+│   ├── Dockerfile                  <- Separate Squid proxy image
 │   ├── squid.conf
 │   └── allowlist.txt
 ├── stt/
-│   ├── Dockerfile                <- Separates STT-Image (whisper.cpp v1.9.5, ggml-small-Modell eingebacken)
-│   ├── entrypoint.sh             <- Startet den whisper-Server (Port 8090, --language aus STT_LANG)
-│   └── public/                   <- Dictation-Sidecar-Seite (index.html, app.js)
+│   ├── Dockerfile                  <- Separate STT image (whisper.cpp v1.9.5, baked ggml-small model)
+│   ├── entrypoint.sh               <- Starts the whisper server (port 8090, --language from STT_LANG)
+│   └── public/                     <- Dictation sidecar page (index.html, app.js)
 ├── udev/
-│   └── 99-hil.rules              <- udev-Regeln für HIL-Geräte
-├── icons/                        <- Icon-Material für Desktop-Shortcuts
+│   └── 99-hil.rules                <- udev rules for HIL devices
+├── icons/                          <- Icon material for desktop shortcuts
 └── templates/
     ├── ssh_local/config
     ├── git_local/
@@ -42,7 +49,7 @@ dist/
     │   ├── AGENTS_chat.md
     │   ├── skills/
     │   └── plugins/
-    │       └── dictation/        <- TUI-Diktier-Plugin (index.ts, tui.tsx, dictation.mjs)
+    │       └── dictation/          <- TUI dictation plugin (index.ts, tui.tsx, dictation.mjs)
     └── pkm/
         ├── AGENTS.md
         ├── .gitignore
@@ -87,10 +94,11 @@ A console session is
 an independent bash shell attached
 via `podman exec` and does not change the configured start option.
 
-If the selected container image is missing, the wizard offers `Build now`, `Build
-later`, or `Go back`. New workspaces run setup in a detached container and then
-attach to the selected console or OpenCode session (with the `web` start option,
-the web surface URL is opened instead).
+If the workspace's set image is missing, the start flow offers `Build now`,
+`Build later`, or `Go back` (Build now rides `build-images.sh` — the missing
+components build first, then the assembly). New workspaces run setup in a
+detached container and then attach to the selected console or OpenCode session
+(with the `web` start option, the web surface URL is opened instead).
 
 First-run setup for workspaces created from a repo URL probes reachability with
 `git ls-remote` inside the container and then performs a full clone (no
@@ -110,7 +118,7 @@ repeat the incomplete setup stage. "Retry setup" from the workspace settings als
 finishes a partial clone attempt. SIGINT and SIGTERM clean up and exit safely.
 
 Constraints for cloned workspaces: HTTPS URLs plus a wizard-captured VCS token
-work in all editions (the token is also written to `.git_local/credentials` as
+work in every toolchain set (the token is also written to `.git_local/credentials` as
 a host-scoped credential-store entry, so later HTTPS push from the container is
 authenticated with the same token, whether or not the workspace is cloned). SSH
 URLs require manually placed keys in the workspace's `.ssh_local/` directory
@@ -128,121 +136,132 @@ for symlinks/config/backup ("Create backup" is only available when "Remove
 config" is selected), a summary with a typed `uninstall` confirmation, and
 cancel/back navigation at every screen.
 
-## Editionen
+## Toolchain sets
 
-Die Editionen werden **automatisch** aus den
-`FROM ... AS opencode-sandbox-<name>`-Stages von `Dockerfile` und
-`Dockerfile.custom` entdeckt – `build-container.sh`, `start.sh` und die WebUI
-pflegen keine eigene Whitelist. Mitgeliefert werden:
+Every workspace's image is composed from its stored toolchain set:
 
-- **base**: Python + core system packages
-- **web**: base + Node/TypeScript/Playwright
-- **embedded**: base + ARM toolchains/Arduino/MicroPython
-- **swdev**: base + C/C++/Java/Rust/Go + Test-Frameworks
-- **matlab**: base + GNU Octave + Python Scientific-Stack (lizenzfrei)
-- **ros2**: base + ROS 2 Jazzy (colcon/rosdep/vcstool)
-- **writing**: base + LibreOffice + pandoc + Fonts
-- **latex**: base + latexmk + TeX Live collections
-- **pkm**: nur base (PKM-Wiki-Templates werden bei der Workspace-Erstellung eingesät)
+- **base** (`toolchains/base.Dockerfile`): Ubuntu 24.04, Python 3 + pip/venv,
+  git/gh/glab, pinned OpenCode + codebase-memory-mcp, node + mcp-searxng, the
+  dev user — the parent of every component and set image.
+- **component images** (`toolchains/recipes/<id>.Dockerfile`, one pinned
+  recipe per toolchain — cpp, go, rust, java, playwright, ros2, latex, …):
+  built content-addressed, cached and shared by every workspace that needs
+  them. User recipes live in `toolchains/custom/` and always win discovery
+  collisions in the user's favor (a user recipe shadows nothing — shipped
+  ids keep their shipped recipe; your own ids are free).
+- **set images** (`opencode-sandbox-set:<hash12>`): assembled from the
+  workspace's member list via the payload-archive dump + stanza-union merge —
+  `dpkg` status unioned with the members' PM dumps, pip RECORD paths
+  re-registered, the `~/.profile.d/` env hooks re-emitted.
 
-Eigene Editionen per `Dockerfile.custom` ergänzen (Vorlage in der Datei) – sie
-erscheinen danach automatisch im Images-Screen der WebUI, in
-`build-container.sh` und `start.sh`.
+`manifest.json` maps the curated **bundles** (software dev, web, embedded,
+ROS 2, LaTeX, …) to their member ids; the wizard's bundle chips and the
+`start.sh --edition <name>` alias both read it. Nothing auto-builds on update:
+recipes are rewritten wholesale (that is how pins bump), and every image
+re-addresses at its next build.
+
+Own toolchains: add a recipe file to `toolchains/custom/` (grammar and pin
+rules in `docs/porting-dockerfile-custom.md`) — it appears automatically in
+the WebUI's toolchain multi-select, in `build-images.sh --tc <id>`, and in
+`start.sh --toolchains <ids>`. The directory is never overwritten on updates.
 
 ## Installation & Update
 
-Installation bzw. Update per Bash one-liner (lädt das neueste Release von
-GitHub und installiert es nach `~/.oc-sandbox`):
+Install or update via the bash one-liner (downloads the latest release from
+GitHub and installs it to `~/.oc-sandbox`):
 
 ```bash
 curl -sL https://raw.githubusercontent.com/shredingerlabs/oc_sandbox/main/scripts/install.sh | bash
 ```
 
-oder falls `curl` nicht verfügbar:
+or, when curl is unavailable:
 
 ```bash
 wget -qO- https://raw.githubusercontent.com/shredingerlabs/oc_sandbox/main/scripts/install.sh | bash
 ```
 
-Der Aufruf kann jederzeit wiederholt werden, um auf die neueste Version zu
-aktualisieren: Vor dem Überschreiben einer bestehenden Installation wird
-nachgefragt, eigene Anpassungen an `proxy/allowlist.txt` bleiben erhalten
-(es sei denn, sie werden ausdrücklich überschrieben). Das Skript verwendet nie
-automatisch `sudo`.
+The command can be repeated at any time to update to the newest version: before
+overwriting an existing installation it asks, and your `proxy/allowlist.txt`
+edits are preserved (unless you explicitly decline). `toolchains/custom/` +
+`toolchains/snapshots/` always survive updates; the shipped
+`toolchains/recipes/`, `manifest.json`, and `base.Dockerfile` are overwritten
+(pins arrive via these rewrites). Your legacy `Dockerfile.custom` is never
+touched. The script never uses `sudo` automatically. **Restart `oc-sandbox`
+after an update** — between install and restart the old binary may refuse
+against the new toolchains world.
 
-**Symlink und Desktop-Shortcut sind Default:** Die Installation legt
-standardmäßig den Symlink `oc-sandbox` → `bin/oc-sandbox` (Binary,
-single entry point) und einen Desktop-Shortcut für oc-sandbox an (Linux:
-`.desktop`, WSL: Windows-Startmenü `.lnk`, macOS: `.app` in `~/Applications`).
-Fehler beim Erstellen warnen nur und brechen die Installation nie ab.
+**Symlink and desktop shortcut are the default:** the installation creates the
+symlink `oc-sandbox` → `bin/oc-sandbox` (the Go binary, single entry point) and
+a desktop shortcut for oc-sandbox (Linux: `.desktop`, WSL: Windows Start-menu
+`.lnk`, macOS: `.app` in `~/Applications`). Failures warn only and never abort
+the installation.
 
-**Optionen:**
-- `--install_path <pfad>` – Installationspfad (default: `$HOME/.oc-sandbox`)
-- `--version <tag>` – Spezifische Version installieren (default: latest)
-- `--force` – Vorhandene Installation ohne Nachfrage überschreiben
-- `--yes` – Alias von `--force`: nicht-interaktives Update (z.B. vom Update-Screen der WebUI)
-- `--no_symlinks` – Default-Symlink nicht erstellen
-- `--no_shortcut` – Default-Desktop-Shortcut nicht erstellen
-- `--symlinks` / `--shortcut` – Ohne Wirkung (Kompatibilität: die
-  Convenience-Artifacts sind Default-on)
-- `--verbose` – Detaillierte Ausgabe
+**Options:**
+- `--install_path <path>` – Installation path (default: `$HOME/.oc-sandbox`)
+- `--version <tag>` – Install a specific version (default: latest)
+- `--force` – Overwrite an existing installation without asking
+- `--yes` – Alias of `--force`: non-interactive update (e.g. from the WebUI's update screen)
+- `--no_symlinks` – Skip the default symlink
+- `--no_shortcut` – Skip the default desktop shortcut
+- `--symlinks` / `--shortcut` – No effect (compatibility: the
+  convenience artifacts are default-on)
+- `--verbose` – Detailed output
 
-Deinstallation siehe [unten](#deinstallation).
+For the uninstallation see [below](#uninstallation).
 
-## Schnellstart
+## Quickstart
 
-Der bevorzugte Weg ist die WebUI – sie führt durch Container-Bau, Workspace-
-einrichtung und Start, ohne dass Skripte von Hand aufgerufen werden müssen.
-Die direkte Skript-Nutzung bleibt als [Legacy-Weg](#direkte-skript-nutzung-legacy)
-erhalten.
+The preferred way is the WebUI — it walks you through image builds, workspace
+setup and start, without calling scripts by hand. Direct script usage remains
+as the [legacy path](#direct-script-usage-legacy).
 
-### 1. Voraussetzungen
+### 1. Prerequisites
 
 ```bash
 sudo apt-get update
 sudo apt-get install -y podman pasta fuse-overlayfs git curl jq slirp4netns
 
-# Podman rootless prüfen
-podman info --format '{{.Host.Security.Rootless}}'   # sollte "true" liefern
+# Check podman rootless
+podman info --format '{{.Host.Security.Rootless}}'   # should print "true"
 ```
 
-### 2. oc-sandbox starten
+### 2. Start oc-sandbox
 
-Mit dem Standard-Symlink aus jedem Verzeichnis:
+With the default symlink, from any directory:
 
 ```bash
 oc-sandbox
 ```
 
-Ohne Symlink direkt über den Installationspfad bzw. aus diesem Ordner:
+Without the symlink, via the install path or from this folder:
 
 ```bash
 ~/.oc-sandbox/bin/oc-sandbox
 ./bin/oc-sandbox
 ```
 
-oc-sandbox ist ein einzelnes Go-Binary mit eingebetteter WebUI (`go:embed`).
-Beim Start werden der Webserver auf `127.0.0.1` hinter einer einmaligen
-Token-URL gestartet und der Browser-Tab automatisch geöffnet; das Terminal
-zeigt eine minimale Launcher-Ansicht mit der vollständigen URL, dem
-**Open WebUI**-Knopf (öffnet den Tab erneut) und **Quit**. Ein zweiter Start
-verweist auf die laufende Instanz und beendet sich; beim Beenden wird gefragt,
-ob laufende Container gestoppt werden sollen (Standard: weiterlaufen lassen).
-Der erste Start auf einer Installations vor dem Rename migriert sie einmalig
-(`projects.json`/`project/` → `workspaces.json`/`workspace/`, Backups zuerst —
-ADR-0032). Über die WebUI (Sidebar: **Workspace → Open**, **Workspace → New**,
-**Settings** mit Workspace Settings, Proxy, VCS Tracker, AI-Provider,
+oc-sandbox is a single Go binary with the embedded WebUI (`go:embed`).
+On start it launches the web server on `127.0.0.1` behind a one-time
+token URL and opens the browser tab automatically; the terminal
+shows a minimal launcher view with the full URL, the
+**Open WebUI** button (re-opens the tab) and **Quit**. A second start
+points at the running instance and exits; on quit it asks whether
+running containers should be stopped (default: keep them running).
+The first start on a pre-rename installation migrates it once
+(`projects.json`/`project/` → `workspaces.json`/`workspace/`, backups first —
+ADR-0032). Via the WebUI (sidebar: **Workspace → Open**, **Workspace → New**,
+**Settings** with Workspace Settings, Proxy, VCS Tracker, AI-Provider,
 Import Workspace, Export / Restore Config, Images, Containers, Update,
-Uninstall) laufen alle weiteren Schritte: Edition bauen, Workspace-Root
-anlegen, VCS/Tokens verborgen abfragen, Start-Option wählen (`console`,
-`opencode` oder `web`) und die Sandbox starten. Laufende Container werden per
-`podman exec` wiederverwendet statt neu gestartet.
+Uninstall) all further steps run: building the toolchain images, creating the
+workspace root, collecting VCS/tokens hidden, choosing the start option
+(`console`, `opencode` or `web`) and starting the sandbox. Running containers
+are reused via `podman exec` instead of being restarted.
 
-## Direkte Skript-Nutzung (Legacy)
+## Direct script usage (legacy)
 
-Alle WebUI-Schritte lassen sich auch direkt per Skript ausführen.
+All WebUI steps can also be run directly via the scripts.
 
-### 1. udev-Regeln installieren (für HIL-Tests)
+### 1. Install the udev rules (for HIL tests)
 
 ```bash
 sudo cp udev/99-hil.rules /etc/udev/rules.d/
@@ -250,81 +269,95 @@ sudo udevadm control --reload-rules
 sudo udevadm trigger
 ```
 
-### 2. Images bauen
+### 2. Build images
 
 ```bash
-./scripts/build-container.sh web        # oder eine andere entdeckte Edition, oder: all
+./scripts/build-images.sh --base
+./scripts/build-images.sh --tc cpp,rust,java,go
+./scripts/build-images.sh --set cpp,rust,java,go   # or: --all for base + every component
 ```
 
-### 3. Workspace-Root einrichten
+### 3. Set up the workspace root
 
 ```bash
-./scripts/init-workspace.sh ~/workspaces/mein-workspace
+./scripts/init-workspace.sh ~/workspaces/my-workspace
 ```
 
-Optional: mit `--repo_url <url>` wird das Workspace als "cloned" angelegt —
-`workspace/` bleibt leer (kein Template-Seed, kein `git init`), das Repo wird
-später aus `<url>` geklont.
+Optional: with `--repo_url <url>` the workspace is created as "cloned" —
+`workspace/` stays empty (no template seed, no `git init`), the repo is cloned
+later from `<url>`.
 
-### 4. Sandbox starten
+### 4. Start the sandbox
 
 ```bash
-./scripts/start.sh ~/workspaces/mein-workspace
+./scripts/start.sh ~/workspaces/my-workspace --toolchains cpp,rust,java,go
 ```
 
-**Optionen:**
-- `--edition <edition>` – Edition wählen (jede aus `Dockerfile`/`Dockerfile.custom` entdeckte Edition, z. B. `base`, `web`, `embedded`, `swdev`, `matlab`, `ros2`, `writing`)
-- `--use_proxy` – Egress-Proxy mit Allowlist (per-Pod-Squid unter `127.0.0.1:3128`)
-- `--search_mode <none|websearch|searxng>` – Web-Suche pro Workspace: `websearch` (Exa/Parallel, Standard), `searxng` (eigene SearXNG-Instanz als Pod-Member, erreicht über `127.0.0.1:8080` — mit `--use_proxy` inkompatibel, ADR 0026), `none`
-- `--offline` – Komplett offline (kein Netzwerk)
-- `--hil_mode` – HIL-Tests mit USB-Geräten (Oszilloskop, MCU)
-- `--cbm_ui` – CBM Knowledge-Graph-UI (Port 9749)
-- `--start_opencode` – OpenCode direkt nach Container-Start starten
-- `--start_web` – OpenCode-Weboberfläche im Vordergrund starten (v2-Hintergrunddienst auf Container-Port 4096, veröffentlicht auf 127.0.0.1, Port-Scan 4096-4196; ohne `--detach` läuft `opencode serve` im Vordergrund, Ctrl+C stoppt und entfernt den Container; im Detached-Modus läuft der Dienst unabhängig von diesem Flag)
-- `--detach` – Container im Hintergrund starten (Hauptprozess immer: OpenCode-v2-Hintergrunddienst + Keep-alive, `cd /home/dev/workspace && HOME=/home/dev/workspace opencode service start && exec sleep infinity`, damit der Dienst im Workspace startet und die Weboberfläche nicht die Workspace-Auswahl zeigt; Port 4096 wird bei jedem Detached-Start veröffentlicht — außer mit `--offline`)
-- `--container-id <id>` – Persistierte Container-Identität aus der Workspace-Registry setzen (sonst: Basisname des Workspace-Roots)
+**Options:**
+- `--toolchains <ids>` – Comma-separated toolchain selection (validated against
+  live discovery; `""` = base-only set)
+- `--edition <name>` – Manifest-bundle alias of `--toolchains` (refuses together
+  with it)
+- `--use_proxy` – Egress proxy with allowlist (per-pod Squid under `127.0.0.1:3128`)
+- `--search_mode <none|websearch|searxng>` – Per-workspace web search: `websearch`
+  (Exa/Parallel, default), `searxng` (own SearXNG instance as a pod member, reached
+  via `127.0.0.1:8080` — incompatible with `--use_proxy`, ADR 0026), `none`
+- `--offline` – Completely offline (no network)
+- `--hil_mode` – HIL tests with USB devices (oscilloscope, MCU)
+- `--cbm_ui` – CBM knowledge-graph UI (port 9749)
+- `--start_opencode` – Start OpenCode right after the container starts
+- `--start_web` – Start the OpenCode web surface in the foreground (v2 background
+  service on container port 4096, published on 127.0.0.1, port scan 4096-4196; without
+  `--detach` `opencode serve` runs foreground, Ctrl+C stops and removes the container;
+  in detached mode the service runs regardless of this flag)
+- `--detach` – Start the container in the background (main process always:
+  OpenCode-v2 background service + keep-alive, `cd /home/dev/workspace && HOME=/home/dev/workspace opencode service start && exec sleep infinity`, so the
+  service starts in the workspace and the web surface does not show the workspace
+  picker; port 4096 is published on every detached start — except with `--offline`)
+- `--container-id <id>` – Set the persisted container identity from the workspace
+  registry (otherwise: basename of the workspace root)
 
-## Deinstallation
+## Uninstallation
 
-Im WebUI (Settings → **Uninstall**) läuft derselbe Ablauf als geführter
-Wizard mit Warnung, Options-Auswahl und `UNINSTALL`-Bestätigung.
+In the WebUI (Settings → **Uninstall**) the same flow runs as a guided
+wizard with warning, option selection and `UNINSTALL` confirmation.
 
-Direkt per Skript:
+Directly via script:
 
 ```bash
 ./scripts/uninstall.sh
 ```
 
-**Optionen:**
-- `--install_path <pfad>` – Installationspfad (default: `$HOME/.oc-sandbox`)
-- `--remove-config` – Config-Verzeichnis ebenfalls entfernen (mit Backup)
-- `--no-backup` – Kein Backup erstellen (auch für Config)
-- `--no-symlinks` – Symlinks nicht entfernen
-- `--remove-shortcuts` – Desktop-Shortcuts (`.desktop`/`.lnk`/`.app`) und die
-  installierten Hicolor-Icons entfernen
-- `--force` – Keine Bestätigungen (für Skripte/CI)
-- `--dry-run` – Zeige was entfernt würde, ohne zu löschen
-- `--verbose` – Detaillierte Ausgabe
+**Options:**
+- `--install_path <path>` – Installation path (default: `$HOME/.oc-sandbox`)
+- `--remove-config` – Also remove the config directory (with backup)
+- `--no-backup` – Create no backup (also for the config)
+- `--no-symlinks` – Do not remove symlinks
+- `--remove-shortcuts` – Remove desktop shortcuts (`.desktop`/`.lnk`/`.app`) and
+  the installed Hicolor icons
+- `--force` – No confirmations (for scripts/CI)
+- `--dry-run` – Show what would be removed without deleting
+- `--verbose` – Detailed output
 
-**Sicherheit:**
-- Prüft auf laufende Container und warnt
-- Bietet Backup vor Entfernung an
-- Entfernt niemals Workspace-Roots oder User-Daten
-- Entfernt automatisch Symlinks (Aufräumen einer legacy gum-Installation wird mitversucht)
+**Safety:**
+- Checks for running containers and warns
+- Offers a backup before removal
+- Never removes workspace roots or user data
+- Removes symlinks automatically (a legacy gum-installation cleanup rides along)
 
-## Verwendung
+## Usage
 
-Nach dem Start in den Container:
+After starting, inside the container:
 
 ```bash
 opencode
 ```
 
-## Dokumentation
+## Documentation
 
-- **Vollständige Anleitung**: Siehe README.md im Repository-Root
-- **Templates**: `templates/` enthält Vorlagen für Git, SSH, OpenCode Config
+- **Full guide**: see README.md in the repository root
+- **Templates**: `templates/` holds the git, SSH, OpenCode config templates
 
-## Lizenz & Herkunft
+## License & origin
 
-Teil von [opencode-sandbox](https://github.com/shredingerlabs/oc_sandbox).
+Part of [opencode-sandbox](https://github.com/shredingerlabs/oc_sandbox).

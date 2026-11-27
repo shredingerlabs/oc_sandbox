@@ -344,22 +344,24 @@ func TestImagesRowBuilds(t *testing.T) {
 }
 
 // The infra tags ride the per-image build allowlist as today (#167):
-// oc-stt builds alone via build-container.sh — build-images.sh carries
-// no infra plans.
+// oc-stt builds alone via podman directly (the start.sh vector) —
+// build-images.sh carries no infra plans.
 func TestImagesBuildSttTagAllowlist(t *testing.T) {
 	reg, _ := fixtureRegistry(t)
 	_, _ = tcSeed(t, reg.Home)
+	infra := t.TempDir()
 	buildCalls := &syncList{}
 	run := fakePodman(nil, nil, nil, nil, nil)
 	base := run.Script
 	run.Script = func(name string, args []string) (string, error) {
-		if name == "bash" && len(args) > 0 && args[0] == "/opt/oc-sandbox/scripts/build-container.sh" {
-			buildCalls.add(strings.Join(args[1:], " "))
+		if name == "podman" && len(args) > 1 && args[0] == "build" {
+			buildCalls.add(strings.Join(args, " "))
 			return "building oc-stt", nil
 		}
 		return base(name, args)
 	}
 	s := depsServer(t, run, reg)
+	s.deps.InfraRoot = infra
 
 	resp := post(t, s.URL()+"images/build", "tag=oc-stt")
 	doc := body(t, resp)
@@ -370,8 +372,12 @@ func TestImagesBuildSttTagAllowlist(t *testing.T) {
 		t.Fatalf("oc-stt must be an allowed build tag:\n%s", doc)
 	}
 	waitFor(t, "build call", func() bool { return len(buildCalls.snapshot()) == 1 })
-	if got := buildCalls.snapshot()[0]; got != "oc-stt" {
-		t.Fatalf("build-container.sh arg = %q, want %q", got, "oc-stt")
+	got := buildCalls.snapshot()[0]
+	for _, want := range []string{"build", "--network host", "-t oc-stt",
+		"-f " + filepath.Join(infra, "stt", "Dockerfile"), filepath.Join(infra, "stt")} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("infra build vector missing %q: %s", want, got)
+		}
 	}
 }
 

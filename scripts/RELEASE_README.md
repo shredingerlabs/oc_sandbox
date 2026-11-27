@@ -125,10 +125,11 @@ Prompts for:
 
 Run these steps before cutting a release; CI cannot verify them:
 
-1. **Rebuild all edition images** (`build-container.sh all` or the Container
-   center Build Images tab). The base stage now ships node + `mcp-searxng`
-   for every edition; existing edition images must be rebuilt to pick it up,
-   or the SearXNG MCP fails to spawn in running workspaces.
+1. **Rebuild the toolchain images** (`build-images.sh --all` or the Images
+   screen's Build all). Recipes ship pinned; existing images must be rebuilt
+   after an update to pick the rewrites up, or a set's next start
+   assembles from the stale-but-derivable images (the update's image GC pass
+   reclaims whatever no longer derives).
 2. **Restart both kinds of workspaces** (a `search_mode: searxng` workspace and a
    `--use_proxy` workspace) and verify inside the container:
    - `searxng_web_search` returns structured results (per-pod SearXNG member,

@@ -57,10 +57,9 @@ func recipeServer(t *testing.T, run *cmdrun.Fake, reg *registry.Registry) *Serve
 		Deps: &Deps{
 			Run:               run,
 			Registry:          reg,
-			BuildScript:       "/opt/oc-sandbox/scripts/build-container.sh",
+			InfraRoot:         "/opt/oc-sandbox",
 			BuildImagesScript: "/opt/oc-sandbox/scripts/build-images.sh",
 			StartScript:       "/opt/oc-sandbox/scripts/start.sh",
-			Dockerfile:        "../discovery/testdata/Dockerfile",
 			Toolchains:        tcRootOf(reg.Home),
 		},
 	})

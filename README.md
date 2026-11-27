@@ -1,6 +1,6 @@
 # OpenCode Sandbox
 
-A multi-edition development sandbox running OpenCode in rootless Podman containers
+A toolchain-set development sandbox running OpenCode in rootless Podman containers
 (Ubuntu 24.04), managed through its browser WebUI.
 
 **⚠ BETA version — extensive tests are still needed.**
@@ -10,8 +10,11 @@ A multi-edition development sandbox running OpenCode in rootless Podman containe
 - **Sandbox** — rootless Podman containers with hardened settings
   (`--cap-drop=ALL`, `no-new-privileges`), one container per workspace, multiple
   sandboxes in parallel
-- **Editions** — prebuilt environments for different use cases (web, embedded,
-  software dev, LaTeX, ROS 2, and more), auto-discovered from the Dockerfile
+- **Toolchain sets** — fine-grained toolchain recipes (`dist/toolchains/`) composed
+  into a per-workspace set image: named bundles (software dev, web, embedded, ROS 2,
+  LaTeX, …) plus any custom mix; every workspace's image is assembled
+  content-addressed at build time — adding an already-built toolchain costs
+  seconds, a never-built one costs one build reused by every workspace thereafter
 - **Search tools** — per-workspace web search: OpenCode `websearch` (Exa/Parallel,
   no API key), a per-workspace SearXNG pod member, or none; Context7-MCP for docs
   search in every mode
@@ -102,7 +105,7 @@ version and the update banner when an update is available.
 | ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Workspace → Open**            | Registered workspaces as cards (favorite workspaces pinned on top, sorted by last use with relative dates) with start buttons **Console / OpenCode / Web**, gear, restart, stop, and dictation-sidecar access while running |
 | **Workspace → New**             | Create a workspace (the wizard below)                                                                                                                                       |
-| **Settings → Workspace Settings** | Per-workspace settings (edition, modes incl. HIL, start option, VCS/AI provider, proxy toggle) with Standard/Advanced matrix rows, import, remove-from-list          |
+| **Settings → Workspace Settings** | Per-workspace settings (toolchains, modes incl. HIL, start option, VCS/AI provider, proxy toggle) with Standard/Advanced matrix rows, import, remove-from-list          |
 | **Settings → VCS Tracker / AI-Provider** | Reusable catalogs feeding the wizard and settings screens (token-free, per ADR-0031)                                                                          |
 | **Settings → Images / Containers** | Image build (`● built` / `○ missing` markers) and delete (`● in use` / `○ unused`, with sizes); container start/stop/delete (graceful pod-as-unit stop/delete — companions ride the pod — verified-gone registry flip) |
 | **Settings → Export / Restore Config** | Named config backup round trip (advanced-only)                                                                                                                 |
@@ -173,11 +176,11 @@ until it completes in your own terminal or is cancelled.
 ### Workspace settings
 
 **Settings → Workspace Settings** re-edits the full stored set
-(edition, modes incl. HIL, start option, VCS, AI provider, proxy toggle) for any
+(toolchains, modes incl. HIL, start option, VCS, AI provider, proxy toggle) for any
 registered workspace — including running containers — with the Standard/Advanced
 matrix so every stored option stays visible and editable in either mode.
 Changes are persisted to `sandbox_config.json` and apply on next container
-start, never live. Replacements of a running container (edition-mismatch
+start, never live. Replacements of a running container (toolchain-mismatch
 switch, re-adopt) ask an extra confirm first — an agent mid-task is never
 killed silently.
 
@@ -203,13 +206,18 @@ container; pasting works while stopped. See ADR-0035.
 updates at every server start (footer banner when available; "Check now" on
 demand), and runs the install script non-interactively, fetched fresh from the
 repository's `main` branch — `proxy/allowlist.txt` (kept after a prompt,
-default keep), `Dockerfile.custom`, `searxng/settings.yml`,
-`toolchains/custom/`, `toolchains/snapshots/`, and user configs are preserved.
-While an update runs it is globally exclusive
+default keep), `searxng/settings.yml`, `toolchains/custom/`,
+`toolchains/snapshots/`, and user configs are preserved; your legacy
+`Dockerfile.custom` is never touched (see the release notes for the porting
+recipe). Recipe rewrites arrive wholesale — `toolchains/recipes/`,
+`manifest.json`, and `base.Dockerfile` are overwritten (that is how pinned
+versions bump). While an update runs it is globally exclusive
 (no other operations); the live log streams in the browser. When applied, the
 banner clears, VERSION is re-read, and a "Update installed — restart
 oc-sandbox to apply" note appears — the restart is yours (the per-launch token
-never surprises you with reconnects). The update never builds anything; its
+never surprises you with reconnects), and restarting soon after an update is
+expected: between install and restart the old binary refuses against the new
+toolchains world. The update never builds anything; its
 completion runs an image GC pass that reclaims the toolchain images nothing
 derives from the current recipes anymore (containers keep theirs pinned), and
 the log pane carries the "reclaimed ~X GB" summary line.
@@ -218,27 +226,33 @@ the log pane carries the "reclaimed ~X GB" summary line.
 `uninstall` confirmation). It removes only the installation, never workspace
 roots or user data. Details: `dist/scripts/uninstall.sh --help`.
 
-## Editions
+## Toolchain sets
 
-Editions are **auto-discovered** from the `FROM ... AS opencode-sandbox-<name>`
-stages of `dist/Dockerfile` and `dist/Dockerfile.custom` (see ADR-0019) — no
-hardcoded whitelist. Sizes are approximate.
+A workspace's image is composed from its **toolchain set** — the list of
+toolchain ids stored per workspace (`toolchains` in `sandbox_config.json`).
+Each toolchain is one pinned recipe file in `dist/toolchains/`:
 
-| Edition    | What's installed                                                                                | ~Size | Use case                                              |
-| ---------- | ----------------------------------------------------------------------------------------------- | ----- | ----------------------------------------------------- |
-| **base**   | Python 3 + pip/venv, build-essential, cmake, git, gh, glab, OpenCode, codebase-memory-mcp        | ~1 GB | Minimal Python; parent of all editions                |
-| **web**    | base + Node 22, TypeScript/Jest/Playwright, pnpm, Chromium + Firefox                             | ~2.5 GB | TS/JS web development, browser automation            |
-| **embedded** | base + ARM toolchains (gcc-arm-none-eabi), Arduino CLI (AVR/ESP32), MicroPython (mpremote, esptool), PlatformIO, PicoScope SDK | ~4 GB | Arduino/ESP32, MicroPython firmware, HIL tests        |
-| **swdev**  | base + C/C++ (clang/gdb), GoogleTest/Catch2, Java (OpenJDK 21/Maven), Rust (rustup), Go          | ~3.5 GB | General software development in C/C++, Java, Rust, Go |
-| **matlab** | base + GNU Octave + numpy/scipy/matplotlib/pandas                                                | ~2.5 GB | License-free numerical computing (headless)           |
-| **ros2**   | base + ROS 2 Jazzy (ros-base, RViz2, CycloneDDS), colcon/rosdep/vcstool                          | ~3 GB | ROS 2 development in C++/Python                       |
-| **writing** | base + LibreOffice + pandoc + Liberation/Noto fonts                                             | ~2.5 GB | Office docs (odt/odp, docx/pptx), PDF export          |
-| **latex**  | base + latexmk + extensive TeX Live collections, biber/chktex/latexdiff, ghostscript, pandoc     | ~4 GB | LaTeX document compilation, any document compiles first try |
-| **pkm**    | base only (PKM wiki templates are seeded at workspace creation)                                   | ~1 GB | Personal Knowledge Wiki projects                      |
+- `base.Dockerfile` — the fixed base recipe (Ubuntu 24.04, Python 3 + pip/venv,
+  git/gh/glab, OpenCode + codebase-memory-mcp, node + mcp-searxng, the dev
+  user). Its content hash is the family identity: any base edit re-addresses
+  every image at the next build.
+- `recipes/` — the shipped toolchain recipes (cpp, go, rust, java,
+  playwright, ros2, latex, … — see `manifest.json`'s bundles for the curated
+  sets). Wholesale-overwritten on updates: that is how version pins bump.
+- `custom/` — your own recipes (never overwritten; a commented example
+  template is recreated when the dir is empty). One file per toolchain,
+  `RUN`/`ENV`/`USER` lines only, everything pinned (no floating `latest`).
 
-**Custom editions:** add your own stage to `dist/Dockerfile.custom` (template
-included) — it then appears automatically in the WebUI's Images screen,
-`build-container.sh`, and `start.sh`. The file is never overwritten on updates.
+The Images screen lists the base image, one row per toolchain component, the
+label-enumerated set images, the shared infra images (`oc-searxng`, `oc-stt`)
+and a **Legacy** group for old pre-toolchain-sets images (delete-only, never
+auto-deleted). Build all rides `build-images.sh --all`; per-row builds ride
+`--base` / `--tc <id>`.
+
+**Custom toolchains:** add a recipe file to `toolchains/custom/` on your
+install (grammar and pin rules in `docs/porting-dockerfile-custom.md`); it
+appears automatically in the WebUI's toolchain multi-select and Images screen.
+The file is never overwritten on updates.
 
 ## HIL Mode
 
@@ -355,8 +369,9 @@ nothing else — the flag is purely organizational.
 
 - The `oc-stt` image joins **Images** (build and delete) like
   `oc-searxng` (it is built lazily on the first dictation-enabled start too).
-- The OpenCode install stays floating latest (ADR-0024): an image rebuild can
-  silently change plugin/keybind behavior — **re-verify dictation after image
+- OpenCode and every other toolchain install is **pinned** in the recipes;
+  new versions arrive via the update flow's recipe rewrites — rebuild after
+  an update to pick them up, and **re-verify dictation after image
   rebuilds** (ADR-0036).
 - **Language pinning**: edit the workspace's `.opencode_config/stt.json`
   (`{"language": "auto"}` by default; e.g. `"de"`), then restart the
@@ -367,7 +382,7 @@ nothing else — the flag is purely organizational.
 ## Legacy
 
 The WebUI covers everything. If you prefer calling the scripts directly
-(`build-container.sh`, `init-workspace.sh`, `start.sh`, `uninstall.sh`), see
+(`build-images.sh`, `init-workspace.sh`, `start.sh`, `uninstall.sh`), see
 **[docs/legacy-script-usage.md](docs/legacy-script-usage.md)** — the complete
 flag reference, workspace-root structure, and credential setup for direct usage.
 

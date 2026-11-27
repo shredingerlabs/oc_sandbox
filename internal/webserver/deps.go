@@ -15,13 +15,19 @@ import (
 type Deps struct {
 	Run               cmdrun.Runner
 	Registry          *registry.Registry
-	BuildScript       string // scripts/build-container.sh (infra images)
 	BuildImagesScript string // scripts/build-images.sh (the toolchain-sets builder, WP-7)
-	StartScript       string // scripts/start.sh
-	InitScript        string // scripts/init-workspace.sh (#156)
-	ConfigureScript   string // scripts/configure-workspace.sh (#156)
-	Dockerfile        string // edition registry (ADR 0019)
-	DockerfileCustom  string // "" when the install has none
+	// InfraRoot is the dist root holding the shared infra images' build
+	// contexts (proxy/, searxng/, stt/ Dockerfiles). Infra builds run
+	// podman directly — the same vectors start.sh's lazy builds run —
+	// and stay outside the toolchain builder's contract (§7).
+	InfraRoot     string
+	StartScript   string // scripts/start.sh
+	InitScript    string // scripts/init-workspace.sh (#156)
+	ConfigureScript string // scripts/configure-workspace.sh (#156)
+	// DockerfileCustom is the legacy host file's path ("" when the
+	// install has none): read by the §10 porting warning, never
+	// written — it stops shipping at cutover (#215).
+	DockerfileCustom string
 	Toolchains        string // toolchains dir — the discovery seam's root (spec toolchain-sets §2)
 	// NetProbe is the §7 network-probe seam (WP-8): one HEAD per
 	// distinct plan source host, returning the unreachable ones. Nil
