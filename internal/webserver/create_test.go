@@ -164,6 +164,7 @@ func newCreateFixture(t *testing.T, script func(name string, args []string) (str
 			StartScript:          filepath.Join(install, "scripts", "start.sh"),
 			InitScript:           filepath.Join(install, "scripts", "init-workspace.sh"),
 			ConfigureScript:      filepath.Join(install, "scripts", "configure-workspace.sh"),
+			BuildImagesScript:    filepath.Join(install, "scripts", "build-images.sh"),
 			BuildScript:          filepath.Join(install, "scripts", "build-container.sh"),
 			Dockerfile:           filepath.Join(install, "Dockerfile"),
 		},
@@ -188,12 +189,12 @@ func imageExistsScript(exists bool) func(string, []string) (string, error) {
 	}
 }
 
-// buildMakesImageScript flips the image existence once build-container.sh
+// buildMakesImageScript flips the image existence once build-images.sh
 // has run — the fresh re-check the chain performs after the build.
 func buildMakesImageScript() func(string, []string) (string, error) {
 	exists := false
 	return func(name string, args []string) (string, error) {
-		if name == "bash" && len(args) > 0 && strings.HasSuffix(args[0], "build-container.sh") {
+		if name == "bash" && len(args) > 0 && strings.HasSuffix(args[0], "build-images.sh") {
 			exists = true
 			return "", nil
 		}
@@ -748,8 +749,9 @@ func TestCreateChainBuildSemantics(t *testing.T) {
 	f.confirm(t, vals)
 	waitDone(t, sse)
 	calls := bashCalls(f)
-	if len(calls) != 2 || calls[0][0] != f.s.deps.BuildScript || calls[0][1] != "cpp,go,java,rust" {
-		t.Fatalf("build-now calls = %v, want [build-container.sh cpp,go,java,rust, init…]", calls)
+	if len(calls) != 2 || calls[0][0] != f.s.deps.BuildImagesScript ||
+		calls[0][1] != "--set" || calls[0][2] != "cpp,go,java,rust" {
+		t.Fatalf("build-now calls = %v, want [build-images.sh --set cpp,go,java,rust, init…]", calls)
 	}
 	if calls[1][0] != f.s.deps.InitScript {
 		t.Fatalf("build-now tail = %v", calls)
@@ -768,7 +770,7 @@ func TestCreateChainBuildSemantics(t *testing.T) {
 
 	// Build failure stops the chain before init
 	f3 := newCreateFixture(t, func(name string, args []string) (string, error) {
-		if name == "bash" && len(args) > 0 && strings.HasSuffix(args[0], "build-container.sh") {
+		if name == "bash" && len(args) > 0 && strings.HasSuffix(args[0], "build-images.sh") {
 			return "build exploded", errors.New("exit status 1")
 		}
 		return imageExistsScript(false)(name, args)
@@ -791,6 +793,25 @@ func TestCreateChainBuildSemantics(t *testing.T) {
 	reg := &registry.Registry{Home: f3.home}
 	if _, err := reg.ByName("demo"); err == nil {
 		t.Fatal("failed build must not register the workspace")
+	}
+
+	// Base-only selection (pkm pins the empty set): the missing base-only
+	// set image assembles via the empty ids arg ("" = base-only set).
+	f4 := newCreateFixture(t, buildMakesImageScript())
+	sse4 := sseReader(t, f4.s)
+	vals4 := f4.blankForm()
+	vals4.Set("agent", "pkm")
+	vals4.Del("toolchain")
+	vals4.Set("build", "now")
+	f4.confirm(t, vals4)
+	waitDone(t, sse4)
+	calls4 := bashCalls(f4)
+	if len(calls4) != 2 || calls4[0][0] != f4.s.deps.BuildImagesScript ||
+		calls4[0][1] != "--set" || calls4[0][2] != "" {
+		t.Fatalf("base-only build-now calls = %v, want [build-images.sh --set \"\", init…]", calls4)
+	}
+	if calls4[1][0] != f4.s.deps.InitScript {
+		t.Fatalf("base-only build-now tail = %v", calls4)
 	}
 }
 
