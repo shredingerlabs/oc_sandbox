@@ -59,9 +59,10 @@ func toolchainsRoot(root string) string {
 	return filepath.Join(root, "dist", "toolchains")
 }
 
-// seedToolchainsManifest copies the shipped manifest into the smoke
-// home's install layout — the WebUI's LayoutFor resolution finds the
-// bundle map there (spec §1/§10).
+// seedToolchainsManifest copies the shipped manifest + unit recipes into
+// the smoke home's install layout — the WebUI's LayoutFor resolution
+// finds the bundle map there, and the Toolchains row's live discovery
+// derives bundles only when every member recipe is on disk (spec §1/§10).
 func seedToolchainsManifest(home, root string) error {
 	data, err := os.ReadFile(filepath.Join(toolchainsRoot(root), "manifest.json"))
 	if err != nil {
@@ -71,7 +72,27 @@ func seedToolchainsManifest(home, root string) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(dir, "manifest.json"), data, 0o644)
+	if err := os.WriteFile(filepath.Join(dir, "manifest.json"), data, 0o644); err != nil {
+		return err
+	}
+	matches, err := filepath.Glob(filepath.Join(toolchainsRoot(root), "recipes", "*.Dockerfile"))
+	if err != nil {
+		return err
+	}
+	recDir := filepath.Join(dir, "recipes")
+	if err := os.MkdirAll(recDir, 0o755); err != nil {
+		return err
+	}
+	for _, m := range matches {
+		raw, err := os.ReadFile(m)
+		if err != nil {
+			return err
+		}
+		if err := os.WriteFile(filepath.Join(recDir, filepath.Base(m)), raw, 0o644); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // swdevToolchains is the shipped swdev bundle expansion (the manifest's

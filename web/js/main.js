@@ -831,6 +831,52 @@
     if (hil) hil.checked = ed === "embedded";
   }
 
+  // --- Toolchains row (Workspace settings, #208, WP-4): the bundle
+  // chips are presets over the multi-select — a chip click checks
+  // exactly its members; editing the multi-select re-derives the pressed
+  // chip (exact member match, else Custom; the empty selection is the
+  // base-only ∅ the base chip stands for). The stored truth still posts
+  // as the checkbox list — the chips never carry a payload of their own.
+  function syncToolchainsRow(form) {
+    var holder = form && form.querySelector('[data-role="settings-toolchains"]');
+    if (!holder) return;
+    var picked = Array.prototype.slice.call(holder.querySelectorAll('input[name="toolchains"]:checked'))
+      .map(function (el) { return el.value; }).sort();
+    var count = holder.querySelector('[data-role="tc-count"]');
+    if (count) {
+      count.textContent = picked.length + " of " +
+        holder.querySelectorAll('input[name="toolchains"]').length + " selected";
+    }
+    var custom = true;
+    holder.querySelectorAll('[data-role="settings-bundles"] .edopt').forEach(function (chip) {
+      var members = (chip.dataset.members || "").split(",").filter(Boolean).sort();
+      var match = members.length === picked.length &&
+                  members.every(function (m, i) { return m === picked[i]; });
+      if (match) custom = false;
+      chip.setAttribute("aria-pressed", String(match));
+    });
+    var customChip = holder.querySelector('[data-role="settings-bundles"] .edopt[data-bundle="custom"]');
+    if (customChip) customChip.setAttribute("aria-pressed", String(custom));
+  }
+
+  document.addEventListener("click", function (ev) {
+    var chip = ev.target.closest('[data-role="settings-bundles"] .edopt');
+    if (!chip || chip.disabled) return;
+    var holder = chip.closest('[data-role="settings-toolchains"]');
+    var members = (chip.dataset.members || "").split(",").filter(Boolean);
+    holder.querySelectorAll('input[name="toolchains"]').forEach(function (el) {
+      if (el.disabled) return;
+      el.checked = members.indexOf(el.value) >= 0;
+    });
+    syncToolchainsRow(holder.closest("form"));
+  });
+
+  document.addEventListener("change", function (ev) {
+    if (ev.target.name !== "toolchains") return;
+    var holder = ev.target.closest('[data-role="settings-toolchains"]');
+    if (holder) syncToolchainsRow(holder.closest("form"));
+  });
+
   document.addEventListener("change", function (ev) {
     var form = wizardForm(ev.target);
     if (!form) return;
@@ -1166,6 +1212,7 @@
     if (form.getAttribute("data-role") === "new-workspace-form") {
       syncWizardDraftView(form);
     }
+    syncToolchainsRow(form); // the settings multi-select re-derives its pressed chip
     // Both edition chip groups render a hidden input as the payload; a
     // restored hidden value must move the chips with it.
     var holder = form.querySelector('[data-role="wizard-edition"], [data-role="settings-edition"]');

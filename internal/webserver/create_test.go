@@ -2,6 +2,7 @@ package webserver
 
 import (
 	"bufio"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/url"
@@ -58,7 +59,10 @@ func tcRootOf(home string) string {
 }
 
 // seedToolchainsManifest writes the bundle map into the fixture install
-// layout (both the server's LayoutFor resolution and direct reads use it).
+// layout (both the server's LayoutFor resolution and direct reads use it)
+// plus a minimal valid recipe per bundle member — a manifest member
+// without a recipe invalidates its bundle, so screens deriving bundles
+// from live discovery need the units on disk too.
 func seedToolchainsManifest(t *testing.T, home string) {
 	t.Helper()
 	dir := tcRootOf(home)
@@ -67,6 +71,29 @@ func seedToolchainsManifest(t *testing.T, home string) {
 	}
 	if err := os.WriteFile(filepath.Join(dir, "manifest.json"), []byte(toolchainsManifestFixture), 0o644); err != nil {
 		t.Fatal(err)
+	}
+	recipes := filepath.Join(dir, "recipes")
+	if err := os.MkdirAll(recipes, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	var manifest struct {
+		Bundles map[string][]string `json:"bundles"`
+	}
+	if err := json.Unmarshal([]byte(toolchainsManifestFixture), &manifest); err != nil {
+		t.Fatal(err)
+	}
+	seen := map[string]bool{}
+	for _, members := range manifest.Bundles {
+		for _, id := range members {
+			if seen[id] {
+				continue
+			}
+			seen[id] = true
+			// apt installs are pin-exempt — the minimal valid recipe.
+			if err := os.WriteFile(filepath.Join(recipes, id+".Dockerfile"), []byte("RUN apt-get install -y curl\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
 	}
 }
 

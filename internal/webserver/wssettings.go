@@ -5,16 +5,17 @@
 // (GET /workspaces/{name}/settings) enters preselected. Standard rows:
 // AI-Provider (catalog prefill), VCS Tracking (with the
 // replace-credentials confirm), remove-workspace-from-list behind the
-// red confirm; Advanced rows per the §6 matrix — Edition (switchable,
-// next-start apply, image/mismatch rules unchanged), Modes incl. the
-// HIL row for every edition, Start option triad, Proxy, Search mode
-// triad (searxng preselected; an absent legacy key still reads
-// websearch). Rows the matrix hides are not rendered at all — Standard
-// hides, never re-imposes; the stored sandbox_config.json stays the
-// single truth, so cross-editing Standard↔Advanced in either order just
-// works. The first-run setup retry stays a link only (#161 owns POST
-// …/setup/retry). Web-style pair-link handling belongs to the Open
-// screen (#153) and is not duplicated here.
+// red confirm; Advanced rows per the §6 matrix — Toolchains (bundle
+// chips + the toolchain multi-select prefilled from the stored set, the
+// derived bundle on exact member match, Custom read-only in Standard
+// with an Advanced hint, #208), Modes incl. the HIL row, Start option
+// triad, Proxy, Search mode triad (searxng preselected; an absent legacy
+// key still reads websearch). Rows the matrix hides are not rendered at
+// all — Standard hides, never re-imposes; the stored sandbox_config.json
+// stays the single truth, so cross-editing Standard↔Advanced in either
+// order just works. The first-run setup retry stays a link only (#161
+// owns POST …/setup/retry). Web-style pair-link handling belongs to the
+// Open screen (#153) and is not duplicated here.
 package webserver
 
 import (
@@ -41,6 +42,30 @@ const wsSettingsMenuPath = "workspace-settings"
 
 // settingsScreen is the presentation matrix identity of this screen.
 const settingsScreen = "ws-settings"
+
+// tcBundleChip is one chip of the bundle row: a discovered bundle (or
+// the fixed base alias for the ∅ selection — chat/pkm are base-only and
+// expand to the same empty set). Members is the chip's sorted payload
+// the shell checks into the multi-select; base carries none. Invalid
+// bundles render disabled with their reason.
+type tcBundleChip struct {
+	Name     string
+	Members  string
+	Sel      bool
+	BaseOnly bool
+	Invalid  bool
+	Reason   string
+}
+
+// tcUnitOpt is one entry of the toolchain multi-select: a discovered
+// unit (invalid ones render disabled with their reason) or a stored id
+// discovery no longer knows ("recipe missing").
+type tcUnitOpt struct {
+	ID     string
+	Sel    bool
+	Valid  bool
+	Reason string
+}
 
 // wsSelOpt is one entry of the workspace selector dropdown.
 type wsSelOpt struct {
@@ -96,15 +121,22 @@ type wsSettingsView struct {
 	VCSLogin      *vcsLoginView // in-flight device flow: inline code + URL panel (ADR 0035)
 
 	// Advanced rows (§6 matrix; hidden rows are not rendered)
-	Edition      string
-	Editions     []string
-	ImageMissing bool
-	Proxy        bool
-	SearchMode   string
-	Offline      bool
-	CBMUI        bool
-	HIL          bool
-	STT          bool
+	Legacy         string // raw stored container_edition (legacy world) — the image check's input
+	Unresolved     bool   // §10 unresolved state: the stored edition maps to no bundle (or both fields absent)
+	UnresolvedNote string
+	Bundles        []tcBundleChip // the bundle chip row (+ the fixed base ∅ alias)
+	Custom         bool           // the stored set matches no bundle exactly
+	Units          []tcUnitOpt    // the multi-select, prefilled from the stored set
+	SelCount       int
+	UnitTotal      int
+	MembersSummary string // the stored members, rendered ("a, b, c")
+	ImageMissing   bool
+	Proxy          bool
+	SearchMode     string
+	Offline        bool
+	CBMUI          bool
+	HIL            bool
+	STT            bool
 
 	SettingsForm bool // ≥1 advanced row visible → the next-start form renders
 
@@ -286,13 +318,21 @@ var wsSettingsTemplate = template.Must(template.New("wssettings").
       {{end}}
       {{if vis .Mode "edition"}}
       <div class="row" data-row="edition">
-        <span class="label">Edition</span>
-        <span class="edotsel" data-role="settings-edition">
-          <input type="hidden" name="edition" value="{{.Edition}}">
-          {{range .Editions}}<button type="button" class="edopt" data-ed="{{.}}" aria-pressed="{{if eq . $.Edition}}true{{else}}false{{end}}"><i style="--ed:{{hueFor .}}"></i>{{.}}</button>{{end}}
-        </span>
+        <span class="label">Toolchains</span>
+        <div class="tcedit" data-role="settings-toolchains">
+          {{if .Unresolved}}<p class="warn" data-role="tc-unresolved">{{.UnresolvedNote}}</p>{{end}}
+          <span class="edotsel" data-role="settings-bundles">
+            {{range .Bundles}}{{if .Invalid}}<button type="button" class="edopt" data-bundle="{{.Name}}" disabled title="{{.Reason}}"><i style="--ed:{{hueFor .Name}}"></i>{{.Name}} — {{.Reason}}</button>{{else}}<button type="button" class="edopt" data-bundle="{{.Name}}" aria-pressed="{{if .Sel}}true{{else}}false{{end}}" data-members="{{.Members}}"><i style="--ed:{{hueFor .Name}}"></i>{{.Name}}{{if .BaseOnly}} <small>base only</small>{{end}}</button>{{end}}{{end}}
+            <button type="button" class="edopt" data-bundle="custom" aria-pressed="{{if .Custom}}true{{else}}false{{end}}"><i></i>Custom</button>
+          </span>
+          <span class="field-hint" data-role="tc-count">{{.SelCount}} of {{.UnitTotal}} selected</span>
+          <span class="edotsel" data-role="settings-units">
+            {{range .Units}}<label{{if not .Valid}} disabled{{end}}><input type="checkbox" name="toolchains" value="{{.ID}}" {{if .Sel}}checked{{end}}{{if not .Valid}} disabled{{end}}>{{.ID}}{{if not .Valid}} — {{.Reason}}{{end}}</label>{{end}}
+          </span>
+        </div>
         {{if .ImageMissing}}<span class="field-hint warn">image missing — build it under Settings › Images</span>{{end}}
         <span class="field-hint">switchable — applies on next start</span>
+        <input type="hidden" name="toolchains_present" value="1">
       </div>
       {{end}}
       {{if or (vis .Mode "proxy") (vis .Mode "offline") (vis .Mode "cbm_ui") (vis .Mode "hil") (vis .Mode "stt")}}
@@ -322,6 +362,22 @@ var wsSettingsTemplate = template.Must(template.New("wssettings").
       <div class="actions"><button type="submit" class="btn">Save settings</button></div>
       <div class="field-hint">next-start apply — a running container is never reconfigured</div>
     </form>
+    {{end}}
+
+    {{if and (not (vis .Mode "edition")) (or .Unresolved .Custom)}}
+    {{if .Unresolved}}
+    <div class="row" data-row="edition">
+      <span class="label">Toolchains</span>
+      <p class="warn" data-role="tc-unresolved">{{.UnresolvedNote}}</p>
+      <span class="field-hint">choose toolchains under Advanced</span>
+    </div>
+    {{else}}
+    <div class="row" data-row="edition">
+      <span class="label">Toolchains</span>
+      <span class="cell">Custom — {{.MembersSummary}}</span>
+      <span class="field-hint">custom set — edit it under Advanced</span>
+    </div>
+    {{end}}
     {{end}}
 
     <div class="row hint" data-row="presets">{{.PresetsHint}}</div>
@@ -361,15 +417,18 @@ func (s *Server) handleWsSettingsGET(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleWsSettingsPost serves POST /workspaces/{name}/settings (§9):
-// the next-start values — edition, modes, start option, proxy, search —
-// persisted into the stored sandbox_config.json as ONE atomic write
-// (sandboxcfg.Rewrite, fixed-order). Only the fields the form carries
-// are applied (Standard hides rows and never re-imposes: hidden rows
-// post nothing); the merged write always starts from the stored truth,
-// so cross-editing Standard↔Advanced in either order just works.
-// Validations refuse what start.sh would hard-exit on (ADR-0026); a
-// refusal or a busy queue re-renders the fragment with the message and
-// writes nothing. Never live-apply: a running container is not touched.
+// the next-start values — toolchains, modes, start option, proxy,
+// search — persisted into the stored sandbox_config.json as ONE atomic
+// write (sandboxcfg.Rewrite, fixed-order). Only the fields the form
+// carries are applied (Standard hides rows and never re-imposes: hidden
+// rows post nothing); the merged write always starts from the stored
+// truth, so cross-editing Standard↔Advanced in either order just works.
+// The posted toolchain ids are validated against live discovery — the
+// write materializes the toolchains key and drops container_edition (§10:
+// that write IS the migration). Validations refuse what start.sh would
+// hard-exit on (ADR-0026); a refusal or a busy queue re-renders the
+// fragment with the message and writes nothing. Never live-apply: a
+// running container is not touched.
 func (s *Server) handleWsSettingsPost(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	ws, err := s.lookupWorkspace(name)
@@ -406,15 +465,22 @@ func (s *Server) handleWsSettingsPost(w http.ResponseWriter, r *http.Request) {
 		UseStt:      cfg.UseStt,
 		SearchMode:  cfg.SearchMode,
 	}
-	if v := r.PostFormValue("edition"); v != "" {
-		// The posted edition is the bundle alias (spec §3); it expands
-		// via the manifest at write time. The multi-select re-key is
-		// #206 (WP-4).
-		ids, ok := sandboxcfg.ExpandBundle(s.toolchainsRoot(), v)
-		if !ok {
-			s.renderWsSettingsScreen(w, name, "unknown edition — choose a listed one", nil)
-			return
+	// The Toolchains row's multi-select is the posted truth (WP-4): the
+	// bundle chips are client-side presets over it. The presence sentinel
+	// decides — the multi-select's empty selection is the valid base-only
+	// set (∅), never "row absent". Every posted id must be a discovered,
+	// valid unit: edition-name validation became toolchain-id validation.
+	if r.PostFormValue("toolchains_present") == "1" {
+		ids := r.PostForm["toolchains"]
+		cat := discovery.Discover(s.toolchainsRoot())
+		for _, id := range ids {
+			u, ok := cat.Unit(id)
+			if !ok || !u.Valid {
+				s.renderWsSettingsScreen(w, name, "unknown toolchain '"+id+"' — choose a listed one", nil)
+				return
+			}
 		}
+		slices.Sort(ids)
 		merged.Toolchains = ids
 	}
 	// The start_option radio is retired (ADR-0033): no screen posts the
@@ -852,9 +918,10 @@ func (s *Server) renderWsSettingsScreen(w http.ResponseWriter, name, errMsg stri
 		SearchMode:   sandboxcfg.SearchWebsearch, // absent legacy key reads websearch (§6)
 	}
 	if cfgErr == nil {
-		// The Edition row still shows the legacy name; the toolchain
-		// selection row re-key is #206 (WP-4).
-		v.Edition = cfg.LegacyEdition
+		// The legacy edition name feeds the image check and the unresolved
+		// warning; the toolchain selection renders from the §10-expanded
+		// stored set (the identity surfaces re-key fully in #207).
+		v.Legacy = cfg.LegacyEdition
 		v.Proxy = cfg.UseProxy
 		v.SearchMode = cfg.SearchMode
 		v.VCSTrackingSt = cfg.VCSTracking
@@ -890,7 +957,7 @@ func (s *Server) renderWsSettingsScreen(w http.ResponseWriter, name, errMsg stri
 	if hostFile := workspacesettings.VCSHostFile(v.VCSTrackingSt, ws.Path); hostFile != "" {
 		v.VCSHasCreds = fileExists(hostFile) // the replace confirm gates an overwrite
 	}
-	v.Hue = editionFor(v.Edition).Hue
+	v.Hue = editionFor(v.Legacy).Hue
 	v.Letter = wsLetter(ws.Name)
 	v.SetupDone = cfgErr == nil && cfg.SetupComplete
 
@@ -902,23 +969,19 @@ func (s *Server) renderWsSettingsScreen(w http.ResponseWriter, name, errMsg stri
 		})
 	}
 
-	// Advanced rows: the edition list comes fresh from the Dockerfile
-	// registry (discovery, never cached); the image marker mirrors the
-	// next-start rules (unchanged — the start op refuses a missing image).
+	// The Toolchains view data fills regardless of the row's visibility —
+	// Standard's read-only Custom/unresolved rows render from the same
+	// derived state.
+	s.fillToolchainsRow(&v, cfg)
+
+	// Advanced rows: the Toolchains row derives from live discovery (never
+	// cached); the image marker mirrors the next-start rules (unchanged —
+	// the start op refuses a missing image).
 	for _, k := range []string{"edition", "start_option", "proxy", "search_mode", "offline", "cbm_ui", "hil", "stt"} {
 		if visRow(mode, k) {
 			v.SettingsForm = true
-			if k == "edition" {
-				dockerfile, dockerfileCustom := "", ""
-				if s.deps != nil {
-					dockerfile, dockerfileCustom = s.deps.Dockerfile, s.deps.DockerfileCustom
-				}
-				if eds, err := discovery.SelectableEditions(dockerfile, dockerfileCustom); err == nil {
-					v.Editions = eds
-				}
-				if v.Edition != "" {
-					v.ImageMissing = !discovery.ImageExists(s.runner(), v.Edition)
-				}
+			if k == "edition" && v.Legacy != "" {
+				v.ImageMissing = !discovery.ImageExists(s.runner(), v.Legacy)
 			}
 		}
 	}
@@ -968,6 +1031,74 @@ func (s *Server) renderWsSettingsScreen(w http.ResponseWriter, name, errMsg stri
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
 	return true
+}
+
+// fillToolchainsRow assembles the Toolchains row's view from live
+// discovery over the toolchains dir (spec toolchain-sets §9 WP-4): the
+// bundle chip row + the multi-select prefilled from the stored set (the
+// §10 legacy-expanded read). The derived bundle shows on exact member
+// match; the fixed base chip is the ∅ alias (chat/pkm are base-only and
+// expand to the same empty set); anything else is Custom. The unresolved
+// state renders its warning with nothing preselected — picking
+// materializes on save.
+func (s *Server) fillToolchainsRow(v *wsSettingsView, cfg sandboxcfg.Config) {
+	v.Legacy = cfg.LegacyEdition
+	v.Unresolved = !cfg.Resolved
+	if v.Unresolved {
+		if cfg.LegacyEdition != "" {
+			v.UnresolvedNote = "stored edition '" + cfg.LegacyEdition + "' maps to no bundle — choose toolchains"
+		} else {
+			v.UnresolvedNote = "no stored toolchain selection — choose toolchains"
+		}
+		return // nothing preselected — the warning stands alone
+	}
+	stored := slices.Clone(cfg.Toolchains)
+	slices.Sort(stored)
+	v.MembersSummary = strings.Join(stored, ", ")
+
+	// Bundle chips: base (∅) first, then the discovered bundles in
+	// discovery's canonical (sorted) order — valid non-empty bundles are
+	// selectable; invalid ones render disabled with their reason (spec §2:
+	// visible-with-reason, never silently skipped); the valid ∅ bundles
+	// (chat/pkm) ride the base chip.
+	v.Bundles = []tcBundleChip{{Name: "base", Sel: len(stored) == 0, BaseOnly: true}}
+	derived := false
+	cat := discovery.Discover(s.toolchainsRoot())
+	for _, b := range cat.Bundles {
+		switch {
+		case b.Valid && len(b.Members) == 0:
+			continue // ∅ — the base chip is the alias
+		case b.Valid:
+			sel := slices.Equal(stored, b.Members)
+			derived = derived || sel
+			v.Bundles = append(v.Bundles, tcBundleChip{
+				Name: b.Name, Members: strings.Join(b.Members, ","), Sel: sel,
+			})
+		default:
+			v.Bundles = append(v.Bundles, tcBundleChip{Name: b.Name, Invalid: true, Reason: b.Reason})
+		}
+	}
+	v.Custom = !derived && len(stored) > 0
+
+	// The multi-select: every discovered unit (invalid ones disabled with
+	// their reason), plus stored ids discovery no longer knows — they
+	// render visibly-with-reason; a save drops them (their checkbox
+	// cannot post), never silently re-imposed as valid.
+	for _, u := range cat.Units {
+		sel := slices.Contains(stored, u.ID)
+		if sel {
+			v.SelCount++
+		}
+		v.Units = append(v.Units, tcUnitOpt{ID: u.ID, Sel: sel, Valid: u.Valid, Reason: u.Reason})
+	}
+	for _, id := range stored {
+		if _, ok := cat.Unit(id); ok {
+			continue
+		}
+		v.SelCount++
+		v.Units = append(v.Units, tcUnitOpt{ID: id, Sel: true, Reason: "recipe missing"})
+	}
+	v.UnitTotal = len(v.Units)
 }
 
 // trackerKindForLabel maps a stored vcs_tracking label back onto the
